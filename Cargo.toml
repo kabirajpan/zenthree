@@ -1,0 +1,8 @@
+[workspace]
+members = [
+    "crates/zenthree",
+    "crates/editor",
+    "crates/syntax",
+    "crates/formatter",
+]
+resolver = "2"

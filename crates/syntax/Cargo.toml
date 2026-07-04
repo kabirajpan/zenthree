@@ -1,0 +1,17 @@
+[package]
+name = "syntax"
+version = "0.1.0"
+edition = "2021"
+description = "Syntax highlighting engine for Zenthree"
+
+[dependencies]
+zenthra-core = { path = "../../../../crates/zenthra-core" }
+editor = { path = "../editor" }
+tree-sitter = "0.22"
+tree-sitter-rust = "0.21"
+tree-sitter-javascript = "0.21"
+tree-sitter-python = "0.21"
+tree-sitter-highlight = "0.22"
+regex = "1.10"
+log = "0.4"
+serde = { version = "1.0", features = ["derive"] }

@@ -1,0 +1,23 @@
+[package]
+name = "zenthree"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+zenthra = { path = "../../../../crates/zenthra" }
+zenthra-core = { path = "../../../../crates/zenthra-core" }
+zenthra-widgets = { path = "../../../../crates/zenthra-widgets" }
+zenthra-platform = { path = "../../../../crates/zenthra-platform" }
+zenthra-text = { path = "../../../../crates/zenthra-text" }
+zenthra-render = { path = "../../../../crates/zenthra-render" }
+editor = { path = "../editor" }
+syntax = { path = "../syntax" }
+formatter = { path = "../formatter" }
+winit = "0.30"
+log = "0.4"
+env_logger = "0.11"
+rfd = "0.15"
+dirs = "5"
+rust-embed = "8.5.0"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"

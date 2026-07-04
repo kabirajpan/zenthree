@@ -1,0 +1,21 @@
+# Rust build artifacts
+/target/
+**/target/
+
+# Debug/log files
+*.log
+
+# Editor/IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# Environment / secrets
+.env
+.env.local
+
+# Backup files
+*~
+*.bak

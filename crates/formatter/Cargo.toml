@@ -1,0 +1,11 @@
+[package]
+name = "formatter"
+version = "0.1.0"
+edition = "2021"
+description = "Auto-formatting provider engine for Zenthree"
+
+[dependencies]
+zenthra-core = { path = "../../../../crates/zenthra-core" }
+editor = { path = "../editor" }
+serde = { version = "1.0", features = ["derive"] }
+log = "0.4"

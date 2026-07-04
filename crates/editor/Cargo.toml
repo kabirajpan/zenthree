@@ -1,0 +1,9 @@
+[package]
+name = "editor"
+version = "0.1.0"
+edition = "2021"
+description = "Core editor and buffer engine for Zenthree"
+
+[dependencies]
+zenthra-core = { path = "../../../../crates/zenthra-core" }
+log = "0.4"
