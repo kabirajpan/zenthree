@@ -27,7 +27,7 @@ pub struct SyntaxHighlighter {
     parser: Parser,
     query_cache: HashMap<LanguageId, Query>,
     parse_state: Option<ParseState>,
-    highlight_cache: Option<(u64, HashMap<usize, Vec<(usize, usize, Color)>>)>,
+    highlight_cache: Option<(std::path::PathBuf, u64, HashMap<usize, Vec<(usize, usize, Color)>>)>,
 }
 
 impl SyntaxHighlighter {
@@ -136,13 +136,18 @@ impl SyntaxHighlighter {
             None => return HashMap::new(),
         };
 
-        // Return cached highlights if version unchanged.
-        if let Some((cached_version, ref cached_lines)) = self.highlight_cache {
-            if cached_version == version {
-                return (visible_start..visible_end)
-                    .filter_map(|line| cached_lines.get(&line).map(|s| (line, s.clone())))
-                    .collect();
-            }
+        // Return cached highlights if version & path match and all requested lines exist.
+        let all_cached = if let Some((ref cached_path, cached_version, ref cached_lines)) = self.highlight_cache {
+            cached_path == path && cached_version == version && (visible_start..visible_end).all(|l| cached_lines.contains_key(&l))
+        } else {
+            false
+        };
+
+        if all_cached {
+            let (_, _, ref cached_lines) = self.highlight_cache.as_ref().unwrap();
+            return (visible_start..visible_end)
+                .filter_map(|line| cached_lines.get(&line).map(|s| (line, s.clone())))
+                .collect();
         }
 
         let need_lang_change = self
@@ -205,7 +210,15 @@ impl SyntaxHighlighter {
             .map(|name| self.theme.get_color(name))
             .collect();
 
-        let mut all_lines: HashMap<usize, Vec<(usize, usize, Color)>> = HashMap::new();
+        let mut all_lines = if let Some((ref cached_path, cached_version, ref cached_lines)) = self.highlight_cache {
+            if cached_path == path && cached_version == version {
+                cached_lines.clone()
+            } else {
+                HashMap::new()
+            }
+        } else {
+            HashMap::new()
+        };
         let mut cursor = QueryCursor::new();
 
         // 🚀 OPTIMIZATION: Restrict query to visible viewport byte range
@@ -277,10 +290,14 @@ impl SyntaxHighlighter {
             *spans = merged;
         }
 
-        self.highlight_cache = Some((version, all_lines.clone()));
+        for row in visible_start..visible_end {
+            all_lines.entry(row).or_default();
+        }
+
+        self.highlight_cache = Some((path.to_path_buf(), version, all_lines.clone()));
 
         (visible_start..visible_end)
-            .filter_map(|line| all_lines.remove(&line).map(|s| (line, s)))
+            .filter_map(|line| all_lines.get(&line).map(|s| (line, s.clone())))
             .collect()
     }
 
@@ -309,6 +326,7 @@ fn rope_to_text_with_newline(rope: &editor::rope::Rope) -> String {
 }
 
 /// Convert byte offset to tree-sitter Point.
+#[allow(dead_code)]
 fn byte_to_point(text: &str, byte_offset: usize) -> TsPoint {
     let byte_offset = byte_offset.min(text.len());
     let before = &text[..byte_offset];

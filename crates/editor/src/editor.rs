@@ -15,6 +15,7 @@ pub trait IndentProvider {
 pub struct Editor {
     pub buffer: Buffer,
     pub selections: Vec<Selection>,
+    pub history: crate::history::History,
 }
 
 impl Editor {
@@ -22,6 +23,7 @@ impl Editor {
         Self {
             buffer,
             selections: vec![Selection::cursor(Point::zero())],
+            history: crate::history::History::new(),
         }
     }
 
@@ -42,11 +44,13 @@ impl Editor {
     }
 
     pub fn set_cursor(&mut self, point: Point) {
+        self.history.break_group();
         self.selections = vec![Selection::cursor(point)];
         self.normalize_selections();
     }
 
     pub fn set_selection(&mut self, selection: Selection) {
+        self.history.break_group();
         self.selections = vec![selection];
         self.normalize_selections();
     }
@@ -56,6 +60,7 @@ impl Editor {
     // -------------------------------------------------------------------------
 
     pub fn move_left(&mut self) {
+        self.history.break_group();
         for i in 0..self.selections.len() {
             let selection = self.selections[i];
             if !selection.is_empty() {
@@ -70,6 +75,7 @@ impl Editor {
     }
 
     pub fn move_right(&mut self) {
+        self.history.break_group();
         for i in 0..self.selections.len() {
             let selection = self.selections[i];
             if !selection.is_empty() {
@@ -84,6 +90,7 @@ impl Editor {
     }
 
     pub fn move_up(&mut self) {
+        self.history.break_group();
         for i in 0..self.selections.len() {
             let new_end = self.move_point_up(self.selections[i].end);
             self.selections[i] = Selection::cursor(new_end);
@@ -92,6 +99,7 @@ impl Editor {
     }
 
     pub fn move_down(&mut self) {
+        self.history.break_group();
         for i in 0..self.selections.len() {
             let new_end = self.move_point_down(self.selections[i].end);
             self.selections[i] = Selection::cursor(new_end);
@@ -184,10 +192,139 @@ impl Editor {
     }
 
     // -------------------------------------------------------------------------
+    // Undo / Redo & Clipboard
+    // -------------------------------------------------------------------------
+
+    pub fn undo(&mut self) -> bool {
+        self.history.undo(&mut self.buffer, &mut self.selections)
+    }
+
+    pub fn redo(&mut self) -> bool {
+        self.history.redo(&mut self.buffer, &mut self.selections)
+    }
+
+    pub fn can_undo(&self) -> bool {
+        self.history.can_undo()
+    }
+
+    pub fn can_redo(&self) -> bool {
+        self.history.can_redo()
+    }
+
+    pub fn selected_text(&self) -> String {
+        let mut texts = Vec::new();
+        for selection in &self.selections {
+            let (start, end) = selection.range();
+            if start != end {
+                let start_offset = self.buffer.point_to_offset(start);
+                let end_offset = self.buffer.point_to_offset(end);
+                texts.push(self.buffer.slice_bytes(start_offset.value(), end_offset.value()));
+            }
+        }
+        if texts.is_empty() {
+            if let Some(selection) = self.selections.last() {
+                if let Some(line) = self.buffer.line(selection.end.row) {
+                    let mut s = line.to_string();
+                    if !s.ends_with('\n') {
+                        s.push('\n');
+                    }
+                    return s;
+                }
+            }
+            String::new()
+        } else {
+            texts.join("\n")
+        }
+    }
+
+    pub fn delete_selection(&mut self) {
+        let has_selection = self.selections.iter().any(|s| !s.is_empty());
+        if !has_selection {
+            return;
+        }
+        self.history.record_edit(&self.buffer, &self.selections, crate::history::EditKind::Other);
+        let mut new_selections = Vec::new();
+        for selection in &self.selections {
+            let (start, end) = selection.range();
+            if start != end {
+                let start_offset = self.buffer.point_to_offset(start);
+                let end_offset = self.buffer.point_to_offset(end);
+                self.buffer.delete(start_offset, end_offset);
+                new_selections.push(Selection::cursor(start));
+            } else {
+                new_selections.push(*selection);
+            }
+        }
+        self.selections = new_selections;
+        self.normalize_selections();
+        self.history.break_group();
+    }
+
+    pub fn cut_selection(&mut self) -> String {
+        let has_selection = self.selections.iter().any(|s| !s.is_empty());
+        if !has_selection {
+            if let Some(selection) = self.selections.last().copied() {
+                let row = selection.end.row;
+                if let Some(line) = self.buffer.line(row) {
+                    let mut text = line.to_string();
+                    if !text.ends_with('\n') {
+                        text.push('\n');
+                    }
+                    self.history.record_edit(&self.buffer, &self.selections, crate::history::EditKind::Other);
+                    let start_point = Point::new(row, 0);
+                    let next_row = row + 1;
+                    let end_point = if next_row < self.buffer.line_count() {
+                        Point::new(next_row, 0)
+                    } else {
+                        Point::new(row, self.buffer.line(row).map(|l| l.chars().count()).unwrap_or(0))
+                    };
+                    let start_offset = self.buffer.point_to_offset(start_point);
+                    let end_offset = self.buffer.point_to_offset(end_point);
+                    self.buffer.delete(start_offset, end_offset);
+                    let new_cursor = Point::new(row.min(self.buffer.line_count().saturating_sub(1)), 0);
+                    self.set_cursor(new_cursor);
+                    self.history.break_group();
+                    return text;
+                }
+            }
+            return String::new();
+        }
+
+        let text = self.selected_text();
+        self.delete_selection();
+        text
+    }
+
+    pub fn paste(&mut self, text: &str) {
+        if text.is_empty() {
+            return;
+        }
+        self.history.record_edit(&self.buffer, &self.selections, crate::history::EditKind::Other);
+        self.insert_internal(text, None, None);
+        self.history.break_group();
+    }
+
+    // -------------------------------------------------------------------------
     // Editing Operations
     // -------------------------------------------------------------------------
 
     pub fn insert(
+        &mut self,
+        text: &str,
+        file_path: Option<&std::path::Path>,
+        indent_provider: Option<&dyn IndentProvider>,
+    ) {
+        let is_burst = text.chars().count() == 1 && text != " " && text != "\n" && text != "\t";
+        let kind = if is_burst {
+            crate::history::EditKind::Typing
+        } else {
+            crate::history::EditKind::Other
+        };
+        self.history.record_edit(&self.buffer, &self.selections, kind);
+        self.insert_internal(text, file_path, indent_provider);
+    }
+
+    fn insert_internal(
         &mut self,
         text: &str,
         file_path: Option<&std::path::Path>,
@@ -308,6 +445,7 @@ impl Editor {
     }
 
     pub fn backspace(&mut self) {
+        self.history.record_edit(&self.buffer, &self.selections, crate::history::EditKind::Backspace);
         for i in 0..self.selections.len() {
             let selection = self.selections[i];
             let (start, end) = selection.range();
@@ -339,6 +477,7 @@ impl Editor {
     }
 
     pub fn delete(&mut self) {
+        self.history.record_edit(&self.buffer, &self.selections, crate::history::EditKind::Delete);
         for i in 0..self.selections.len() {
             let selection = self.selections[i];
             let (start, end) = selection.range();
@@ -455,9 +594,11 @@ impl Editor {
     }
 
     pub fn replace_all(&mut self, new_text: &str) {
+        self.history.record_edit(&self.buffer, &self.selections, crate::history::EditKind::Other);
         let old_cursor = self.cursor();
         self.buffer = Buffer::from_text(new_text);
         self.set_cursor(old_cursor);
+        self.history.break_group();
     }
 }
 
@@ -469,5 +610,60 @@ pub struct EditEvent {
     pub start_position: Point,
     pub old_end_position: Point,
     pub new_end_position: Point,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_selected_text_and_cut() {
+        let mut editor = Editor::new(Buffer::from_text("Hello World\nSecond line"));
+        editor.set_selection(Selection::new(Point::new(0, 0), Point::new(0, 5)));
+        assert_eq!(editor.selected_text(), "Hello");
+
+        let cut = editor.cut_selection();
+        assert_eq!(cut, "Hello");
+        assert_eq!(editor.buffer.to_string(), " World\nSecond line");
+
+        // Undo cut
+        assert!(editor.undo());
+        assert_eq!(editor.buffer.to_string(), "Hello World\nSecond line");
+
+        // Redo cut
+        assert!(editor.redo());
+        assert_eq!(editor.buffer.to_string(), " World\nSecond line");
+    }
+
+    #[test]
+    fn test_paste_and_undo() {
+        let mut editor = Editor::new(Buffer::from_text("foo"));
+        editor.set_cursor(Point::new(0, 3));
+        editor.paste(" bar");
+        assert_eq!(editor.buffer.to_string(), "foo bar");
+
+        assert!(editor.undo());
+        assert_eq!(editor.buffer.to_string(), "foo");
+
+        assert!(editor.redo());
+        assert_eq!(editor.buffer.to_string(), "foo bar");
+    }
+
+    #[test]
+    fn test_typing_and_undo() {
+        let mut editor = Editor::new(Buffer::new());
+        editor.insert("a", None, None);
+        editor.insert("b", None, None);
+        editor.insert("c", None, None);
+        assert_eq!(editor.buffer.to_string(), "abc");
+
+        // Undo burst typing
+        assert!(editor.undo());
+        assert_eq!(editor.buffer.to_string(), "");
+
+        // Redo burst typing
+        assert!(editor.redo());
+        assert_eq!(editor.buffer.to_string(), "abc");
+    }
 }
 

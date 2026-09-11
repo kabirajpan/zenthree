@@ -137,6 +137,26 @@ dependencies = [
 ]
 
 [[package]]
+name = "arboard"
+version = "3.6.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0348a1c054491f4bfe6ab86a7b6ab1e44e45d899005de92f58b3df180b36ddaf"
+dependencies = [
+ "clipboard-win",
+ "image 0.25.10",
+ "log",
+ "objc2 0.6.4",
+ "objc2-app-kit 0.3.2",
+ "objc2-core-foundation",
+ "objc2-core-graphics",
+ "objc2-foundation 0.3.2",
+ "parking_lot",
+ "percent-encoding",
+ "windows-sys 0.59.0",
+ "x11rb",
+]
+
+[[package]]
 name = "arrayref"
 version = "0.3.9"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -521,6 +541,15 @@ name = "cfg_aliases"
 version = "0.2.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "613afe47fcd5fac7ccf1db93babcb082c5994d996f20b8b159f2ad1658eb5724"
+
+[[package]]
+name = "clipboard-win"
+version = "5.4.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bde03770d3df201d4fb868f2c9c59e66a3e4e2bd06692a0fe701e7103c7e84d4"
+dependencies = [
+ "error-code",
+]
 
 [[package]]
 name = "codespan-reporting"
@@ -911,6 +940,12 @@ dependencies = [
 ]
 
 [[package]]
+name = "error-code"
+version = "3.4.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0b5343afd4a8365a643ac588dab4cf234a190c7f6c88c9f6dd6ffe00837661b7"
+
+[[package]]
 name = "etagere"
 version = "0.3.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -969,6 +1004,12 @@ name = "fastrand"
 version = "2.4.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "9f1f227452a390804cdb637b74a86990f2a7d7ba4b7d5693aac9b4dd6defd8d6"
+
+[[package]]
+name = "fax"
+version = "0.2.7"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "caf1079563223d5d59d83c85886a56e586cfd5c1a26292e971a0fa266531ac5a"
 
 [[package]]
 name = "fdeflate"
@@ -1490,7 +1531,21 @@ dependencies = [
  "num-traits",
  "png 0.17.16",
  "qoi",
- "tiff",
+ "tiff 0.9.1",
+]
+
+[[package]]
+name = "image"
+version = "0.25.10"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "85ab80394333c02fe689eaf900ab500fbd0c2213da414687ebf995a65d5a6104"
+dependencies = [
+ "bytemuck",
+ "byteorder-lite",
+ "moxcms",
+ "num-traits",
+ "png 0.18.1",
+ "tiff 0.11.3",
 ]
 
 [[package]]
@@ -1799,6 +1854,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "moxcms"
+version = "0.8.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bb85c154ba489f01b25c0d36ae69a87e4a1c73a72631fc6c0eb6dde34a73e44b"
+dependencies = [
+ "num-traits",
+ "pxfm",
+]
+
+[[package]]
 name = "naga"
 version = "29.0.3"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -1936,6 +2001,7 @@ dependencies = [
  "bitflags 2.13.0",
  "block2 0.6.2",
  "objc2 0.6.4",
+ "objc2-core-graphics",
  "objc2-foundation 0.3.2",
 ]
 
@@ -1987,6 +2053,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "objc2-core-graphics"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e022c9d066895efa1345f8e33e584b9f958da2fd4cd116792e15e07e4720a807"
+dependencies = [
+ "bitflags 2.13.0",
+ "dispatch2",
+ "objc2 0.6.4",
+ "objc2-core-foundation",
+ "objc2-io-surface",
+]
+
+[[package]]
 name = "objc2-core-image"
 version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2034,6 +2113,17 @@ name = "objc2-foundation"
 version = "0.3.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "e3e0adef53c21f888deb4fa59fc59f7eb17404926ee8a6f59f5df0fd7f9f3272"
+dependencies = [
+ "bitflags 2.13.0",
+ "objc2 0.6.4",
+ "objc2-core-foundation",
+]
+
+[[package]]
+name = "objc2-io-surface"
+version = "0.3.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "180788110936d59bab6bd83b6060ffdfffb3b922ba1396b312ae795e1de9d81d"
 dependencies = [
  "bitflags 2.13.0",
  "objc2 0.6.4",
@@ -2448,6 +2538,12 @@ name = "profiling"
 version = "1.0.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "3d595e54a326bc53c1c197b32d295e14b169e3cfeaa8dc82b529f947fba6bcf5"
+
+[[package]]
+name = "pxfm"
+version = "0.1.30"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "d55d956fa96f5ec02be2e13af0e20391a5aa83d6a074e3ad368959d0fab299ea"
 
 [[package]]
 name = "qoi"
@@ -3257,6 +3353,20 @@ dependencies = [
  "flate2",
  "jpeg-decoder",
  "weezl",
+]
+
+[[package]]
+name = "tiff"
+version = "0.11.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b63feaf3343d35b6ca4d50483f94843803b0f51634937cc2ec519fc32232bc52"
+dependencies = [
+ "fax",
+ "flate2",
+ "half",
+ "quick-error",
+ "weezl",
+ "zune-jpeg",
 ]
 
 [[package]]
@@ -4509,7 +4619,7 @@ checksum = "6df3dc4292935e51816d896edcd52aa30bc297907c26167fec31e2b0c6a32524"
 
 [[package]]
 name = "zenthra"
-version = "0.1.2"
+version = "0.2.2"
 dependencies = [
  "bytemuck",
  "log",
@@ -4529,7 +4639,7 @@ dependencies = [
 
 [[package]]
 name = "zenthra-animation"
-version = "0.1.2"
+version = "0.2.2"
 dependencies = [
  "glam",
  "zenthra-core",
@@ -4538,7 +4648,7 @@ dependencies = [
 
 [[package]]
 name = "zenthra-core"
-version = "0.1.2"
+version = "0.2.2"
 dependencies = [
  "bytemuck",
  "glam",
@@ -4549,7 +4659,7 @@ dependencies = [
 
 [[package]]
 name = "zenthra-input"
-version = "0.1.2"
+version = "0.2.2"
 dependencies = [
  "glam",
  "winit",
@@ -4558,7 +4668,7 @@ dependencies = [
 
 [[package]]
 name = "zenthra-layout"
-version = "0.1.2"
+version = "0.2.2"
 dependencies = [
  "glam",
  "taffy",
@@ -4567,7 +4677,7 @@ dependencies = [
 
 [[package]]
 name = "zenthra-platform"
-version = "0.1.2"
+version = "0.2.2"
 dependencies = [
  "android-activity",
  "glam",
@@ -4582,11 +4692,11 @@ dependencies = [
 
 [[package]]
 name = "zenthra-render"
-version = "0.1.2"
+version = "0.2.2"
 dependencies = [
  "bytemuck",
  "glam",
- "image",
+ "image 0.24.9",
  "log",
  "resvg",
  "wgpu",
@@ -4596,7 +4706,7 @@ dependencies = [
 
 [[package]]
 name = "zenthra-state"
-version = "0.1.2"
+version = "0.2.2"
 dependencies = [
  "log",
  "zenthra-core",
@@ -4604,7 +4714,7 @@ dependencies = [
 
 [[package]]
 name = "zenthra-text"
-version = "0.1.2"
+version = "0.2.2"
 dependencies = [
  "bytemuck",
  "cosmic-text",
@@ -4620,7 +4730,7 @@ dependencies = [
 
 [[package]]
 name = "zenthra-theme"
-version = "0.1.2"
+version = "0.2.2"
 dependencies = [
  "glam",
  "zenthra-core",
@@ -4628,7 +4738,7 @@ dependencies = [
 
 [[package]]
 name = "zenthra-widgets"
-version = "0.1.2"
+version = "0.2.2"
 dependencies = [
  "glam",
  "log",
@@ -4646,6 +4756,7 @@ dependencies = [
 name = "zenthree"
 version = "0.1.0"
 dependencies = [
+ "arboard",
  "dirs",
  "editor",
  "env_logger",

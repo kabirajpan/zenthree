@@ -127,6 +127,7 @@ fn get_name_from_node(node: Node, text: &str) -> Option<String> {
             let end = child.end_byte();
             if end <= text.len() {
                 return Some(text[start..end].to_string());
+                
             }
         }
     }

@@ -32,9 +32,12 @@ pub struct Formatter {
 
 impl Formatter {
     pub fn new() -> Self {
-        Self {
+        let mut formatter = Self {
             providers: Vec::new(),
-        }
+        };
+        formatter.register(Box::new(crate::providers::RustfmtProvider::new()));
+        formatter.register(Box::new(crate::providers::PrettierProvider::new()));
+        formatter
     }
 
     /// Register a formatter provider
@@ -89,9 +92,11 @@ impl Formatter {
         editor: &mut editor::editor::Editor,
         file_path: Option<&Path>,
     ) -> Result<(), String> {
+        let dummy = std::path::PathBuf::from("untitled.rs");
+        let path = file_path.or(Some(&dummy));
         let current_text = editor.buffer.to_string();
         let had_trailing_newline = current_text.ends_with('\n');
-        match self.format_text(&current_text, file_path) {
+        match self.format_text(&current_text, path) {
             Ok(mut formatted_text) => {
                 if !had_trailing_newline && formatted_text.ends_with('\n') {
                     formatted_text.pop();

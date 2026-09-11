@@ -68,12 +68,14 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState) {
                             });
                     });
             } else {
-                let active_tab_idx = state.active_tab.unwrap_or(0);
+                let mut active_tab_idx = state.active_tab.unwrap_or(0);
+
+                let tab_bar_h = 26.0;
 
                 // ─── Tab Bar ────────────────────────────────────────────────
                 ui.container()
                     .full_width()
-                    .height(32.0)
+                    .height(tab_bar_h)
                     .bg(colors.bg_inactive_tab)
                     .row()
                     .valign(Align::Center)
@@ -106,31 +108,31 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState) {
 
                             let resp = ui.container()
                                 .id(tab_id)
-                                .height(32.0)
+                                .height(tab_bar_h)
                                 .bg(bg)
                                 .border(colors.border, 1.0)
                                 .row()
                                 .valign(Align::Center)
-                                .gap(6.0)
-                                .padding_left(12.0)
-                                .padding_right(8.0)
+                                .gap(5.0)
+                                .padding_left(9.0)
+                                .padding_right(6.0)
                                 .hover_bg(colors.highlight)
                                 .show(|ui| {
                                     ui.image(icon_source)
-                                        .size(14.0, 14.0)
+                                        .size(12.0, 12.0)
                                         .fit(ObjectFit::Contain)
                                         .show();
 
                                     ui.text(&tab_name)
-                                        .size(11.5)
+                                        .size(11.0)
                                         .color(text_color)
                                         .show();
 
                                     if tab_is_dirty {
                                         ui.container()
-                                            .width(6.0)
-                                            .height(6.0)
-                                            .radius_all(3.0)
+                                            .width(5.0)
+                                            .height(5.0)
+                                            .radius_all(2.5)
                                             .bg(colors.accent)
                                             .show(|_| {});
                                     }
@@ -138,14 +140,14 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState) {
                                     // Close button
                                     let close_resp = ui.button("\u{f00d}")
                                         .id(tab_close_id)
-                                        .width(18.0)
-                                        .height(18.0)
+                                        .width(14.0)
+                                        .height(14.0)
                                         .bg(Color::TRANSPARENT)
                                         .hover_bg(Color::rgb(30.0 / 255.0, 144.0 / 255.0, 255.0 / 255.0))
                                         .text_color(colors.text_primary)
-                                        .radius_all(4.0)
+                                        .radius_all(3.0)
                                         .padding(0.0, 0.0, 0.0, 0.0)
-                                        .size(10.5)
+                                        .size(9.0)
                                         .show();
 
                                     if close_resp.clicked {
@@ -162,16 +164,82 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState) {
 
                         if let Some(idx) = tab_to_close {
                             state.close_tab(idx);
+                            active_tab_idx = state.active_tab.unwrap_or(0);
                             ui.request_redraw();
                         } else if let Some(idx) = tab_to_activate {
                             state.active_tab = Some(idx);
+                            active_tab_idx = idx;
                             ui.request_redraw();
                         }
                     });
 
+                let path_bar_h = 22.0;
+
+                // ─── Breadcrumb / File Path Bar (below buffer tabs) ──────────
+                if active_tab_idx < state.tabs.len() {
+                    let tab = &state.tabs[active_tab_idx];
+                    let display_path = if let Some(ref file_path) = tab.path {
+                        let rel_opt = file_path.strip_prefix(&state.current_dir).ok().map(|p| p.to_path_buf())
+                            .or_else(|| {
+                                if let (Ok(can_file), Ok(can_dir)) = (file_path.canonicalize(), state.current_dir.canonicalize()) {
+                                    can_file.strip_prefix(can_dir).ok().map(|p| p.to_path_buf())
+                                } else {
+                                    None
+                                }
+                            });
+
+                        if let Some(rel) = rel_opt {
+                            let rel_str = rel.to_string_lossy();
+                            if rel_str.is_empty() {
+                                tab.name.clone()
+                            } else {
+                                rel_str.to_string()
+                            }
+                        } else {
+                            file_path.to_string_lossy().to_string()
+                        }
+                    } else {
+                        tab.name.clone()
+                    };
+
+                    let icon_theme = crate::theme::IconTheme::new("gruvbox");
+                    let icon_source = if let Some(ref path) = tab.path {
+                        let ext = path.extension()
+                            .and_then(|e| e.to_str())
+                            .unwrap_or("")
+                            .to_lowercase();
+                        icon_theme.get_icon_source("text", &ext)
+                    } else {
+                        icon_theme.get_icon_source("text", "")
+                    };
+
+                    ui.container()
+                        .full_width()
+                        .height(path_bar_h)
+                        .bg(colors.bg_inactive_tab)
+                        .border(colors.border, 1.0)
+                        .row()
+                        .valign(Align::Center)
+                        .gap(6.0)
+                        .padding_left(12.0)
+                        .padding_right(12.0)
+                        .show(|ui| {
+                            ui.image(icon_source)
+                                .size(12.0, 12.0)
+                                .fit(ObjectFit::Contain)
+                                .show();
+
+                            ui.text(&display_path)
+                                .size(11.0)
+                                .color(colors.text_muted)
+                                .show();
+                        });
+                }
+
                 // ─── Editor Area ────────────────────────────────────────────
                 if active_tab_idx < state.tabs.len() {
-                    let editor_h = ui.height - 36.0 - 24.0 - 32.0;
+                    let status_bar_h = if state.status_bar_visible { 24.0 } else { 0.0 };
+                    let editor_h = (ui.height - 36.0 - status_bar_h - tab_bar_h - path_bar_h).max(50.0);
                     let editor_id = Id::from_u64(999996000 + active_tab_idx as u64);
 
                     // Update modifiers
@@ -210,7 +278,17 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState) {
                     }
 
                     let mut save_tab = false;
+                    let mut save_tab_as = false;
+                    let mut format_tab = false;
+                    let mut copy_action = false;
+                    let mut cut_action = false;
+                    let mut paste_action = false;
+                    let mut undo_action = false;
+                    let mut redo_action = false;
                     let is_focused = ui.focused_id == Some(editor_id);
+                    if is_focused {
+                        ui.request_redraw_after(std::time::Duration::from_millis(250));
+                    }
 
                     // Handle scrollbar drag and scroll wheel before input events are taken/drained
                     let editor_x = ui.cursor_x;
@@ -306,6 +384,7 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState) {
                             });
 
                             for event in &other_events {
+                                state.last_cursor_activity = std::time::Instant::now();
                                 match event {
                                     zenthra_platform::event::PlatformEvent::CharTyped(c) => {
                                         if !state.ctrl_pressed && !state.alt_pressed && *c != '\r' && *c != '\n' && *c != '\t' && !c.is_control() {
@@ -383,18 +462,32 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState) {
                                                 tab.editor.select_all();
                                                 changed = true;
                                             }
+                                            winit::keyboard::KeyCode::KeyS if state.ctrl_pressed && state.shift_pressed => {
+                                                save_tab_as = true;
+                                            }
                                             winit::keyboard::KeyCode::KeyS if state.ctrl_pressed => {
                                                 save_tab = true;
                                             }
                                             winit::keyboard::KeyCode::KeyF if state.ctrl_pressed && state.shift_pressed => {
-                                                if let Err(e) = state.formatter.format_editor(&mut tab.editor, tab.path.as_deref()) {
-                                                    state.status_message = format!("Format error: {}", e);
-                                                } else {
-                                                    state.status_message = "Formatted successfully!".to_string();
-                                                    tab.is_dirty = true;
-                                                    tab.version += 1;
-                                                }
-                                                changed = true;
+                                                format_tab = true;
+                                            }
+                                            winit::keyboard::KeyCode::KeyC if state.ctrl_pressed => {
+                                                copy_action = true;
+                                            }
+                                            winit::keyboard::KeyCode::KeyX if state.ctrl_pressed => {
+                                                cut_action = true;
+                                            }
+                                            winit::keyboard::KeyCode::KeyV if state.ctrl_pressed => {
+                                                paste_action = true;
+                                            }
+                                            winit::keyboard::KeyCode::KeyZ if state.ctrl_pressed && state.shift_pressed => {
+                                                redo_action = true;
+                                            }
+                                            winit::keyboard::KeyCode::KeyZ if state.ctrl_pressed => {
+                                                undo_action = true;
+                                            }
+                                            winit::keyboard::KeyCode::KeyY if state.ctrl_pressed => {
+                                                redo_action = true;
                                             }
                                             _ => {}
                                         }
@@ -405,13 +498,42 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState) {
                             if changed {
                                 tab.is_dirty = true;
                                 tab.version += 1;
+                                tab.shaping_cache.clear();
                                 ui.needs_redraw = true;
                             }
                         }
                     }
 
+                    if copy_action {
+                        state.copy_selection();
+                        ui.request_redraw();
+                    }
+                    if cut_action {
+                        state.cut_selection();
+                        ui.request_redraw();
+                    }
+                    if paste_action {
+                        state.paste_clipboard();
+                        ui.request_redraw();
+                    }
+                    if undo_action {
+                        state.undo_active_tab();
+                        ui.request_redraw();
+                    }
+                    if redo_action {
+                        state.redo_active_tab();
+                        ui.request_redraw();
+                    }
                     if save_tab {
                         state.save_active_tab();
+                        ui.request_redraw();
+                    }
+                    if save_tab_as {
+                        state.save_active_tab_as();
+                        ui.request_redraw();
+                    }
+                    if format_tab {
+                        state.format_active_tab();
                         ui.request_redraw();
                     }
 
@@ -426,6 +548,19 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState) {
                     let content_h = total_lines as f32 * line_height_pixels;
 
                     let tab_mut = &mut state.tabs[active_tab_idx];
+
+                    // Auto-scroll viewport so cursor row is always visible
+                    let cursor_row = tab_mut.editor.cursor().row;
+                    let cursor_top = cursor_row as f32 * line_height_pixels;
+                    let cursor_bottom = cursor_top + line_height_pixels;
+
+                    if cursor_top < tab_mut.scroll_y {
+                        tab_mut.scroll_y = cursor_top;
+                    } else if cursor_bottom > tab_mut.scroll_y + editor_h - 10.0 {
+                        let max_scroll = (content_h - editor_h).max(0.0);
+                        tab_mut.scroll_y = (cursor_bottom - editor_h + 10.0).clamp(0.0, max_scroll);
+                    }
+
                     let scroll_y = tab_mut.scroll_y;
 
                     // Pre-cache the visible line range before entering the render loop closure
@@ -472,29 +607,31 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState) {
                             let clip = [editor_x + ui.offset_x, editor_y + ui.offset_y, editor_w, editor_h];
 
                             // 1. Draw gutter background
-                            let gutter_w = 44.0;
-                            ui.draws.push(DrawCommand::Rect(RectDraw {
-                                instance: RectInstance {
-                                    pos: [editor_x, editor_y],
-                                    size: [gutter_w, editor_h],
-                                    color: colors.bg_gutter.to_array(),
-                                    radius: [0.0; 4],
-                                    clip_rect: clip,
-                                    ..Default::default()
-                                }
-                            }));
+                            let gutter_w = if state.line_numbers_visible { 44.0 } else { 8.0 };
+                            if state.line_numbers_visible {
+                                ui.draws.push(DrawCommand::Rect(RectDraw {
+                                    instance: RectInstance {
+                                        pos: [editor_x, editor_y],
+                                        size: [gutter_w, editor_h],
+                                        color: colors.bg_gutter.to_array(),
+                                        radius: [0.0; 4],
+                                        clip_rect: clip,
+                                        ..Default::default()
+                                    }
+                                }));
 
-                            // 2. Draw border separator
-                            ui.draws.push(DrawCommand::Rect(RectDraw {
-                                instance: RectInstance {
-                                    pos: [editor_x + gutter_w - 1.0, editor_y],
-                                    size: [1.0, editor_h],
-                                    color: colors.border.to_array(),
-                                    radius: [0.0; 4],
-                                    clip_rect: clip,
-                                    ..Default::default()
-                                }
-                            }));
+                                // 2. Draw border separator
+                                ui.draws.push(DrawCommand::Rect(RectDraw {
+                                    instance: RectInstance {
+                                        pos: [editor_x + gutter_w - 1.0, editor_y],
+                                        size: [1.0, editor_h],
+                                        color: colors.border.to_array(),
+                                        radius: [0.0; 4],
+                                        clip_rect: clip,
+                                        ..Default::default()
+                                    }
+                                }));
+                            }
 
                             // 3. Draw lines of text, selection, and cursor
                             if let Some(fs) = ui.font_system.as_ref() {
@@ -520,16 +657,18 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState) {
                                     }
 
                                     // Draw line number
-                                    let num_str = format!("{}", i + 1);
-                                    let num_x = editor_x + gutter_w - 16.0 - (num_str.len() as f32 * 6.5);
-                                    let num_color = if cursor_p.row == i && is_focused { colors.text_primary } else { colors.text_dim };
+                                    if state.line_numbers_visible {
+                                        let num_str = format!("{}", i + 1);
+                                        let num_x = editor_x + gutter_w - 16.0 - (num_str.len() as f32 * 6.5);
+                                        let num_color = if cursor_p.row == i && is_focused { colors.text_primary } else { colors.text_dim };
 
-                                    ui.draws.push(DrawCommand::Text(TextDraw {
-                                        text: num_str,
-                                        pos: [num_x, line_y + 3.0],
-                                        options: TextOptions::new().font_size(12.0).font_family("monospace").color(num_color),
-                                        clip,
-                                    }));
+                                        ui.draws.push(DrawCommand::Text(TextDraw {
+                                            text: num_str,
+                                            pos: [num_x, line_y + 3.0],
+                                            options: TextOptions::new().font_size(12.0).font_family("monospace").color(num_color),
+                                            clip,
+                                        }));
+                                    }
 
                                     // Get code line text
                                     let line_text = tab.editor.buffer.line(i).unwrap_or_default();
@@ -560,8 +699,8 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState) {
                                                 let start_byte = clean_text.chars().take(start_col).map(|c| c.len_utf8()).sum();
                                                 let end_byte = clean_text.chars().take(end_col).map(|c| c.len_utf8()).sum();
 
-                                                let start_x = find_x_for_byte(&shaped, start_byte);
-                                                let end_x = find_x_for_byte(&shaped, end_byte);
+                                                let start_x = find_x_for_byte(&shaped, clean_text, start_byte);
+                                                let end_x = find_x_for_byte(&shaped, clean_text, end_byte);
 
                                                 let sel_w = (end_x - start_x).max(8.0);
                                                 let sel_color = Color::rgba(48.0 / 255.0, 120.0 / 255.0, 200.0 / 255.0, 0.35);
@@ -608,9 +747,14 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState) {
                                     // Draw blinking cursor
                                     if cursor_p.row == i && is_focused {
                                         let cursor_byte = clean_text.chars().take(cursor_p.column).map(|c| c.len_utf8()).sum();
-                                        let cursor_x = find_x_for_byte(&shaped, cursor_byte);
+                                        let cursor_x = find_x_for_byte(&shaped, clean_text, cursor_byte);
 
-                                        let show_cursor = (ui.elapsed_time * 2.0) as usize % 2 == 0;
+                                        let elapsed_ms = state.last_cursor_activity.elapsed().as_millis();
+                                        let show_cursor = if elapsed_ms < 500 {
+                                            true
+                                        } else {
+                                            ((elapsed_ms - 500) / 530) % 2 == 0
+                                        };
                                         if show_cursor {
                                             ui.draws.push(DrawCommand::Rect(RectDraw {
                                                 instance: RectInstance {
@@ -686,7 +830,7 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState) {
                             let rel_y = ui.mouse_y - (editor_y + ui.offset_y) + tab.scroll_y;
                             let line_idx = ((rel_y / line_height_pixels).max(0.0) as usize).min(total_lines.saturating_sub(1));
 
-                            let gutter_w = 44.0;
+                            let gutter_w = if state.line_numbers_visible { 44.0 } else { 8.0 };
                             let rel_x = ui.mouse_x - (editor_x + ui.offset_x) - gutter_w;
                             let rel_x = rel_x.max(0.0);
 
@@ -718,6 +862,7 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState) {
                             } else {
                                 tab.editor.set_cursor(Point::new(line_idx, col_idx));
                             }
+                            state.last_cursor_activity = std::time::Instant::now();
                         }
                     }
                 }
@@ -725,7 +870,20 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState) {
         });
 }
 
-fn find_x_for_byte(shaped: &ShapedBuffer, byte_idx: usize) -> f32 {
+fn find_x_for_byte(shaped: &ShapedBuffer, clean_text: &str, byte_idx: usize) -> f32 {
+    let mut char_w = 7.81;
+    for g in shaped.glyphs() {
+        if g.width > 4.0 && g.width < 20.0 {
+            char_w = g.width;
+            break;
+        }
+    }
+
+    if shaped.glyphs().is_empty() {
+        let col = clean_text[..byte_idx.min(clean_text.len())].chars().count();
+        return col as f32 * char_w;
+    }
+
     let mut best_x = 0.0;
     let mut found = false;
     for glyph in shaped.glyphs() {
@@ -735,11 +893,22 @@ fn find_x_for_byte(shaped: &ShapedBuffer, byte_idx: usize) -> f32 {
             break;
         }
     }
+
     if !found {
         if let Some(last) = shaped.glyphs().last() {
-            best_x = last.x + last.width;
+            let last_cluster = last.cluster;
+            if byte_idx > last_cluster && byte_idx <= clean_text.len() {
+                let extra_chars = clean_text[last_cluster..byte_idx].chars().count().saturating_sub(1);
+                best_x = last.x + last.width + extra_chars as f32 * char_w;
+            } else {
+                best_x = last.x + last.width;
+            }
+        } else {
+            let col = clean_text[..byte_idx.min(clean_text.len())].chars().count();
+            best_x = col as f32 * char_w;
         }
     }
+
     best_x
 }
 
@@ -773,7 +942,7 @@ fn get_styled_spans(
                 line_text.len()
             };
             let text = line_text[gap_start_byte..gap_end_byte].to_string();
-            let x_offset = find_x_for_byte(shaped, gap_start_byte);
+            let x_offset = find_x_for_byte(shaped, line_text, gap_start_byte);
             result.push(StyledSpan { text, x_offset, color: default_color });
         }
         
@@ -785,7 +954,7 @@ fn get_styled_spans(
                 line_text.len()
             };
             let text = line_text[start_byte..end_byte].to_string();
-            let x_offset = find_x_for_byte(shaped, start_byte);
+            let x_offset = find_x_for_byte(shaped, line_text, start_byte);
             result.push(StyledSpan { text, x_offset, color });
         }
         
@@ -795,7 +964,7 @@ fn get_styled_spans(
     if last_idx < char_count {
         let tail_start_byte = char_indices[last_idx].0;
         let text = line_text[tail_start_byte..].to_string();
-        let x_offset = find_x_for_byte(shaped, tail_start_byte);
+        let x_offset = find_x_for_byte(shaped, line_text, tail_start_byte);
         result.push(StyledSpan { text, x_offset, color: default_color });
     }
     

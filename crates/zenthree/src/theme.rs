@@ -22,35 +22,71 @@ pub struct ThemeColors {
     pub highlight: Color,
 }
 
+pub const ACCENT_COLOR_OPTIONS: &[(&str, &str)] = &[
+    ("blue", "Blue"),
+    ("yellow", "Yellow"),
+    ("green", "Green"),
+    ("red", "Red"),
+    ("orange", "Orange"),
+    ("purple", "Purple"),
+    ("pink", "Pink"),
+    ("turquoise", "Turquoise"),
+    ("gray", "Gray"),
+];
+
+pub fn named_color(name: &str, mode: ThemeMode) -> Color {
+    match name {
+        "yellow" => Color::rgb(255.0 / 255.0, 214.0 / 255.0, 0.0 / 255.0),
+        "blue" => Color::rgb(52.0 / 255.0, 152.0 / 255.0, 219.0 / 255.0),
+        "green" => Color::rgb(46.0 / 255.0, 204.0 / 255.0, 113.0 / 255.0),
+        "red" => Color::rgb(252.0 / 255.0, 60.0 / 255.0, 56.0 / 255.0),
+        "orange" => Color::rgb(253.0 / 255.0, 151.0 / 255.0, 31.0 / 255.0),
+        "purple" => Color::rgb(155.0 / 255.0, 89.0 / 255.0, 182.0 / 255.0),
+        "pink" => Color::rgb(236.0 / 255.0, 100.0 / 255.0, 165.0 / 255.0),
+        "turquoise" => Color::rgb(26.0 / 255.0, 188.0 / 255.0, 156.0 / 255.0),
+        "gray" => Color::rgb(136.0 / 255.0, 136.0 / 255.0, 136.0 / 255.0),
+        _ => match mode {
+            ThemeMode::Dark => Color::rgb(52.0 / 255.0, 152.0 / 255.0, 219.0 / 255.0),
+            ThemeMode::Light => Color::rgb(41.0 / 255.0, 128.0 / 255.0, 185.0 / 255.0),
+        },
+    }
+}
+
 impl ThemeColors {
+    #[allow(dead_code)]
     pub fn get(mode: ThemeMode) -> Self {
+        Self::get_custom(mode, "blue")
+    }
+
+    pub fn get_custom(mode: ThemeMode, accent_name: &str) -> Self {
+        let accent = named_color(accent_name, mode);
         match mode {
             ThemeMode::Dark => Self {
                 bg_base: Color::rgb(0.0 / 255.0, 0.0 / 255.0, 0.0 / 255.0),
                 bg_sidebar: Color::rgb(1.0 / 255.0, 1.0 / 255.0, 1.0 / 255.0),
                 bg_editor: Color::rgb(2.0 / 255.0, 2.0 / 255.0, 2.0 / 255.0),
-                bg_gutter: Color::rgb(8.0 / 255.0, 8.0 / 255.0, 8.0 / 255.0),
+                bg_gutter: Color::rgb(2.0 / 255.0, 2.0 / 255.0, 2.0 / 255.0),
                 bg_active_tab: Color::rgb(2.0 / 255.0, 2.0 / 255.0, 2.0 / 255.0),
                 bg_inactive_tab: Color::rgb(1.0 / 255.0, 1.0 / 255.0, 1.0 / 255.0),
                 border: Color::rgb(3.0 / 255.0, 3.0 / 255.0, 3.0 / 255.0),
                 text_primary: Color::rgb(224.0 / 255.0, 224.0 / 255.0, 224.0 / 255.0),
                 text_muted: Color::rgb(136.0 / 255.0, 136.0 / 255.0, 136.0 / 255.0),
                 text_dim: Color::rgb(55.0 / 255.0, 55.0 / 255.0, 55.0 / 255.0),
-                accent: Color::rgb(136.0 / 255.0, 136.0 / 255.0, 136.0 / 255.0),
+                accent,
                 highlight: Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, 0.08),
             },
             ThemeMode::Light => Self {
                 bg_base: Color::rgb(240.0 / 255.0, 240.0 / 255.0, 242.0 / 255.0),
                 bg_sidebar: Color::rgb(230.0 / 255.0, 230.0 / 255.0, 234.0 / 255.0),
                 bg_editor: Color::WHITE,
-                bg_gutter: Color::rgb(236.0 / 255.0, 236.0 / 255.0, 238.0 / 255.0),
+                bg_gutter: Color::WHITE,
                 bg_active_tab: Color::WHITE,
                 bg_inactive_tab: Color::rgb(230.0 / 255.0, 230.0 / 255.0, 234.0 / 255.0),
                 border: Color::rgb(210.0 / 255.0, 210.0 / 255.0, 215.0 / 255.0),
                 text_primary: Color::rgb(17.0 / 255.0, 17.0 / 255.0, 17.0 / 255.0),
                 text_muted: Color::rgb(90.0 / 255.0, 90.0 / 255.0, 95.0 / 255.0),
                 text_dim: Color::rgb(190.0 / 255.0, 190.0 / 255.0, 195.0 / 255.0),
-                accent: Color::rgb(136.0 / 255.0, 136.0 / 255.0, 136.0 / 255.0),
+                accent,
                 highlight: Color::rgba(0.0, 0.0, 0.0, 0.08),
             },
         }

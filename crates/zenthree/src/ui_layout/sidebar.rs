@@ -143,7 +143,8 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
     let _split_id = Id::from_u64(999999099);
     let splitter_x = ui.cursor_x + sidebar_w;
     let splitter_y = ui.cursor_y;
-    let splitter_h = ui.height - 36.0 - 24.0;
+    let status_bar_h = if state.status_bar_visible { 24.0 } else { 0.0 };
+    let splitter_h = ui.height - 36.0 - status_bar_h;
 
     // Detect if mouse is hovering over 6-pixel splitter bounds
     let handle_width = 6.0;

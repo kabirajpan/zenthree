@@ -17,7 +17,7 @@ fn main() {
     // Start with one default empty file so the editor doesn't feel empty
     state.new_untitled_file();
 
-    let font_bytes = include_bytes!("../../../../../assets/fonts/SymbolsNerdFont-Regular.ttf").to_vec();
+    let font_bytes = include_bytes!("../../../assets/fonts/SymbolsNerdFont-Regular.ttf").to_vec();
 
     App::new()
         .title("Zenthree Editor")
@@ -31,6 +31,9 @@ fn main() {
 
             let colors = state.colors();
 
+            // Provide reactive ThemeColors to the UI tree via Context API
+            provide_context(colors);
+
             // Main Background Container: vertical layout
             ui.container()
                 .fill()
@@ -41,12 +44,12 @@ fn main() {
                     ui_layout::draw_title_bar(ui, &mut state);
 
                     // 2. Middle Workspace Area (Sidebar + Editor)
-                    // Fills the remaining space using row direction
                     let ui_height = ui.height;
+                    let status_bar_h = if state.status_bar_visible { 24.0 } else { 0.0 };
                     ui.container()
                         .row()
                         .fill_x()
-                        .height(ui_height - 36.0 - 24.0)
+                        .height(ui_height - 36.0 - status_bar_h)
                         .show(|ui| {
                             // Sidebar
                             if state.sidebar_visible {
@@ -58,7 +61,9 @@ fn main() {
                         });
 
                     // 3. Status Bar
-                    ui_layout::draw_status_bar(ui, &mut state);
+                    if state.status_bar_visible {
+                        ui_layout::draw_status_bar(ui, &mut state);
+                    }
 
                     // 4. Modal overlays (About dialog)
                     ui_layout::draw_about_dialog(ui, &mut state);

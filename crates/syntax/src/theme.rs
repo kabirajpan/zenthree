@@ -61,11 +61,16 @@ impl SyntaxTheme {
             "type" | "type.builtin" => self.type_name,
             "string" => self.string,
             "number" => self.number,
-            "comment" => self.comment,
+            "comment" | "comment.documentation" => self.comment,
             "operator" => self.operator,
             "punctuation" | "punctuation.bracket" | "punctuation.delimiter" => self.punctuation,
-            "variable" => self.variable,
+            "variable" | "variable.parameter" | "variable.builtin" => self.variable,
             "constant" | "constant.builtin" => self.constant,
+            "constructor" => self.type_name,
+            "property" => self.variable,
+            "attribute" => self.constant,
+            "escape" => self.operator,
+            "label" => self.keyword,
             _ => self.default,
         }
     }

@@ -378,6 +378,7 @@ impl LineOffsetCache {
         start..end
     }
 
+    #[allow(dead_code)]
     fn ensure_range_cached_impl(&mut self, range: Range<usize>) {
         // Implementation for internal use
         let mut new_offsets = vec![None; range.len()];
@@ -493,7 +494,7 @@ mod tests {
     #[test]
     fn test_zero_allocation_cache() {
         let mut cache = LineOffsetCache::new(1000);
-        let mut rope = Rope::new();
+        let rope = Rope::new();
         let mut buffer = ReusableBuffer::new();
 
         // Test empty case

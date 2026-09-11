@@ -25,12 +25,17 @@ pub struct FileTreeNode {
 
 pub struct ZenthreeState {
     pub theme: ThemeMode,
+    pub accent_color: String,
     pub sidebar_visible: bool,
     pub sidebar_width: f32,
+    pub status_bar_visible: bool,
+    pub line_numbers_visible: bool,
+    pub zoom_level: f32,
     pub active_resize_sidebar: bool,
     pub tabs: Vec<EditorTab>,
     pub active_tab: Option<usize>,
     pub current_dir: PathBuf,
+    pub recent_files: Vec<PathBuf>,
     pub sidebar_items: Vec<FileTreeNode>,
     pub expanded_dirs: std::collections::HashSet<PathBuf>,
     pub status_message: String,
@@ -41,6 +46,8 @@ pub struct ZenthreeState {
     pub highlighter: syntax::SyntaxHighlighter,
     pub formatter: formatter::Formatter,
     pub indent_calc: syntax::IndentCalculator,
+    pub clipboard: Option<String>,
+    pub last_cursor_activity: std::time::Instant,
 }
 
 impl ZenthreeState {
@@ -64,12 +71,17 @@ impl ZenthreeState {
 
         let mut state = Self {
             theme: ThemeMode::Dark,
+            accent_color: "blue".to_string(),
             sidebar_visible: true,
             sidebar_width: 250.0,
+            status_bar_visible: true,
+            line_numbers_visible: true,
+            zoom_level: 1.0,
             active_resize_sidebar: false,
             tabs: Vec::new(),
             active_tab: None,
             current_dir,
+            recent_files: Vec::new(),
             sidebar_items: Vec::new(),
             expanded_dirs: std::collections::HashSet::new(),
             status_message: "Welcome to Zenthree!".to_string(),
@@ -80,13 +92,15 @@ impl ZenthreeState {
             highlighter,
             formatter,
             indent_calc,
+            clipboard: None,
+            last_cursor_activity: std::time::Instant::now(),
         };
         state.rebuild_tree();
         state
     }
 
     pub fn colors(&self) -> ThemeColors {
-        ThemeColors::get(self.theme)
+        ThemeColors::get_custom(self.theme, &self.accent_color)
     }
 
     pub fn rebuild_tree(&mut self) {
@@ -145,6 +159,13 @@ impl ZenthreeState {
                 .unwrap_or("Untitled")
                 .to_string();
 
+            // Track recent files
+            self.recent_files.retain(|p| p != path);
+            self.recent_files.insert(0, path.to_path_buf());
+            if self.recent_files.len() > 10 {
+                self.recent_files.truncate(10);
+            }
+
             // Check if already open
             for (idx, tab) in self.tabs.iter().enumerate() {
                 if tab.path.as_ref() == Some(&path.to_path_buf()) {
@@ -173,6 +194,10 @@ impl ZenthreeState {
     pub fn save_active_tab(&mut self) {
         if let Some(idx) = self.active_tab {
             if idx < self.tabs.len() {
+                if self.tabs[idx].path.is_none() {
+                    self.save_active_tab_as();
+                    return;
+                }
                 let tab = &mut self.tabs[idx];
                 if let Some(ref path) = tab.path {
                     if std::fs::write(path, tab.editor.buffer.to_string()).is_ok() {
@@ -181,8 +206,143 @@ impl ZenthreeState {
                     } else {
                         self.status_message = format!("Failed to save file: {}", tab.name);
                     }
+                }
+            }
+        }
+    }
+
+    pub fn save_active_tab_as(&mut self) {
+        if let Some(idx) = self.active_tab {
+            if idx < self.tabs.len() {
+                let initial_dir = self.tabs[idx].path.as_ref()
+                    .and_then(|p| p.parent())
+                    .unwrap_or(&self.current_dir);
+                let mut dialog = rfd::FileDialog::new().set_directory(initial_dir);
+                if let Some(ref p) = self.tabs[idx].path {
+                    if let Some(file_name) = p.file_name().and_then(|n| n.to_str()) {
+                        dialog = dialog.set_file_name(file_name);
+                    }
                 } else {
-                    self.status_message = "Cannot save: File has no path yet".to_string();
+                    dialog = dialog.set_file_name(&self.tabs[idx].name);
+                }
+
+                if let Some(path) = dialog.save_file() {
+                    let tab = &mut self.tabs[idx];
+                    if std::fs::write(&path, tab.editor.buffer.to_string()).is_ok() {
+                        tab.name = path.file_name().and_then(|n| n.to_str()).unwrap_or("Unknown").to_string();
+                        tab.path = Some(path.clone());
+                        tab.is_dirty = false;
+                        if !self.recent_files.contains(&path) {
+                            self.recent_files.insert(0, path);
+                            if self.recent_files.len() > 10 {
+                                self.recent_files.pop();
+                            }
+                        }
+                        self.status_message = format!("Saved as: {}", tab.name);
+                    } else {
+                        self.status_message = format!("Failed to save file: {}", path.display());
+                    }
+                }
+            }
+        }
+    }
+
+    pub fn set_clipboard(&mut self, text: String) {
+        self.clipboard = Some(text.clone());
+        if let Ok(mut cb) = arboard::Clipboard::new() {
+            let _ = cb.set_text(text);
+        }
+    }
+
+    pub fn get_clipboard(&self) -> Option<String> {
+        if let Ok(mut cb) = arboard::Clipboard::new() {
+            if let Ok(text) = cb.get_text() {
+                if !text.is_empty() {
+                    return Some(text);
+                }
+            }
+        }
+        self.clipboard.clone()
+    }
+
+    pub fn copy_selection(&mut self) {
+        if let Some(idx) = self.active_tab {
+            if idx < self.tabs.len() {
+                let text = self.tabs[idx].editor.selected_text();
+                if !text.is_empty() {
+                    self.set_clipboard(text);
+                    self.status_message = "Copied to clipboard".to_string();
+                }
+            }
+        }
+    }
+
+    pub fn cut_selection(&mut self) {
+        if let Some(idx) = self.active_tab {
+            if idx < self.tabs.len() {
+                let text = {
+                    let tab = &mut self.tabs[idx];
+                    let text = tab.editor.cut_selection();
+                    if !text.is_empty() {
+                        tab.is_dirty = true;
+                        tab.version = tab.version.wrapping_add(1);
+                        tab.shaping_cache.clear();
+                    }
+                    text
+                };
+                if !text.is_empty() {
+                    self.set_clipboard(text);
+                    self.status_message = "Cut to clipboard".to_string();
+                }
+            }
+        }
+    }
+
+    pub fn paste_clipboard(&mut self) {
+        let text = self.get_clipboard();
+        if let Some(text) = text {
+            if !text.is_empty() {
+                if let Some(idx) = self.active_tab {
+                    if idx < self.tabs.len() {
+                        let tab = &mut self.tabs[idx];
+                        tab.editor.paste(&text);
+                        tab.is_dirty = true;
+                        tab.version = tab.version.wrapping_add(1);
+                        tab.shaping_cache.clear();
+                        self.status_message = "Pasted from clipboard".to_string();
+                    }
+                }
+            }
+        }
+    }
+
+    pub fn undo_active_tab(&mut self) {
+        if let Some(idx) = self.active_tab {
+            if idx < self.tabs.len() {
+                let tab = &mut self.tabs[idx];
+                if tab.editor.undo() {
+                    tab.is_dirty = true;
+                    tab.version = tab.version.wrapping_add(1);
+                    tab.shaping_cache.clear();
+                    self.status_message = "Undo".to_string();
+                } else {
+                    self.status_message = "Already at oldest change".to_string();
+                }
+            }
+        }
+    }
+
+    pub fn redo_active_tab(&mut self) {
+        if let Some(idx) = self.active_tab {
+            if idx < self.tabs.len() {
+                let tab = &mut self.tabs[idx];
+                if tab.editor.redo() {
+                    tab.is_dirty = true;
+                    tab.version = tab.version.wrapping_add(1);
+                    tab.shaping_cache.clear();
+                    self.status_message = "Redo".to_string();
+                } else {
+                    self.status_message = "Already at newest change".to_string();
                 }
             }
         }
@@ -218,5 +378,31 @@ impl ZenthreeState {
         });
         self.active_tab = Some(self.tabs.len() - 1);
         self.status_message = "New untitled file created".to_string();
+    }
+
+    pub fn format_active_tab(&mut self) {
+        if let Some(idx) = self.active_tab {
+            if idx < self.tabs.len() {
+                let tab = &mut self.tabs[idx];
+                let path = tab.path.as_deref();
+                let before = tab.editor.buffer.to_string();
+                match self.formatter.format_editor(&mut tab.editor, path) {
+                    Ok(_) => {
+                        let after = tab.editor.buffer.to_string();
+                        if before != after {
+                            tab.is_dirty = true;
+                            tab.version = tab.version.wrapping_add(1);
+                            tab.shaping_cache.clear();
+                            self.status_message = format!("Formatted {}", tab.name);
+                        } else {
+                            self.status_message = format!("{} is already formatted", tab.name);
+                        }
+                    }
+                    Err(err) => {
+                        self.status_message = err;
+                    }
+                }
+            }
+        }
     }
 }
