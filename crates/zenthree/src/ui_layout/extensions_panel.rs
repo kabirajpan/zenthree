@@ -15,10 +15,30 @@ pub fn draw_extensions_panel(ui: &mut Ui, state: &mut ZenthreeState) {
         .fill_y()
         .column()
         .show(|ui| {
+            // Header: "EXTENSIONS" title + status
+            ui.container()
+                .full_width()
+                .padding(8.0, 10.0, 4.0, 10.0)
+                .row()
+                .valign(Align::Center)
+                .halign(Align::SpaceBetween)
+                .show(|ui| {
+                    ui.text("EXTENSIONS")
+                        .size(11.0)
+                        .weight(FontWeight::Bold)
+                        .color(colors.text_muted)
+                        .show();
+
+                    ui.text(&format!("{} installed", installed_count))
+                        .size(10.0)
+                        .color(colors.text_dim)
+                        .show();
+                });
+
             // 1. Search Box
             ui.container()
                 .full_width()
-                .padding(8.0, 10.0, 6.0, 10.0)
+                .padding(4.0, 10.0, 6.0, 10.0)
                 .column()
                 .gap(6.0)
                 .show(|ui| {
@@ -34,8 +54,9 @@ pub fn draw_extensions_panel(ui: &mut Ui, state: &mut ZenthreeState) {
                         .valign(Align::Center)
                         .gap(6.0)
                         .show(|ui| {
-                            ui.text("🔍")
+                            ui.text(zenthra::icons::NF_FA_SEARCH)
                                 .size(11.0)
+                                .color(colors.text_dim)
                                 .show();
 
                             ui.input(&mut state.extension_search_query, Id::from_u64(999998200))
@@ -114,7 +135,7 @@ pub fn draw_extensions_panel(ui: &mut Ui, state: &mut ZenthreeState) {
                 .full_width()
                 .fill_y()
                 .scroll_y(true)
-                .padding(4.0, 6.0, 4.0, 6.0)
+                .padding(6.0, 8.0, 6.0, 8.0)
                 .gap(6.0)
                 .show(|ui| {
                     let search_lower = state.extension_search_query.to_lowercase();
@@ -122,7 +143,6 @@ pub fn draw_extensions_panel(ui: &mut Ui, state: &mut ZenthreeState) {
                     let filtered: Vec<_> = all_extensions
                         .into_iter()
                         .filter(|ext| {
-                            // Filter by tab
                             let is_inst = state.is_extension_installed(ext.id);
                             match state.extension_tab_filter {
                                 ExtensionFilterTab::All => true,
@@ -131,7 +151,6 @@ pub fn draw_extensions_panel(ui: &mut Ui, state: &mut ZenthreeState) {
                             }
                         })
                         .filter(|ext| {
-                            // Filter by search
                             if search_lower.is_empty() {
                                 true
                             } else {
@@ -161,13 +180,16 @@ pub fn draw_extensions_panel(ui: &mut Ui, state: &mut ZenthreeState) {
                     let mut to_install = None;
                     let mut to_uninstall = None;
 
+                    // Available width constrained strictly to avoid any horizontal card overflow
+                    let card_w = (ui.width - 16.0).max(180.0);
+
                     for (idx, ext) in filtered.into_iter().enumerate() {
                         let is_installed = state.is_extension_installed(ext.id);
                         let card_id = Id::from_u64(999998300 + idx as u64);
 
                         ui.container()
                             .id(card_id)
-                            .full_width()
+                            .width(card_w)
                             .bg(colors.bg_sidebar)
                             .hover_bg(colors.highlight)
                             .border(colors.border, 1.0)
@@ -176,7 +198,7 @@ pub fn draw_extensions_panel(ui: &mut Ui, state: &mut ZenthreeState) {
                             .column()
                             .gap(4.0)
                             .show(|ui| {
-                                // Top row: Icon + Name + Version + Action
+                                // Top row: Icon + Name on Left, Action Button on Right
                                 ui.container()
                                     .full_width()
                                     .row()
@@ -191,15 +213,15 @@ pub fn draw_extensions_panel(ui: &mut Ui, state: &mut ZenthreeState) {
                                             .show(|ui| {
                                                 // Icon glyph box
                                                 ui.container()
-                                                    .width(20.0)
-                                                    .height(20.0)
+                                                    .width(22.0)
+                                                    .height(22.0)
                                                     .bg(ext.icon_color.with_alpha(0.18))
-                                                    .radius_all(3.0)
+                                                    .radius_all(4.0)
                                                     .valign(Align::Center)
                                                     .halign(Align::Center)
                                                     .show(|ui| {
                                                         ui.text(ext.glyph)
-                                                            .size(11.0)
+                                                            .size(12.0)
                                                             .color(ext.icon_color)
                                                             .show();
                                                     });
@@ -208,11 +230,6 @@ pub fn draw_extensions_panel(ui: &mut Ui, state: &mut ZenthreeState) {
                                                     .size(11.5)
                                                     .weight(FontWeight::Bold)
                                                     .color(colors.text_primary)
-                                                    .show();
-
-                                                ui.text(&format!("v{}", ext.version))
-                                                    .size(9.5)
-                                                    .color(colors.text_muted.with_alpha(0.6))
                                                     .show();
                                             });
 
@@ -252,37 +269,55 @@ pub fn draw_extensions_panel(ui: &mut Ui, state: &mut ZenthreeState) {
                                         }
                                     });
 
-                                // Description
-                                ui.text(ext.description)
+                                // Row 2: Description (strictly truncated to card width to prevent right overflow)
+                                let max_desc_chars = ((card_w - 24.0) / 6.0).max(18.0) as usize;
+                                let desc = if ext.description.len() > max_desc_chars {
+                                    format!("{}...", &ext.description[..max_desc_chars.min(ext.description.len())])
+                                } else {
+                                    ext.description.to_string()
+                                };
+
+                                ui.text(&desc)
                                     .size(10.0)
                                     .color(colors.text_muted)
                                     .show();
 
-                                // Tags / Extensions row
+                                // Row 3: Meta (tags + status/version)
                                 ui.container()
                                     .full_width()
                                     .row()
                                     .valign(Align::Center)
-                                    .gap(4.0)
+                                    .halign(Align::SpaceBetween)
                                     .show(|ui| {
-                                        for ext_tag in ext.extensions.iter().take(3) {
-                                            ui.container()
-                                                .bg(colors.bg_editor)
-                                                .radius_all(2.0)
-                                                .padding(1.0, 4.0, 1.0, 4.0)
-                                                .show(|ui| {
-                                                    ui.text(&format!(".{}", ext_tag))
-                                                        .size(9.0)
-                                                        .color(colors.text_dim)
-                                                        .show();
-                                                });
-                                        }
+                                        // Left: tags (.go, .ts)
+                                        ui.container()
+                                            .row()
+                                            .gap(4.0)
+                                            .show(|ui| {
+                                                for ext_tag in ext.extensions.iter().take(2) {
+                                                    ui.container()
+                                                        .bg(colors.bg_editor)
+                                                        .radius_all(2.0)
+                                                        .padding(1.0, 4.0, 1.0, 4.0)
+                                                        .show(|ui| {
+                                                            ui.text(&format!(".{}", ext_tag))
+                                                                .size(9.0)
+                                                                .color(colors.text_dim)
+                                                                .show();
+                                                        });
+                                                }
+                                            });
 
+                                        // Right: Status / Version
                                         if is_installed {
-                                            ui.container().fill_x().show(|_| {});
                                             ui.text("✓ Installed")
                                                 .size(9.5)
                                                 .color(Color::rgb(74.0 / 255.0, 222.0 / 255.0, 128.0 / 255.0))
+                                                .show();
+                                        } else {
+                                            ui.text(&format!("v{}", ext.version))
+                                                .size(9.5)
+                                                .color(colors.text_dim)
                                                 .show();
                                         }
                                     });

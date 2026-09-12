@@ -28,67 +28,67 @@ impl ExtensionCatalog {
         vec![
             LanguageExtension {
                 id: "go",
-                name: "Go Language Tools",
+                name: "Go",
                 description: "Full syntax highlighting, code navigation, and formatting for Go (.go)",
                 extensions: &["go"],
                 version: "1.2.0",
                 author: "Zenthra Official",
-                glyph: "\u{f0afa}", // Go gopher / icon
+                glyph: "\u{e627}", // Devicon Go
                 icon_color: Color::rgb(0.0 / 255.0, 172.0 / 255.0, 215.0 / 255.0), // Go cyan #00acd7
                 features: &["Syntax Highlighting", "Formatter (gofmt)", "Indent Calculator"],
                 tools: &["gofmt", "go-tools", "tree-sitter"],
             },
             LanguageExtension {
                 id: "typescript",
-                name: "TypeScript & TSX Tools",
+                name: "TypeScript",
                 description: "Type-aware syntax highlighting, TSX support, and Prettier integration (.ts, .tsx)",
                 extensions: &["ts", "tsx", "mts", "cts"],
                 version: "1.3.1",
                 author: "Zenthra Official",
-                glyph: "\u{f06e6}", // TS icon
+                glyph: "\u{e628}", // Devicon TypeScript
                 icon_color: Color::rgb(49.0 / 255.0, 120.0 / 255.0, 198.0 / 255.0), // TS blue #3178c6
                 features: &["Syntax Highlighting", "Prettier Formatter", "TSX Support"],
                 tools: &["prettier", "tsc", "tree-sitter"],
             },
             LanguageExtension {
                 id: "cpp",
-                name: "C & C++ Language Pack",
+                name: "C / C++",
                 description: "Syntax highlighting, preprocessor macros, and Clang tooling for C/C++ (.c, .cpp, .h, .hpp)",
                 extensions: &["c", "cpp", "cc", "cxx", "h", "hpp", "hxx"],
                 version: "1.1.4",
                 author: "Zenthra Official",
-                glyph: "\u{e61d}", // C++ icon
+                glyph: "\u{e61d}", // Devicon C++
                 icon_color: Color::rgb(0.0 / 255.0, 89.0 / 255.0, 156.0 / 255.0), // C++ blue #00599c
                 features: &["Syntax Highlighting", "ClangFormat", "Macro Parsing"],
                 tools: &["clang-format", "tree-sitter-cpp"],
             },
             LanguageExtension {
                 id: "html_css",
-                name: "HTML & CSS Language Pack",
+                name: "HTML / CSS",
                 description: "Rich web styling syntax, tags, attributes, and colors (.html, .css, .scss)",
                 extensions: &["html", "htm", "css", "scss", "less"],
                 version: "1.2.0",
                 author: "Zenthra Official",
-                glyph: "\u{e736}", // HTML icon
+                glyph: "\u{e736}", // Devicon HTML5
                 icon_color: Color::rgb(228.0 / 255.0, 77.0 / 255.0, 38.0 / 255.0), // HTML orange #e44d26
                 features: &["Syntax Highlighting", "Prettier Formatter", "Color Preview"],
                 tools: &["prettier", "stylelint"],
             },
             LanguageExtension {
                 id: "json_yaml",
-                name: "JSON & YAML Tools",
+                name: "JSON / YAML",
                 description: "Structured configuration highlighting and formatting (.json, .yaml, .yml)",
                 extensions: &["json", "jsonc", "yaml", "yml"],
                 version: "1.1.0",
                 author: "Zenthra Official",
-                glyph: "\u{f0626}", // JSON icon
+                glyph: "\u{e60b}", // Devicon JSON
                 icon_color: Color::rgb(245.0 / 255.0, 180.0 / 255.0, 0.0 / 255.0), // Gold yellow
                 features: &["Syntax Highlighting", "Key-Value Validation", "Prettier"],
                 tools: &["prettier", "yaml-tools"],
             },
             LanguageExtension {
                 id: "markdown",
-                name: "Markdown Language Support",
+                name: "Markdown",
                 description: "Headers, tables, code blocks, bold/italics, and preview styling (.md, .markdown)",
                 extensions: &["md", "markdown"],
                 version: "1.2.5",
@@ -100,7 +100,7 @@ impl ExtensionCatalog {
             },
             LanguageExtension {
                 id: "shell",
-                name: "Shell Script (Bash & Zsh)",
+                name: "Shell",
                 description: "Command syntax, variables, pipes, and script execution tools (.sh, .bash, .zsh)",
                 extensions: &["sh", "bash", "zsh"],
                 version: "1.0.8",
@@ -112,48 +112,48 @@ impl ExtensionCatalog {
             },
             LanguageExtension {
                 id: "lua",
-                name: "Lua Language Tools",
+                name: "Lua",
                 description: "Lightweight scripting syntax, table definitions, and StyLua formatting (.lua)",
                 extensions: &["lua"],
                 version: "1.0.5",
                 author: "Zenthra Official",
-                glyph: "\u{f08b1}", // Lua moon icon
-                icon_color: Color::rgb(0.0 / 255.0, 0.0 / 255.0, 128.0 / 255.0), // Deep blue #000080
+                glyph: "\u{e620}", // Devicon Lua
+                icon_color: Color::rgb(0.0 / 255.0, 80.0 / 255.0, 180.0 / 255.0), // Lua blue
                 features: &["Syntax Highlighting", "StyLua Formatter", "Neovim Config"],
                 tools: &["stylua", "tree-sitter-lua"],
             },
             LanguageExtension {
                 id: "rust",
-                name: "Rust Language Support",
+                name: "Rust",
                 description: "Tree-sitter native AST syntax highlighting, auto-indent, and rustfmt (.rs)",
                 extensions: &["rs"],
                 version: "2.1.0",
                 author: "Zenthra Core",
-                glyph: "\u{f1617}", // Rust ferris / crab icon
+                glyph: "\u{e7a8}", // Devicon Rust
                 icon_color: Color::rgb(251.0 / 255.0, 146.0 / 255.0, 60.0 / 255.0), // Rust orange
                 features: &["Tree-sitter AST", "rustfmt", "Semantic Context", "Auto-Indent"],
                 tools: &["rustfmt", "cargo", "tree-sitter-rust"],
             },
             LanguageExtension {
                 id: "python",
-                name: "Python Language Support",
+                name: "Python",
                 description: "Tree-sitter syntax highlighting, indentation, and docstring formatting (.py)",
                 extensions: &["py"],
                 version: "2.0.2",
                 author: "Zenthra Core",
-                glyph: "\u{f0320}", // Python snake icon
+                glyph: "\u{e73c}", // Devicon Python
                 icon_color: Color::rgb(59.0 / 255.0, 130.0 / 255.0, 246.0 / 255.0), // Python blue/yellow
                 features: &["Tree-sitter AST", "Black Formatter", "Semantic Context"],
                 tools: &["black", "tree-sitter-python"],
             },
             LanguageExtension {
                 id: "javascript",
-                name: "JavaScript Language Support",
+                name: "JavaScript",
                 description: "Modern ES6+ syntax highlighting, JSX support, and Prettier integration (.js, .jsx)",
                 extensions: &["js", "jsx", "mjs", "cjs"],
                 version: "1.5.0",
                 author: "Zenthra Core",
-                glyph: "\u{f031e}", // JS icon
+                glyph: "\u{e74e}", // Devicon JavaScript
                 icon_color: Color::rgb(250.0 / 255.0, 204.0 / 255.0, 21.0 / 255.0), // JS Yellow
                 features: &["Tree-sitter AST", "Prettier", "JSX Support"],
                 tools: &["prettier", "tree-sitter-javascript"],

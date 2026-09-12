@@ -12,61 +12,6 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
         .border(colors.border, 1.0)
         .column()
         .show(|ui| {
-            // Activity switcher: Files vs Extensions
-            let is_files = state.sidebar_view == crate::state::SidebarView::Explorer;
-            let ext_count = state.installed_extensions.len();
-
-            ui.container()
-                .full_width()
-                .padding(4.0, 6.0, 4.0, 6.0)
-                .row()
-                .valign(Align::Center)
-                .gap(4.0)
-                .show(|ui| {
-                    let files_btn = ui.button("📁 Files")
-                        .id(Id::from_u64(999997050))
-                        .height(24.0)
-                        .bg(if is_files { colors.accent.with_alpha(0.18) } else { Color::TRANSPARENT })
-                        .hover_bg(colors.highlight)
-                        .text_color(if is_files { colors.accent } else { colors.text_muted })
-                        .radius_all(4.0)
-                        .padding_left(8.0)
-                        .padding_right(8.0)
-                        .size(10.5)
-                        .show();
-
-                    if files_btn.clicked {
-                        state.sidebar_view = crate::state::SidebarView::Explorer;
-                        state.save_persistent_state();
-                        ui.request_redraw();
-                    }
-
-                    let ext_label = format!("🧩 Extensions ({})", ext_count);
-                    let ext_btn = ui.button(&ext_label)
-                        .id(Id::from_u64(999997051))
-                        .height(24.0)
-                        .bg(if !is_files { colors.accent.with_alpha(0.18) } else { Color::TRANSPARENT })
-                        .hover_bg(colors.highlight)
-                        .text_color(if !is_files { colors.accent } else { colors.text_muted })
-                        .radius_all(4.0)
-                        .padding_left(8.0)
-                        .padding_right(8.0)
-                        .size(10.5)
-                        .show();
-
-                    if ext_btn.clicked {
-                        state.sidebar_view = crate::state::SidebarView::Extensions;
-                        state.save_persistent_state();
-                        ui.request_redraw();
-                    }
-                });
-
-            ui.container()
-                .full_width()
-                .height(1.0)
-                .bg(colors.border)
-                .show(|_| {});
-
             if state.sidebar_view == crate::state::SidebarView::Extensions {
                 crate::ui_layout::draw_extensions_panel(ui, state);
             } else {

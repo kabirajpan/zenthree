@@ -1191,7 +1191,7 @@ mod tests {
         assert!(state.active_language_prompt.is_some());
         let prompt = state.active_language_prompt.as_ref().unwrap();
         assert_eq!(prompt.extension_id, "go");
-        assert_eq!(prompt.language_name, "Go Language Tools");
+        assert_eq!(prompt.language_name, "Go");
         assert!(!prompt.dont_show_again_checked);
 
         // User dismisses without checking "Don't ask again"

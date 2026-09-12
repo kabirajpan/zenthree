@@ -86,15 +86,15 @@ fn main() {
                     let status_bar_h = if state.status_bar_visible { 24.0 } else { 0.0 };
                     let middle_h = ui_height - 36.0 - status_bar_h;
 
-                    // Dynamically clamp sidebar and AI panel widths so all panels fit comfortably
+                    let activity_bar_w = ui_layout::ACTIVITY_BAR_WIDTH;
                     let actual_sb_w = if state.sidebar_visible {
-                        state.sidebar_width.min(ui_width * 0.4).max(120.0)
+                        state.sidebar_width.min(ui_width * 0.4).max(140.0)
                     } else {
                         0.0
                     };
 
                     let min_editor_w = 160.0;
-                    let avail_for_ai = (ui_width - actual_sb_w - min_editor_w).max(160.0);
+                    let avail_for_ai = (ui_width - activity_bar_w - actual_sb_w - min_editor_w).max(160.0);
                     let actual_ai_w = if state.ai_panel_visible {
                         state.ai_panel_width.min(avail_for_ai).max(180.0)
                     } else {
@@ -108,7 +108,7 @@ fn main() {
                         state.sidebar_width = actual_sb_w;
                     }
 
-                    let center_w = (ui_width - actual_sb_w - actual_ai_w).max(min_editor_w);
+                    let center_w = (ui_width - activity_bar_w - actual_sb_w - actual_ai_w).max(min_editor_w);
 
                     let term_h = if state.terminal_visible {
                         state.terminal_height.min(middle_h - 80.0).max(60.0)
@@ -122,7 +122,10 @@ fn main() {
                         .fill_x()
                         .height(middle_h)
                         .show(|ui| {
-                            // Left: Sidebar / File Tree
+                            // Far Left: Activity Bar (Files, Extensions, Settings)
+                            ui_layout::draw_activity_bar(ui, &mut state, middle_h);
+
+                            // Left: Sidebar / File Tree or Extensions Panel
                             if state.sidebar_visible {
                                 ui_layout::draw_sidebar(ui, &mut state);
                             }
