@@ -4854,6 +4854,7 @@ dependencies = [
 name = "zenthra-widgets"
 version = "0.2.2"
 dependencies = [
+ "arboard",
  "glam",
  "log",
  "winit",

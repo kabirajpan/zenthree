@@ -1,5 +1,5 @@
 use crate::state::ZenthreeState;
-use zenthra::{Color, Ui, Align, FontWeight, Id};
+use zenthra::{Color, Ui, Align, FontWeight, Id, CursorIcon};
 
 pub fn draw_terminal_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height: f32) {
     let colors = state.colors();
@@ -8,18 +8,23 @@ pub fn draw_terminal_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, h
     let term_id = Id::from_u64(999999800);
     let is_focused = ui.focused_id == Some(term_id);
 
-    // Top horizontal splitter for dragging terminal height
+    // ─── Top Horizontal Edge Handler (Resize Splitter) ───────────
     let splitter_h = 6.0;
+    let splitter_x = ui.cursor_x;
     let splitter_y = ui.cursor_y;
     let splitter_w = width;
     let is_splitter_hovered = ui.mouse_in_rect(
-        ui.cursor_x,
+        splitter_x,
         splitter_y - splitter_h / 2.0,
         splitter_w,
         splitter_h,
     );
 
-    if is_splitter_hovered && ui.mouse_down {
+    if is_splitter_hovered || state.active_resize_terminal {
+        ui.cursor_icon = CursorIcon::RowResize;
+    }
+
+    if is_splitter_hovered && ui.mouse_down && ui.active_drag.is_none() {
         state.active_resize_terminal = true;
     }
 
@@ -31,15 +36,60 @@ pub fn draw_terminal_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, h
             let status_bar_h = if state.status_bar_visible { 24.0 } else { 0.0 };
             let bottom_y = ui.height - status_bar_h;
             let target_h = bottom_y - ui.mouse_y;
-            state.terminal_height = target_h.clamp(80.0, (ui.height * 0.7).max(120.0));
+            state.terminal_height = target_h.clamp(70.0, (ui.height * 0.7).max(100.0));
             ui.request_redraw();
         }
     }
 
-    // Input event processing when terminal input is focused
+    // Visual feedback for horizontal edge handler
+    let edge_color = if state.active_resize_terminal {
+        colors.accent
+    } else if is_splitter_hovered {
+        colors.accent.with_alpha(0.8)
+    } else {
+        colors.border
+    };
+
+    let edge_thickness = if state.active_resize_terminal || is_splitter_hovered { 2.0 } else { 1.0 };
+    let edge_draw_y = splitter_y - edge_thickness / 2.0;
+
+    ui.draws.push(zenthra_widgets::ui::DrawCommand::Rect(zenthra_widgets::ui::RectDraw {
+        instance: zenthra_render::RectInstance {
+            pos: [splitter_x, edge_draw_y],
+            size: [splitter_w, edge_thickness],
+            color: edge_color.to_array(),
+            radius: [0.0; 4],
+            border_width: 0.0,
+            border_color: [0.0; 4],
+            clip_rect: [-10000.0, -10000.0, 20000.0, 20000.0],
+            ..Default::default()
+        },
+    }));
+
+    // Center pill grip handle when hovered or active
+    if is_splitter_hovered || state.active_resize_terminal {
+        let grip_w = 36.0;
+        let grip_h = 4.0;
+        let grip_x = splitter_x + (splitter_w - grip_w) / 2.0;
+        let grip_y = splitter_y - grip_h / 2.0;
+        ui.draws.push(zenthra_widgets::ui::DrawCommand::Rect(zenthra_widgets::ui::RectDraw {
+            instance: zenthra_render::RectInstance {
+                pos: [grip_x, grip_y],
+                size: [grip_w, grip_h],
+                color: colors.accent.to_array(),
+                radius: [2.0; 4],
+                border_width: 0.0,
+                border_color: [0.0; 4],
+                clip_rect: [-10000.0, -10000.0, 20000.0, 20000.0],
+                ..Default::default()
+            },
+        }));
+    }
+
+    // ─── Input Event Processing directly inside Terminal ─────────
     if is_focused {
+        ui.request_redraw_after(std::time::Duration::from_millis(250));
         let events = std::mem::take(&mut ui.input_events);
-        let mut trigger_send = false;
 
         for event in &events {
             match event {
@@ -51,12 +101,36 @@ pub fn draw_terminal_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, h
                 }
                 zenthra_platform::event::PlatformEvent::KeyDown { key } => {
                     match key {
+                        winit::keyboard::KeyCode::KeyC if state.ctrl_pressed => {
+                            state.send_terminal_sigint();
+                            ui.needs_redraw = true;
+                        }
+                        winit::keyboard::KeyCode::KeyL if state.ctrl_pressed => {
+                            state.clear_terminal();
+                            ui.needs_redraw = true;
+                        }
+                        winit::keyboard::KeyCode::ArrowUp => {
+                            state.terminal_history_prev();
+                            ui.needs_redraw = true;
+                        }
+                        winit::keyboard::KeyCode::ArrowDown => {
+                            state.terminal_history_next();
+                            ui.needs_redraw = true;
+                        }
                         winit::keyboard::KeyCode::Backspace => {
                             state.terminal_input.pop();
                             ui.needs_redraw = true;
                         }
                         winit::keyboard::KeyCode::Enter => {
-                            trigger_send = true;
+                            let cmd = state.terminal_input.clone();
+                            state.send_terminal_input(&cmd);
+                            ui.needs_redraw = true;
+                        }
+                        winit::keyboard::KeyCode::Tab => {
+                            if let Some(ref mut sess) = state.terminal_session {
+                                sess.write_raw(b"\t");
+                            }
+                            ui.needs_redraw = true;
                         }
                         winit::keyboard::KeyCode::Escape => {
                             ui.focused_id = None;
@@ -68,27 +142,21 @@ pub fn draw_terminal_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, h
                 _ => {}
             }
         }
-
-        if trigger_send {
-            let cmd = state.terminal_input.clone();
-            state.send_terminal_input(&cmd);
-            ui.needs_redraw = true;
-        }
     }
 
-    // Main Terminal Panel Box
+    // ─── Main Terminal Panel Box ─────────────────────────────────
     let term_panel = ui.container()
         .id(term_id)
         .width(width)
         .height(height)
         .bg(match state.theme {
-            crate::theme::ThemeMode::Dark => Color::rgb(24.0 / 255.0, 26.0 / 255.0, 27.0 / 255.0),
+            crate::theme::ThemeMode::Dark => Color::rgb(22.0 / 255.0, 24.0 / 255.0, 26.0 / 255.0),
             crate::theme::ThemeMode::Light => Color::rgb(245.0 / 255.0, 243.0 / 255.0, 235.0 / 255.0),
         })
         .border(colors.border, 1.0)
         .column()
         .show(|ui| {
-            // ─── Header Bar using SpaceBetween (Left items vs Right action buttons) ─
+            // ─── Header Bar using SpaceBetween ───────────────────────
             const HEADER_H: f32 = 28.0;
             ui.container()
                 .width(width)
@@ -99,10 +167,10 @@ pub fn draw_terminal_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, h
                 .padding_right(8.0)
                 .row()
                 .valign(Align::Center)
-                .halign(Align::SpaceBetween) // Uses SpaceBetween properly!
+                .halign(Align::SpaceBetween)
                 .no_wrap()
                 .show(|ui| {
-                    // Child 1: Left Title + Shell Badge + Command Chips
+                    // Child 1: Left Title + Shell Badge + Quick Command Chips
                     ui.container()
                         .row()
                         .valign(Align::Center)
@@ -188,7 +256,7 @@ pub fn draw_terminal_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, h
                                     .show(|_| {});
                             }
 
-                            // Command Chips (adapted to width)
+                            // Command Chips: click to execute directly in terminal
                             let chips: &[&str] = if width >= 800.0 {
                                 &["cargo check", "cargo test", "git status", "ls -la"]
                             } else if width >= 660.0 {
@@ -217,12 +285,13 @@ pub fn draw_terminal_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, h
 
                                 if chip_btn.clicked {
                                     state.send_terminal_input(chip);
+                                    ui.focused_id = Some(term_id);
                                     ui.needs_redraw = true;
                                 }
                             }
                         });
 
-                    // Child 2: Right Actions: Clear + Close (always pinned to the right edge)
+                    // Child 2: Right Actions: Clear + Close
                     ui.container()
                         .row()
                         .valign(Align::Center)
@@ -241,12 +310,7 @@ pub fn draw_terminal_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, h
                                     });
 
                                 if clear_btn.clicked {
-                                    if let Some(ref sess) = state.terminal_session {
-                                        if let Ok(mut l) = sess.lines.lock() {
-                                            l.clear();
-                                        }
-                                    }
-                                    state.terminal_lines.clear();
+                                    state.clear_terminal();
                                     ui.needs_redraw = true;
                                 }
                             } else {
@@ -265,12 +329,7 @@ pub fn draw_terminal_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, h
                                     });
 
                                 if clear_btn.clicked {
-                                    if let Some(ref sess) = state.terminal_session {
-                                        if let Ok(mut l) = sess.lines.lock() {
-                                            l.clear();
-                                        }
-                                    }
-                                    state.terminal_lines.clear();
+                                    state.clear_terminal();
                                     ui.needs_redraw = true;
                                 }
                             }
@@ -297,15 +356,24 @@ pub fn draw_terminal_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, h
                         });
                 });
 
-            // ─── Terminal Lines Output Area ──────────────────────────
-            const INPUT_H: f32 = 30.0;
-            let body_h = (height - 28.0 - INPUT_H).max(30.0);
+            // ─── Free Native Terminal Console Screen ─────────────────
+            // Directly interactive: click anywhere to focus, type freely with inline prompt & blinking cursor
+            let body_h = (height - 28.0).max(40.0);
+            let term_body_x = ui.cursor_x;
+            let term_body_y = ui.cursor_y;
 
-            ui.container()
+            let is_term_hovered = ui.mouse_in_rect(term_body_x, term_body_y, width, body_h);
+            if is_term_hovered {
+                ui.cursor_icon = CursorIcon::Text;
+            }
+
+            let body_resp = ui.container()
                 .width(width)
                 .height(body_h)
-                .padding(6.0, 8.0, 4.0, 8.0)
+                .padding(6.0, 10.0, 6.0, 10.0)
                 .column()
+                .gap(2.0)
+                .scroll_y(true)
                 .show(|ui| {
                     let lines: Vec<String> = if let Some(ref sess) = state.terminal_session {
                         if let Ok(l) = sess.lines.lock() {
@@ -317,8 +385,8 @@ pub fn draw_terminal_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, h
                         state.terminal_lines.iter().map(|l| l.text.clone()).collect()
                     };
 
-                    let line_h = 16.0;
-                    let max_visible = (body_h / line_h).floor() as usize;
+                    let line_h = 17.0;
+                    let max_visible = ((body_h - 22.0) / line_h).floor() as usize;
                     let skip = if lines.len() > max_visible {
                         lines.len() - max_visible
                     } else {
@@ -327,6 +395,7 @@ pub fn draw_terminal_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, h
 
                     let max_chars = ((width - 24.0) / 7.2).max(10.0) as usize;
 
+                    // 1. Output Lines
                     for line in lines.iter().skip(skip) {
                         let text_color = if line.starts_with('$') || line.starts_with('❯') {
                             colors.accent
@@ -351,63 +420,10 @@ pub fn draw_terminal_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, h
                             .color(text_color)
                             .show();
                     }
-                });
 
-            // ─── Input Prompt Bar (Align::SpaceBetween) ──────────────
-            ui.container()
-                .width(width)
-                .height(INPUT_H)
-                .bg(colors.bg_sidebar)
-                .border(colors.border, 1.0)
-                .padding_left(8.0)
-                .padding_right(8.0)
-                .row()
-                .valign(Align::Center)
-                .halign(Align::SpaceBetween) // Uses SpaceBetween properly!
-                .no_wrap()
-                .show(|ui| {
-                    let run_btn_w: f32 = if width >= 360.0 { 44.0 } else { 24.0 };
-                    let input_box_w = (width - 16.0 - run_btn_w - 10.0).max(40.0);
-
-                    let placeholder = if width >= 540.0 {
-                        "Type a command... (e.g. cargo check, git status, ls)"
-                    } else if width >= 380.0 {
-                        "Type a command... (e.g. cargo check)"
-                    } else if width >= 260.0 {
-                        "Type a command..."
-                    } else {
-                        ""
-                    };
-
-                    let prompt_text = if state.terminal_input.is_empty() {
-                        if is_focused { "|" } else { placeholder }
-                    } else {
-                        &state.terminal_input
-                    };
-
-                    let text_color = if state.terminal_input.is_empty() && !is_focused {
-                        colors.text_muted.with_alpha(0.5)
-                    } else {
-                        colors.text_primary
-                    };
-
-                    let max_input_chars = ((input_box_w - 24.0) / 7.2).max(8.0) as usize;
-                    let display_str = if is_focused && !state.terminal_input.is_empty() {
-                        let full = format!("{}|", prompt_text);
-                        if full.len() > max_input_chars {
-                            format!("...{}", &full[full.len().saturating_sub(max_input_chars - 3)..])
-                        } else {
-                            full
-                        }
-                    } else if prompt_text.len() > max_input_chars {
-                        format!("...{}", &prompt_text[prompt_text.len().saturating_sub(max_input_chars - 3)..])
-                    } else {
-                        prompt_text.to_string()
-                    };
-
-                    // Child 1: Input text container
-                    let input_area = ui.container()
-                        .width(input_box_w)
+                    // 2. Active Inline Command Line (Prompt + User Typed Text + Blinking Cursor)
+                    ui.container()
+                        .full_width()
                         .row()
                         .valign(Align::Center)
                         .gap(6.0)
@@ -418,57 +434,25 @@ pub fn draw_terminal_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, h
                                 .color(colors.accent)
                                 .show();
 
-                            ui.text(&display_str)
+                            let blink = if is_focused {
+                                (ui.elapsed_time * 2.2).fract() < 0.65
+                            } else {
+                                false
+                            };
+                            let cursor_char = if is_focused && blink { "█" } else if is_focused { " " } else { " " };
+                            let prompt_display = format!("{}{}", state.terminal_input, cursor_char);
+
+                            ui.text(&prompt_display)
                                 .size(11.0)
-                                .color(text_color)
+                                .color(colors.text_primary)
                                 .show();
                         });
-
-                    if input_area.clicked {
-                        ui.focused_id = Some(term_id);
-                        ui.needs_redraw = true;
-                    }
-
-                    // Child 2: Run button (pinned to right)
-                    let send_btn = if width >= 360.0 {
-                        ui.container()
-                            .width(run_btn_w)
-                            .height(22.0)
-                            .bg(colors.accent)
-                            .hover_bg(colors.highlight)
-                            .radius_all(3.0)
-                            .halign(Align::Center)
-                            .valign(Align::Center)
-                            .show(|ui| {
-                                ui.text("Run")
-                                    .size(10.0)
-                                    .weight(FontWeight::Bold)
-                                    .color(Color::WHITE)
-                                    .show();
-                            })
-                    } else {
-                        ui.container()
-                            .width(run_btn_w)
-                            .height(20.0)
-                            .bg(colors.accent)
-                            .hover_bg(colors.highlight)
-                            .radius_all(3.0)
-                            .halign(Align::Center)
-                            .valign(Align::Center)
-                            .show(|ui| {
-                                ui.text("➤")
-                                    .size(8.5)
-                                    .color(Color::WHITE)
-                                    .show();
-                            })
-                    };
-
-                    if send_btn.clicked {
-                        let cmd = state.terminal_input.clone();
-                        state.send_terminal_input(&cmd);
-                        ui.needs_redraw = true;
-                    }
                 });
+
+            if body_resp.clicked {
+                ui.focused_id = Some(term_id);
+                ui.needs_redraw = true;
+            }
         });
 
     if term_panel.clicked {

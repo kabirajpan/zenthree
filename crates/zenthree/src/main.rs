@@ -30,6 +30,37 @@ fn main() {
         .decorations(false)
         .load_font_data(font_bytes)
         .with_ui(move |ui| {
+            // Track global modifier key states from input events
+            for event in &ui.input_events {
+                match event {
+                    zenthra_platform::event::PlatformEvent::KeyDown { key } => match key {
+                        winit::keyboard::KeyCode::ShiftLeft | winit::keyboard::KeyCode::ShiftRight => {
+                            state.shift_pressed = true;
+                        }
+                        winit::keyboard::KeyCode::ControlLeft | winit::keyboard::KeyCode::ControlRight => {
+                            state.ctrl_pressed = true;
+                        }
+                        winit::keyboard::KeyCode::AltLeft | winit::keyboard::KeyCode::AltRight => {
+                            state.alt_pressed = true;
+                        }
+                        _ => {}
+                    },
+                    zenthra_platform::event::PlatformEvent::KeyUp { key } => match key {
+                        winit::keyboard::KeyCode::ShiftLeft | winit::keyboard::KeyCode::ShiftRight => {
+                            state.shift_pressed = false;
+                        }
+                        winit::keyboard::KeyCode::ControlLeft | winit::keyboard::KeyCode::ControlRight => {
+                            state.ctrl_pressed = false;
+                        }
+                        winit::keyboard::KeyCode::AltLeft | winit::keyboard::KeyCode::AltRight => {
+                            state.alt_pressed = false;
+                        }
+                        _ => {}
+                    },
+                    _ => {}
+                }
+            }
+
             // Expose the active theme flag to interaction_state so widgets can read it
             let theme_val = if state.theme == ThemeMode::Light { 1.0 } else { 0.0 };
             ui.interaction_state.insert(Id::from_u64(999999999), theme_val);

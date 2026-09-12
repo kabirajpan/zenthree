@@ -36,18 +36,18 @@ pub const ACCENT_COLOR_OPTIONS: &[(&str, &str)] = &[
 
 pub fn named_color(name: &str, mode: ThemeMode) -> Color {
     match name {
-        "yellow" => Color::rgb(255.0 / 255.0, 214.0 / 255.0, 0.0 / 255.0),
-        "blue" => Color::rgb(99.0 / 255.0, 208.0 / 255.0, 223.0 / 255.0),
-        "green" => Color::rgb(46.0 / 255.0, 204.0 / 255.0, 113.0 / 255.0),
-        "red" => Color::rgb(252.0 / 255.0, 60.0 / 255.0, 56.0 / 255.0),
-        "orange" => Color::rgb(253.0 / 255.0, 151.0 / 255.0, 31.0 / 255.0),
-        "purple" => Color::rgb(155.0 / 255.0, 89.0 / 255.0, 182.0 / 255.0),
-        "pink" => Color::rgb(236.0 / 255.0, 100.0 / 255.0, 165.0 / 255.0),
-        "turquoise" => Color::rgb(26.0 / 255.0, 188.0 / 255.0, 156.0 / 255.0),
-        "gray" => Color::rgb(136.0 / 255.0, 136.0 / 255.0, 136.0 / 255.0),
+        "yellow" => Color::rgb(250.0 / 255.0, 204.0 / 255.0, 21.0 / 255.0),
+        "blue" => Color::rgb(59.0 / 255.0, 130.0 / 255.0, 246.0 / 255.0),
+        "green" => Color::rgb(34.0 / 255.0, 197.0 / 255.0, 94.0 / 255.0),
+        "red" => Color::rgb(239.0 / 255.0, 68.0 / 255.0, 68.0 / 255.0),
+        "orange" => Color::rgb(249.0 / 255.0, 115.0 / 255.0, 22.0 / 255.0),
+        "purple" => Color::rgb(168.0 / 255.0, 85.0 / 255.0, 247.0 / 255.0),
+        "pink" => Color::rgb(236.0 / 255.0, 72.0 / 255.0, 153.0 / 255.0),
+        "turquoise" => Color::rgb(20.0 / 255.0, 184.0 / 255.0, 166.0 / 255.0),
+        "gray" => Color::rgb(148.0 / 255.0, 163.0 / 255.0, 184.0 / 255.0),
         _ => match mode {
-            ThemeMode::Dark => Color::rgb(99.0 / 255.0, 208.0 / 255.0, 223.0 / 255.0),
-            ThemeMode::Light => Color::rgb(41.0 / 255.0, 128.0 / 255.0, 185.0 / 255.0),
+            ThemeMode::Dark => Color::rgb(59.0 / 255.0, 130.0 / 255.0, 246.0 / 255.0),
+            ThemeMode::Light => Color::rgb(37.0 / 255.0, 99.0 / 255.0, 235.0 / 255.0),
         },
     }
 }
@@ -62,18 +62,18 @@ impl ThemeColors {
         let accent = named_color(accent_name, mode);
         match mode {
             ThemeMode::Dark => Self {
-                bg_base: Color::rgb(0.0 / 255.0, 0.0 / 255.0, 0.0 / 255.0),
-                bg_sidebar: Color::rgb(1.0 / 255.0, 1.0 / 255.0, 1.0 / 255.0),
-                bg_editor: Color::rgb(2.0 / 255.0, 2.0 / 255.0, 2.0 / 255.0),
-                bg_gutter: Color::rgb(2.0 / 255.0, 2.0 / 255.0, 2.0 / 255.0),
-                bg_active_tab: Color::rgb(2.0 / 255.0, 2.0 / 255.0, 2.0 / 255.0),
-                bg_inactive_tab: Color::rgb(1.0 / 255.0, 1.0 / 255.0, 1.0 / 255.0),
-                border: Color::rgb(3.0 / 255.0, 3.0 / 255.0, 3.0 / 255.0),
-                text_primary: Color::rgb(224.0 / 255.0, 224.0 / 255.0, 224.0 / 255.0),
-                text_muted: Color::rgb(136.0 / 255.0, 136.0 / 255.0, 136.0 / 255.0),
-                text_dim: Color::rgb(55.0 / 255.0, 55.0 / 255.0, 55.0 / 255.0),
+                bg_base: Color::rgb(18.0 / 255.0, 18.0 / 255.0, 18.0 / 255.0),
+                bg_sidebar: Color::rgb(24.0 / 255.0, 24.0 / 255.0, 24.0 / 255.0),
+                bg_editor: Color::rgb(30.0 / 255.0, 30.0 / 255.0, 30.0 / 255.0),
+                bg_gutter: Color::rgb(30.0 / 255.0, 30.0 / 255.0, 30.0 / 255.0),
+                bg_active_tab: Color::rgb(30.0 / 255.0, 30.0 / 255.0, 30.0 / 255.0),
+                bg_inactive_tab: Color::rgb(22.0 / 255.0, 22.0 / 255.0, 22.0 / 255.0),
+                border: Color::rgb(42.0 / 255.0, 42.0 / 255.0, 42.0 / 255.0),
+                text_primary: Color::rgb(228.0 / 255.0, 232.0 / 255.0, 240.0 / 255.0),
+                text_muted: Color::rgb(148.0 / 255.0, 155.0 / 255.0, 168.0 / 255.0),
+                text_dim: Color::rgb(82.0 / 255.0, 88.0 / 255.0, 102.0 / 255.0),
                 accent,
-                highlight: Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, 0.04),
+                highlight: Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, 0.08),
             },
             ThemeMode::Light => Self {
                 bg_base: Color::rgb(240.0 / 255.0, 240.0 / 255.0, 242.0 / 255.0),
@@ -94,11 +94,11 @@ impl ThemeColors {
 }
 
 pub const ICON_THEME_OPTIONS: &[(&str, &str)] = &[
-    ("neovim_mini", "Neovim (Mini.icons)"),
-    ("neovim", "Neovim (Devicons)"),
-    ("material", "Material Icons"),
-    ("catppuccin", "Catppuccin Mocha"),
-    ("gruvbox", "Gruvbox Plus"),
+    ("neovim_mini", "Minimalist"),
+    ("neovim", "Developer"),
+    ("material", "Material"),
+    ("catppuccin", "Pastel"),
+    ("gruvbox", "Retro"),
 ];
 
 #[derive(Clone)]

@@ -1,5 +1,5 @@
 use crate::state::ZenthreeState;
-use zenthra::{Color, Ui, Align, FontWeight, Id};
+use zenthra::{Color, Ui, Align, FontWeight, Id, CursorIcon};
 
 pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
     let colors = state.colors();
@@ -66,6 +66,11 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
                     let mut do_refresh = false;
                     let mut do_collapse = false;
 
+                    let root_name = state.current_dir.file_name()
+                        .and_then(|n| n.to_str())
+                        .unwrap_or("PROJECT")
+                        .to_uppercase();
+
                     ui.container()
                         .full_width()
                         .padding(8.0, 10.0, 6.0, 10.0)
@@ -75,7 +80,7 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
                         .no_wrap()
                         .show(|ui| {
                             // Child 1: Left Title
-                            ui.text("EXPLORER")
+                            ui.text(&root_name)
                                 .size(10.5)
                                 .weight(FontWeight::Bold)
                                 .color(colors.text_muted)
@@ -273,7 +278,7 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
                             match preset {
                                 crate::state::ExplorerPreset::ModernMinimalist => {
                                     item_container = item_container
-                                        .bg(Color::rgba(24.0 / 255.0, 75.0 / 255.0, 115.0 / 255.0, 0.85));
+                                        .bg(colors.accent.with_alpha(0.20));
                                 }
                                 _ => {
                                     item_container = item_container
@@ -285,7 +290,7 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
                                 crate::state::ExplorerPreset::ModernMinimalist => {
                                     item_container = item_container
                                         .bg(Color::TRANSPARENT)
-                                        .hover_bg(Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, 0.06));
+                                        .hover_bg(colors.highlight);
                                 }
                                 _ => {
                                     item_container = item_container
@@ -297,7 +302,7 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
 
                         let resp = item_container.show(|ui| {
                             let text_color = if is_selected {
-                                Color::WHITE
+                                colors.text_primary
                             } else if preset == crate::state::ExplorerPreset::ClassicTree && state.explorer_git_status {
                                 match node.git_status {
                                     Some(crate::state::GitStatus::Modified) => Color::rgb(238.0 / 255.0, 180.0 / 255.0, 46.0 / 255.0),
@@ -316,27 +321,31 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
                                         .color(Color::rgb(100.0 / 255.0, 100.0 / 255.0, 100.0 / 255.0))
                                         .show();
                                 } else {
-                                    // Neovim Snacks branch guide lines in Gruvbox dark4 (#7c6f64)
+                                    // Branch guide lines
                                     ui.text(&node.guide_prefix)
                                         .size(11.0)
                                         .color(Color::rgb(124.0 / 255.0, 111.0 / 255.0, 100.0 / 255.0))
                                         .show();
                                 }
                             } else {
-                                // Default: normal arrows without guidelines
-                                let indent = node.depth as f32 * 12.0;
+                                // Default (Zed style): clean indentation without guidelines
+                                let indent = node.depth as f32 * 14.0;
                                 if indent > 0.0 {
                                     ui.spacing(indent);
                                 }
-                                if is_dir {
-                                    let arrow = if node.is_expanded { "\u{f078}" } else { "\u{f054}" };
-                                    ui.text(arrow)
-                                        .size(8.5)
-                                        .color(if is_selected { Color::WHITE } else { colors.text_muted })
-                                        .show();
-                                } else {
-                                    ui.spacing(12.0);
-                                }
+                                ui.container()
+                                    .width(12.0)
+                                    .valign(Align::Center)
+                                    .halign(Align::Center)
+                                    .show(|ui| {
+                                        if is_dir {
+                                            let arrow = if node.is_expanded { "\u{f078}" } else { "\u{f054}" };
+                                            ui.text(arrow)
+                                                .size(7.5)
+                                                .color(if is_selected { colors.text_primary } else { colors.text_muted })
+                                                .show();
+                                        }
+                                    });
                             }
 
                             icon_source.show(ui, 13.0);
@@ -399,17 +408,20 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
         });
 
     // Render vertical splitter handle and capture mouse drags
-    let _split_id = Id::from_u64(999999099);
-    let splitter_x = ui.cursor_x + sidebar_w;
-    let splitter_y = ui.cursor_y;
+    let splitter_x = ui.cursor_x;
+    let splitter_y = ui.base_y;
     let status_bar_h = if state.status_bar_visible { 24.0 } else { 0.0 };
     let splitter_h = ui.height - 36.0 - status_bar_h;
 
     // Detect if mouse is hovering over 6-pixel splitter bounds
     let handle_width = 6.0;
-    let is_hovered = ui.mouse_in_rect(splitter_x - handle_width/2.0 + ui.offset_x, splitter_y + ui.offset_y, handle_width, splitter_h);
+    let is_hovered = ui.mouse_in_rect(splitter_x - handle_width / 2.0, splitter_y, handle_width, splitter_h);
 
-    if is_hovered && ui.mouse_down {
+    if is_hovered || state.active_resize_sidebar {
+        ui.cursor_icon = CursorIcon::ColResize;
+    }
+
+    if is_hovered && ui.mouse_down && ui.active_drag.is_none() {
         state.active_resize_sidebar = true;
     }
 
@@ -419,9 +431,54 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
             state.save_persistent_state();
         } else {
             // Dragging: update sidebar width
-            let target_w = ui.mouse_x - splitter_x + sidebar_w;
-            state.sidebar_width = target_w.clamp(140.0, 600.0);
+            let target_w = ui.mouse_x;
+            state.sidebar_width = target_w.clamp(140.0, (ui.width * 0.45).max(200.0));
             ui.request_redraw();
         }
+    }
+
+    // Visual feedback for edge handler
+    let edge_color = if state.active_resize_sidebar {
+        colors.accent
+    } else if is_hovered {
+        colors.accent.with_alpha(0.8)
+    } else {
+        colors.border
+    };
+
+    let edge_thickness = if state.active_resize_sidebar || is_hovered { 2.0 } else { 1.0 };
+    let edge_draw_x = splitter_x - edge_thickness / 2.0;
+
+    ui.draws.push(zenthra_widgets::ui::DrawCommand::Rect(zenthra_widgets::ui::RectDraw {
+        instance: zenthra_render::RectInstance {
+            pos: [edge_draw_x, splitter_y],
+            size: [edge_thickness, splitter_h],
+            color: edge_color.to_array(),
+            radius: [0.0; 4],
+            border_width: 0.0,
+            border_color: [0.0; 4],
+            clip_rect: [-10000.0, -10000.0, 20000.0, 20000.0],
+            ..Default::default()
+        },
+    }));
+
+    // Center pill grip handle when hovered or active
+    if is_hovered || state.active_resize_sidebar {
+        let grip_w = 4.0;
+        let grip_h = 36.0;
+        let grip_x = splitter_x - grip_w / 2.0;
+        let grip_y = splitter_y + (splitter_h - grip_h) / 2.0;
+        ui.draws.push(zenthra_widgets::ui::DrawCommand::Rect(zenthra_widgets::ui::RectDraw {
+            instance: zenthra_render::RectInstance {
+                pos: [grip_x, grip_y],
+                size: [grip_w, grip_h],
+                color: colors.accent.to_array(),
+                radius: [2.0; 4],
+                border_width: 0.0,
+                border_color: [0.0; 4],
+                clip_rect: [-10000.0, -10000.0, 20000.0, 20000.0],
+                ..Default::default()
+            },
+        }));
     }
 }

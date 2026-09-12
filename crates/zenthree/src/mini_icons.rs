@@ -1,15 +1,15 @@
 // Auto-generated Neovim mini.icons + Gruvbox palette table
 use zenthra::Color;
 
-const HL_AZURE: Color = Color { r: 99.0 / 255.0, g: 208.0 / 255.0, b: 223.0 / 255.0, a: 1.0 }; // #63d0df (high contrast punchy cyan-blue)
-const HL_BLUE: Color = Color { r: 99.0 / 255.0, g: 208.0 / 255.0, b: 223.0 / 255.0, a: 1.0 };  // #63d0df
-const HL_CYAN: Color = Color { r: 142.0 / 255.0, g: 192.0 / 255.0, b: 124.0 / 255.0, a: 1.0 };  // #8ec07c
-const HL_GREEN: Color = Color { r: 184.0 / 255.0, g: 187.0 / 255.0, b: 38.0 / 255.0, a: 1.0 };  // #b8bb26
-const HL_GREY: Color = Color { r: 168.0 / 255.0, g: 153.0 / 255.0, b: 132.0 / 255.0, a: 1.0 };  // #a89984
-const HL_ORANGE: Color = Color { r: 254.0 / 255.0, g: 128.0 / 255.0, b: 25.0 / 255.0, a: 1.0 }; // #fe8019
-const HL_PURPLE: Color = Color { r: 211.0 / 255.0, g: 134.0 / 255.0, b: 155.0 / 255.0, a: 1.0 }; // #d3869b
-const HL_RED: Color = Color { r: 251.0 / 255.0, g: 73.0 / 255.0, b: 52.0 / 255.0, a: 1.0 };     // #fb4934
-const HL_YELLOW: Color = Color { r: 250.0 / 255.0, g: 189.0 / 255.0, b: 47.0 / 255.0, a: 1.0 }; // #fabd2f
+const HL_AZURE: Color = Color { r: 56.0 / 255.0, g: 189.0 / 255.0, b: 248.0 / 255.0, a: 1.0 }; // #38bdf8 (vibrant sky azure)
+const HL_BLUE: Color = Color { r: 59.0 / 255.0, g: 130.0 / 255.0, b: 246.0 / 255.0, a: 1.0 };  // #3b82f6 (vibrant electric blue)
+const HL_CYAN: Color = Color { r: 45.0 / 255.0, g: 212.0 / 255.0, b: 191.0 / 255.0, a: 1.0 };  // #2dd4bf (vibrant teal cyan)
+const HL_GREEN: Color = Color { r: 74.0 / 255.0, g: 222.0 / 255.0, b: 128.0 / 255.0, a: 1.0 }; // #4ade80 (vibrant emerald green)
+const HL_GREY: Color = Color { r: 156.0 / 255.0, g: 163.0 / 255.0, b: 175.0 / 255.0, a: 1.0 }; // #9ca3af (cool slate grey)
+const HL_ORANGE: Color = Color { r: 251.0 / 255.0, g: 146.0 / 255.0, b: 60.0 / 255.0, a: 1.0 }; // #fb923c (vibrant warm orange)
+const HL_PURPLE: Color = Color { r: 192.0 / 255.0, g: 132.0 / 255.0, b: 252.0 / 255.0, a: 1.0 }; // #c084fc (vibrant purple)
+const HL_RED: Color = Color { r: 248.0 / 255.0, g: 113.0 / 255.0, b: 113.0 / 255.0, a: 1.0 };     // #f87171 (vibrant coral red)
+const HL_YELLOW: Color = Color { r: 250.0 / 255.0, g: 204.0 / 255.0, b: 21.0 / 255.0, a: 1.0 }; // #facc15 (vibrant amber yellow)
 
 pub fn get_mini_file_icon(file_name_lower: &str, ext_lower: &str) -> (&'static str, Color) {
     match file_name_lower {

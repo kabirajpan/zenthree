@@ -1,23 +1,28 @@
 use crate::state::ZenthreeState;
-use zenthra::{Color, Ui, Align, FontWeight, Id};
+use zenthra::{Color, Ui, Align, FontWeight, Id, CursorIcon};
 
 pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height: f32) {
     let colors = state.colors();
     let ai_panel_w = width;
     let ai_id = Id::from_u64(999999801);
-    let is_focused = ui.focused_id == Some(ai_id);
+    let ai_input_id = ui.id_from("ai_prompt_text_area");
 
     // Left vertical splitter handle for resizing panel width
     let handle_w = 6.0;
     let splitter_x = ui.cursor_x;
+    let splitter_y = ui.cursor_y;
     let is_splitter_hovered = ui.mouse_in_rect(
         splitter_x - handle_w / 2.0,
-        ui.cursor_y,
+        splitter_y,
         handle_w,
         height,
     );
 
-    if is_splitter_hovered && ui.mouse_down {
+    if is_splitter_hovered || state.active_resize_ai_panel {
+        ui.cursor_icon = CursorIcon::ColResize;
+    }
+
+    if is_splitter_hovered && ui.mouse_down && ui.active_drag.is_none() {
         state.active_resize_ai_panel = true;
     }
 
@@ -32,44 +37,49 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
         }
     }
 
-    // Input processing when AI input is focused
-    if is_focused {
-        let events = std::mem::take(&mut ui.input_events);
-        let mut trigger_send = false;
+    // Visual feedback for AI panel edge handler
+    let edge_color = if state.active_resize_ai_panel {
+        colors.accent
+    } else if is_splitter_hovered {
+        colors.accent.with_alpha(0.8)
+    } else {
+        colors.border
+    };
 
-        for event in &events {
-            match event {
-                zenthra_platform::event::PlatformEvent::CharTyped(c) => {
-                    if !state.ctrl_pressed && !state.alt_pressed && *c != '\r' && *c != '\n' && *c != '\t' && !c.is_control() {
-                        state.ai_input.push(*c);
-                        ui.needs_redraw = true;
-                    }
-                }
-                zenthra_platform::event::PlatformEvent::KeyDown { key } => {
-                    match key {
-                        winit::keyboard::KeyCode::Backspace => {
-                            state.ai_input.pop();
-                            ui.needs_redraw = true;
-                        }
-                        winit::keyboard::KeyCode::Enter => {
-                            trigger_send = true;
-                        }
-                        winit::keyboard::KeyCode::Escape => {
-                            ui.focused_id = None;
-                            ui.needs_redraw = true;
-                        }
-                        _ => {}
-                    }
-                }
-                _ => {}
-            }
-        }
+    let edge_thickness = if state.active_resize_ai_panel || is_splitter_hovered { 2.0 } else { 1.0 };
+    let edge_draw_x = splitter_x - edge_thickness / 2.0;
 
-        if trigger_send {
-            let msg = state.ai_input.clone();
-            state.send_ai_message(&msg);
-            ui.needs_redraw = true;
-        }
+    ui.draws.push(zenthra_widgets::ui::DrawCommand::Rect(zenthra_widgets::ui::RectDraw {
+        instance: zenthra_render::RectInstance {
+            pos: [edge_draw_x, splitter_y],
+            size: [edge_thickness, height],
+            color: edge_color.to_array(),
+            radius: [0.0; 4],
+            border_width: 0.0,
+            border_color: [0.0; 4],
+            clip_rect: [-10000.0, -10000.0, 20000.0, 20000.0],
+            ..Default::default()
+        },
+    }));
+
+    // Center pill grip handle when hovered or active
+    if is_splitter_hovered || state.active_resize_ai_panel {
+        let grip_w = 4.0;
+        let grip_h = 36.0;
+        let grip_x = splitter_x - grip_w / 2.0;
+        let grip_y = splitter_y + (height - grip_h) / 2.0;
+        ui.draws.push(zenthra_widgets::ui::DrawCommand::Rect(zenthra_widgets::ui::RectDraw {
+            instance: zenthra_render::RectInstance {
+                pos: [grip_x, grip_y],
+                size: [grip_w, grip_h],
+                color: colors.accent.to_array(),
+                radius: [2.0; 4],
+                border_width: 0.0,
+                border_color: [0.0; 4],
+                clip_rect: [-10000.0, -10000.0, 20000.0, 20000.0],
+                ..Default::default()
+            },
+        }));
     }
 
     // Main AI Agent Panel
@@ -324,12 +334,31 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                     }
                 });
 
-            // ─── Messages Scroll Area ────────────────────────────────
-            const INPUT_AREA_H: f32 = 82.0;
-            let msgs_h = (height - 36.0 - 28.0 - INPUT_AREA_H).max(60.0);
+            // ─── Bottom Prompt Input Height & Messages Scroll Area ─────
+            let ai_input_id = ui.id_from("ai_prompt_text_area");
+            let is_input_focused = ui.focused_id == Some(ai_input_id);
+
+            // Dynamic prompt box height: min 36.0 (~1 line), max 240.0 (~14 lines), then scrolls
+            const MIN_PROMPT_H: f32 = 36.0;
+            const MAX_PROMPT_H: f32 = 240.0;
+            let prompt_box_h = if state.ai_input.is_empty() {
+                MIN_PROMPT_H
+            } else if let Some((rect, _)) = ui.get_recorded_layout(ai_input_id) {
+                rect.size.height.clamp(MIN_PROMPT_H, MAX_PROMPT_H)
+            } else {
+                let line_count = state.ai_input.split('\n').count();
+                (line_count as f32 * 16.0 + 14.0).clamp(MIN_PROMPT_H, MAX_PROMPT_H)
+            };
+
+            const CONTEXT_BANNER_H: f32 = 28.0;
+            const CHIPS_H: f32 = 26.0;
+            let bottom_input_total_h = prompt_box_h + 16.0;
+            let msgs_h = (height - HEADER_H - CONTEXT_BANNER_H - CHIPS_H - bottom_input_total_h).max(60.0);
             let max_content_w = (ai_panel_w - 24.0).max(80.0);
 
+            let msgs_scroll_id = Id::from_u64(999999802);
             ui.container()
+                .id(msgs_scroll_id)
                 .width(ai_panel_w)
                 .height(msgs_h)
                 .padding(8.0, 8.0, 8.0, 8.0)
@@ -342,6 +371,7 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                         if msg.is_user {
                             // User Message Bubble
                             let bubble_max_w = (ai_panel_w - 36.0).max(80.0);
+                            let user_text_w = (bubble_max_w - 20.0).max(60.0);
                             ui.container()
                                 .full_width()
                                 .row()
@@ -366,13 +396,16 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                                 .show();
                                             ui.text(&msg.content)
                                                 .size(11.0)
+                                                .line_height(1.3)
                                                 .color(colors.text_primary)
-                                                .max_width(bubble_max_w - 20.0)
+                                                .max_width(user_text_w)
+                                                .wrap(zenthra_text::prelude::TextWrap::Word)
                                                 .show();
                                         });
                                 });
                         } else {
                             // Assistant Message Bubble
+                            let assistant_text_w = (max_content_w - 16.0).max(60.0);
                             ui.container()
                                 .full_width()
                                 .padding(8.0, 8.0, 8.0, 8.0)
@@ -409,17 +442,21 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                             .show(|ui| {
                                                 ui.text(&format!("🧠 {}", thoughts))
                                                     .size(9.5)
+                                                    .line_height(1.25)
                                                     .color(colors.text_muted)
-                                                    .max_width(max_content_w - 24.0)
+                                                    .max_width((max_content_w - 24.0).max(50.0))
+                                                    .wrap(zenthra_text::prelude::TextWrap::Word)
                                                     .show();
                                             });
                                     }
 
-                                    // Content text
+                                    // Content text with full word and character wrapping
                                     ui.text(&msg.content)
                                         .size(11.0)
+                                        .line_height(1.3)
                                         .color(colors.text_primary)
-                                        .max_width(max_content_w - 16.0)
+                                        .max_width(assistant_text_w)
+                                        .wrap(zenthra_text::prelude::TextWrap::Word)
                                         .show();
 
                                     // Code snippet block
@@ -438,8 +475,10 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                             .show(|ui| {
                                                 ui.text(code)
                                                     .size(10.5)
+                                                    .line_height(1.25)
                                                     .color(colors.text_primary)
-                                                    .max_width(max_content_w - 24.0)
+                                                    .max_width((max_content_w - 24.0).max(50.0))
+                                                    .wrap(zenthra_text::prelude::TextWrap::Word)
                                                     .show();
 
                                                 ui.container()
@@ -507,7 +546,7 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
 
             ui.container()
                 .width(ai_panel_w)
-                .height(26.0)
+                .height(CHIPS_H)
                 .bg(colors.bg_sidebar)
                 .border(colors.border, 1.0)
                 .padding_left(8.0)
@@ -537,107 +576,110 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                     }
                 });
 
-            // ─── Bottom Prompt Input (Responsive & SpaceBetween) ─────
+            // ─── Bottom Prompt Input (Auto-growing TextArea & Send Button) ─────
             ui.container()
                 .width(ai_panel_w)
-                .height(56.0)
+                .height(prompt_box_h + 16.0)
                 .bg(colors.bg_sidebar)
                 .border(colors.border, 1.0)
                 .padding(6.0, 8.0, 6.0, 8.0)
                 .column()
                 .gap(4.0)
                 .show(|ui| {
+                    // Enter key handling: Enter sends message, Shift+Enter inserts newline
+                    let mut trigger_send = false;
+                    if is_input_focused {
+                        ui.input_events.retain(|event| {
+                            match event {
+                                zenthra_platform::event::PlatformEvent::KeyDown { key } => {
+                                    if *key == winit::keyboard::KeyCode::Enter || *key == winit::keyboard::KeyCode::NumpadEnter {
+                                        if !state.shift_pressed {
+                                            trigger_send = true;
+                                            return false; // Consume Enter so text_area doesn't add trailing newline
+                                        }
+                                    } else if *key == winit::keyboard::KeyCode::Escape {
+                                        ui.focused_id = None;
+                                        ui.needs_redraw = true;
+                                        return false;
+                                    }
+                                }
+                                zenthra_platform::event::PlatformEvent::CharTyped(c) => {
+                                    if (*c == '\r' || *c == '\n') && !state.shift_pressed {
+                                        return false; // Consume newline character
+                                    }
+                                }
+                                _ => {}
+                            }
+                            true
+                        });
+                    }
+
                     ui.container()
                         .full_width()
                         .row()
-                        .valign(Align::Center)
+                        .valign(Align::Bottom)
                         .halign(Align::SpaceBetween)
                         .no_wrap()
+                        .gap(6.0)
                         .show(|ui| {
-                            let send_btn_w: f32 = 24.0;
+                            let send_btn_w: f32 = 28.0;
                             let avail_input_w = (ai_panel_w - 16.0 - 2.0 - send_btn_w - 6.0).max(40.0);
 
-                            let placeholder = if ai_panel_w >= 320.0 {
-                                "Ask AI assistant anything..."
-                            } else if ai_panel_w >= 240.0 {
-                                "Ask assistant..."
+                            let placeholder = if ai_panel_w >= 340.0 {
+                                "Ask AI assistant... (Shift+Enter for newline)"
+                            } else if ai_panel_w >= 260.0 {
+                                "Ask AI assistant..."
                             } else {
                                 "Ask..."
                             };
 
-                            let input_text = if state.ai_input.is_empty() {
-                                if is_focused { "|" } else { placeholder }
-                            } else {
-                                &state.ai_input
-                            };
-
-                            let text_col = if state.ai_input.is_empty() && !is_focused {
-                                colors.text_muted.with_alpha(0.5)
-                            } else {
-                                colors.text_primary
-                            };
-
-                            let max_ai_chars = ((avail_input_w - 16.0) / 7.2).max(6.0) as usize;
-                            let display = if is_focused && !state.ai_input.is_empty() {
-                                let full = format!("{}|", input_text);
-                                if full.len() > max_ai_chars {
-                                    format!("...{}", &full[full.len().saturating_sub(max_ai_chars - 3)..])
-                                } else {
-                                    full
-                                }
-                            } else if input_text.len() > max_ai_chars {
-                                format!("...{}", &input_text[input_text.len().saturating_sub(max_ai_chars - 3)..])
-                            } else {
-                                input_text.to_string()
-                            };
-
-                            // Child 1: Input text box (explicit width, never pushes siblings off)
-                            let box_resp = ui.container()
+                            // Child 1: Native Zenthra framework TextArea widget (auto-grows up to 14 lines, then scrolls)
+                            let text_res = ui.text_area(&mut state.ai_input, "ai_prompt_text_area")
                                 .width(avail_input_w)
-                                .padding(4.0, 6.0, 4.0, 6.0)
+                                .height(MIN_PROMPT_H)
+                                .max_height(MAX_PROMPT_H)
+                                .size(11.5)
+                                .line_height(1.25)
+                                .color(colors.text_primary)
                                 .bg(colors.bg_base)
-                                .border(if is_focused { colors.accent } else { colors.border }, 1.0)
+                                .border(colors.border, 1.0)
+                                .focus_border(colors.accent, 1.0)
                                 .radius_all(4.0)
-                                .row()
-                                .valign(Align::Center)
-                                .show(|ui| {
-                                    ui.text(&display)
-                                        .size(11.0)
-                                        .color(text_col)
-                                        .show();
-                                });
+                                .padding(5.0, 7.0, 5.0, 7.0)
+                                .placeholder(placeholder)
+                                .placeholder_color(colors.text_muted.with_alpha(0.5))
+                                .wrap(zenthra_text::prelude::TextWrap::Word)
+                                .submit_on_enter(true)
+                                .show();
 
-                            if box_resp.clicked {
-                                ui.focused_id = Some(ai_id);
-                                ui.needs_redraw = true;
-                            }
-
-                            // Child 2: Send button (pinned cleanly at the right edge)
-                            let send_btn = ui.container()
+                            // Child 2: Send Button (pinned to bottom-right)
+                            let send_btn = ui.button("➤")
+                                .id("ai_send_button")
                                 .width(send_btn_w)
-                                .height(24.0)
+                                .height(MIN_PROMPT_H)
                                 .bg(colors.accent)
                                 .hover_bg(colors.highlight)
+                                .text_color(Color::WHITE)
+                                .size(10.0)
                                 .radius_all(4.0)
-                                .halign(Align::Center)
-                                .valign(Align::Center)
-                                .show(|ui| {
-                                    ui.text("➤")
-                                        .size(9.0)
-                                        .color(Color::WHITE)
-                                        .show();
-                                });
+                                .padding(0.0, 0.0, 0.0, 0.0)
+                                .align(zenthra_core::Align::Center)
+                                .show();
 
-                            if send_btn.clicked {
-                                let msg = state.ai_input.clone();
-                                state.send_ai_message(&msg);
+                            if trigger_send || text_res.submitted || send_btn.clicked {
+                                let msg = state.ai_input.trim().to_string();
+                                if !msg.is_empty() {
+                                    state.send_ai_message(&msg);
+                                }
+                                state.ai_input.clear();
+                                ui.cursor_state.insert(ai_input_id, 0);
                                 ui.needs_redraw = true;
                             }
                         });
                 });
         });
 
-    if panel_container.clicked {
+    if panel_container.clicked && ui.focused_id != Some(ai_input_id) {
         ui.focused_id = Some(ai_id);
         ui.needs_redraw = true;
     }

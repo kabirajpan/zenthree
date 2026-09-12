@@ -417,6 +417,23 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                     let editor_y = ui.cursor_y;
                     let editor_w = width;
 
+                    let is_resizing = state.is_resizing();
+                    let terminal_visible = state.terminal_visible;
+                    let ai_panel_visible = state.ai_panel_visible;
+
+                    let is_near_panel_edge = (ai_panel_visible && ui.mouse_x >= editor_x + editor_w - 6.0)
+                        || (terminal_visible && ui.mouse_y >= editor_y + editor_h - 6.0)
+                        || is_resizing;
+
+                    if is_resizing {
+                        if let Some(drag) = ui.active_drag {
+                            let scrollbar_id = Id::from_u64(999997000 + active_tab_idx as u64);
+                            if drag.id == scrollbar_id {
+                                ui.active_drag = None;
+                            }
+                        }
+                    }
+
                     {
                         let tab_mut = &mut state.tabs[active_tab_idx];
                         let line_height_pixels = 20.0;
@@ -433,7 +450,7 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
 
                             let mut is_dragging = false;
                             if let Some(drag) = ui.active_drag {
-                                if drag.id == scrollbar_id {
+                                if drag.id == scrollbar_id && !is_resizing {
                                     is_dragging = true;
                                     if ui.mouse_down {
                                         let ratio = if track_h > thumb_h { max_scroll_y / (track_h - thumb_h) } else { 0.0 };
@@ -444,9 +461,11 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                                 }
                             }
 
-                            if !is_dragging && ui.clicked {
-                                let mouse_in_track = ui.mouse_x >= scrollbar_x - 6.0 && ui.mouse_x <= scrollbar_x + scrollbar_w + 6.0
-                                    && ui.mouse_y >= editor_y && ui.mouse_y <= editor_y + track_h;
+                            if !is_dragging && ui.clicked && !is_near_panel_edge && !is_resizing {
+                                let max_sb_hit_x = editor_x + editor_w - 5.0;
+                                let max_sb_hit_y = editor_y + track_h - (if terminal_visible { 6.0 } else { 0.0 });
+                                let mouse_in_track = ui.mouse_x >= scrollbar_x - 4.0 && ui.mouse_x <= max_sb_hit_x
+                                    && ui.mouse_y >= editor_y && ui.mouse_y <= max_sb_hit_y;
                                 if mouse_in_track {
                                     let thumb_y = (tab_mut.scroll_y / max_scroll_y) * (track_h - thumb_h);
                                     let thumb_y_on_screen = editor_y + thumb_y;
@@ -480,13 +499,17 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                         let is_hovered = ui.mouse_in_rect(editor_x + ui.offset_x, editor_y + ui.offset_y, editor_w, editor_h);
                         if is_hovered {
                             let mut scroll_delta_y = 0.0;
-                            for event in &ui.input_events {
+                            ui.input_events.retain(|event| {
                                 if let zenthra_platform::event::PlatformEvent::MouseWheel { delta_y, .. } = event {
                                     scroll_delta_y += *delta_y;
+                                    false
+                                } else {
+                                    true
                                 }
-                            }
+                            });
                             if scroll_delta_y != 0.0 {
-                                tab_mut.scroll_y = (tab_mut.scroll_y - scroll_delta_y * 15.0).clamp(0.0, max_scroll_y);
+                                let step = if scroll_delta_y.abs() <= 5.0 { scroll_delta_y * 38.0 } else { scroll_delta_y };
+                                tab_mut.scroll_y = (tab_mut.scroll_y - step).clamp(0.0, max_scroll_y);
                                 ui.needs_redraw = true;
                             }
                         }
@@ -502,8 +525,8 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                             let events = std::mem::take(&mut ui.input_events);
                             let mut changed = false;
 
-                            // We only care about non-MouseWheel events for typing/navigation
-                            let (_, other_events): (Vec<_>, Vec<_>) = events.into_iter().partition(|e| {
+                            // We keep MouseWheel events preserved for hovered side panels/terminal
+                            let (wheel_events, other_events): (Vec<_>, Vec<_>) = events.into_iter().partition(|e| {
                                 matches!(e, zenthra_platform::event::PlatformEvent::MouseWheel { .. })
                             });
 
@@ -638,6 +661,7 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                                 auto_scroll_to_cursor = true;
                                 ui.needs_redraw = true;
                             }
+                            ui.input_events = wheel_events;
                         }
                     }
 
@@ -834,7 +858,7 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                                                 let end_x = find_x_for_byte(&shaped, clean_text, end_byte);
 
                                                 let sel_w = (end_x - start_x).max(8.0);
-                                                let sel_color = Color::rgba(48.0 / 255.0, 120.0 / 255.0, 200.0 / 255.0, 0.35);
+                                                let sel_color = colors.accent.with_alpha(0.28);
 
                                                 ui.draws.push(DrawCommand::Rect(RectDraw {
                                                     instance: RectInstance {
@@ -965,15 +989,18 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                     // Set focus and mouse selection logic on click
                     let is_hovered = ui.mouse_in_rect(editor_x + ui.offset_x, editor_y + ui.offset_y, editor_w, editor_h);
                     if ui.clicked && is_hovered {
-                        // Avoid positioning the cursor if clicking on the scrollbar
+                        // Avoid positioning the cursor if clicking on the scrollbar or panel edges
                         let scrollbar_w = 6.0;
                         let scrollbar_x = editor_x + editor_w - scrollbar_w - 4.0;
                         let max_scroll_y = (content_h - editor_h).max(0.0);
                         let mouse_in_scrollbar = max_scroll_y > 0.0
                             && ui.mouse_x >= scrollbar_x - 6.0
                             && ui.mouse_x <= scrollbar_x + scrollbar_w + 6.0;
+                        let is_near_panel_edge = (state.ai_panel_visible && ui.mouse_x >= editor_x + editor_w - 8.0)
+                            || (state.terminal_visible && ui.mouse_y >= editor_y + editor_h - 8.0)
+                            || state.is_resizing();
 
-                        if !mouse_in_scrollbar {
+                        if !mouse_in_scrollbar && !is_near_panel_edge {
                             let tab = &mut state.tabs[active_tab_idx];
                             ui.focused_id = Some(editor_id);
                             ui.needs_redraw = true;
@@ -1118,26 +1145,26 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
 
                                         let resp = item_container.show(|ui| {
                                             let text_color = if is_selected {
-                                                Color::WHITE
+                                                colors.text_primary
                                             } else {
                                                 colors.text_primary
                                             };
 
-                                            if is_dir {
-                                                // Expand/Collapse arrow (Chevrons - exactly matching file tree)
-                                                let arrow = if node.is_expanded { "\u{f078}" } else { "\u{f054}" };
-                                                ui.text(arrow)
-                                                    .size(8.0)
-                                                    .color(if is_selected { Color::WHITE } else { colors.text_muted })
-                                                    .show();
+                                            ui.container()
+                                                .width(12.0)
+                                                .valign(Align::Center)
+                                                .halign(Align::Center)
+                                                .show(|ui| {
+                                                    if is_dir {
+                                                        let arrow = if node.is_expanded { "\u{f078}" } else { "\u{f054}" };
+                                                        ui.text(arrow)
+                                                            .size(7.5)
+                                                            .color(if is_selected { colors.text_primary } else { colors.text_muted })
+                                                            .show();
+                                                    }
+                                                });
 
-                                                icon_source.show(ui, 13.0);
-                                            } else {
-                                                // File Indent: spacing to align icon with folder icon
-                                                ui.spacing(14.0);
-
-                                                icon_source.show(ui, 13.0);
-                                            }
+                                            icon_source.show(ui, 13.0);
 
                                             ui.text(&node.name)
                                                 .size(11.5)

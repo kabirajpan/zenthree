@@ -166,6 +166,8 @@ pub struct ZenthreeState {
     pub active_resize_terminal: bool,
     pub terminal_lines: Vec<TerminalLine>,
     pub terminal_input: String,
+    pub terminal_history: Vec<String>,
+    pub terminal_history_idx: Option<usize>,
     pub ai_panel_visible: bool,
     pub ai_panel_width: f32,
     pub active_resize_ai_panel: bool,
@@ -198,8 +200,8 @@ impl ZenthreeState {
             theme: ThemeMode::Dark,
             accent_color: "blue".to_string(),
             icon_theme: "neovim_mini".to_string(),
-            explorer_preset: ExplorerPreset::NeovimSnacks,
-            explorer_tree_guides: false, // Default: normal arrows without guidelines
+            explorer_preset: ExplorerPreset::ModernMinimalist,
+            explorer_tree_guides: false, // Default: Zed style without guidelines
             explorer_filter_query: String::new(),
             explorer_search_active: false,
             explorer_git_status: true,
@@ -238,6 +240,8 @@ impl ZenthreeState {
                 },
             ],
             terminal_input: String::new(),
+            terminal_history: Vec::new(),
+            terminal_history_idx: None,
             ai_panel_visible: false,
             ai_panel_width: 340.0,
             active_resize_ai_panel: false,
@@ -836,29 +840,94 @@ impl ZenthreeState {
         }
     }
 
-    pub fn send_terminal_input(&mut self, text: &str) {
-        let trimmed = text.trim();
-        if trimmed.is_empty() {
-            return;
-        }
+    pub fn is_resizing(&self) -> bool {
+        self.active_resize_sidebar || self.active_resize_terminal || self.active_resize_ai_panel
+    }
 
+    pub fn send_terminal_input(&mut self, text: &str) {
         self.ensure_terminal_session();
 
+        let trimmed = text.trim();
+        if !trimmed.is_empty() {
+            if self.terminal_history.last().map(|s| s.as_str()) != Some(trimmed) {
+                self.terminal_history.push(trimmed.to_string());
+            }
+        }
+        self.terminal_history_idx = None;
+
         if let Some(ref mut sess) = self.terminal_session {
-            sess.write_line(trimmed);
+            sess.write_line(text);
         } else {
             self.terminal_lines.push(TerminalLine {
-                text: format!("$ {}", trimmed),
+                text: format!("$ {}", text),
                 is_command: true,
                 is_error: false,
             });
+            if !trimmed.is_empty() {
+                self.terminal_lines.push(TerminalLine {
+                    text: format!("Executed (simulated): {}", trimmed),
+                    is_command: false,
+                    is_error: false,
+                });
+            }
+        }
+        self.terminal_input.clear();
+    }
+
+    pub fn send_terminal_sigint(&mut self) {
+        if let Some(ref mut sess) = self.terminal_session {
+            sess.write_raw(b"\x03");
+        }
+        if let Some(ref sess) = self.terminal_session {
+            if let Ok(mut l) = sess.lines.lock() {
+                l.push("^C".to_string());
+            }
+        } else {
             self.terminal_lines.push(TerminalLine {
-                text: format!("Executed (simulated): {}", trimmed),
+                text: "^C".to_string(),
                 is_command: false,
                 is_error: false,
             });
         }
         self.terminal_input.clear();
+        self.terminal_history_idx = None;
+    }
+
+    pub fn clear_terminal(&mut self) {
+        if let Some(ref sess) = self.terminal_session {
+            if let Ok(mut l) = sess.lines.lock() {
+                l.clear();
+            }
+        }
+        self.terminal_lines.clear();
+        self.terminal_input.clear();
+        self.terminal_history_idx = None;
+    }
+
+    pub fn terminal_history_prev(&mut self) {
+        if self.terminal_history.is_empty() {
+            return;
+        }
+        let next_idx = match self.terminal_history_idx {
+            None => self.terminal_history.len().saturating_sub(1),
+            Some(idx) => idx.saturating_sub(1),
+        };
+        self.terminal_history_idx = Some(next_idx);
+        if let Some(cmd) = self.terminal_history.get(next_idx) {
+            self.terminal_input = cmd.clone();
+        }
+    }
+
+    pub fn terminal_history_next(&mut self) {
+        if let Some(idx) = self.terminal_history_idx {
+            if idx + 1 < self.terminal_history.len() {
+                self.terminal_history_idx = Some(idx + 1);
+                self.terminal_input = self.terminal_history[idx + 1].clone();
+            } else {
+                self.terminal_history_idx = None;
+                self.terminal_input.clear();
+            }
+        }
     }
 
     pub fn send_ai_message(&mut self, text: &str) {
@@ -920,14 +989,14 @@ mod tests {
     #[test]
     fn test_explorer_preset_defaults_and_toggles() {
         let mut state = ZenthreeState::new();
-        assert_eq!(state.explorer_preset, ExplorerPreset::NeovimSnacks);
-        // User requirement: default make the normal arrows without guidelines
+        assert_eq!(state.explorer_preset, ExplorerPreset::ModernMinimalist);
+        // Default: Zed style without guidelines
         assert!(!state.explorer_tree_guides);
         assert!(state.explorer_git_status);
         assert!(!state.explorer_show_hidden);
 
-        state.explorer_preset = ExplorerPreset::ModernMinimalist;
-        assert_eq!(state.explorer_preset, ExplorerPreset::ModernMinimalist);
+        state.explorer_preset = ExplorerPreset::NeovimSnacks;
+        assert_eq!(state.explorer_preset, ExplorerPreset::NeovimSnacks);
 
         state.explorer_preset = ExplorerPreset::ClassicTree;
         assert_eq!(state.explorer_preset, ExplorerPreset::ClassicTree);

@@ -222,23 +222,23 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                             }
                         });
 
-                        // Cascading Submenu: Explorer / File Tree
-                        ui.sub_menu("Explorer / File Tree").show(|ui| {
+                        // Cascading Submenu: File Explorer
+                        ui.sub_menu("File Explorer").show(|ui| {
                             // Presets
-                            let p_snacks = if state.explorer_preset == crate::state::ExplorerPreset::NeovimSnacks { "● " } else { "  " };
-                            if ui.menu_item(&format!("{}Preset: Neovim Snacks (LazyVim)", p_snacks)).show().clicked {
-                                state.explorer_preset = crate::state::ExplorerPreset::NeovimSnacks;
-                                state.save_persistent_state();
-                                ui.request_redraw();
-                            }
                             let p_modern = if state.explorer_preset == crate::state::ExplorerPreset::ModernMinimalist { "● " } else { "  " };
-                            if ui.menu_item(&format!("{}Preset: Modern Minimalist (Zed)", p_modern)).show().clicked {
+                            if ui.menu_item(&format!("{}Minimal", p_modern)).show().clicked {
                                 state.explorer_preset = crate::state::ExplorerPreset::ModernMinimalist;
                                 state.save_persistent_state();
                                 ui.request_redraw();
                             }
+                            let p_snacks = if state.explorer_preset == crate::state::ExplorerPreset::NeovimSnacks { "● " } else { "  " };
+                            if ui.menu_item(&format!("{}Framed Box", p_snacks)).show().clicked {
+                                state.explorer_preset = crate::state::ExplorerPreset::NeovimSnacks;
+                                state.save_persistent_state();
+                                ui.request_redraw();
+                            }
                             let p_classic = if state.explorer_preset == crate::state::ExplorerPreset::ClassicTree { "● " } else { "  " };
-                            if ui.menu_item(&format!("{}Preset: Classic Tree (Nvim-Tree)", p_classic)).show().clicked {
+                            if ui.menu_item(&format!("{}Indented Tree", p_classic)).show().clicked {
                                 state.explorer_preset = crate::state::ExplorerPreset::ClassicTree;
                                 state.save_persistent_state();
                                 ui.request_redraw();
@@ -247,20 +247,20 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                             ui.spacing(4.0);
 
                             let guide_mark = if state.explorer_tree_guides { "● " } else { "  " };
-                            if ui.menu_item(&format!("{}Tree Branch Guides (├──)", guide_mark)).show().clicked {
+                            if ui.menu_item(&format!("{}Indent Guides", guide_mark)).show().clicked {
                                 state.explorer_tree_guides = !state.explorer_tree_guides;
                                 state.save_persistent_state();
                                 ui.request_redraw();
                             }
                             let git_mark = if state.explorer_git_status { "● " } else { "  " };
-                            if ui.menu_item(&format!("{}Git Status Indicators (○)", git_mark)).show().clicked {
+                            if ui.menu_item(&format!("{}Git Badges", git_mark)).show().clicked {
                                 state.explorer_git_status = !state.explorer_git_status;
                                 state.rebuild_tree();
                                 state.save_persistent_state();
                                 ui.request_redraw();
                             }
                             let hidden_mark = if state.explorer_show_hidden { "● " } else { "  " };
-                            if ui.menu_item(&format!("{}Show Hidden Files (.*)", hidden_mark)).show().clicked {
+                            if ui.menu_item(&format!("{}Hidden Files", hidden_mark)).show().clicked {
                                 state.explorer_show_hidden = !state.explorer_show_hidden;
                                 state.rebuild_tree();
                                 state.save_persistent_state();
@@ -406,6 +406,7 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                     let left_key = Id::from_u64(999999910);
                     let left_hov = ui.interaction_state.get(&left_key).copied().unwrap_or(0.0) > 0.5;
                     let left_resp = ui.container()
+                        .clickable(true)
                         .width(22.0).height(20.0)
                         .radius_all(3.0)
                         .bg(if left_hov {
@@ -443,6 +444,7 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                     let btm_key = Id::from_u64(999999911);
                     let btm_hov = ui.interaction_state.get(&btm_key).copied().unwrap_or(0.0) > 0.5;
                     let btm_resp = ui.container()
+                        .clickable(true)
                         .width(22.0).height(20.0)
                         .radius_all(3.0)
                         .bg(if btm_hov {
@@ -484,6 +486,7 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                     let right_key = Id::from_u64(999999912);
                     let right_hov = ui.interaction_state.get(&right_key).copied().unwrap_or(0.0) > 0.5;
                     let right_resp = ui.container()
+                        .clickable(true)
                         .width(22.0).height(20.0)
                         .radius_all(3.0)
                         .bg(if right_hov {
@@ -522,6 +525,7 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                     let user_key = Id::from_u64(999999913);
                     let user_hov = ui.interaction_state.get(&user_key).copied().unwrap_or(0.0) > 0.5;
                     let user_resp = ui.container()
+                        .clickable(true)
                         .width(22.0).height(22.0)
                         .radius_all(11.0)
                         .bg(if user_hov {
@@ -566,6 +570,7 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                     let min_key = Id::from_u64(999999903);
                     let min_hov = ui.interaction_state.get(&min_key).copied().unwrap_or(0.0) > 0.5;
                     let min_resp = ui.container()
+                        .clickable(true)
                         .width(BTN_W).height(BTN_W)
                         .radius_all(BTN_W / 2.0)
                         .bg(if min_hov {
@@ -590,6 +595,7 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                     let max_key = Id::from_u64(999999904);
                     let max_hov = ui.interaction_state.get(&max_key).copied().unwrap_or(0.0) > 0.5;
                     let max_resp = ui.container()
+                        .clickable(true)
                         .width(BTN_W).height(BTN_W)
                         .radius_all(BTN_W / 2.0)
                         .bg(if max_hov {
@@ -614,6 +620,7 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                     let cls_key = Id::from_u64(999999905);
                     let cls_hov = ui.interaction_state.get(&cls_key).copied().unwrap_or(0.0) > 0.5;
                     let cls_resp = ui.container()
+                        .clickable(true)
                         .width(BTN_W).height(BTN_W)
                         .radius_all(BTN_W / 2.0)
                         .bg(if cls_hov { Color::rgb(0.85, 0.15, 0.15) } else { Color::TRANSPARENT })
