@@ -162,7 +162,7 @@ impl InstantHighlighter {
             (Regex::new(r"<!DOCTYPE[^>]*>").unwrap(), Highlight::CONSTANT),
             (Regex::new(r"<!--[^-]*-->").unwrap(), Highlight::COMMENT),
             (Regex::new(r"</?[a-zA-Z0-9_-]+").unwrap(), Highlight::KEYWORD),
-            (Regex::new(r"\b[a-zA-Z0-9_-]+(?=\=)").unwrap(), Highlight::ATTRIBUTE),
+            (Regex::new(r"\b[a-zA-Z0-9_-]+\s*=").unwrap(), Highlight::ATTRIBUTE),
             (Regex::new(r#""[^"]*"|'[^']*'"#).unwrap(), Highlight::STRING),
         ]
     }
@@ -170,7 +170,7 @@ impl InstantHighlighter {
     fn css_patterns() -> Vec<(Regex, Highlight)> {
         vec![
             (Regex::new(r"/\*[^*]*\*/").unwrap(), Highlight::COMMENT),
-            (Regex::new(r"\b[a-z-]+(?=\s*:)").unwrap(), Highlight::ATTRIBUTE),
+            (Regex::new(r"\b[a-z-]+\s*:").unwrap(), Highlight::ATTRIBUTE),
             (Regex::new(r":[a-z-]+").unwrap(), Highlight::FUNCTION),
             (Regex::new(r"#[0-9a-fA-F]{3,8}").unwrap(), Highlight::CONSTANT),
             (Regex::new(r"\b\d+\.?\d*(px|em|rem|%|vh|vw|s|ms|deg)?\b").unwrap(), Highlight::NUMBER),
@@ -190,7 +190,7 @@ impl InstantHighlighter {
     fn yaml_patterns() -> Vec<(Regex, Highlight)> {
         vec![
             (Regex::new(r"#[^\n]*").unwrap(), Highlight::COMMENT),
-            (Regex::new(r"^[ \t]*[a-zA-Z0-9_.-]+(?=\s*:)").unwrap(), Highlight::KEYWORD),
+            (Regex::new(r"^[ \t]*[a-zA-Z0-9_.-]+\s*:").unwrap(), Highlight::KEYWORD),
             (Regex::new(r"\b(true|false|null|yes|no|on|off)\b").unwrap(), Highlight::CONSTANT),
             (Regex::new(r#""[^"]*"|'[^']*'"#).unwrap(), Highlight::STRING),
             (Regex::new(r"\b\d+\.?\d*\b").unwrap(), Highlight::NUMBER),
