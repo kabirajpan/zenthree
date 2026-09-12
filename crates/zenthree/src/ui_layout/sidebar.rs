@@ -235,7 +235,7 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
             let icon_theme = crate::theme::IconTheme::new(&state.icon_theme);
             let preset = state.explorer_preset;
 
-            let scroll_padding_h = if preset == crate::state::ExplorerPreset::ModernMinimalist { 6.0 } else { 4.0 };
+            let scroll_padding_h = 0.0;
 
             ui.container()
                 .full_width()
@@ -262,10 +262,10 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
                         let is_selected = state.selected_sidebar_path.as_ref() == Some(&node.path)
                             || (!node.is_dir && active_tab_path == Some(&node.path));
 
-                        let (pad_v, pad_h, radius) = match preset {
-                            crate::state::ExplorerPreset::NeovimSnacks => (2.0, 6.0, 0.0),
-                            crate::state::ExplorerPreset::ModernMinimalist => (3.5, 6.0, 4.0),
-                            crate::state::ExplorerPreset::ClassicTree => (2.5, 6.0, 0.0),
+                        let (pad_v, pad_h) = match preset {
+                            crate::state::ExplorerPreset::NeovimSnacks => (2.0, 8.0),
+                            crate::state::ExplorerPreset::ModernMinimalist => (3.0, 8.0),
+                            crate::state::ExplorerPreset::ClassicTree => (2.5, 8.0),
                         };
 
                         let mut item_container = ui.container()
@@ -278,7 +278,7 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
                             .padding_top(pad_v)
                             .padding_bottom(pad_v)
                             .gap(4.0)
-                            .radius_all(radius);
+                            .radius_all(0.0);
 
                         if is_selected {
                             match preset {
@@ -354,9 +354,24 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
                                     });
                             }
 
+                            let indent_w = if state.explorer_tree_guides {
+                                node.guide_prefix.chars().count() as f32 * 6.5
+                            } else {
+                                (node.depth as f32 * 14.0) + 12.0
+                            };
+                            let git_w = if state.explorer_git_status && node.git_status.is_some() {
+                                24.0
+                            } else {
+                                0.0
+                            };
+                            let used_w = pad_h * 2.0 + indent_w + 13.0 + 8.0 + git_w + 10.0;
+                            let avail_w = (sidebar_w - used_w).max(24.0);
+                            let max_chars = (avail_w / 6.8).max(4.0) as usize;
+                            let display_name = truncate_filename(&node.name, max_chars);
+
                             icon_source.show(ui, 13.0);
 
-                            ui.text(&node.name)
+                            ui.text(&display_name)
                                 .size(11.5)
                                 .color(text_color)
                                 .show();
@@ -590,4 +605,55 @@ fn draw_no_folder_view(ui: &mut Ui, state: &mut ZenthreeState, sidebar_w: f32) {
                 });
         });
 }
+
+pub fn truncate_filename(name: &str, max_chars: usize) -> String {
+    let char_count = name.chars().count();
+    if char_count <= max_chars {
+        name.to_string()
+    } else if max_chars <= 4 {
+        let mut s: String = name.chars().take(max_chars.saturating_sub(1)).collect();
+        s.push('…');
+        s
+    } else {
+        if let Some(dot_pos) = name.rfind('.') {
+            let ext = &name[dot_pos..];
+            let ext_len = ext.chars().count();
+            if ext_len >= 2 && ext_len <= 6 && ext_len < max_chars.saturating_sub(2) {
+                let keep_stem = max_chars - ext_len - 1;
+                let stem: String = name.chars().take(keep_stem).collect();
+                return format!("{}…{}", stem, ext);
+            }
+        }
+        let mut s: String = name.chars().take(max_chars.saturating_sub(1)).collect();
+        s.push('…');
+        s
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_truncate_filename_short() {
+        assert_eq!(truncate_filename("main.rs", 10), "main.rs");
+        assert_eq!(truncate_filename("main.rs", 7), "main.rs");
+    }
+
+    #[test]
+    fn test_truncate_filename_long_with_extension() {
+        let truncated = truncate_filename("very_long_component_name.tsx", 14);
+        assert_eq!(truncated.chars().count(), 14);
+        assert!(truncated.ends_with(".tsx"));
+        assert!(truncated.contains('…'));
+    }
+
+    #[test]
+    fn test_truncate_filename_no_extension() {
+        let truncated = truncate_filename("very_long_folder_name", 10);
+        assert_eq!(truncated.chars().count(), 10);
+        assert_eq!(truncated, "very_long…");
+    }
+}
+
 
