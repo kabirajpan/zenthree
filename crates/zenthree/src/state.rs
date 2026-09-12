@@ -1,4 +1,5 @@
 use std::path::{Path, PathBuf};
+use std::collections::HashMap;
 use crate::theme::{ThemeMode, ThemeColors};
 use editor::buffer::Buffer;
 use editor::editor::Editor;
@@ -14,6 +15,12 @@ pub struct EditorTab {
     pub version: u64,
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum GitStatus {
+    Modified,
+    Untracked,
+}
+
 #[derive(Debug, Clone)]
 pub struct FileTreeNode {
     pub path: PathBuf,
@@ -21,6 +28,78 @@ pub struct FileTreeNode {
     pub depth: usize,
     pub is_dir: bool,
     pub is_expanded: bool,
+    #[allow(dead_code)]
+    pub is_last: bool,
+    pub guide_prefix: String,
+    pub git_status: Option<GitStatus>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum ExplorerPreset {
+    NeovimSnacks,
+    ModernMinimalist,
+    ClassicTree,
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct PersistentState {
+    #[serde(default)]
+    pub theme: Option<ThemeMode>,
+    #[serde(default)]
+    pub accent_color: Option<String>,
+    #[serde(default)]
+    pub icon_theme: Option<String>,
+    #[serde(default)]
+    pub explorer_preset: Option<ExplorerPreset>,
+    #[serde(default)]
+    pub explorer_tree_guides: Option<bool>,
+    #[serde(default)]
+    pub explorer_git_status: Option<bool>,
+    #[serde(default)]
+    pub explorer_show_hidden: Option<bool>,
+    #[serde(default)]
+    pub sidebar_visible: Option<bool>,
+    #[serde(default)]
+    pub sidebar_width: Option<f32>,
+    #[serde(default)]
+    pub status_bar_visible: Option<bool>,
+    #[serde(default)]
+    pub line_numbers_visible: Option<bool>,
+    #[serde(default)]
+    pub zoom_level: Option<f32>,
+    #[serde(default)]
+    pub current_dir: Option<PathBuf>,
+    #[serde(default)]
+    pub expanded_dirs: Vec<PathBuf>,
+    #[serde(default)]
+    pub open_tabs: Vec<PathBuf>,
+    #[serde(default)]
+    pub active_tab_path: Option<PathBuf>,
+    #[serde(default)]
+    pub recent_files: Vec<PathBuf>,
+}
+
+pub fn get_config_path() -> PathBuf {
+    if let Some(config_dir) = dirs::config_dir() {
+        let app_dir = config_dir.join("zenthree");
+        let _ = std::fs::create_dir_all(&app_dir);
+        app_dir.join("state.json")
+    } else if let Some(home_dir) = dirs::home_dir() {
+        let app_dir = home_dir.join(".config").join("zenthree");
+        let _ = std::fs::create_dir_all(&app_dir);
+        app_dir.join("state.json")
+    } else {
+        PathBuf::from(".zenthree_state.json")
+    }
+}
+
+#[derive(Clone, Debug)]
+pub struct BreadcrumbPopup {
+    pub dir_path: PathBuf,
+    pub selected_name: String,
+    pub popup_x: f32,
+    pub popup_y: f32,
+    pub expanded_dirs: std::collections::HashSet<PathBuf>,
 }
 
 pub struct ZenthreeState {
@@ -48,6 +127,17 @@ pub struct ZenthreeState {
     pub indent_calc: syntax::IndentCalculator,
     pub clipboard: Option<String>,
     pub last_cursor_activity: std::time::Instant,
+    pub active_breadcrumb_popup: Option<BreadcrumbPopup>,
+    pub selected_sidebar_path: Option<PathBuf>,
+    pub icon_theme: String,
+    pub explorer_preset: ExplorerPreset,
+    pub explorer_tree_guides: bool,
+    #[allow(dead_code)]
+    pub explorer_filter_query: String,
+    #[allow(dead_code)]
+    pub explorer_search_active: bool,
+    pub explorer_git_status: bool,
+    pub explorer_show_hidden: bool,
 }
 
 impl ZenthreeState {
@@ -72,6 +162,13 @@ impl ZenthreeState {
         let mut state = Self {
             theme: ThemeMode::Dark,
             accent_color: "blue".to_string(),
+            icon_theme: "neovim_mini".to_string(),
+            explorer_preset: ExplorerPreset::NeovimSnacks,
+            explorer_tree_guides: false, // Default: normal arrows without guidelines
+            explorer_filter_query: String::new(),
+            explorer_search_active: false,
+            explorer_git_status: true,
+            explorer_show_hidden: false,
             sidebar_visible: true,
             sidebar_width: 250.0,
             status_bar_visible: true,
@@ -94,9 +191,126 @@ impl ZenthreeState {
             indent_calc,
             clipboard: None,
             last_cursor_activity: std::time::Instant::now(),
+            active_breadcrumb_popup: None,
+            selected_sidebar_path: None,
         };
+
+        // Restore previous session state
+        state.load_persistent_state();
+
+        // If CLI argument was explicitly provided, override workspace
+        if args.len() > 1 {
+            let path = PathBuf::from(&args[1]);
+            if path.exists() {
+                state.current_dir = path;
+            }
+        }
+
         state.rebuild_tree();
         state
+    }
+
+    pub fn save_persistent_state(&self) {
+        let path = get_config_path();
+        let open_tabs: Vec<PathBuf> = self.tabs.iter()
+            .filter_map(|t| t.path.clone())
+            .collect();
+        let active_tab_path = self.active_tab
+            .and_then(|idx| self.tabs.get(idx))
+            .and_then(|t| t.path.clone());
+
+        let state = PersistentState {
+            theme: Some(self.theme),
+            accent_color: Some(self.accent_color.clone()),
+            icon_theme: Some(self.icon_theme.clone()),
+            explorer_preset: Some(self.explorer_preset),
+            explorer_tree_guides: Some(self.explorer_tree_guides),
+            explorer_git_status: Some(self.explorer_git_status),
+            explorer_show_hidden: Some(self.explorer_show_hidden),
+            sidebar_visible: Some(self.sidebar_visible),
+            sidebar_width: Some(self.sidebar_width),
+            status_bar_visible: Some(self.status_bar_visible),
+            line_numbers_visible: Some(self.line_numbers_visible),
+            zoom_level: Some(self.zoom_level),
+            current_dir: Some(self.current_dir.clone()),
+            expanded_dirs: self.expanded_dirs.iter().cloned().collect(),
+            open_tabs,
+            active_tab_path,
+            recent_files: self.recent_files.clone(),
+        };
+
+        if let Ok(json) = serde_json::to_string_pretty(&state) {
+            let _ = std::fs::write(path, json);
+        }
+    }
+
+    pub fn load_persistent_state(&mut self) {
+        let path = get_config_path();
+        if let Ok(content) = std::fs::read_to_string(&path) {
+            if let Ok(saved) = serde_json::from_str::<PersistentState>(&content) {
+                if let Some(theme) = saved.theme { self.theme = theme; }
+                if let Some(accent) = saved.accent_color { self.accent_color = accent; }
+                if let Some(icon) = saved.icon_theme { self.icon_theme = icon; }
+                if let Some(preset) = saved.explorer_preset { self.explorer_preset = preset; }
+                if let Some(guides) = saved.explorer_tree_guides { self.explorer_tree_guides = guides; }
+                if let Some(git) = saved.explorer_git_status { self.explorer_git_status = git; }
+                if let Some(hidden) = saved.explorer_show_hidden { self.explorer_show_hidden = hidden; }
+                if let Some(sb_vis) = saved.sidebar_visible { self.sidebar_visible = sb_vis; }
+                if let Some(sb_w) = saved.sidebar_width { self.sidebar_width = sb_w; }
+                if let Some(st_vis) = saved.status_bar_visible { self.status_bar_visible = st_vis; }
+                if let Some(ln_vis) = saved.line_numbers_visible { self.line_numbers_visible = ln_vis; }
+                if let Some(zoom) = saved.zoom_level { self.zoom_level = zoom; }
+                if !saved.recent_files.is_empty() { self.recent_files = saved.recent_files; }
+
+                let args: Vec<String> = std::env::args().collect();
+                if args.len() <= 1 {
+                    if let Some(saved_dir) = saved.current_dir {
+                        if saved_dir.exists() && saved_dir.is_dir() {
+                            self.current_dir = saved_dir;
+                        }
+                    }
+                }
+
+                for dir in saved.expanded_dirs {
+                    if dir.exists() {
+                        self.expanded_dirs.insert(dir);
+                    }
+                }
+
+                for tab_path in saved.open_tabs {
+                    if tab_path.exists() && tab_path.is_file() {
+                        if let Ok(content) = std::fs::read_to_string(&tab_path) {
+                            let name = tab_path.file_name()
+                                .and_then(|n| n.to_str())
+                                .unwrap_or("Untitled")
+                                .to_string();
+
+                            self.tabs.push(EditorTab {
+                                name,
+                                path: Some(tab_path.clone()),
+                                editor: Editor::new(Buffer::from_text(&content)),
+                                is_dirty: false,
+                                scroll_y: 0.0,
+                                shaping_cache: std::collections::HashMap::new(),
+                                version: 0,
+                            });
+                        }
+                    }
+                }
+
+                if !self.tabs.is_empty() {
+                    self.active_tab = Some(0);
+                    if let Some(ref active_path) = saved.active_tab_path {
+                        for (idx, tab) in self.tabs.iter().enumerate() {
+                            if tab.path.as_ref() == Some(active_path) {
+                                self.active_tab = Some(idx);
+                                break;
+                            }
+                        }
+                    }
+                }
+            }
+        }
     }
 
     pub fn colors(&self) -> ThemeColors {
@@ -106,10 +320,65 @@ impl ZenthreeState {
     pub fn rebuild_tree(&mut self) {
         self.sidebar_items.clear();
         let root = self.current_dir.clone();
-        self.scan_dir_recursive(&root, 0);
+        let git_statuses = if self.explorer_git_status {
+            self.get_git_statuses(&root)
+        } else {
+            HashMap::new()
+        };
+        let mut ancestors = Vec::new();
+        self.scan_dir_recursive(&root, 0, &mut ancestors, &git_statuses);
     }
 
-    fn scan_dir_recursive(&mut self, dir: &Path, depth: usize) {
+    fn get_git_statuses(&self, root: &Path) -> HashMap<PathBuf, GitStatus> {
+        let mut map = HashMap::new();
+        if let Ok(output) = std::process::Command::new("git")
+            .args(["status", "--porcelain", "-uall"])
+            .current_dir(root)
+            .output()
+        {
+            if output.status.success() {
+                let stdout = String::from_utf8_lossy(&output.stdout);
+                for line in stdout.lines() {
+                    if line.len() < 4 {
+                        continue;
+                    }
+                    let status_code = &line[0..2];
+                    let file_rel = line[3..].trim();
+                    let file_clean = if let Some((_, to)) = file_rel.split_once(" -> ") {
+                        to.trim()
+                    } else {
+                        file_rel
+                    };
+                    let full_path = root.join(file_clean);
+                    let status = if status_code.contains('?') {
+                        GitStatus::Untracked
+                    } else {
+                        GitStatus::Modified
+                    };
+                    
+                    map.insert(full_path.clone(), status);
+
+                    let mut current = full_path.parent();
+                    while let Some(parent) = current {
+                        if parent == root || !parent.starts_with(root) {
+                            break;
+                        }
+                        map.entry(parent.to_path_buf()).or_insert(GitStatus::Modified);
+                        current = parent.parent();
+                    }
+                }
+            }
+        }
+        map
+    }
+
+    fn scan_dir_recursive(
+        &mut self,
+        dir: &Path,
+        depth: usize,
+        ancestor_is_last: &mut Vec<bool>,
+        git_statuses: &HashMap<PathBuf, GitStatus>,
+    ) {
         if let Ok(entries) = std::fs::read_dir(dir) {
             let mut paths: Vec<_> = entries.filter_map(Result::ok).map(|e| e.path()).collect();
             // Sort: folders first, then files alphabetically
@@ -123,19 +392,42 @@ impl ZenthreeState {
                 }
             });
 
-            for path in paths {
+            // Filter out hidden files unless toggled on
+            paths.retain(|p| {
+                let name = p.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                if self.explorer_show_hidden {
+                    name != "." && name != ".."
+                } else {
+                    !name.starts_with('.') || name == ".gitignore" || name == ".github"
+                }
+            });
+
+            let total = paths.len();
+            for (i, path) in paths.into_iter().enumerate() {
                 let name = path.file_name()
                     .and_then(|n| n.to_str())
                     .unwrap_or("Unknown")
                     .to_string();
 
-                // Skip hidden files/directories to prevent scanning massive config/cache folders
-                if name.starts_with('.') {
-                    continue;
-                }
-
                 let is_dir = path.is_dir();
                 let is_expanded = is_dir && self.expanded_dirs.contains(&path);
+                let is_last = i + 1 == total;
+
+                let mut guide_prefix = String::new();
+                for &last in ancestor_is_last.iter() {
+                    if last {
+                        guide_prefix.push_str("   ");
+                    } else {
+                        guide_prefix.push_str("│  ");
+                    }
+                }
+                if is_last {
+                    guide_prefix.push_str("└─ ");
+                } else {
+                    guide_prefix.push_str("├─ ");
+                }
+
+                let git_status = git_statuses.get(&path).cloned();
 
                 self.sidebar_items.push(FileTreeNode {
                     path: path.clone(),
@@ -143,16 +435,67 @@ impl ZenthreeState {
                     depth,
                     is_dir,
                     is_expanded,
+                    is_last,
+                    guide_prefix,
+                    git_status,
                 });
 
                 if is_expanded {
-                    self.scan_dir_recursive(&path, depth + 1);
+                    ancestor_is_last.push(is_last);
+                    self.scan_dir_recursive(&path, depth + 1, ancestor_is_last, git_statuses);
+                    ancestor_is_last.pop();
                 }
             }
         }
     }
 
+    pub fn collapse_all_folders(&mut self) {
+        self.expanded_dirs.clear();
+        self.rebuild_tree();
+        self.save_persistent_state();
+    }
+
+    pub fn expand_all_folders(&mut self) {
+        fn collect_dirs(dir: &Path, acc: &mut std::collections::HashSet<PathBuf>, show_hidden: bool) {
+            if let Ok(entries) = std::fs::read_dir(dir) {
+                for entry in entries.filter_map(Result::ok) {
+                    let path = entry.path();
+                    if path.is_dir() {
+                        let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                        let allow = if show_hidden {
+                            name != "." && name != ".."
+                        } else {
+                            !name.starts_with('.') || name == ".github"
+                        };
+                        if allow {
+                            acc.insert(path.clone());
+                            collect_dirs(&path, acc, show_hidden);
+                        }
+                    }
+                }
+            }
+        }
+        collect_dirs(&self.current_dir, &mut self.expanded_dirs, self.explorer_show_hidden);
+        self.rebuild_tree();
+        self.save_persistent_state();
+    }
+
+    pub fn new_file_in_workspace(&mut self) {
+        let mut idx = 1;
+        let mut target_path = self.current_dir.join("untitled.txt");
+        while target_path.exists() {
+            idx += 1;
+            target_path = self.current_dir.join(format!("untitled_{}.txt", idx));
+        }
+        if std::fs::write(&target_path, "").is_ok() {
+            self.rebuild_tree();
+            self.open_file(&target_path);
+            self.status_message = format!("Created {}", target_path.file_name().unwrap().to_string_lossy());
+        }
+    }
+
     pub fn open_file(&mut self, path: &Path) {
+        self.selected_sidebar_path = Some(path.to_path_buf());
         if let Ok(content) = std::fs::read_to_string(path) {
             let name = path.file_name()
                 .and_then(|n| n.to_str())
@@ -171,6 +514,7 @@ impl ZenthreeState {
                 if tab.path.as_ref() == Some(&path.to_path_buf()) {
                     self.active_tab = Some(idx);
                     self.status_message = format!("Switched to {}", name);
+                    self.save_persistent_state();
                     return;
                 }
             }
@@ -186,6 +530,7 @@ impl ZenthreeState {
             });
             self.active_tab = Some(self.tabs.len() - 1);
             self.status_message = format!("Opened file: {}", path.display());
+            self.save_persistent_state();
         } else {
             self.status_message = format!("Failed to open file: {}", path.display());
         }
@@ -359,6 +704,7 @@ impl ZenthreeState {
                 }
             }
             self.status_message = "Tab closed".to_string();
+            self.save_persistent_state();
         }
     }
 
@@ -406,3 +752,64 @@ impl ZenthreeState {
         }
     }
 }
+
+impl Drop for ZenthreeState {
+    fn drop(&mut self) {
+        self.save_persistent_state();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_explorer_preset_defaults_and_toggles() {
+        let mut state = ZenthreeState::new();
+        assert_eq!(state.explorer_preset, ExplorerPreset::NeovimSnacks);
+        // User requirement: default make the normal arrows without guidelines
+        assert!(!state.explorer_tree_guides);
+        assert!(state.explorer_git_status);
+        assert!(!state.explorer_show_hidden);
+
+        state.explorer_preset = ExplorerPreset::ModernMinimalist;
+        assert_eq!(state.explorer_preset, ExplorerPreset::ModernMinimalist);
+
+        state.explorer_preset = ExplorerPreset::ClassicTree;
+        assert_eq!(state.explorer_preset, ExplorerPreset::ClassicTree);
+
+        state.explorer_show_hidden = true;
+        assert!(state.explorer_show_hidden);
+    }
+
+    #[test]
+    fn test_collapse_all_folders() {
+        let mut state = ZenthreeState::new();
+        state.expanded_dirs.insert(PathBuf::from("/tmp/test_dir"));
+        assert!(!state.expanded_dirs.is_empty());
+
+        state.collapse_all_folders();
+        assert!(state.expanded_dirs.is_empty());
+    }
+
+    #[test]
+    fn test_persistent_state_roundtrip() {
+        let tmp_dir = std::env::temp_dir().join("zenthree_test_state");
+        let _ = std::fs::create_dir_all(&tmp_dir);
+        let test_file = tmp_dir.join("test_file.txt");
+        let _ = std::fs::write(&test_file, "hello persistence");
+
+        let mut state = ZenthreeState::new();
+        state.icon_theme = "catppuccin".to_string();
+        state.explorer_preset = ExplorerPreset::ClassicTree;
+        state.open_file(&test_file);
+
+        assert_eq!(state.icon_theme, "catppuccin");
+        assert_eq!(state.explorer_preset, ExplorerPreset::ClassicTree);
+        assert!(state.tabs.iter().any(|t| t.path.as_ref() == Some(&test_file)));
+
+        // Clean up
+        let _ = std::fs::remove_dir_all(tmp_dir);
+    }
+}
+

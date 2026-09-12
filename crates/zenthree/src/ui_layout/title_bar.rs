@@ -1,5 +1,5 @@
 use crate::state::ZenthreeState;
-use crate::theme::{ThemeMode, ACCENT_COLOR_OPTIONS};
+use crate::theme::{ThemeMode, ACCENT_COLOR_OPTIONS, ICON_THEME_OPTIONS};
 use zenthra::{Color, Ui, FontWeight, Align, Id};
 
 pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
@@ -126,6 +126,7 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
 
                         ui.spacing(4.0);
                         if ui.menu_item("Exit").show().clicked {
+                            state.save_persistent_state();
                             ui.close();
                         }
                     });
@@ -204,16 +205,80 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                             let sb_mark = if state.sidebar_visible { "● " } else { "  " };
                             if ui.menu_item(&format!("{}Sidebar", sb_mark)).shortcut("Ctrl+B").show().clicked {
                                 state.sidebar_visible = !state.sidebar_visible;
+                                state.save_persistent_state();
                                 ui.request_redraw();
                             }
                             let st_mark = if state.status_bar_visible { "● " } else { "  " };
                             if ui.menu_item(&format!("{}Status Bar", st_mark)).show().clicked {
                                 state.status_bar_visible = !state.status_bar_visible;
+                                state.save_persistent_state();
                                 ui.request_redraw();
                             }
                             let ln_mark = if state.line_numbers_visible { "● " } else { "  " };
                             if ui.menu_item(&format!("{}Line Numbers", ln_mark)).show().clicked {
                                 state.line_numbers_visible = !state.line_numbers_visible;
+                                state.save_persistent_state();
+                                ui.request_redraw();
+                            }
+                        });
+
+                        // Cascading Submenu: Explorer / File Tree
+                        ui.sub_menu("Explorer / File Tree").show(|ui| {
+                            // Presets
+                            let p_snacks = if state.explorer_preset == crate::state::ExplorerPreset::NeovimSnacks { "● " } else { "  " };
+                            if ui.menu_item(&format!("{}Preset: Neovim Snacks (LazyVim)", p_snacks)).show().clicked {
+                                state.explorer_preset = crate::state::ExplorerPreset::NeovimSnacks;
+                                state.save_persistent_state();
+                                ui.request_redraw();
+                            }
+                            let p_modern = if state.explorer_preset == crate::state::ExplorerPreset::ModernMinimalist { "● " } else { "  " };
+                            if ui.menu_item(&format!("{}Preset: Modern Minimalist (Zed)", p_modern)).show().clicked {
+                                state.explorer_preset = crate::state::ExplorerPreset::ModernMinimalist;
+                                state.save_persistent_state();
+                                ui.request_redraw();
+                            }
+                            let p_classic = if state.explorer_preset == crate::state::ExplorerPreset::ClassicTree { "● " } else { "  " };
+                            if ui.menu_item(&format!("{}Preset: Classic Tree (Nvim-Tree)", p_classic)).show().clicked {
+                                state.explorer_preset = crate::state::ExplorerPreset::ClassicTree;
+                                state.save_persistent_state();
+                                ui.request_redraw();
+                            }
+
+                            ui.spacing(4.0);
+
+                            let guide_mark = if state.explorer_tree_guides { "● " } else { "  " };
+                            if ui.menu_item(&format!("{}Tree Branch Guides (├──)", guide_mark)).show().clicked {
+                                state.explorer_tree_guides = !state.explorer_tree_guides;
+                                state.save_persistent_state();
+                                ui.request_redraw();
+                            }
+                            let git_mark = if state.explorer_git_status { "● " } else { "  " };
+                            if ui.menu_item(&format!("{}Git Status Indicators (○)", git_mark)).show().clicked {
+                                state.explorer_git_status = !state.explorer_git_status;
+                                state.rebuild_tree();
+                                state.save_persistent_state();
+                                ui.request_redraw();
+                            }
+                            let hidden_mark = if state.explorer_show_hidden { "● " } else { "  " };
+                            if ui.menu_item(&format!("{}Show Hidden Files (.*)", hidden_mark)).show().clicked {
+                                state.explorer_show_hidden = !state.explorer_show_hidden;
+                                state.rebuild_tree();
+                                state.save_persistent_state();
+                                ui.request_redraw();
+                            }
+
+                            ui.spacing(4.0);
+
+                            if ui.menu_item("Collapse All Folders").show().clicked {
+                                state.collapse_all_folders();
+                                ui.request_redraw();
+                            }
+                            if ui.menu_item("Expand All Folders").show().clicked {
+                                state.expand_all_folders();
+                                ui.request_redraw();
+                            }
+                            if ui.menu_item("Refresh Explorer").shortcut("F5").show().clicked {
+                                state.rebuild_tree();
                                 ui.request_redraw();
                             }
                         });
@@ -256,12 +321,14 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                             if ui.menu_item(&format!("{}Dark Theme", dark_mark)).show().clicked {
                                 state.theme = ThemeMode::Dark;
                                 state.highlighter = syntax::SyntaxHighlighter::new(syntax::SyntaxTheme::dark());
+                                state.save_persistent_state();
                                 ui.request_redraw();
                             }
                             let light_mark = if state.theme == ThemeMode::Light { "● " } else { "  " };
                             if ui.menu_item(&format!("{}Light Theme", light_mark)).show().clicked {
                                 state.theme = ThemeMode::Light;
                                 state.highlighter = syntax::SyntaxHighlighter::new(syntax::SyntaxTheme::light());
+                                state.save_persistent_state();
                                 ui.request_redraw();
                             }
                         });
@@ -277,6 +344,25 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                                 };
                                 if ui.menu_item(&label).show().clicked {
                                     state.accent_color = color_id.to_string();
+                                    state.save_persistent_state();
+                                    ui.request_redraw();
+                                }
+                            }
+                        });
+
+                        // Cascading Submenu: File Icon Theme
+                        ui.sub_menu("File Icon Theme").show(|ui| {
+                            for (theme_id, theme_name) in ICON_THEME_OPTIONS {
+                                let is_active = state.icon_theme == *theme_id;
+                                let label = if is_active {
+                                    format!("● {}", theme_name)
+                                } else {
+                                    format!("  {}", theme_name)
+                                };
+                                if ui.menu_item(&label).show().clicked {
+                                    state.icon_theme = theme_id.to_string();
+                                    state.status_message = format!("Icon theme: {}", theme_name);
+                                    state.save_persistent_state();
                                     ui.request_redraw();
                                 }
                             }
@@ -393,6 +479,7 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                     let prev = ui.interaction_state.insert(cls_key, if h { 1.0 } else { 0.0 });
                     if prev != Some(if h { 1.0 } else { 0.0 }) { ui.needs_redraw = true; }
                     if cls_resp.clicked {
+                        state.save_persistent_state();
                         ui.close();
                     }
                 });

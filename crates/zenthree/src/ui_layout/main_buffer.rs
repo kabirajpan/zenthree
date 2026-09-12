@@ -1,5 +1,6 @@
+use std::path::PathBuf;
 use crate::state::ZenthreeState;
-use zenthra::{Color, Ui, Align, FontWeight, Id, ObjectFit};
+use zenthra::{Color, Ui, Align, FontWeight, Id};
 use zenthra_widgets::ui::{DrawCommand, TextDraw, RectDraw, ScrollDrag};
 use zenthra_render::RectInstance;
 use zenthra_text::prelude::{CosmicFontProvider, TextOptions, ShapedBuffer};
@@ -93,15 +94,13 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState) {
                             let bg = if is_active { colors.bg_active_tab } else { colors.bg_inactive_tab };
                             let text_color = if is_active { colors.text_primary } else { colors.text_muted };
 
-                            let icon_theme = crate::theme::IconTheme::new("gruvbox");
+                            let icon_theme = crate::theme::IconTheme::new(&state.icon_theme);
                             let icon_source = if let Some(ref path) = state.tabs[idx].path {
-                                let ext = path.extension()
-                                    .and_then(|e| e.to_str())
-                                    .unwrap_or("")
-                                    .to_lowercase();
-                                icon_theme.get_icon_source("text", &ext)
+                                let fname = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                                icon_theme.get_icon_for_file(fname, Some(path))
                             } else {
-                                icon_theme.get_icon_source("text", "")
+                                let name = &state.tabs[idx].name;
+                                icon_theme.get_icon_for_file(name, None)
                             };
 
                             let mut close_clicked = false;
@@ -118,10 +117,7 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState) {
                                 .padding_right(6.0)
                                 .hover_bg(colors.highlight)
                                 .show(|ui| {
-                                    ui.image(icon_source)
-                                        .size(12.0, 12.0)
-                                        .fit(ObjectFit::Contain)
-                                        .show();
+                                    icon_source.show(ui, 12.0);
 
                                     ui.text(&tab_name)
                                         .size(11.0)
@@ -174,11 +170,23 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState) {
                     });
 
                 let path_bar_h = 22.0;
+                let mut segment_clicked_this_frame = false;
 
-                // ─── Breadcrumb / File Path Bar (below buffer tabs) ──────────
+                // ─── Interactive Breadcrumb / File Path Bar (below buffer tabs) ──
                 if active_tab_idx < state.tabs.len() {
                     let tab = &state.tabs[active_tab_idx];
-                    let display_path = if let Some(ref file_path) = tab.path {
+                    let icon_theme = crate::theme::IconTheme::new(&state.icon_theme);
+
+                    struct BreadcrumbSegment {
+                        name: String,
+                        full_path: PathBuf,
+                        #[allow(dead_code)]
+                        is_dir: bool,
+                    }
+
+                    let mut segments: Vec<BreadcrumbSegment> = Vec::new();
+
+                    if let Some(ref file_path) = tab.path {
                         let rel_opt = file_path.strip_prefix(&state.current_dir).ok().map(|p| p.to_path_buf())
                             .or_else(|| {
                                 if let (Ok(can_file), Ok(can_dir)) = (file_path.canonicalize(), state.current_dir.canonicalize()) {
@@ -186,54 +194,167 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState) {
                                 } else {
                                     None
                                 }
+                            })
+                            .or_else(|| {
+                                if file_path.is_relative() {
+                                    let full = state.current_dir.join(file_path);
+                                    if let (Ok(can_file), Ok(can_dir)) = (full.canonicalize(), state.current_dir.canonicalize()) {
+                                        return can_file.strip_prefix(can_dir).ok().map(|p| p.to_path_buf());
+                                    }
+                                }
+                                None
                             });
 
+                        let project_name = state.current_dir
+                            .file_name()
+                            .and_then(|n| n.to_str())
+                            .unwrap_or("");
+
                         if let Some(rel) = rel_opt {
-                            let rel_str = rel.to_string_lossy();
-                            if rel_str.is_empty() {
-                                tab.name.clone()
+                            let clean_rel = if !project_name.is_empty() {
+                                rel.strip_prefix(project_name).unwrap_or(&rel)
                             } else {
-                                rel_str.to_string()
+                                &rel
+                            };
+
+                            let mut cur_path = state.current_dir.clone();
+                            let components: Vec<_> = clean_rel.components().collect();
+                            let comp_count = components.len();
+
+                            for (i, comp) in components.into_iter().enumerate() {
+                                let comp_str = comp.as_os_str().to_string_lossy().to_string();
+                                cur_path.push(&comp_str);
+                                let is_last = i == comp_count - 1;
+                                segments.push(BreadcrumbSegment {
+                                    name: comp_str,
+                                    full_path: cur_path.clone(),
+                                    is_dir: !is_last,
+                                });
                             }
                         } else {
-                            file_path.to_string_lossy().to_string()
+                            segments.push(BreadcrumbSegment {
+                                name: tab.name.clone(),
+                                full_path: file_path.clone(),
+                                is_dir: false,
+                            });
                         }
-                    } else {
-                        tab.name.clone()
-                    };
+                    }
 
-                    let icon_theme = crate::theme::IconTheme::new("gruvbox");
-                    let icon_source = if let Some(ref path) = tab.path {
-                        let ext = path.extension()
-                            .and_then(|e| e.to_str())
-                            .unwrap_or("")
-                            .to_lowercase();
-                        icon_theme.get_icon_source("text", &ext)
-                    } else {
-                        icon_theme.get_icon_source("text", "")
-                    };
+                    if segments.is_empty() {
+                        segments.push(BreadcrumbSegment {
+                            name: tab.name.clone(),
+                            full_path: tab.path.clone().unwrap_or_default(),
+                            is_dir: false,
+                        });
+                    }
 
-                    ui.container()
+                    let is_scrolled = tab.scroll_y > 0.5;
+                    let path_bar_bottom = ui.cursor_y + path_bar_h;
+
+                    let mut path_container = ui.container()
                         .full_width()
                         .height(path_bar_h)
-                        .bg(colors.bg_inactive_tab)
-                        .border(colors.border, 1.0)
+                        .bg(colors.bg_editor)
                         .row()
                         .valign(Align::Center)
-                        .gap(6.0)
                         .padding_left(12.0)
                         .padding_right(12.0)
-                        .show(|ui| {
-                            ui.image(icon_source)
-                                .size(12.0, 12.0)
-                                .fit(ObjectFit::Contain)
-                                .show();
+                        .gap(4.0);
 
-                            ui.text(&display_path)
-                                .size(11.0)
-                                .color(colors.text_muted)
-                                .show();
-                        });
+                    if is_scrolled {
+                        let shadow_col = if state.theme == crate::theme::ThemeMode::Dark {
+                            Color::rgba(0.0, 0.0, 0.0, 0.5)
+                        } else {
+                            Color::rgba(0.0, 0.0, 0.0, 0.15)
+                        };
+                        path_container = path_container.shadow(shadow_col, 0.0, 1.5, 4.0);
+                    }
+
+                    let mut segment_clicked: Option<(usize, f32)> = None;
+
+                    path_container.show(|ui| {
+                        let total_segs = segments.len();
+                        for (idx, seg) in segments.iter().enumerate() {
+                            let is_last = idx == total_segs - 1;
+                            let seg_id = Id::from_u64(999998000 + (active_tab_idx as u64 * 100) + idx as u64);
+
+                            let is_open = state.active_breadcrumb_popup.as_ref().map(|p| {
+                                p.selected_name == seg.name
+                            }).unwrap_or(false);
+
+                            let seg_x = ui.cursor_x;
+
+                            let seg_resp = ui.container()
+                                .id(seg_id)
+                                .row()
+                                .valign(Align::Center)
+                                .gap(4.0)
+                                .radius_all(0.0)
+                                .padding(2.0, 4.0, 2.0, 4.0)
+                                .hover_bg(colors.highlight)
+                                .bg(if is_open { colors.highlight } else { Color::TRANSPARENT })
+                                .show(|ui| {
+                                    if is_last {
+                                        let fname = tab.path.as_ref()
+                                            .and_then(|p| p.file_name())
+                                            .and_then(|n| n.to_str())
+                                            .unwrap_or(&seg.name);
+                                        let file_icon_source = icon_theme.get_icon_for_file(fname, tab.path.as_deref());
+
+                                        file_icon_source.show(ui, 11.5);
+
+                                        ui.text(&seg.name)
+                                            .size(11.5)
+                                            .color(colors.text_primary)
+                                            .show();
+                                    } else {
+                                        ui.text(&seg.name)
+                                            .size(11.5)
+                                            .color(colors.text_muted)
+                                            .show();
+                                    }
+                                });
+
+                            if seg_resp.clicked {
+                                segment_clicked = Some((idx, seg_x));
+                            }
+
+                            if !is_last {
+                                ui.text("\u{f054}")
+                                    .size(8.0)
+                                    .color(colors.text_muted)
+                                    .show();
+                            }
+                        }
+                    });
+
+                    // Handle segment click to open/toggle popup
+                    if let Some((idx, seg_x)) = segment_clicked {
+                        segment_clicked_this_frame = true;
+                        let seg = &segments[idx];
+                        let target_dir = if seg.is_dir {
+                            seg.full_path.clone()
+                        } else {
+                            seg.full_path.parent().unwrap_or(&state.current_dir).to_path_buf()
+                        };
+
+                        let is_already_open = state.active_breadcrumb_popup.as_ref()
+                            .map(|p| p.dir_path == target_dir && p.selected_name == seg.name)
+                            .unwrap_or(false);
+
+                        if is_already_open {
+                            state.active_breadcrumb_popup = None;
+                        } else {
+                            state.active_breadcrumb_popup = Some(crate::state::BreadcrumbPopup {
+                                dir_path: target_dir,
+                                selected_name: seg.name.clone(),
+                                popup_x: seg_x,
+                                popup_y: path_bar_bottom + 1.0,
+                                expanded_dirs: std::collections::HashSet::new(),
+                            });
+                        }
+                        ui.request_redraw();
+                    }
                 }
 
                 // ─── Editor Area ────────────────────────────────────────────
@@ -370,6 +491,8 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState) {
                         }
                     }
 
+                    let mut auto_scroll_to_cursor = false;
+
                     {
                         let tab = &mut state.tabs[active_tab_idx];
 
@@ -442,6 +565,18 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState) {
                                                 }
                                                 changed = true;
                                             }
+                                            winit::keyboard::KeyCode::PageUp => {
+                                                for _ in 0..10 {
+                                                    tab.editor.move_up();
+                                                }
+                                                changed = true;
+                                            }
+                                            winit::keyboard::KeyCode::PageDown => {
+                                                for _ in 0..10 {
+                                                    tab.editor.move_down();
+                                                }
+                                                changed = true;
+                                            }
                                             winit::keyboard::KeyCode::Home => {
                                                 if state.shift_pressed {
                                                     tab.editor.extend_selection_to_line_start();
@@ -499,6 +634,7 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState) {
                                 tab.is_dirty = true;
                                 tab.version += 1;
                                 tab.shaping_cache.clear();
+                                auto_scroll_to_cursor = true;
                                 ui.needs_redraw = true;
                             }
                         }
@@ -510,18 +646,22 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState) {
                     }
                     if cut_action {
                         state.cut_selection();
+                        auto_scroll_to_cursor = true;
                         ui.request_redraw();
                     }
                     if paste_action {
                         state.paste_clipboard();
+                        auto_scroll_to_cursor = true;
                         ui.request_redraw();
                     }
                     if undo_action {
                         state.undo_active_tab();
+                        auto_scroll_to_cursor = true;
                         ui.request_redraw();
                     }
                     if redo_action {
                         state.redo_active_tab();
+                        auto_scroll_to_cursor = true;
                         ui.request_redraw();
                     }
                     if save_tab {
@@ -549,16 +689,18 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState) {
 
                     let tab_mut = &mut state.tabs[active_tab_idx];
 
-                    // Auto-scroll viewport so cursor row is always visible
-                    let cursor_row = tab_mut.editor.cursor().row;
-                    let cursor_top = cursor_row as f32 * line_height_pixels;
-                    let cursor_bottom = cursor_top + line_height_pixels;
+                    // Auto-scroll viewport so cursor row is visible ONLY when navigating/typing
+                    if auto_scroll_to_cursor {
+                        let cursor_row = tab_mut.editor.cursor().row;
+                        let cursor_top = cursor_row as f32 * line_height_pixels;
+                        let cursor_bottom = cursor_top + line_height_pixels;
 
-                    if cursor_top < tab_mut.scroll_y {
-                        tab_mut.scroll_y = cursor_top;
-                    } else if cursor_bottom > tab_mut.scroll_y + editor_h - 10.0 {
-                        let max_scroll = (content_h - editor_h).max(0.0);
-                        tab_mut.scroll_y = (cursor_bottom - editor_h + 10.0).clamp(0.0, max_scroll);
+                        if cursor_top < tab_mut.scroll_y {
+                            tab_mut.scroll_y = cursor_top;
+                        } else if cursor_bottom > tab_mut.scroll_y + editor_h - 10.0 {
+                            let max_scroll = (content_h - editor_h).max(0.0);
+                            tab_mut.scroll_y = (cursor_bottom - editor_h + 10.0).clamp(0.0, max_scroll);
+                        }
                     }
 
                     let scroll_y = tab_mut.scroll_y;
@@ -614,18 +756,6 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState) {
                                         pos: [editor_x, editor_y],
                                         size: [gutter_w, editor_h],
                                         color: colors.bg_gutter.to_array(),
-                                        radius: [0.0; 4],
-                                        clip_rect: clip,
-                                        ..Default::default()
-                                    }
-                                }));
-
-                                // 2. Draw border separator
-                                ui.draws.push(DrawCommand::Rect(RectDraw {
-                                    instance: RectInstance {
-                                        pos: [editor_x + gutter_w - 1.0, editor_y],
-                                        size: [1.0, editor_h],
-                                        color: colors.border.to_array(),
                                         radius: [0.0; 4],
                                         clip_rect: clip,
                                         ..Default::default()
@@ -806,6 +936,27 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState) {
                                 }));
                             }
 
+                            // Draw drop-shadow overlay at top of editor when scrolled
+                            if scroll_y > 0.5 {
+                                let shadow_col = if state.theme == crate::theme::ThemeMode::Dark {
+                                    [0.0, 0.0, 0.0, 0.55]
+                                } else {
+                                    [0.0, 0.0, 0.0, 0.15]
+                                };
+                                ui.draws.push(DrawCommand::Rect(RectDraw {
+                                    instance: RectInstance {
+                                        pos: [editor_x, editor_y],
+                                        size: [editor_w, 1.0],
+                                        color: [0.0, 0.0, 0.0, 0.0],
+                                        shadow_color: shadow_col,
+                                        shadow_offset: [0.0, 1.0],
+                                        shadow_blur: 3.0,
+                                        clip_rect: clip,
+                                        ..Default::default()
+                                    },
+                                }));
+                            }
+
                             // Advance the layout in immediate-mode container context
                             ui.advance(editor_w, editor_h, draw_start);
                         });
@@ -866,8 +1017,214 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState) {
                         }
                     }
                 }
+
+                // ─── Render Breadcrumb Dropdown Popup Overlay ─────────────────
+                if let Some(popup) = state.active_breadcrumb_popup.clone() {
+                    let mut file_to_open = None;
+                    let mut toggle_dir_path = None;
+                    let mut dismiss_popup = false;
+
+                    let mut items: Vec<crate::state::FileTreeNode> = Vec::new();
+                    collect_popup_tree(&popup.dir_path, 0, &popup.expanded_dirs, &mut items);
+
+                    let popup_w = 260.0;
+                    let row_h = 24.0;
+                    let max_h = 320.0;
+                    let popup_h = (items.len() as f32 * (row_h + 2.0) + 12.0).clamp(36.0, max_h);
+
+                    let mut px = popup.popup_x;
+                    if px + popup_w > ui.width - 8.0 {
+                        px = (ui.width - popup_w - 8.0).max(8.0);
+                    }
+                    px = px.max(8.0);
+                    let py = popup.popup_y;
+
+                    let is_mouse_inside = ui.mouse_x >= px && ui.mouse_x <= px + popup_w
+                        && ui.mouse_y >= py && ui.mouse_y <= py + popup_h;
+
+                    // Dismiss if clicking outside popup and not on breadcrumb segment
+                    if ui.clicked && !is_mouse_inside && !segment_clicked_this_frame {
+                        dismiss_popup = true;
+                    }
+
+                    let icon_theme = crate::theme::IconTheme::new(&state.icon_theme);
+                    let popup_bg = colors.bg_sidebar;
+
+                    let popup_id = Id::from_u64(999998888);
+
+                    ui.overlay(|ui| {
+                        ui.container()
+                            .raw_id(popup_id)
+                            .absolute(px, py)
+                            .overlay()
+                            .width(popup_w)
+                            .height(popup_h)
+                            .scroll_y(true)
+                            .bg(popup_bg)
+                            .border(colors.border, 1.0)
+                            .radius_all(0.0)
+                            .shadow(Color::rgba(0.0, 0.0, 0.0, 0.4), 0.0, 4.0, 8.0)
+                            .padding(4.0, 4.0, 4.0, 4.0)
+                            .column()
+                            .gap(1.0)
+                            .show(|ui| {
+                                if items.is_empty() {
+                                    ui.container()
+                                        .full_width()
+                                        .height(row_h)
+                                        .padding_left(8.0)
+                                        .valign(Align::Center)
+                                        .show(|ui| {
+                                            ui.text("(Empty folder)")
+                                                .size(11.0)
+                                                .color(colors.text_dim)
+                                                .show();
+                                        });
+                                } else {
+                                    for (idx, node) in items.iter().enumerate() {
+                                        let is_dir = node.is_dir;
+                                        let depth = node.depth;
+                                        let indent = depth as f32 * 14.0;
+                                        let item_id = Id::from_u64(999998900 + idx as u64);
+
+                                        let icon_source = if is_dir {
+                                            icon_theme.get_icon_for_folder(&node.name, node.is_expanded)
+                                        } else {
+                                            icon_theme.get_icon_for_file(&node.name, Some(&node.path))
+                                        };
+
+                                        let is_selected = node.name == popup.selected_name;
+
+                                        let mut item_container = ui.container()
+                                            .id(item_id)
+                                            .full_width()
+                                            .row()
+                                            .valign(Align::Center)
+                                            .padding_left(8.0 + indent)
+                                            .padding_top(3.0)
+                                            .padding_bottom(3.0)
+                                            .gap(6.0)
+                                            .radius_all(0.0);
+
+                                        if is_selected {
+                                            item_container = item_container
+                                                .bg(Color::rgba(18.0 / 255.0, 68.0 / 255.0, 105.0 / 255.0, 1.0));
+                                        } else {
+                                            item_container = item_container
+                                                .bg(Color::TRANSPARENT)
+                                                .hover_bg(colors.highlight);
+                                        }
+
+                                        let resp = item_container.show(|ui| {
+                                            let text_color = if is_selected {
+                                                Color::WHITE
+                                            } else {
+                                                colors.text_primary
+                                            };
+
+                                            if is_dir {
+                                                // Expand/Collapse arrow (Chevrons - exactly matching file tree)
+                                                let arrow = if node.is_expanded { "\u{f078}" } else { "\u{f054}" };
+                                                ui.text(arrow)
+                                                    .size(8.0)
+                                                    .color(if is_selected { Color::WHITE } else { colors.text_muted })
+                                                    .show();
+
+                                                icon_source.show(ui, 13.0);
+                                            } else {
+                                                // File Indent: spacing to align icon with folder icon
+                                                ui.spacing(14.0);
+
+                                                icon_source.show(ui, 13.0);
+                                            }
+
+                                            ui.text(&node.name)
+                                                .size(11.5)
+                                                .color(text_color)
+                                                .show();
+                                        });
+
+                                        if resp.clicked {
+                                            if is_dir {
+                                                toggle_dir_path = Some(node.path.clone());
+                                            } else {
+                                                file_to_open = Some(node.path.clone());
+                                            }
+                                        }
+                                    }
+                                }
+                            });
+                    });
+
+                    if let Some(fpath) = file_to_open {
+                        state.open_file(&fpath);
+                        state.active_breadcrumb_popup = None;
+                        ui.request_redraw();
+                    } else if let Some(dpath) = toggle_dir_path {
+                        if let Some(ref mut popup_state) = state.active_breadcrumb_popup {
+                            if popup_state.expanded_dirs.contains(&dpath) {
+                                popup_state.expanded_dirs.remove(&dpath);
+                            } else {
+                                popup_state.expanded_dirs.insert(dpath);
+                            }
+                        }
+                        ui.request_redraw();
+                    } else if dismiss_popup {
+                        state.active_breadcrumb_popup = None;
+                        ui.request_redraw();
+                    }
+                }
             }
         });
+}
+
+fn collect_popup_tree(
+    dir: &std::path::Path,
+    depth: usize,
+    expanded_dirs: &std::collections::HashSet<PathBuf>,
+    items: &mut Vec<crate::state::FileTreeNode>,
+) {
+    if let Ok(entries) = std::fs::read_dir(dir) {
+        let mut paths: Vec<_> = entries.filter_map(Result::ok).map(|e| e.path()).collect();
+        paths.sort_by(|a, b| {
+            let a_is_dir = a.is_dir();
+            let b_is_dir = b.is_dir();
+            if a_is_dir != b_is_dir {
+                b_is_dir.cmp(&a_is_dir)
+            } else {
+                a.file_name().cmp(&b.file_name())
+            }
+        });
+
+        for path in paths {
+            let name = path.file_name()
+                .and_then(|n| n.to_str())
+                .unwrap_or("Unknown")
+                .to_string();
+
+            if name.starts_with('.') && name != ".gitignore" {
+                continue;
+            }
+
+            let is_dir = path.is_dir();
+            let is_expanded = is_dir && expanded_dirs.contains(&path);
+
+            items.push(crate::state::FileTreeNode {
+                path: path.clone(),
+                name,
+                depth,
+                is_dir,
+                is_expanded,
+                is_last: false,
+                guide_prefix: String::new(),
+                git_status: None,
+            });
+
+            if is_expanded {
+                collect_popup_tree(&path, depth + 1, expanded_dirs, items);
+            }
+        }
+    }
 }
 
 fn find_x_for_byte(shaped: &ShapedBuffer, clean_text: &str, byte_idx: usize) -> f32 {

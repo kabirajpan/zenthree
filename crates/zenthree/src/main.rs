@@ -2,6 +2,8 @@ mod state;
 mod theme;
 mod ui_layout;
 mod assets;
+mod neovim_icons;
+mod mini_icons;
 
 use state::ZenthreeState;
 use theme::ThemeMode;
@@ -11,11 +13,13 @@ use zenthra::Id;
 fn main() {
     env_logger::init();
 
-    // Initialize the modular state
+    // Initialize the modular state (loads persistent state from disk)
     let mut state = ZenthreeState::new();
 
-    // Start with one default empty file so the editor doesn't feel empty
-    state.new_untitled_file();
+    // Start with one default empty file only if no files were restored from previous session
+    if state.tabs.is_empty() {
+        state.new_untitled_file();
+    }
 
     let font_bytes = include_bytes!("../../../assets/fonts/SymbolsNerdFont-Regular.ttf").to_vec();
 
