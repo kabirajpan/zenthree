@@ -2,17 +2,22 @@ use crate::state::{ZenthreeState, ExtensionFilterTab};
 use crate::extensions::ExtensionCatalog;
 use zenthra::{Color, Ui, Align, FontWeight, Id};
 
-pub fn draw_extensions_panel(ui: &mut Ui, state: &mut ZenthreeState) {
+pub fn draw_extensions_panel(ui: &mut Ui, state: &mut ZenthreeState, panel_w: f32) {
     let colors = state.colors();
     let all_extensions = ExtensionCatalog::all();
 
     let installed_count = all_extensions.iter().filter(|e| state.is_extension_installed(e.id)).count();
     let available_count = all_extensions.len() - installed_count;
 
+    // Dimensions derived directly from panel_w so everything fits strictly
+    let card_w = (panel_w - 20.0).max(140.0);
+    let inner_w = (card_w - 16.0).max(120.0);
+
     // Outer column layout
     ui.container()
-        .full_width()
+        .width(panel_w)
         .fill_y()
+        .clip(true)
         .column()
         .show(|ui| {
             // Header: "EXTENSIONS" title + status
@@ -135,6 +140,7 @@ pub fn draw_extensions_panel(ui: &mut Ui, state: &mut ZenthreeState) {
                 .full_width()
                 .fill_y()
                 .scroll_y(true)
+                .clip(true)
                 .padding(6.0, 8.0, 6.0, 8.0)
                 .gap(6.0)
                 .show(|ui| {
@@ -180,9 +186,6 @@ pub fn draw_extensions_panel(ui: &mut Ui, state: &mut ZenthreeState) {
                     let mut to_install = None;
                     let mut to_uninstall = None;
 
-                    // Available width constrained strictly to avoid any horizontal card overflow
-                    let card_w = (ui.width - 16.0).max(180.0);
-
                     for (idx, ext) in filtered.into_iter().enumerate() {
                         let is_installed = state.is_extension_installed(ext.id);
                         let card_id = Id::from_u64(999998300 + idx as u64);
@@ -190,17 +193,18 @@ pub fn draw_extensions_panel(ui: &mut Ui, state: &mut ZenthreeState) {
                         ui.container()
                             .id(card_id)
                             .width(card_w)
+                            .clip(true)
                             .bg(colors.bg_sidebar)
                             .hover_bg(colors.highlight)
                             .border(colors.border, 1.0)
                             .radius_all(6.0)
                             .padding(8.0, 8.0, 8.0, 8.0)
                             .column()
-                            .gap(4.0)
+                            .gap(5.0)
                             .show(|ui| {
                                 // Top row: Icon + Name on Left, Action Button on Right
                                 ui.container()
-                                    .full_width()
+                                    .width(inner_w)
                                     .row()
                                     .valign(Align::Center)
                                     .halign(Align::SpaceBetween)
@@ -227,7 +231,7 @@ pub fn draw_extensions_panel(ui: &mut Ui, state: &mut ZenthreeState) {
                                                     });
 
                                                 ui.text(ext.name)
-                                                    .size(11.5)
+                                                    .size(12.0)
                                                     .weight(FontWeight::Bold)
                                                     .color(colors.text_primary)
                                                     .show();
@@ -269,22 +273,17 @@ pub fn draw_extensions_panel(ui: &mut Ui, state: &mut ZenthreeState) {
                                         }
                                     });
 
-                                // Row 2: Description (strictly truncated to card width to prevent right overflow)
-                                let max_desc_chars = ((card_w - 24.0) / 6.0).max(18.0) as usize;
-                                let desc = if ext.description.len() > max_desc_chars {
-                                    format!("{}...", &ext.description[..max_desc_chars.min(ext.description.len())])
-                                } else {
-                                    ext.description.to_string()
-                                };
-
-                                ui.text(&desc)
+                                // Row 2: Description (strictly wrapped with max_width!)
+                                ui.text(ext.description)
                                     .size(10.0)
                                     .color(colors.text_muted)
+                                    .max_width(inner_w)
+                                    .wrap(true)
                                     .show();
 
                                 // Row 3: Meta (tags + status/version)
                                 ui.container()
-                                    .full_width()
+                                    .width(inner_w)
                                     .row()
                                     .valign(Align::Center)
                                     .halign(Align::SpaceBetween)

@@ -8,12 +8,13 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
     ui.container()
         .width(sidebar_w)
         .fill_y()
+        .clip(true)
         .bg(colors.bg_sidebar)
         .border(colors.border, 1.0)
         .column()
         .show(|ui| {
             if state.sidebar_view == crate::state::SidebarView::Extensions {
-                crate::ui_layout::draw_extensions_panel(ui, state);
+                crate::ui_layout::draw_extensions_panel(ui, state, sidebar_w);
             } else {
                 let total_count = state.sidebar_items.len();
                 let count_str = format!("{}/{}", total_count, total_count);
