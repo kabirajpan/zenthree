@@ -12,10 +12,36 @@ pub fn draw_status_bar(ui: &mut Ui, state: &mut ZenthreeState) {
         .border(colors.border, 1.0)
         .row()
         .valign(Align::Center)
-        .halign(Align::Right)
+        .halign(Align::SpaceBetween) // SpaceBetween: Left status vs Right details
+        .no_wrap()
         .padding_left(12.0)
         .padding_right(8.0)
         .show(|ui| {
+            // Left: status message
+            ui.container()
+                .row()
+                .valign(Align::Center)
+                .gap(6.0)
+                .show(|ui| {
+                    if !state.status_message.is_empty() {
+                        let max_chars = ((avail_w * 0.35) / 7.0).max(10.0) as usize;
+                        let msg = if state.status_message.len() > max_chars {
+                            format!("{}...", &state.status_message[..max_chars - 3])
+                        } else {
+                            state.status_message.clone()
+                        };
+                        ui.text(&msg)
+                            .size(11.0)
+                            .color(colors.text_muted)
+                            .show();
+                    } else {
+                        ui.text("Ready")
+                            .size(11.0)
+                            .color(colors.text_muted.with_alpha(0.6))
+                            .show();
+                    }
+                });
+
             // Right: cursor and buffer details & Zenthree IDE tag
             ui.container()
                 .height(24.0)

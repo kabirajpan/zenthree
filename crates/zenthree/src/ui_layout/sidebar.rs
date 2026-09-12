@@ -22,33 +22,39 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
                         .padding(8.0, 10.0, 6.0, 10.0)
                         .row()
                         .valign(Align::Center)
-                        .gap(6.0)
+                        .halign(Align::SpaceBetween)
+                        .no_wrap()
                         .show(|ui| {
-                            // Prompt arrow '>' in Gruvbox Red
-                            ui.text(">")
-                                .size(11.5)
-                                .weight(FontWeight::Bold)
-                                .color(Color::rgb(251.0 / 255.0, 73.0 / 255.0, 52.0 / 255.0))
-                                .show();
-
-                            // Box with title and border: ╭────── Explorer ──────╮
+                            // Child 1: Left prompt and title box
                             ui.container()
-                                .padding(2.0, 10.0, 2.0, 10.0)
-                                .border(Color::rgb(235.0 / 255.0, 219.0 / 255.0, 178.0 / 255.0), 1.0)
-                                .radius_all(3.0)
                                 .row()
                                 .valign(Align::Center)
+                                .gap(6.0)
                                 .show(|ui| {
-                                    ui.text("Explorer")
-                                        .size(11.0)
+                                    // Prompt arrow '>' in Gruvbox Red
+                                    ui.text(">")
+                                        .size(11.5)
                                         .weight(FontWeight::Bold)
-                                        .color(Color::rgb(235.0 / 255.0, 219.0 / 255.0, 178.0 / 255.0))
+                                        .color(Color::rgb(251.0 / 255.0, 73.0 / 255.0, 52.0 / 255.0))
                                         .show();
+
+                                    // Box with title and border: ╭────── Explorer ──────╮
+                                    ui.container()
+                                        .padding(2.0, 10.0, 2.0, 10.0)
+                                        .border(Color::rgb(235.0 / 255.0, 219.0 / 255.0, 178.0 / 255.0), 1.0)
+                                        .radius_all(3.0)
+                                        .row()
+                                        .valign(Align::Center)
+                                        .show(|ui| {
+                                            ui.text("Explorer")
+                                                .size(11.0)
+                                                .weight(FontWeight::Bold)
+                                                .color(Color::rgb(235.0 / 255.0, 219.0 / 255.0, 178.0 / 255.0))
+                                                .show();
+                                        });
                                 });
 
-                            ui.container().fill_x().show(|_| {});
-
-                            // Count "42/42"
+                            // Child 2: Count "42/42"
                             ui.text(&count_str)
                                 .size(10.5)
                                 .color(Color::rgb(124.0 / 255.0, 111.0 / 255.0, 100.0 / 255.0))
@@ -65,61 +71,67 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
                         .padding(8.0, 10.0, 6.0, 10.0)
                         .row()
                         .valign(Align::Center)
-                        .gap(6.0)
+                        .halign(Align::SpaceBetween)
+                        .no_wrap()
                         .show(|ui| {
+                            // Child 1: Left Title
                             ui.text("EXPLORER")
                                 .size(10.5)
                                 .weight(FontWeight::Bold)
                                 .color(colors.text_muted)
                                 .show();
 
-                            ui.container().fill_x().show(|_| {});
+                            // Child 2: Action buttons
+                            ui.container()
+                                .row()
+                                .valign(Align::Center)
+                                .gap(2.0)
+                                .show(|ui| {
+                                    let new_btn = ui.button("+")
+                                        .id(Id::from_u64(999997101))
+                                        .width(18.0)
+                                        .height(18.0)
+                                        .bg(Color::TRANSPARENT)
+                                        .hover_bg(Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, 0.1))
+                                        .text_color(colors.text_muted)
+                                        .radius_all(3.0)
+                                        .padding(0.0, 0.0, 0.0, 0.0)
+                                        .size(12.0)
+                                        .show();
+                                    if new_btn.clicked {
+                                        do_new_file = true;
+                                    }
 
-                            // Action buttons: New File (+), Refresh (↺), Collapse All (⊟)
-                            let new_btn = ui.button("+")
-                                .id(Id::from_u64(999997101))
-                                .width(18.0)
-                                .height(18.0)
-                                .bg(Color::TRANSPARENT)
-                                .hover_bg(Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, 0.1))
-                                .text_color(colors.text_muted)
-                                .radius_all(3.0)
-                                .padding(0.0, 0.0, 0.0, 0.0)
-                                .size(12.0)
-                                .show();
-                            if new_btn.clicked {
-                                do_new_file = true;
-                            }
+                                    let ref_btn = ui.button("↺")
+                                        .id(Id::from_u64(999997102))
+                                        .width(18.0)
+                                        .height(18.0)
+                                        .bg(Color::TRANSPARENT)
+                                        .hover_bg(Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, 0.1))
+                                        .text_color(colors.text_muted)
+                                        .radius_all(3.0)
+                                        .padding(0.0, 0.0, 0.0, 0.0)
+                                        .size(11.0)
+                                        .show();
+                                    if ref_btn.clicked {
+                                        do_refresh = true;
+                                    }
 
-                            let ref_btn = ui.button("↺")
-                                .id(Id::from_u64(999997102))
-                                .width(18.0)
-                                .height(18.0)
-                                .bg(Color::TRANSPARENT)
-                                .hover_bg(Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, 0.1))
-                                .text_color(colors.text_muted)
-                                .radius_all(3.0)
-                                .padding(0.0, 0.0, 0.0, 0.0)
-                                .size(11.0)
-                                .show();
-                            if ref_btn.clicked {
-                                do_refresh = true;
-                            }
-
-                            let col_btn = ui.button("⊟")
-                                .id(Id::from_u64(999997103))
-                                .width(18.0)
-                                .height(18.0)
-                                .bg(Color::TRANSPARENT)
-                                .hover_bg(Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, 0.1))
-                                .text_color(colors.text_muted)
-                                .radius_all(3.0)
-                                .padding(0.0, 0.0, 0.0, 0.0)
-                                .size(11.0)
-                                .show();
-                            if col_btn.clicked {
-                                do_collapse = true;
-                            }
+                                    let col_btn = ui.button("⊟")
+                                        .id(Id::from_u64(999997103))
+                                        .width(18.0)
+                                        .height(18.0)
+                                        .bg(Color::TRANSPARENT)
+                                        .hover_bg(Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, 0.1))
+                                        .text_color(colors.text_muted)
+                                        .radius_all(3.0)
+                                        .padding(0.0, 0.0, 0.0, 0.0)
+                                        .size(11.0)
+                                        .show();
+                                    if col_btn.clicked {
+                                        do_collapse = true;
+                                    }
+                                });
                         });
 
                     if do_new_file {

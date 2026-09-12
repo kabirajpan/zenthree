@@ -7,18 +7,20 @@ use zenthra_text::prelude::{CosmicFontProvider, TextOptions, ShapedBuffer};
 use editor::buffer::Point;
 use editor::selection::Selection;
 
-pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState) {
+pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height: f32) {
     let colors = state.colors();
 
     ui.container()
-        .fill()
+        .width(width)
+        .height(height)
         .bg(colors.bg_editor)
         .column()
         .show(|ui| {
             if state.tabs.is_empty() {
                 // Welcome / Empty State
                 ui.container()
-                    .fill()
+                    .width(width)
+                    .height(height)
                     .halign(Align::Center)
                     .valign(Align::Center)
                     .gap(16.0)
@@ -75,7 +77,7 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState) {
 
                 // ─── Tab Bar ────────────────────────────────────────────────
                 ui.container()
-                    .full_width()
+                    .width(width)
                     .height(tab_bar_h)
                     .bg(colors.bg_inactive_tab)
                     .row()
@@ -252,7 +254,7 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState) {
                     let path_bar_bottom = ui.cursor_y + path_bar_h;
 
                     let mut path_container = ui.container()
-                        .full_width()
+                        .width(width)
                         .height(path_bar_h)
                         .bg(colors.bg_editor)
                         .row()
@@ -359,8 +361,7 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState) {
 
                 // ─── Editor Area ────────────────────────────────────────────
                 if active_tab_idx < state.tabs.len() {
-                    let status_bar_h = if state.status_bar_visible { 24.0 } else { 0.0 };
-                    let editor_h = (ui.height - 36.0 - status_bar_h - tab_bar_h - path_bar_h).max(50.0);
+                    let editor_h = (height - tab_bar_h - path_bar_h).max(50.0);
                     let editor_id = Id::from_u64(999996000 + active_tab_idx as u64);
 
                     // Update modifiers
@@ -414,7 +415,7 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState) {
                     // Handle scrollbar drag and scroll wheel before input events are taken/drained
                     let editor_x = ui.cursor_x;
                     let editor_y = ui.cursor_y;
-                    let editor_w = ui.available_width;
+                    let editor_w = width;
 
                     {
                         let tab_mut = &mut state.tabs[active_tab_idx];
@@ -680,7 +681,7 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState) {
                     // Layout positions
                     let editor_x = ui.cursor_x;
                     let editor_y = ui.cursor_y;
-                    let editor_w = ui.available_width;
+                    let editor_w = width;
 
                     // Dimensions of typography
                     let line_height_pixels = 20.0;
@@ -735,7 +736,7 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState) {
                     // Container wrapper - not scrollable, but clips
                     ui.container()
                         .id(editor_id)
-                        .fill_x()
+                        .width(editor_w)
                         .height(editor_h)
                         .clip(true)
                         .show(|ui| {

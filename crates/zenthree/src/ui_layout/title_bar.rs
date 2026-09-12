@@ -11,7 +11,7 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
 
     const BTN_W: f32 = 20.0;
     const BAR_H: f32 = 36.0;
-    const RIGHT_W: f32 = BTN_W * 3.0 + 36.0; // 96.0
+    const RIGHT_W: f32 = 226.0;
 
     ui.container()
         .full_width()
@@ -20,10 +20,10 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
         .border(colors.border, 1.0)
         .row()
         .valign(Align::Center)
+        .halign(Align::SpaceBetween) // Use SpaceBetween: Left menus vs Right controls
+        .draggable_window(true)
         .no_wrap()
         .show(|ui| {
-            let left_start = ui.cursor_x;
-
             // LEFT: compact icon  +  inline menu items
             ui.container()
                 .row()
@@ -392,29 +392,177 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                     });
                 });
 
-            let left_w = ui.cursor_x - left_start;
-            let drag_w = (ui.available_width - left_w - RIGHT_W).max(0.0);
-
-            // CENTER: drag zone with ui.drag()
-            let drag_resp = ui.container()
-                .width(drag_w)
-                .height(BAR_H)
-                .show(|_| {});
-
-            if drag_resp.pressed {
-                ui.drag();
-            }
-
-            // RIGHT: window controls with ui.minimize(), ui.maximize(), ui.close()
+            // RIGHT: window controls & panel toggles
+            // Sequence: left, bottom, right, user icon, gap, minimize, floating window, cross
             ui.container()
                 .width(RIGHT_W)
                 .height(BAR_H)
                 .row()
                 .valign(Align::Center)
                 .padding_right(12.0)
-                .gap(12.0)
+                .gap(6.0)
                 .show(|ui| {
-                    // Minimize
+                    // 1. Left Panel (File Tree) Toggle
+                    let left_key = Id::from_u64(999999910);
+                    let left_hov = ui.interaction_state.get(&left_key).copied().unwrap_or(0.0) > 0.5;
+                    let left_resp = ui.container()
+                        .width(22.0).height(20.0)
+                        .radius_all(3.0)
+                        .bg(if left_hov {
+                            colors.highlight
+                        } else if state.sidebar_visible {
+                            colors.accent.with_alpha(0.15)
+                        } else {
+                            Color::TRANSPARENT
+                        })
+                        .halign(Align::Center)
+                        .valign(Align::Center)
+                        .show(|ui| {
+                            ui.container()
+                                .width(14.0).height(11.0)
+                                .border(if state.sidebar_visible { colors.accent } else { colors.text_muted.with_alpha(0.6) }, 1.0)
+                                .radius_all(2.0)
+                                .row()
+                                .show(|ui| {
+                                    ui.container()
+                                        .width(4.0).height(9.0)
+                                        .bg(if state.sidebar_visible { colors.accent } else { Color::TRANSPARENT })
+                                        .show(|_| {});
+                                });
+                        });
+                    let h = left_resp.hovered;
+                    let prev = ui.interaction_state.insert(left_key, if h { 1.0 } else { 0.0 });
+                    if prev != Some(if h { 1.0 } else { 0.0 }) { ui.needs_redraw = true; }
+                    if left_resp.clicked {
+                        state.sidebar_visible = !state.sidebar_visible;
+                        state.save_persistent_state();
+                        ui.request_redraw();
+                    }
+
+                    // 2. Bottom Panel (Terminal) Toggle
+                    let btm_key = Id::from_u64(999999911);
+                    let btm_hov = ui.interaction_state.get(&btm_key).copied().unwrap_or(0.0) > 0.5;
+                    let btm_resp = ui.container()
+                        .width(22.0).height(20.0)
+                        .radius_all(3.0)
+                        .bg(if btm_hov {
+                            colors.highlight
+                        } else if state.terminal_visible {
+                            colors.accent.with_alpha(0.15)
+                        } else {
+                            Color::TRANSPARENT
+                        })
+                        .halign(Align::Center)
+                        .valign(Align::Center)
+                        .show(|ui| {
+                            ui.container()
+                                .width(14.0).height(11.0)
+                                .border(if state.terminal_visible { colors.accent } else { colors.text_muted.with_alpha(0.6) }, 1.0)
+                                .radius_all(2.0)
+                                .column()
+                                .valign(Align::Bottom)
+                                .show(|ui| {
+                                    ui.container()
+                                        .full_width().height(3.0)
+                                        .bg(if state.terminal_visible { colors.accent } else { Color::TRANSPARENT })
+                                        .show(|_| {});
+                                });
+                        });
+                    let h = btm_resp.hovered;
+                    let prev = ui.interaction_state.insert(btm_key, if h { 1.0 } else { 0.0 });
+                    if prev != Some(if h { 1.0 } else { 0.0 }) { ui.needs_redraw = true; }
+                    if btm_resp.clicked {
+                        state.terminal_visible = !state.terminal_visible;
+                        if state.terminal_visible {
+                            state.ensure_terminal_session();
+                        }
+                        state.save_persistent_state();
+                        ui.request_redraw();
+                    }
+
+                    // 3. Right Panel (AI Agent) Toggle
+                    let right_key = Id::from_u64(999999912);
+                    let right_hov = ui.interaction_state.get(&right_key).copied().unwrap_or(0.0) > 0.5;
+                    let right_resp = ui.container()
+                        .width(22.0).height(20.0)
+                        .radius_all(3.0)
+                        .bg(if right_hov {
+                            colors.highlight
+                        } else if state.ai_panel_visible {
+                            colors.accent.with_alpha(0.15)
+                        } else {
+                            Color::TRANSPARENT
+                        })
+                        .halign(Align::Center)
+                        .valign(Align::Center)
+                        .show(|ui| {
+                            ui.container()
+                                .width(14.0).height(11.0)
+                                .border(if state.ai_panel_visible { colors.accent } else { colors.text_muted.with_alpha(0.6) }, 1.0)
+                                .radius_all(2.0)
+                                .row()
+                                .halign(Align::Right)
+                                .show(|ui| {
+                                    ui.container()
+                                        .width(4.0).height(9.0)
+                                        .bg(if state.ai_panel_visible { colors.accent } else { Color::TRANSPARENT })
+                                        .show(|_| {});
+                                });
+                        });
+                    let h = right_resp.hovered;
+                    let prev = ui.interaction_state.insert(right_key, if h { 1.0 } else { 0.0 });
+                    if prev != Some(if h { 1.0 } else { 0.0 }) { ui.needs_redraw = true; }
+                    if right_resp.clicked {
+                        state.ai_panel_visible = !state.ai_panel_visible;
+                        state.save_persistent_state();
+                        ui.request_redraw();
+                    }
+
+                    // 4. User Icon
+                    let user_key = Id::from_u64(999999913);
+                    let user_hov = ui.interaction_state.get(&user_key).copied().unwrap_or(0.0) > 0.5;
+                    let user_resp = ui.container()
+                        .width(22.0).height(22.0)
+                        .radius_all(11.0)
+                        .bg(if user_hov {
+                            colors.highlight
+                        } else if state.user_profile_open {
+                            colors.accent.with_alpha(0.25)
+                        } else {
+                            Color::TRANSPARENT
+                        })
+                        .border(if state.user_profile_open { colors.accent } else { colors.border }, 1.0)
+                        .halign(Align::Center)
+                        .valign(Align::Center)
+                        .show(|ui| {
+                            ui.text(zenthra::icons::NF_FA_USER)
+                                .size(9.5)
+                                .color(if state.user_profile_open { colors.accent } else { colors.text_primary })
+                                .show();
+                        });
+                    let h = user_resp.hovered;
+                    let prev = ui.interaction_state.insert(user_key, if h { 1.0 } else { 0.0 });
+                    if prev != Some(if h { 1.0 } else { 0.0 }) { ui.needs_redraw = true; }
+                    if user_resp.clicked {
+                        state.user_profile_open = !state.user_profile_open;
+                        ui.request_redraw();
+                    }
+
+                    // 5. Gap / Divider
+                    ui.container()
+                        .width(10.0)
+                        .height(BAR_H)
+                        .halign(Align::Center)
+                        .valign(Align::Center)
+                        .show(|ui| {
+                            ui.container()
+                                .width(1.0)
+                                .height(14.0)
+                                .bg(colors.border)
+                                .show(|_| {});
+                        });
+
+                    // 6. Minimize
                     let min_key = Id::from_u64(999999903);
                     let min_hov = ui.interaction_state.get(&min_key).copied().unwrap_or(0.0) > 0.5;
                     let min_resp = ui.container()
@@ -438,7 +586,7 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                         ui.minimize();
                     }
 
-                    // Maximize
+                    // 7. Floating Window (Maximize/Restore)
                     let max_key = Id::from_u64(999999904);
                     let max_hov = ui.interaction_state.get(&max_key).copied().unwrap_or(0.0) > 0.5;
                     let max_resp = ui.container()
@@ -462,7 +610,7 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                         ui.maximize();
                     }
 
-                    // Close
+                    // 8. Cross (Close)
                     let cls_key = Id::from_u64(999999905);
                     let cls_hov = ui.interaction_state.get(&cls_key).copied().unwrap_or(0.0) > 0.5;
                     let cls_resp = ui.container()
@@ -484,6 +632,142 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                     }
                 });
         });
+
+    // User Profile Popup Overlay
+    if state.user_profile_open {
+        let pop_w = 230.0;
+        let pop_x = (ui.width - pop_w - 12.0).max(10.0);
+        let pop_y = BAR_H + 4.0;
+
+        ui.container()
+            .id(Id::from_u64(999999089))
+            .absolute(pop_x, pop_y)
+            .overlay()
+            .width(pop_w)
+            .bg(colors.bg_sidebar)
+            .border(colors.border, 1.0)
+            .radius_all(8.0)
+            .padding(12.0, 12.0, 12.0, 12.0)
+            .column()
+            .gap(10.0)
+            .show(|ui| {
+                // Header with avatar and user details
+                ui.container()
+                    .row()
+                    .valign(Align::Center)
+                    .gap(10.0)
+                    .show(|ui| {
+                        ui.container()
+                            .width(36.0).height(36.0)
+                            .radius_all(18.0)
+                            .bg(colors.accent.with_alpha(0.2))
+                            .border(colors.accent, 1.0)
+                            .halign(Align::Center)
+                            .valign(Align::Center)
+                            .show(|ui| {
+                                ui.text(zenthra::icons::NF_FA_USER)
+                                    .size(16.0)
+                                    .color(colors.accent)
+                                    .show();
+                            });
+
+                        ui.container()
+                            .column()
+                            .gap(2.0)
+                            .show(|ui| {
+                                ui.text("Kabir")
+                                    .size(13.0)
+                                    .weight(FontWeight::Bold)
+                                    .color(colors.text_primary)
+                                    .show();
+
+                                ui.text("Developer • Owner")
+                                    .size(9.5)
+                                    .color(colors.text_muted)
+                                    .show();
+                            });
+                    });
+
+                // Divider
+                ui.container()
+                    .full_width().height(1.0)
+                    .bg(colors.border)
+                    .show(|_| {});
+
+                // Workspace info
+                let ws_name = state.current_dir.file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("Workspace");
+
+                ui.container()
+                    .column()
+                    .gap(3.0)
+                    .show(|ui| {
+                        ui.text("WORKSPACE")
+                            .size(9.0)
+                            .weight(FontWeight::Bold)
+                            .color(colors.text_muted)
+                            .show();
+
+                        ui.text(ws_name)
+                            .size(11.0)
+                            .weight(FontWeight::Medium)
+                            .color(colors.text_primary)
+                            .show();
+                    });
+
+                // Status indicators
+                ui.container()
+                    .row()
+                    .gap(6.0)
+                    .show(|ui| {
+                        ui.container()
+                            .padding(2.0, 6.0, 2.0, 6.0)
+                            .bg(colors.bg_base)
+                            .border(colors.border, 1.0)
+                            .radius_all(3.0)
+                            .show(|ui| {
+                                ui.text(&format!("{} Tabs", state.tabs.len()))
+                                    .size(9.5)
+                                    .color(colors.text_muted)
+                                    .show();
+                            });
+
+                        ui.container()
+                            .padding(2.0, 6.0, 2.0, 6.0)
+                            .bg(colors.bg_base)
+                            .border(colors.border, 1.0)
+                            .radius_all(3.0)
+                            .show(|ui| {
+                                ui.text("PTY: Active")
+                                    .size(9.5)
+                                    .color(Color::rgb(184.0 / 255.0, 187.0 / 255.0, 38.0 / 255.0))
+                                    .show();
+                            });
+                    });
+
+                // Close button
+                let close_prof = ui.container()
+                    .full_width()
+                    .padding(5.0, 0.0, 5.0, 0.0)
+                    .bg(colors.bg_base)
+                    .hover_bg(colors.highlight)
+                    .border(colors.border, 1.0)
+                    .radius_all(4.0)
+                    .halign(Align::Center)
+                    .show(|ui| {
+                        ui.text("Close")
+                            .size(10.5)
+                            .color(colors.text_muted)
+                            .show();
+                    });
+
+                if close_prof.clicked {
+                    state.user_profile_open = false;
+                    ui.needs_redraw = true;
+                }
+            });
+    }
 
     // Click outside (light dismiss) handling for menus
     let active_menu_key = Id::from_u64(999999900);
