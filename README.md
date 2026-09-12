@@ -33,6 +33,12 @@ Designed for speed, visual clarity, and responsiveness, Zenthree blends the aest
 - **Structured Output**: Clear separation between thought streams, explanations, and formatted code blocks.
 - **Independent Edge Resizing**: Isolated resize splitter with accent grip handle.
 
+### 🧩 Language Support & Extensions
+- **Automatic Language Detection & Prompt**: Opening an uninstalled language file (e.g. `.go`, `.ts`, `.cpp`, `.html`, `.lua`, etc.) prompts a floating modal dialog to install full language support, syntax highlighting, and tooling.
+- **Smart Startup Prompting**: Shows again on startup if the language pack remains uninstalled, with a `"Don't ask again for <Language>"` checkbox to permanently dismiss only when desired.
+- **Extensions Panel**: Dedicated sidebar panel (`Ctrl+Shift+X` or switcher tab) listing all language extensions with search, category tabs (`All`, `Installed`, `Available`), and one-click `[Install]` / `[Uninstall]`.
+- **Status Bar Integration**: Displays the active file's language badge with immediate installation prompt or shortcut to the Extensions view.
+
 ### 🎨 Visuals & Color Fidelity
 - **True Color Pipeline**: Direct linear swapchain presentation (`Rgba8Unorm`/`Bgra8Unorm`) ensuring 1:1 color accuracy with zero sRGB double-gamma washout.
 - **Themes & Accents**: Polished Dark and Light themes accompanied by 9 saturated accent palettes (Blue, Yellow, Green, Red, Orange, Purple, Pink, Turquoise, Gray).

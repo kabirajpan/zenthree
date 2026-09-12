@@ -133,7 +133,13 @@ impl SyntaxHighlighter {
 
         let lang_config = match self.registry.detect_language(path) {
             Some(c) => c.clone(),
-            None => return HashMap::new(),
+            None => {
+                let detected = crate::InstantHighlighter::detect_language(Some(path));
+                if detected != "unknown" {
+                    return self.highlight_fallback_regex(rope, version, path, detected, visible_start, visible_end);
+                }
+                return HashMap::new();
+            }
         };
 
         // Return cached highlights if version & path match and all requested lines exist.
@@ -292,6 +298,67 @@ impl SyntaxHighlighter {
 
         for row in visible_start..visible_end {
             all_lines.entry(row).or_default();
+        }
+
+        self.highlight_cache = Some((path.to_path_buf(), version, all_lines.clone()));
+
+        (visible_start..visible_end)
+            .filter_map(|line| all_lines.get(&line).map(|s| (line, s.clone())))
+            .collect()
+    }
+
+    fn highlight_fallback_regex(
+        &mut self,
+        rope: &editor::rope::Rope,
+        version: u64,
+        path: &Path,
+        language: &str,
+        visible_start: usize,
+        visible_end: usize,
+    ) -> HashMap<usize, Vec<(usize, usize, Color)>> {
+        // Return cached highlights if version & path match and visible range is covered
+        if let Some((ref cached_path, cached_version, ref cached_lines)) = self.highlight_cache {
+            if cached_path == path && cached_version == version && (visible_start..visible_end).all(|l| cached_lines.contains_key(&l)) {
+                return (visible_start..visible_end)
+                    .filter_map(|line| cached_lines.get(&line).map(|s| (line, s.clone())))
+                    .collect();
+            }
+        }
+
+        let mut all_lines: HashMap<usize, Vec<(usize, usize, Color)>> = HashMap::new();
+        let instant = crate::InstantHighlighter::new();
+
+        for row in visible_start..visible_end {
+            let line_slice = match rope.line(row) {
+                Some(s) => s,
+                None => continue,
+            };
+            let line_str = line_slice.to_string();
+            let line_trimmed = line_str.trim_end_matches(&['\r', '\n'][..]);
+            let ranges = instant.highlight_visible_region(line_trimmed, 0, line_trimmed.len(), language);
+
+            let mut line_spans = Vec::new();
+            for r in ranges {
+                let color = match r.highlight {
+                    crate::instant_highlighter::Highlight::COMMENT => self.theme.comment,
+                    crate::instant_highlighter::Highlight::KEYWORD => self.theme.keyword,
+                    crate::instant_highlighter::Highlight::STRING => self.theme.string,
+                    crate::instant_highlighter::Highlight::NUMBER => self.theme.number,
+                    crate::instant_highlighter::Highlight::FUNCTION => self.theme.function,
+                    crate::instant_highlighter::Highlight::TYPE => self.theme.type_name,
+                    crate::instant_highlighter::Highlight::VARIABLE => self.theme.variable,
+                    crate::instant_highlighter::Highlight::CONSTANT => self.theme.constant,
+                    crate::instant_highlighter::Highlight::ATTRIBUTE => self.theme.constant,
+                    crate::instant_highlighter::Highlight::OPERATOR => self.theme.operator,
+                    crate::instant_highlighter::Highlight::PUNCTUATION => self.theme.punctuation,
+                };
+                let col_start = safe_char_count(line_trimmed, r.start);
+                let col_end = safe_char_count(line_trimmed, r.end);
+                if col_end > col_start {
+                    line_spans.push((col_start, col_end, color));
+                }
+            }
+            all_lines.insert(row, line_spans);
         }
 
         self.highlight_cache = Some((path.to_path_buf(), version, all_lines.clone()));

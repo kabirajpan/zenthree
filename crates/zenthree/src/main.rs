@@ -5,6 +5,7 @@ mod assets;
 mod neovim_icons;
 mod mini_icons;
 pub mod native_terminal;
+pub mod extensions;
 
 use state::ZenthreeState;
 use theme::ThemeMode;
@@ -149,8 +150,9 @@ fn main() {
                         ui_layout::draw_status_bar(ui, &mut state);
                     }
 
-                    // 4. Modal overlays (About dialog)
+                    // 4. Modal overlays (About dialog, Language installation prompt)
                     ui_layout::draw_about_dialog(ui, &mut state);
+                    ui_layout::draw_language_prompt_dialog(ui, &mut state);
                 });
         })
         .run();

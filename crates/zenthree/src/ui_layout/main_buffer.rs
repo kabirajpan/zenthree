@@ -167,6 +167,9 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                         } else if let Some(idx) = tab_to_activate {
                             state.active_tab = Some(idx);
                             active_tab_idx = idx;
+                            if let Some(ref path) = state.tabs[idx].path.clone() {
+                                state.check_language_support_prompt(path);
+                            }
                             ui.request_redraw();
                         }
                     });

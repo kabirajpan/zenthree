@@ -41,6 +41,27 @@ pub enum ExplorerPreset {
     ClassicTree,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum SidebarView {
+    Explorer,
+    Extensions,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ExtensionFilterTab {
+    All,
+    Installed,
+    Available,
+}
+
+#[derive(Debug, Clone)]
+pub struct LanguagePromptDialog {
+    pub extension_id: String,
+    pub language_name: String,
+    pub file_name: String,
+    pub dont_show_again_checked: bool,
+}
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct TerminalLine {
     pub text: String,
@@ -100,6 +121,12 @@ pub struct PersistentState {
     pub ai_panel_visible: Option<bool>,
     #[serde(default)]
     pub ai_panel_width: Option<f32>,
+    #[serde(default)]
+    pub sidebar_view: Option<SidebarView>,
+    #[serde(default)]
+    pub installed_extensions: Vec<String>,
+    #[serde(default)]
+    pub ignored_language_prompts: Vec<String>,
 }
 
 pub fn get_config_path() -> PathBuf {
@@ -175,6 +202,12 @@ pub struct ZenthreeState {
     pub ai_input: String,
     pub user_profile_open: bool,
     pub terminal_session: Option<crate::native_terminal::NativeTerminalSession>,
+    pub sidebar_view: SidebarView,
+    pub installed_extensions: std::collections::HashSet<String>,
+    pub ignored_language_prompts: std::collections::HashSet<String>,
+    pub extension_search_query: String,
+    pub extension_tab_filter: ExtensionFilterTab,
+    pub active_language_prompt: Option<LanguagePromptDialog>,
 }
 
 impl ZenthreeState {
@@ -257,6 +290,18 @@ impl ZenthreeState {
             user_profile_open: false,
             terminal_session: None,
             selected_sidebar_path: None,
+            sidebar_view: SidebarView::Explorer,
+            installed_extensions: {
+                let mut set = std::collections::HashSet::new();
+                set.insert("rust".to_string());
+                set.insert("python".to_string());
+                set.insert("javascript".to_string());
+                set
+            },
+            ignored_language_prompts: std::collections::HashSet::new(),
+            extension_search_query: String::new(),
+            extension_tab_filter: ExtensionFilterTab::All,
+            active_language_prompt: None,
         };
 
         // Restore previous session state
@@ -306,6 +351,9 @@ impl ZenthreeState {
             terminal_height: Some(self.terminal_height),
             ai_panel_visible: Some(self.ai_panel_visible),
             ai_panel_width: Some(self.ai_panel_width),
+            sidebar_view: Some(self.sidebar_view),
+            installed_extensions: self.installed_extensions.iter().cloned().collect(),
+            ignored_language_prompts: self.ignored_language_prompts.iter().cloned().collect(),
         };
 
         if let Ok(json) = serde_json::to_string_pretty(&state) {
@@ -335,6 +383,13 @@ impl ZenthreeState {
                 if let Some(th) = saved.terminal_height { self.terminal_height = th; }
                 if let Some(aiv) = saved.ai_panel_visible { self.ai_panel_visible = aiv; }
                 if let Some(aiw) = saved.ai_panel_width { self.ai_panel_width = aiw; }
+                if let Some(sv) = saved.sidebar_view { self.sidebar_view = sv; }
+                if !saved.installed_extensions.is_empty() {
+                    self.installed_extensions = saved.installed_extensions.into_iter().collect();
+                }
+                if !saved.ignored_language_prompts.is_empty() {
+                    self.ignored_language_prompts = saved.ignored_language_prompts.into_iter().collect();
+                }
 
                 let args: Vec<String> = std::env::args().collect();
                 if args.len() <= 1 {
@@ -381,6 +436,15 @@ impl ZenthreeState {
                                 break;
                             }
                         }
+                    }
+
+                    // On IDE startup: check if the restored active tab needs language support
+                    let startup_path = self.active_tab
+                        .and_then(|idx| self.tabs.get(idx))
+                        .and_then(|t| t.path.clone())
+                        .or_else(|| self.tabs.first().and_then(|t| t.path.clone()));
+                    if let Some(p) = startup_path {
+                        self.check_language_support_prompt(&p);
                     }
                 }
             }
@@ -588,6 +652,7 @@ impl ZenthreeState {
                 if tab.path.as_ref() == Some(&path.to_path_buf()) {
                     self.active_tab = Some(idx);
                     self.status_message = format!("Switched to {}", name);
+                    self.check_language_support_prompt(path);
                     self.save_persistent_state();
                     return;
                 }
@@ -604,10 +669,70 @@ impl ZenthreeState {
             });
             self.active_tab = Some(self.tabs.len() - 1);
             self.status_message = format!("Opened file: {}", path.display());
+            self.check_language_support_prompt(path);
             self.save_persistent_state();
         } else {
             self.status_message = format!("Failed to open file: {}", path.display());
         }
+    }
+
+    pub fn check_language_support_prompt(&mut self, path: &Path) {
+        if let Some(ext) = crate::extensions::ExtensionCatalog::find_by_path(path) {
+            // Check if installed or explicitly ignored
+            if !self.installed_extensions.contains(ext.id) && !self.ignored_language_prompts.contains(ext.id) {
+                let file_name = path.file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("file")
+                    .to_string();
+                self.active_language_prompt = Some(LanguagePromptDialog {
+                    extension_id: ext.id.to_string(),
+                    language_name: ext.name.to_string(),
+                    file_name,
+                    dont_show_again_checked: false,
+                });
+            }
+        }
+    }
+
+    pub fn install_extension(&mut self, id: &str) {
+        self.installed_extensions.insert(id.to_string());
+        self.highlighter.reset();
+        self.save_persistent_state();
+        if let Some(ext) = crate::extensions::ExtensionCatalog::find_by_id(id) {
+            self.status_message = format!("Installed {} successfully!", ext.name);
+        } else {
+            self.status_message = format!("Installed extension: {}", id);
+        }
+        if let Some(ref prompt) = self.active_language_prompt {
+            if prompt.extension_id == id {
+                self.active_language_prompt = None;
+            }
+        }
+    }
+
+    pub fn uninstall_extension(&mut self, id: &str) {
+        self.installed_extensions.remove(id);
+        self.highlighter.reset();
+        self.save_persistent_state();
+        if let Some(ext) = crate::extensions::ExtensionCatalog::find_by_id(id) {
+            self.status_message = format!("Uninstalled {}", ext.name);
+        } else {
+            self.status_message = format!("Uninstalled extension: {}", id);
+        }
+    }
+
+    pub fn is_extension_installed(&self, id: &str) -> bool {
+        self.installed_extensions.contains(id)
+    }
+
+    pub fn dismiss_language_prompt(&mut self, save_dont_show_again: bool) {
+        if let Some(ref dialog) = self.active_language_prompt {
+            if save_dont_show_again || dialog.dont_show_again_checked {
+                self.ignored_language_prompts.insert(dialog.extension_id.clone());
+                self.save_persistent_state();
+            }
+        }
+        self.active_language_prompt = None;
     }
 
     pub fn save_active_tab(&mut self) {
@@ -1051,6 +1176,70 @@ mod tests {
         state.send_ai_message("Explain the workspace");
         assert!(state.ai_messages.iter().any(|m| m.is_user && m.content == "Explain the workspace"));
         assert!(state.ai_messages.iter().any(|m| !m.is_user));
+    }
+
+    #[test]
+    fn test_language_detection_and_prompt_lifecycle() {
+        let mut state = ZenthreeState::new();
+        // Go is not installed initially
+        assert!(!state.is_extension_installed("go"));
+
+        // Opening a .go file triggers the language prompt
+        let go_path = std::path::Path::new("/tmp/test_main.go");
+        state.check_language_support_prompt(go_path);
+
+        assert!(state.active_language_prompt.is_some());
+        let prompt = state.active_language_prompt.as_ref().unwrap();
+        assert_eq!(prompt.extension_id, "go");
+        assert_eq!(prompt.language_name, "Go Language Tools");
+        assert!(!prompt.dont_show_again_checked);
+
+        // User dismisses without checking "Don't ask again"
+        state.dismiss_language_prompt(false);
+        assert!(state.active_language_prompt.is_none());
+        assert!(!state.ignored_language_prompts.contains("go"));
+
+        // Since it wasn't ignored, opening again (e.g. next time IDE opens) triggers it again!
+        state.check_language_support_prompt(go_path);
+        assert!(state.active_language_prompt.is_some());
+
+        // Now user checks "Don't ask again" and dismisses
+        if let Some(ref mut p) = state.active_language_prompt {
+            p.dont_show_again_checked = true;
+        }
+        state.dismiss_language_prompt(false);
+        assert!(state.active_language_prompt.is_none());
+        assert!(state.ignored_language_prompts.contains("go"));
+
+        // Subsequent file open does NOT show prompt
+        state.check_language_support_prompt(go_path);
+        assert!(state.active_language_prompt.is_none());
+
+        // Now install the extension
+        state.install_extension("go");
+        assert!(state.is_extension_installed("go"));
+
+        // Uninstall works
+        state.uninstall_extension("go");
+        assert!(!state.is_extension_installed("go"));
+    }
+
+    #[test]
+    fn test_extension_catalog_and_filtering() {
+        let catalog = crate::extensions::ExtensionCatalog::all();
+        assert!(!catalog.is_empty());
+
+        let go_ext = crate::extensions::ExtensionCatalog::find_by_path(std::path::Path::new("app.go"));
+        assert!(go_ext.is_some());
+        assert_eq!(go_ext.unwrap().id, "go");
+
+        let ts_ext = crate::extensions::ExtensionCatalog::find_by_path(std::path::Path::new("index.ts"));
+        assert!(ts_ext.is_some());
+        assert_eq!(ts_ext.unwrap().id, "typescript");
+
+        let cpp_ext = crate::extensions::ExtensionCatalog::find_by_path(std::path::Path::new("main.cpp"));
+        assert!(cpp_ext.is_some());
+        assert_eq!(cpp_ext.unwrap().id, "cpp");
     }
 }
 

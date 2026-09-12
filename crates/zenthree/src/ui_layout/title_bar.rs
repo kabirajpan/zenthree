@@ -200,6 +200,20 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                     });
 
                     ui.menu("View").show(|ui| {
+                        let ext_mark = if state.sidebar_visible && state.sidebar_view == crate::state::SidebarView::Extensions { "● " } else { "  " };
+                        if ui.menu_item(&format!("{}Extensions / Language Packs", ext_mark)).shortcut("Ctrl+Shift+X").show().clicked {
+                            if state.sidebar_visible && state.sidebar_view == crate::state::SidebarView::Extensions {
+                                state.sidebar_view = crate::state::SidebarView::Explorer;
+                            } else {
+                                state.sidebar_visible = true;
+                                state.sidebar_view = crate::state::SidebarView::Extensions;
+                            }
+                            state.save_persistent_state();
+                            ui.request_redraw();
+                        }
+
+                        ui.spacing(4.0);
+
                         // Cascading Submenu: Appearance
                         ui.sub_menu("Appearance").show(|ui| {
                             let sb_mark = if state.sidebar_visible { "● " } else { "  " };

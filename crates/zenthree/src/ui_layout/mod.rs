@@ -4,6 +4,8 @@ pub mod main_buffer;
 pub mod status_bar;
 pub mod terminal;
 pub mod ai_panel;
+pub mod language_dialog;
+pub mod extensions_panel;
 
 pub use title_bar::draw_title_bar;
 pub use sidebar::draw_sidebar;
@@ -11,6 +13,8 @@ pub use main_buffer::draw_main_buffer;
 pub use status_bar::draw_status_bar;
 pub use terminal::draw_terminal_panel;
 pub use ai_panel::draw_ai_panel;
+pub use language_dialog::draw_language_prompt_dialog;
+pub use extensions_panel::draw_extensions_panel;
 
 use crate::state::ZenthreeState;
 use zenthra::{Color, Ui, Align, FontWeight, Id};
