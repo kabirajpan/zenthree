@@ -164,6 +164,7 @@ pub struct ZenthreeState {
     pub tabs: Vec<EditorTab>,
     pub active_tab: Option<usize>,
     pub current_dir: PathBuf,
+    pub has_workspace: bool,
     pub recent_files: Vec<PathBuf>,
     pub sidebar_items: Vec<FileTreeNode>,
     pub expanded_dirs: std::collections::HashSet<PathBuf>,
@@ -217,11 +218,20 @@ impl ZenthreeState {
         let mut current_dir = std::env::current_dir().unwrap_or_else(|_| {
             dirs::home_dir().unwrap_or_else(|| PathBuf::from("."))
         });
+        let mut has_workspace = false;
 
         if args.len() > 1 {
             let path = PathBuf::from(&args[1]);
             if path.exists() {
-                current_dir = path;
+                if path.is_dir() {
+                    current_dir = path;
+                    has_workspace = true;
+                } else if path.is_file() {
+                    if let Some(parent) = path.parent() {
+                        current_dir = parent.to_path_buf();
+                        has_workspace = true;
+                    }
+                }
             }
         }
 
@@ -248,6 +258,7 @@ impl ZenthreeState {
             tabs: Vec::new(),
             active_tab: None,
             current_dir,
+            has_workspace,
             recent_files: Vec::new(),
             sidebar_items: Vec::new(),
             expanded_dirs: std::collections::HashSet::new(),
@@ -304,30 +315,61 @@ impl ZenthreeState {
             active_language_prompt: None,
         };
 
-        // Restore previous session state
+        // Restore previous session preferences (theme, accent, extensions, etc.)
         #[cfg(not(test))]
         state.load_persistent_state();
 
-        // If CLI argument was explicitly provided, override workspace
+        // If CLI argument was explicitly provided, open specified file or workspace
         if args.len() > 1 {
             let path = PathBuf::from(&args[1]);
             if path.exists() {
-                state.current_dir = path;
+                if path.is_dir() {
+                    state.open_workspace(path);
+                } else if path.is_file() {
+                    state.open_file(&path);
+                    if let Some(parent) = path.parent() {
+                        state.current_dir = parent.to_path_buf();
+                        state.has_workspace = true;
+                    }
+                }
             }
+        } else {
+            // Default startup without arguments:
+            // DO NOT open any project by default.
+            // Start clean with an empty untitled buffer!
+            state.has_workspace = false;
+            state.sidebar_items.clear();
+            state.tabs.clear();
+            state.new_untitled_file();
         }
 
-        state.rebuild_tree();
+        if state.has_workspace {
+            state.rebuild_tree();
+        }
         state
     }
 
     pub fn save_persistent_state(&self) {
         let path = get_config_path();
-        let open_tabs: Vec<PathBuf> = self.tabs.iter()
-            .filter_map(|t| t.path.clone())
-            .collect();
-        let active_tab_path = self.active_tab
-            .and_then(|idx| self.tabs.get(idx))
-            .and_then(|t| t.path.clone());
+        let current_dir = if self.has_workspace {
+            Some(self.current_dir.clone())
+        } else {
+            None
+        };
+        let open_tabs: Vec<PathBuf> = if self.has_workspace {
+            self.tabs.iter()
+                .filter_map(|t| t.path.clone())
+                .collect()
+        } else {
+            Vec::new()
+        };
+        let active_tab_path = if self.has_workspace {
+            self.active_tab
+                .and_then(|idx| self.tabs.get(idx))
+                .and_then(|t| t.path.clone())
+        } else {
+            None
+        };
 
         let state = PersistentState {
             theme: Some(self.theme),
@@ -342,8 +384,8 @@ impl ZenthreeState {
             status_bar_visible: Some(self.status_bar_visible),
             line_numbers_visible: Some(self.line_numbers_visible),
             zoom_level: Some(self.zoom_level),
-            current_dir: Some(self.current_dir.clone()),
-            expanded_dirs: self.expanded_dirs.iter().cloned().collect(),
+            current_dir,
+            expanded_dirs: if self.has_workspace { self.expanded_dirs.iter().cloned().collect() } else { Vec::new() },
             open_tabs,
             active_tab_path,
             recent_files: self.recent_files.clone(),
@@ -392,59 +434,60 @@ impl ZenthreeState {
                 }
 
                 let args: Vec<String> = std::env::args().collect();
-                if args.len() <= 1 {
+                if args.len() > 1 {
                     if let Some(saved_dir) = saved.current_dir {
                         if saved_dir.exists() && saved_dir.is_dir() {
                             self.current_dir = saved_dir;
+                            self.has_workspace = true;
                         }
                     }
-                }
 
-                for dir in saved.expanded_dirs {
-                    if dir.exists() {
-                        self.expanded_dirs.insert(dir);
-                    }
-                }
-
-                for tab_path in saved.open_tabs {
-                    if tab_path.exists() && tab_path.is_file() {
-                        if let Ok(content) = std::fs::read_to_string(&tab_path) {
-                            let name = tab_path.file_name()
-                                .and_then(|n| n.to_str())
-                                .unwrap_or("Untitled")
-                                .to_string();
-
-                            self.tabs.push(EditorTab {
-                                name,
-                                path: Some(tab_path.clone()),
-                                editor: Editor::new(Buffer::from_text(&content)),
-                                is_dirty: false,
-                                scroll_y: 0.0,
-                                shaping_cache: std::collections::HashMap::new(),
-                                version: 0,
-                            });
+                    for dir in saved.expanded_dirs {
+                        if dir.exists() {
+                            self.expanded_dirs.insert(dir);
                         }
                     }
-                }
 
-                if !self.tabs.is_empty() {
-                    self.active_tab = Some(0);
-                    if let Some(ref active_path) = saved.active_tab_path {
-                        for (idx, tab) in self.tabs.iter().enumerate() {
-                            if tab.path.as_ref() == Some(active_path) {
-                                self.active_tab = Some(idx);
-                                break;
+                    for tab_path in saved.open_tabs {
+                        if tab_path.exists() && tab_path.is_file() {
+                            if let Ok(content) = std::fs::read_to_string(&tab_path) {
+                                let name = tab_path.file_name()
+                                    .and_then(|n| n.to_str())
+                                    .unwrap_or("Untitled")
+                                    .to_string();
+
+                                self.tabs.push(EditorTab {
+                                    name,
+                                    path: Some(tab_path.clone()),
+                                    editor: Editor::new(Buffer::from_text(&content)),
+                                    is_dirty: false,
+                                    scroll_y: 0.0,
+                                    shaping_cache: std::collections::HashMap::new(),
+                                    version: 0,
+                                });
                             }
                         }
                     }
 
-                    // On IDE startup: check if the restored active tab needs language support
-                    let startup_path = self.active_tab
-                        .and_then(|idx| self.tabs.get(idx))
-                        .and_then(|t| t.path.clone())
-                        .or_else(|| self.tabs.first().and_then(|t| t.path.clone()));
-                    if let Some(p) = startup_path {
-                        self.check_language_support_prompt(&p);
+                    if !self.tabs.is_empty() {
+                        self.active_tab = Some(0);
+                        if let Some(ref active_path) = saved.active_tab_path {
+                            for (idx, tab) in self.tabs.iter().enumerate() {
+                                if tab.path.as_ref() == Some(active_path) {
+                                    self.active_tab = Some(idx);
+                                    break;
+                                }
+                            }
+                        }
+
+                        // On IDE startup: check if the restored active tab needs language support
+                        let startup_path = self.active_tab
+                            .and_then(|idx| self.tabs.get(idx))
+                            .and_then(|t| t.path.clone())
+                            .or_else(|| self.tabs.first().and_then(|t| t.path.clone()));
+                        if let Some(p) = startup_path {
+                            self.check_language_support_prompt(&p);
+                        }
                     }
                 }
             }
@@ -457,6 +500,9 @@ impl ZenthreeState {
 
     pub fn rebuild_tree(&mut self) {
         self.sidebar_items.clear();
+        if !self.has_workspace {
+            return;
+        }
         let root = self.current_dir.clone();
         let git_statuses = if self.explorer_git_status {
             self.get_git_statuses(&root)
@@ -465,6 +511,23 @@ impl ZenthreeState {
         };
         let mut ancestors = Vec::new();
         self.scan_dir_recursive(&root, 0, &mut ancestors, &git_statuses);
+    }
+
+    pub fn open_workspace(&mut self, path: PathBuf) {
+        self.current_dir = path;
+        self.has_workspace = true;
+        self.expanded_dirs.clear();
+        self.rebuild_tree();
+        self.status_message = format!("Opened workspace: {}", self.current_dir.display());
+        self.save_persistent_state();
+    }
+
+    pub fn close_workspace(&mut self) {
+        self.has_workspace = false;
+        self.sidebar_items.clear();
+        self.expanded_dirs.clear();
+        self.status_message = "Workspace closed".to_string();
+        self.save_persistent_state();
     }
 
     fn get_git_statuses(&self, root: &Path) -> HashMap<PathBuf, GitStatus> {
@@ -619,6 +682,10 @@ impl ZenthreeState {
     }
 
     pub fn new_file_in_workspace(&mut self) {
+        if !self.has_workspace {
+            self.new_untitled_file();
+            return;
+        }
         let mut idx = 1;
         let mut target_path = self.current_dir.join("untitled.txt");
         while target_path.exists() {
@@ -1240,6 +1307,17 @@ mod tests {
         let cpp_ext = crate::extensions::ExtensionCatalog::find_by_path(std::path::Path::new("main.cpp"));
         assert!(cpp_ext.is_some());
         assert_eq!(cpp_ext.unwrap().id, "cpp");
+    }
+
+    #[test]
+    fn test_default_startup_empty_and_no_workspace() {
+        let state = ZenthreeState::new();
+        assert!(!state.has_workspace);
+        assert!(state.sidebar_items.is_empty());
+        assert_eq!(state.tabs.len(), 1);
+        assert_eq!(state.tabs[0].name, "Untitled-1");
+        assert!(state.tabs[0].path.is_none());
+        assert_eq!(state.tabs[0].editor.buffer.to_string(), "");
     }
 }
 

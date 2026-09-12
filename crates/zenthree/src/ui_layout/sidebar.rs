@@ -15,6 +15,8 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
         .show(|ui| {
             if state.sidebar_view == crate::state::SidebarView::Extensions {
                 crate::ui_layout::draw_extensions_panel(ui, state, sidebar_w);
+            } else if !state.has_workspace {
+                draw_no_folder_view(ui, state, sidebar_w);
             } else {
                 let total_count = state.sidebar_items.len();
                 let count_str = format!("{}/{}", total_count, total_count);
@@ -487,3 +489,105 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
         }));
     }
 }
+
+fn draw_no_folder_view(ui: &mut Ui, state: &mut ZenthreeState, sidebar_w: f32) {
+    let colors = state.colors();
+    let inner_w = (sidebar_w - 24.0).max(120.0);
+
+    // Section header
+    ui.container()
+        .full_width()
+        .padding(8.0, 10.0, 6.0, 10.0)
+        .row()
+        .valign(Align::Center)
+        .halign(Align::SpaceBetween)
+        .show(|ui| {
+            ui.text("NO FOLDER OPENED")
+                .size(10.5)
+                .weight(FontWeight::Bold)
+                .color(colors.text_muted)
+                .show();
+        });
+
+    ui.container()
+        .full_width()
+        .height(1.0)
+        .bg(colors.border)
+        .show(|_| {});
+
+    // Body
+    ui.container()
+        .full_width()
+        .padding(20.0, 12.0, 20.0, 12.0)
+        .column()
+        .gap(12.0)
+        .valign(Align::Top)
+        .show(|ui| {
+            ui.text("You have not yet opened a folder or project.")
+                .size(11.0)
+                .color(colors.text_muted)
+                .max_width(inner_w)
+                .wrap(true)
+                .show();
+
+            let open_btn = ui.button("Open Folder")
+                .id(Id::from_u64(999997190))
+                .width(inner_w)
+                .height(28.0)
+                .bg(colors.accent)
+                .hover_bg(colors.accent.with_alpha(0.85))
+                .text_color(Color::WHITE)
+                .radius_all(4.0)
+                .size(11.0)
+                .show();
+
+            if open_btn.clicked {
+                if let Some(path) = rfd::FileDialog::new().pick_folder() {
+                    state.open_workspace(path);
+                    ui.request_redraw();
+                }
+            }
+
+            let new_file_btn = ui.button("New Untitled File")
+                .id(Id::from_u64(999997191))
+                .width(inner_w)
+                .height(26.0)
+                .bg(Color::TRANSPARENT)
+                .hover_bg(colors.highlight)
+                .border(colors.border, 1.0)
+                .text_color(colors.text_primary)
+                .radius_all(4.0)
+                .size(11.0)
+                .show();
+
+            if new_file_btn.clicked {
+                state.new_untitled_file();
+                ui.request_redraw();
+            }
+
+            ui.container()
+                .padding_top(8.0)
+                .column()
+                .gap(4.0)
+                .show(|ui| {
+                    ui.text("Shortcuts:")
+                        .size(9.5)
+                        .weight(FontWeight::Bold)
+                        .color(colors.text_dim)
+                        .show();
+                    ui.text("Ctrl+Shift+O  Open Folder")
+                        .size(9.0)
+                        .color(colors.text_dim)
+                        .show();
+                    ui.text("Ctrl+O        Open File")
+                        .size(9.0)
+                        .color(colors.text_dim)
+                        .show();
+                    ui.text("Ctrl+N        New File")
+                        .size(9.0)
+                        .color(colors.text_dim)
+                        .show();
+                });
+        });
+}
+

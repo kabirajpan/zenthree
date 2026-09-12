@@ -62,12 +62,15 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                         }
                         if ui.menu_item("Open Folder...").shortcut("Ctrl+Shift+O").show().clicked {
                             if let Some(path) = rfd::FileDialog::new().pick_folder() {
-                                state.current_dir = path;
-                                state.expanded_dirs.clear();
-                                state.rebuild_tree();
-                                state.status_message = format!("Opened workspace: {}", state.current_dir.display());
+                                state.open_workspace(path);
                             }
                             ui.request_redraw();
+                        }
+                        if state.has_workspace {
+                            if ui.menu_item("Close Folder").show().clicked {
+                                state.close_workspace();
+                                ui.request_redraw();
+                            }
                         }
 
                         // Cascading Submenu: Open Recent
@@ -716,9 +719,13 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                     .show(|_| {});
 
                 // Workspace info
-                let ws_name = state.current_dir.file_name()
-                    .and_then(|n| n.to_str())
-                    .unwrap_or("Workspace");
+                let ws_name = if state.has_workspace {
+                    state.current_dir.file_name()
+                        .and_then(|n| n.to_str())
+                        .unwrap_or("Workspace")
+                } else {
+                    "No Folder"
+                };
 
                 ui.container()
                     .column()
