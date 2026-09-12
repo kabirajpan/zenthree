@@ -6,6 +6,7 @@ mod neovim_icons;
 mod mini_icons;
 pub mod native_terminal;
 pub mod extensions;
+pub mod lsp;
 
 use state::ZenthreeState;
 use theme::ThemeMode;
@@ -60,6 +61,11 @@ fn main() {
                     },
                     _ => {}
                 }
+            }
+
+            // Poll background LSP messages (diagnostics, completions, server lifecycle)
+            if state.lsp_manager.poll() {
+                ui.request_redraw();
             }
 
             // Expose the active theme flag to interaction_state so widgets can read it

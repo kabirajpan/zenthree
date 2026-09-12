@@ -1,5 +1,6 @@
 use std::path::PathBuf;
 use crate::state::ZenthreeState;
+use crate::lsp::protocol::DiagnosticSeverity;
 use zenthra::{Color, Ui, Align, FontWeight, Id};
 use zenthra_widgets::ui::{DrawCommand, TextDraw, RectDraw, ScrollDrag};
 use zenthra_render::RectInstance;
@@ -9,6 +10,18 @@ use editor::selection::Selection;
 
 pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height: f32) {
     let colors = state.colors();
+
+    // Drain any fresh completions delivered by LSP
+    if let Some(items) = state.lsp_manager.latest_completions.take() {
+        if !items.is_empty() {
+            state.completion_items = items;
+            state.completion_selected_idx = 0;
+            state.completion_active = true;
+        } else {
+            state.completion_items.clear();
+            state.completion_active = false;
+        }
+    }
 
     ui.container()
         .width(width)
@@ -362,6 +375,8 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                     }
                 }
 
+                let mut cursor_screen_pos: Option<[f32; 2]> = None;
+
                 // ─── Editor Area ────────────────────────────────────────────
                 if active_tab_idx < state.tabs.len() {
                     let editor_h = (height - tab_bar_h - path_bar_h).max(50.0);
@@ -540,10 +555,29 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                                         if !state.ctrl_pressed && !state.alt_pressed && *c != '\r' && *c != '\n' && *c != '\t' && !c.is_control() {
                                             tab.editor.insert(&c.to_string(), tab.path.as_deref(), Some(&state.indent_calc));
                                             changed = true;
+                                            if let Some(ref p) = tab.path {
+                                                let cur = tab.editor.cursor();
+                                                state.lsp_manager.request_completion(p, cur.row as u32, cur.column as u32);
+                                            }
                                         }
                                     }
                                     zenthra_platform::event::PlatformEvent::KeyDown { key } => {
                                         match key {
+                                            winit::keyboard::KeyCode::Escape => {
+                                                if state.completion_active {
+                                                    state.completion_active = false;
+                                                    state.completion_items.clear();
+                                                    changed = true;
+                                                }
+                                            }
+                                            winit::keyboard::KeyCode::Space if state.ctrl_pressed => {
+                                                if let Some(ref p) = tab.path {
+                                                    let cur = tab.editor.cursor();
+                                                    state.lsp_manager.request_completion(p, cur.row as u32, cur.column as u32);
+                                                    state.completion_active = true;
+                                                    changed = true;
+                                                }
+                                            }
                                             winit::keyboard::KeyCode::Backspace => {
                                                 tab.editor.backspace();
                                                 changed = true;
@@ -553,12 +587,32 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                                                 changed = true;
                                             }
                                             winit::keyboard::KeyCode::Enter => {
-                                                tab.editor.insert("\n", tab.path.as_deref(), Some(&state.indent_calc));
-                                                changed = true;
+                                                if state.completion_active && !state.completion_items.is_empty() {
+                                                    if let Some(item) = state.completion_items.get(state.completion_selected_idx) {
+                                                        let to_insert = item.insert_text.as_deref().unwrap_or(&item.label);
+                                                        tab.editor.insert(to_insert, tab.path.as_deref(), Some(&state.indent_calc));
+                                                    }
+                                                    state.completion_active = false;
+                                                    state.completion_items.clear();
+                                                    changed = true;
+                                                } else {
+                                                    tab.editor.insert("\n", tab.path.as_deref(), Some(&state.indent_calc));
+                                                    changed = true;
+                                                }
                                             }
                                             winit::keyboard::KeyCode::Tab => {
-                                                tab.editor.insert("    ", tab.path.as_deref(), Some(&state.indent_calc));
-                                                changed = true;
+                                                if state.completion_active && !state.completion_items.is_empty() {
+                                                    if let Some(item) = state.completion_items.get(state.completion_selected_idx) {
+                                                        let to_insert = item.insert_text.as_deref().unwrap_or(&item.label);
+                                                        tab.editor.insert(to_insert, tab.path.as_deref(), Some(&state.indent_calc));
+                                                    }
+                                                    state.completion_active = false;
+                                                    state.completion_items.clear();
+                                                    changed = true;
+                                                } else {
+                                                    tab.editor.insert("    ", tab.path.as_deref(), Some(&state.indent_calc));
+                                                    changed = true;
+                                                }
                                             }
                                             winit::keyboard::KeyCode::ArrowLeft => {
                                                 if state.shift_pressed {
@@ -577,20 +631,30 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                                                 changed = true;
                                             }
                                             winit::keyboard::KeyCode::ArrowUp => {
-                                                if state.shift_pressed {
-                                                    tab.editor.extend_selection_up();
+                                                if state.completion_active && !state.completion_items.is_empty() {
+                                                    state.completion_selected_idx = state.completion_selected_idx.saturating_sub(1);
+                                                    changed = true;
                                                 } else {
-                                                    tab.editor.move_up();
+                                                    if state.shift_pressed {
+                                                        tab.editor.extend_selection_up();
+                                                    } else {
+                                                        tab.editor.move_up();
+                                                    }
+                                                    changed = true;
                                                 }
-                                                changed = true;
                                             }
                                             winit::keyboard::KeyCode::ArrowDown => {
-                                                if state.shift_pressed {
-                                                    tab.editor.extend_selection_down();
+                                                if state.completion_active && !state.completion_items.is_empty() {
+                                                    state.completion_selected_idx = (state.completion_selected_idx + 1).min(state.completion_items.len() - 1);
+                                                    changed = true;
                                                 } else {
-                                                    tab.editor.move_down();
+                                                    if state.shift_pressed {
+                                                        tab.editor.extend_selection_down();
+                                                    } else {
+                                                        tab.editor.move_down();
+                                                    }
+                                                    changed = true;
                                                 }
-                                                changed = true;
                                             }
                                             winit::keyboard::KeyCode::PageUp => {
                                                 for _ in 0..10 {
@@ -661,6 +725,9 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                                 tab.is_dirty = true;
                                 tab.version += 1;
                                 tab.shaping_cache.clear();
+                                if let Some(ref p) = tab.path {
+                                    state.lsp_manager.on_document_change(p, &tab.editor.buffer.to_string());
+                                }
                                 auto_scroll_to_cursor = true;
                                 ui.needs_redraw = true;
                             }
@@ -760,6 +827,35 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                         visible_end,
                     );
 
+                    let active_tab_path = tab_mut.path.clone();
+                    let mut line_diagnostics: std::collections::HashMap<u32, DiagnosticSeverity> = std::collections::HashMap::new();
+                    if let Some(ref tp) = active_tab_path {
+                        for (p, diags) in &state.lsp_manager.diagnostics {
+                            let matches = p == tp || match (p.canonicalize(), tp.canonicalize()) {
+                                (Ok(p1), Ok(p2)) => p1 == p2,
+                                _ => false,
+                            };
+                            if matches {
+                                for d in diags {
+                                    if let Some(sev) = d.severity {
+                                        let line = d.range.start.line;
+                                        line_diagnostics.entry(line)
+                                            .and_modify(|existing| {
+                                                if *existing != DiagnosticSeverity::Error && sev == DiagnosticSeverity::Error {
+                                                    *existing = DiagnosticSeverity::Error;
+                                                } else if *existing != DiagnosticSeverity::Error && *existing != DiagnosticSeverity::Warning && sev == DiagnosticSeverity::Warning {
+                                                    *existing = DiagnosticSeverity::Warning;
+                                                }
+                                            })
+                                            .or_insert(sev);
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    let mut active_cursor_screen_pos: Option<[f32; 2]> = None;
+
                     // Container wrapper - not scrollable, but clips
                     ui.container()
                         .id(editor_id)
@@ -825,6 +921,26 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                                             pos: [num_x, line_y + 3.0],
                                             options: TextOptions::new().font_size(12.0).font_family("monospace").color(num_color),
                                             clip,
+                                        }));
+                                    }
+
+                                    // Draw diagnostic indicator in gutter
+                                    if let Some(sev) = line_diagnostics.get(&(i as u32)) {
+                                        let dot_col = match sev {
+                                            DiagnosticSeverity::Error => Color::rgb(0.95, 0.28, 0.28),
+                                            DiagnosticSeverity::Warning => Color::rgb(0.92, 0.68, 0.22),
+                                            _ => Color::rgb(0.35, 0.65, 0.95),
+                                        };
+                                        let dot_x = if state.line_numbers_visible { editor_x + 5.0 } else { editor_x + 2.0 };
+                                        ui.draws.push(DrawCommand::Rect(RectDraw {
+                                            instance: RectInstance {
+                                                pos: [dot_x, line_y + 7.0],
+                                                size: [6.0, 6.0],
+                                                color: dot_col.to_array(),
+                                                radius: [3.0; 4],
+                                                clip_rect: clip,
+                                                ..Default::default()
+                                            }
                                         }));
                                     }
 
@@ -906,6 +1022,7 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                                     if cursor_p.row == i && is_focused {
                                         let cursor_byte = clean_text.chars().take(cursor_p.column).map(|c| c.len_utf8()).sum();
                                         let cursor_x = find_x_for_byte(&shaped, clean_text, cursor_byte);
+                                        active_cursor_screen_pos = Some([editor_x + gutter_w + cursor_x, line_y + line_height_pixels]);
 
                                         let elapsed_ms = state.last_cursor_activity.elapsed().as_millis();
                                         let show_cursor = if elapsed_ms < 500 {
@@ -988,6 +1105,17 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                             // Advance the layout in immediate-mode container context
                             ui.advance(editor_w, editor_h, draw_start);
                         });
+
+                    let gutter_w = if state.line_numbers_visible { 44.0 } else { 8.0 };
+                    cursor_screen_pos = active_cursor_screen_pos.or_else(|| {
+                        let cur = state.tabs.get(active_tab_idx)?.editor.cursor();
+                        let line_y = editor_y + (cur.row as f32) * line_height_pixels - scroll_y;
+                        if line_y >= editor_y && line_y <= editor_y + editor_h {
+                            Some([editor_x + gutter_w + (cur.column as f32 * 7.8), line_y + line_height_pixels])
+                        } else {
+                            None
+                        }
+                    });
 
                     // Set focus and mouse selection logic on click
                     let is_hovered = ui.mouse_in_rect(editor_x + ui.offset_x, editor_y + ui.offset_y, editor_w, editor_h);
@@ -1205,8 +1333,143 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                         ui.request_redraw();
                     }
                 }
+
+                // ─── Render LSP Autocomplete Floating Popup Overlay ──────────
+                if state.completion_active && !state.completion_items.is_empty() {
+                    if let Some([cur_x, cur_y]) = cursor_screen_pos {
+                        let popup_w = 320.0f32;
+                        let item_h = 22.0f32;
+                        let max_visible = 8;
+                        let visible_count = state.completion_items.len().min(max_visible);
+                        let popup_h = (visible_count as f32 * item_h + 8.0).clamp(32.0, 220.0);
+
+                        let mut px = cur_x;
+                        if px + popup_w > ui.width - 12.0 {
+                            px = (ui.width - popup_w - 12.0).max(12.0);
+                        }
+                        let mut py = cur_y + 2.0;
+                        if py + popup_h > ui.height - 28.0 {
+                            py = (cur_y - popup_h - 22.0).max(10.0);
+                        }
+
+                        let is_mouse_inside = ui.mouse_x >= px && ui.mouse_x <= px + popup_w
+                            && ui.mouse_y >= py && ui.mouse_y <= py + popup_h;
+
+                        let mut item_to_insert = None;
+                        let mut dismiss_comp = false;
+
+                        if ui.clicked && !is_mouse_inside {
+                            dismiss_comp = true;
+                        }
+
+                        let comp_popup_id = Id::from_u64(999999777);
+                        let comp_bg = colors.bg_sidebar;
+                        let selected_idx = state.completion_selected_idx;
+
+                        ui.overlay(|ui| {
+                            ui.container()
+                                .raw_id(comp_popup_id)
+                                .absolute(px, py)
+                                .overlay()
+                                .width(popup_w)
+                                .height(popup_h)
+                                .scroll_y(true)
+                                .bg(comp_bg)
+                                .border(colors.border, 1.0)
+                                .radius_all(4.0)
+                                .shadow(Color::rgba(0.0, 0.0, 0.0, 0.45), 0.0, 4.0, 10.0)
+                                .padding(4.0, 4.0, 4.0, 4.0)
+                                .column()
+                                .gap(1.0)
+                                .show(|ui| {
+                                    for (idx, item) in state.completion_items.iter().enumerate() {
+                                        let is_selected = idx == selected_idx;
+                                        let item_id = Id::from_u64(999999800 + idx as u64);
+                                        let (kind_icon, kind_color) = completion_kind_icon(item.kind);
+
+                                        let mut row = ui.container()
+                                            .id(item_id)
+                                            .full_width()
+                                            .height(item_h)
+                                            .row()
+                                            .valign(Align::Center)
+                                            .padding_left(6.0)
+                                            .padding_right(6.0)
+                                            .gap(6.0)
+                                            .radius_all(3.0);
+
+                                        if is_selected {
+                                            row = row.bg(Color::rgba(18.0 / 255.0, 68.0 / 255.0, 105.0 / 255.0, 1.0));
+                                        } else {
+                                            row = row.bg(Color::TRANSPARENT).hover_bg(colors.highlight);
+                                        }
+
+                                        let resp = row.show(|ui| {
+                                            ui.text(kind_icon)
+                                                .size(10.0)
+                                                .color(kind_color)
+                                                .show();
+
+                                            ui.text(&item.label)
+                                                .size(11.5)
+                                                .weight(FontWeight::Medium)
+                                                .color(colors.text_primary)
+                                                .show();
+
+                                            if let Some(ref detail) = item.detail {
+                                                let clean_detail = detail.lines().next().unwrap_or("").trim();
+                                                if !clean_detail.is_empty() {
+                                                    ui.text(clean_detail)
+                                                        .size(10.5)
+                                                        .color(colors.text_dim)
+                                                        .show();
+                                                }
+                                            }
+                                        });
+
+                                        if resp.clicked {
+                                            let text = item.insert_text.clone().unwrap_or_else(|| item.label.clone());
+                                            item_to_insert = Some(text);
+                                        }
+                                    }
+                                });
+                        });
+
+                        if let Some(insert_text) = item_to_insert {
+                            let tab = &mut state.tabs[active_tab_idx];
+                            tab.editor.insert(&insert_text, tab.path.as_deref(), Some(&state.indent_calc));
+                            tab.is_dirty = true;
+                            tab.version += 1;
+                            tab.shaping_cache.clear();
+                            if let Some(ref p) = tab.path {
+                                state.lsp_manager.on_document_change(p, &tab.editor.buffer.to_string());
+                            }
+                            state.completion_active = false;
+                            state.completion_items.clear();
+                            ui.request_redraw();
+                        } else if dismiss_comp {
+                            state.completion_active = false;
+                            state.completion_items.clear();
+                            ui.request_redraw();
+                        }
+                    }
+                }
             }
         });
+}
+
+fn completion_kind_icon(kind: Option<crate::lsp::protocol::CompletionItemKind>) -> (&'static str, Color) {
+    use crate::lsp::protocol::CompletionItemKind;
+    match kind {
+        Some(CompletionItemKind::Function) | Some(CompletionItemKind::Method) => ("\u{f013}", zenthra::Color::rgb(0.75, 0.45, 0.95)),
+        Some(CompletionItemKind::Variable) | Some(CompletionItemKind::Field) | Some(CompletionItemKind::Property) => ("\u{f02b}", zenthra::Color::rgb(0.35, 0.70, 0.95)),
+        Some(CompletionItemKind::Class) | Some(CompletionItemKind::Struct) | Some(CompletionItemKind::Interface) => ("\u{f1b2}", zenthra::Color::rgb(0.95, 0.75, 0.30)),
+        Some(CompletionItemKind::Keyword) => ("\u{f084}", zenthra::Color::rgb(0.90, 0.45, 0.55)),
+        Some(CompletionItemKind::Snippet) => ("\u{f0c5}", zenthra::Color::rgb(0.40, 0.85, 0.55)),
+        Some(CompletionItemKind::Module) => ("\u{f07b}", zenthra::Color::rgb(0.95, 0.65, 0.35)),
+        Some(CompletionItemKind::Constant) | Some(CompletionItemKind::Value) | Some(CompletionItemKind::EnumMember) => ("\u{f005}", zenthra::Color::rgb(0.90, 0.55, 0.30)),
+        _ => ("\u{f15b}", zenthra::Color::rgb(0.65, 0.70, 0.75)),
+    }
 }
 
 fn collect_popup_tree(

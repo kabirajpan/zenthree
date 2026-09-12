@@ -209,6 +209,10 @@ pub struct ZenthreeState {
     pub extension_search_query: String,
     pub extension_tab_filter: ExtensionFilterTab,
     pub active_language_prompt: Option<LanguagePromptDialog>,
+    pub lsp_manager: crate::lsp::LspManager,
+    pub completion_active: bool,
+    pub completion_items: Vec<crate::lsp::protocol::CompletionItem>,
+    pub completion_selected_idx: usize,
 }
 
 impl ZenthreeState {
@@ -313,6 +317,10 @@ impl ZenthreeState {
             extension_search_query: String::new(),
             extension_tab_filter: ExtensionFilterTab::All,
             active_language_prompt: None,
+            lsp_manager: crate::lsp::LspManager::new(),
+            completion_active: false,
+            completion_items: Vec::new(),
+            completion_selected_idx: 0,
         };
 
         // Restore previous session preferences (theme, accent, extensions, etc.)
@@ -736,6 +744,8 @@ impl ZenthreeState {
             });
             self.active_tab = Some(self.tabs.len() - 1);
             self.status_message = format!("Opened file: {}", path.display());
+            let ws_root = if self.has_workspace { Some(self.current_dir.as_path()) } else { None };
+            self.lsp_manager.on_document_open(path, &content, ws_root);
             self.check_language_support_prompt(path);
             self.save_persistent_state();
         } else {
@@ -961,7 +971,10 @@ impl ZenthreeState {
 
     pub fn close_tab(&mut self, idx: usize) {
         if idx < self.tabs.len() {
-            self.tabs.remove(idx);
+            let removed = self.tabs.remove(idx);
+            if let Some(ref path) = removed.path {
+                self.lsp_manager.on_document_close(path);
+            }
             if self.tabs.is_empty() {
                 self.active_tab = None;
             } else if let Some(active) = self.active_tab {

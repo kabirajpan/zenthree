@@ -54,7 +54,7 @@ pub fn draw_status_bar(ui: &mut Ui, state: &mut ZenthreeState) {
 
                     if let Some(active_idx) = state.active_tab {
                         if active_idx < state.tabs.len() {
-                            let (cursor_row, cursor_col, line_count, lang_info) = {
+                            let (cursor_row, cursor_col, line_count, lang_info, tab_fpath) = {
                                 let tab = &state.tabs[active_idx];
                                 let cursor = tab.editor.cursor();
                                 let lc = tab.editor.buffer.line_count().max(1);
@@ -64,8 +64,54 @@ pub fn draw_status_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                                 } else {
                                     None
                                 };
-                                (cursor.row + 1, cursor.column + 1, lc, li)
+                                (cursor.row + 1, cursor.column + 1, lc, li, tab.path.clone())
                             };
+
+                            // LSP Diagnostics (Errors / Warnings)
+                            let (errors, warnings) = state.lsp_manager.get_diagnostic_counts(tab_fpath.as_deref());
+                            if errors > 0 || warnings > 0 {
+                                ui.container()
+                                    .row()
+                                    .valign(Align::Center)
+                                    .gap(4.0)
+                                    .show(|ui| {
+                                        if errors > 0 {
+                                            ui.text(&format!("✕ {}", errors))
+                                                .size(10.5)
+                                                .color(Color::rgb(239.0 / 255.0, 68.0 / 255.0, 68.0 / 255.0))
+                                                .show();
+                                        }
+                                        if warnings > 0 {
+                                            ui.text(&format!("⚠ {}", warnings))
+                                                .size(10.5)
+                                                .color(Color::rgb(234.0 / 255.0, 179.0 / 255.0, 8.0 / 255.0))
+                                                .show();
+                                        }
+                                    });
+                            }
+
+                            // LSP Server Indicator
+                            if let Some(ref p) = tab_fpath {
+                                if let Some(server_info) = crate::lsp::LspServerInfo::for_path(p) {
+                                    let is_active = state.lsp_manager.sessions.get(server_info.language_id)
+                                        .map(|s| s.status == crate::lsp::ServerStatus::Ready)
+                                        .unwrap_or(false);
+                                    let is_installed = crate::lsp::LspManager::is_server_installed(server_info.binary_name);
+
+                                    let (status_text, status_color) = if is_active {
+                                        (format!("⚡ {}", server_info.display_name), colors.accent)
+                                    } else if is_installed {
+                                        (format!("⚡ {}: ready", server_info.display_name), colors.text_muted)
+                                    } else {
+                                        (format!("⚡ {}: not installed", server_info.display_name), colors.text_dim)
+                                    };
+
+                                    ui.text(&status_text)
+                                        .size(10.0)
+                                        .color(status_color)
+                                        .show();
+                                }
+                            }
 
                             if let Some((lang_name, installed, fpath)) = lang_info {
                                 let label = if installed {
