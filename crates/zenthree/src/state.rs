@@ -62,6 +62,33 @@ pub struct LanguagePromptDialog {
     pub dont_show_again_checked: bool,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum InlineTreeInputMode {
+    NewFile { parent_dir: PathBuf },
+    NewFolder { parent_dir: PathBuf },
+    Rename { target_path: PathBuf },
+}
+
+#[derive(Debug, Clone)]
+pub struct InlineTreeState {
+    pub mode: InlineTreeInputMode,
+    pub text: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct TreeContextMenu {
+    pub target_path: PathBuf,
+    pub is_dir: bool,
+    pub menu_x: f32,
+    pub menu_y: f32,
+}
+
+#[derive(Debug, Clone)]
+pub enum TreeClipboardAction {
+    Copy(PathBuf),
+    Cut(PathBuf),
+}
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct TerminalLine {
     pub text: String,
@@ -213,6 +240,9 @@ pub struct ZenthreeState {
     pub completion_active: bool,
     pub completion_items: Vec<crate::lsp::protocol::CompletionItem>,
     pub completion_selected_idx: usize,
+    pub inline_tree_input: Option<InlineTreeState>,
+    pub tree_context_menu: Option<TreeContextMenu>,
+    pub tree_clipboard: Option<TreeClipboardAction>,
 }
 
 impl ZenthreeState {
@@ -321,6 +351,9 @@ impl ZenthreeState {
             completion_active: false,
             completion_items: Vec::new(),
             completion_selected_idx: 0,
+            inline_tree_input: None,
+            tree_context_menu: None,
+            tree_clipboard: None,
         };
 
         // Restore previous session preferences (theme, accent, extensions, etc.)
@@ -694,16 +727,308 @@ impl ZenthreeState {
             self.new_untitled_file();
             return;
         }
-        let mut idx = 1;
-        let mut target_path = self.current_dir.join("untitled.txt");
-        while target_path.exists() {
-            idx += 1;
-            target_path = self.current_dir.join(format!("untitled_{}.txt", idx));
+        self.start_new_file_inline(None);
+    }
+
+    pub fn start_new_file_inline(&mut self, target_dir: Option<PathBuf>) {
+        if !self.has_workspace {
+            self.new_untitled_file();
+            return;
         }
-        if std::fs::write(&target_path, "").is_ok() {
+        let dir = target_dir.unwrap_or_else(|| {
+            if let Some(ref selected) = self.selected_sidebar_path {
+                if selected.is_dir() {
+                    selected.clone()
+                } else {
+                    selected.parent().unwrap_or(&self.current_dir).to_path_buf()
+                }
+            } else {
+                self.current_dir.clone()
+            }
+        });
+        if dir != self.current_dir {
+            self.expanded_dirs.insert(dir.clone());
             self.rebuild_tree();
-            self.open_file(&target_path);
-            self.status_message = format!("Created {}", target_path.file_name().unwrap().to_string_lossy());
+        }
+        self.inline_tree_input = Some(InlineTreeState {
+            mode: InlineTreeInputMode::NewFile { parent_dir: dir },
+            text: String::new(),
+        });
+        self.tree_context_menu = None;
+    }
+
+    pub fn start_new_folder_inline(&mut self, target_dir: Option<PathBuf>) {
+        if !self.has_workspace {
+            return;
+        }
+        let dir = target_dir.unwrap_or_else(|| {
+            if let Some(ref selected) = self.selected_sidebar_path {
+                if selected.is_dir() {
+                    selected.clone()
+                } else {
+                    selected.parent().unwrap_or(&self.current_dir).to_path_buf()
+                }
+            } else {
+                self.current_dir.clone()
+            }
+        });
+        if dir != self.current_dir {
+            self.expanded_dirs.insert(dir.clone());
+            self.rebuild_tree();
+        }
+        self.inline_tree_input = Some(InlineTreeState {
+            mode: InlineTreeInputMode::NewFolder { parent_dir: dir },
+            text: String::new(),
+        });
+        self.tree_context_menu = None;
+    }
+
+    pub fn start_rename_inline(&mut self, target_path: PathBuf) {
+        let initial_name = target_path.file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("")
+            .to_string();
+        self.inline_tree_input = Some(InlineTreeState {
+            mode: InlineTreeInputMode::Rename { target_path },
+            text: initial_name,
+        });
+        self.tree_context_menu = None;
+    }
+
+    pub fn commit_inline_tree_input(&mut self) -> bool {
+        let inline = match self.inline_tree_input.take() {
+            Some(i) => i,
+            None => return false,
+        };
+
+        let trimmed = inline.text.trim();
+        if trimmed.is_empty() {
+            return false;
+        }
+
+        if trimmed.contains('/') || trimmed.contains('\\') || trimmed.contains('\0') {
+            self.status_message = "Invalid characters in filename".to_string();
+            self.inline_tree_input = Some(inline);
+            return false;
+        }
+
+        match inline.mode {
+            InlineTreeInputMode::NewFile { ref parent_dir } => {
+                let full_path = parent_dir.join(trimmed);
+                if full_path.exists() {
+                    self.status_message = format!("File '{}' already exists", trimmed);
+                    self.inline_tree_input = Some(inline);
+                    return false;
+                }
+                if let Err(e) = std::fs::write(&full_path, "") {
+                    self.status_message = format!("Failed to create file: {}", e);
+                    self.inline_tree_input = Some(inline);
+                    return false;
+                }
+                self.rebuild_tree();
+                self.open_file(&full_path);
+                self.status_message = format!("Created {}", trimmed);
+                true
+            }
+            InlineTreeInputMode::NewFolder { ref parent_dir } => {
+                let full_path = parent_dir.join(trimmed);
+                if full_path.exists() {
+                    self.status_message = format!("Folder '{}' already exists", trimmed);
+                    self.inline_tree_input = Some(inline);
+                    return false;
+                }
+                if let Err(e) = std::fs::create_dir_all(&full_path) {
+                    self.status_message = format!("Failed to create folder: {}", e);
+                    self.inline_tree_input = Some(inline);
+                    return false;
+                }
+                self.expanded_dirs.insert(full_path.clone());
+                self.selected_sidebar_path = Some(full_path);
+                self.rebuild_tree();
+                self.status_message = format!("Created folder {}", trimmed);
+                true
+            }
+            InlineTreeInputMode::Rename { ref target_path } => {
+                let parent = target_path.parent().unwrap_or(&self.current_dir);
+                let new_path = parent.join(trimmed);
+                if new_path == *target_path {
+                    return true;
+                }
+                if new_path.exists() {
+                    self.status_message = format!("'{}' already exists", trimmed);
+                    self.inline_tree_input = Some(inline);
+                    return false;
+                }
+                if let Err(e) = std::fs::rename(target_path, &new_path) {
+                    self.status_message = format!("Failed to rename: {}", e);
+                    self.inline_tree_input = Some(inline);
+                    return false;
+                }
+
+                // Update open tabs if file was renamed, or if it was a folder containing open files
+                for tab in &mut self.tabs {
+                    if let Some(ref mut tab_path) = tab.path {
+                        if *tab_path == *target_path {
+                            *tab_path = new_path.clone();
+                            tab.name = trimmed.to_string();
+                        } else if let Ok(rel) = tab_path.strip_prefix(target_path) {
+                            *tab_path = new_path.join(rel);
+                        }
+                    }
+                }
+
+                if self.selected_sidebar_path.as_ref() == Some(target_path) {
+                    self.selected_sidebar_path = Some(new_path.clone());
+                }
+
+                if self.expanded_dirs.remove(target_path) {
+                    self.expanded_dirs.insert(new_path.clone());
+                }
+
+                self.rebuild_tree();
+                self.status_message = format!("Renamed to {}", trimmed);
+                true
+            }
+        }
+    }
+
+    pub fn cancel_inline_tree_input(&mut self) {
+        self.inline_tree_input = None;
+    }
+
+    pub fn delete_tree_path(&mut self, path: &Path) {
+        let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("item").to_string();
+        let res = if path.is_dir() {
+            std::fs::remove_dir_all(path)
+        } else {
+            std::fs::remove_file(path)
+        };
+
+        match res {
+            Ok(_) => {
+                let mut i = 0;
+                while i < self.tabs.len() {
+                    let should_close = self.tabs[i].path.as_ref().map(|p| p == path || p.starts_with(path)).unwrap_or(false);
+                    if should_close {
+                        self.close_tab(i);
+                    } else {
+                        i += 1;
+                    }
+                }
+
+                if self.selected_sidebar_path.as_ref() == Some(&path.to_path_buf()) {
+                    self.selected_sidebar_path = None;
+                }
+                self.expanded_dirs.remove(path);
+                self.rebuild_tree();
+                self.status_message = format!("Deleted {}", name);
+            }
+            Err(e) => {
+                self.status_message = format!("Failed to delete: {}", e);
+            }
+        }
+        self.tree_context_menu = None;
+    }
+
+    pub fn copy_tree_path(&mut self, path: &Path) {
+        self.tree_clipboard = Some(TreeClipboardAction::Copy(path.to_path_buf()));
+        self.status_message = format!("Copied {}", path.file_name().and_then(|n| n.to_str()).unwrap_or(""));
+        self.tree_context_menu = None;
+    }
+
+    pub fn cut_tree_path(&mut self, path: &Path) {
+        self.tree_clipboard = Some(TreeClipboardAction::Cut(path.to_path_buf()));
+        self.status_message = format!("Cut {}", path.file_name().and_then(|n| n.to_str()).unwrap_or(""));
+        self.tree_context_menu = None;
+    }
+
+    pub fn paste_into_tree_path(&mut self, dest_dir: &Path) {
+        let clip = match self.tree_clipboard.take() {
+            Some(c) => c,
+            None => return,
+        };
+
+        let target_dir = if dest_dir.is_dir() {
+            dest_dir.to_path_buf()
+        } else {
+            dest_dir.parent().unwrap_or(&self.current_dir).to_path_buf()
+        };
+
+        match clip {
+            TreeClipboardAction::Copy(src) => {
+                if src.exists() {
+                    let file_name = src.file_name().unwrap_or_default();
+                    let mut dest = target_dir.join(file_name);
+
+                    if dest.exists() {
+                        let stem = src.file_stem().and_then(|s| s.to_str()).unwrap_or("copy");
+                        let ext = src.extension().and_then(|e| e.to_str()).map(|e| format!(".{}", e)).unwrap_or_default();
+                        let mut count = 1;
+                        loop {
+                            let candidate = target_dir.join(format!("{}_copy{}{}", stem, count, ext));
+                            if !candidate.exists() {
+                                dest = candidate;
+                                break;
+                            }
+                            count += 1;
+                        }
+                    }
+
+                    let res = if src.is_dir() {
+                        copy_dir_all(&src, &dest)
+                    } else {
+                        std::fs::copy(&src, &dest).map(|_| ())
+                    };
+
+                    if res.is_ok() {
+                        self.rebuild_tree();
+                        self.status_message = format!("Pasted into {}", target_dir.file_name().and_then(|n| n.to_str()).unwrap_or(""));
+                    } else {
+                        self.status_message = "Failed to paste item".to_string();
+                    }
+                }
+                self.tree_clipboard = Some(TreeClipboardAction::Copy(src));
+            }
+            TreeClipboardAction::Cut(src) => {
+                if src.exists() {
+                    let file_name = src.file_name().unwrap_or_default();
+                    let dest = target_dir.join(file_name);
+                    if !dest.exists() {
+                        if std::fs::rename(&src, &dest).is_ok() {
+                            for tab in &mut self.tabs {
+                                if let Some(ref mut tab_path) = tab.path {
+                                    if *tab_path == src {
+                                        *tab_path = dest.clone();
+                                    } else if let Ok(rel) = tab_path.strip_prefix(&src) {
+                                        *tab_path = dest.join(rel);
+                                    }
+                                }
+                            }
+                            self.rebuild_tree();
+                            self.status_message = format!("Moved to {}", target_dir.file_name().and_then(|n| n.to_str()).unwrap_or(""));
+                        }
+                    } else {
+                        self.status_message = "Destination already exists".to_string();
+                    }
+                }
+            }
+        }
+        self.tree_context_menu = None;
+    }
+
+    pub fn reveal_in_file_manager(&self, path: &Path) {
+        let dir = if path.is_dir() { path } else { path.parent().unwrap_or(&self.current_dir) };
+        #[cfg(target_os = "windows")]
+        {
+            let _ = std::process::Command::new("explorer").arg(dir).spawn();
+        }
+        #[cfg(target_os = "macos")]
+        {
+            let _ = std::process::Command::new("open").arg("-R").arg(path).spawn();
+        }
+        #[cfg(not(any(target_os = "windows", target_os = "macos")))]
+        {
+            let _ = std::process::Command::new("xdg-open").arg(dir).spawn();
         }
     }
 
@@ -1178,6 +1503,20 @@ impl ZenthreeState {
 
         self.ai_input.clear();
     }
+}
+
+fn copy_dir_all(src: &Path, dst: &Path) -> std::io::Result<()> {
+    std::fs::create_dir_all(dst)?;
+    for entry in std::fs::read_dir(src)? {
+        let entry = entry?;
+        let ty = entry.file_type()?;
+        if ty.is_dir() {
+            copy_dir_all(&entry.path(), &dst.join(entry.file_name()))?;
+        } else {
+            std::fs::copy(entry.path(), dst.join(entry.file_name()))?;
+        }
+    }
+    Ok(())
 }
 
 impl Drop for ZenthreeState {
