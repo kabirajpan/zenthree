@@ -436,17 +436,17 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                         .halign(Align::Center)
                         .valign(Align::Center)
                         .show(|ui| {
-                            ui.container()
-                                .width(14.0).height(11.0)
-                                .border(if state.sidebar_visible { colors.accent } else { colors.text_muted.with_alpha(0.6) }, 1.0)
-                                .radius_all(2.0)
-                                .row()
-                                .show(|ui| {
-                                    ui.container()
-                                        .width(4.0).height(9.0)
-                                        .bg(if state.sidebar_visible { colors.accent } else { Color::TRANSPARENT })
-                                        .show(|_| {});
-                                });
+                            let icon_color = if state.sidebar_visible {
+                                colors.accent
+                            } else if left_hov {
+                                colors.text_primary
+                            } else {
+                                colors.text_muted
+                            };
+                            ui.text("\u{eb7f}")
+                                .size(13.0)
+                                .color(icon_color)
+                                .show();
                         });
                     let h = left_resp.hovered;
                     let prev = ui.interaction_state.insert(left_key, if h { 1.0 } else { 0.0 });
@@ -474,18 +474,17 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                         .halign(Align::Center)
                         .valign(Align::Center)
                         .show(|ui| {
-                            ui.container()
-                                .width(14.0).height(11.0)
-                                .border(if state.terminal_visible { colors.accent } else { colors.text_muted.with_alpha(0.6) }, 1.0)
-                                .radius_all(2.0)
-                                .column()
-                                .valign(Align::Bottom)
-                                .show(|ui| {
-                                    ui.container()
-                                        .full_width().height(3.0)
-                                        .bg(if state.terminal_visible { colors.accent } else { Color::TRANSPARENT })
-                                        .show(|_| {});
-                                });
+                            let icon_color = if state.terminal_visible {
+                                colors.accent
+                            } else if btm_hov {
+                                colors.text_primary
+                            } else {
+                                colors.text_muted
+                            };
+                            ui.text("\u{eb7c}")
+                                .size(13.0)
+                                .color(icon_color)
+                                .show();
                         });
                     let h = btm_resp.hovered;
                     let prev = ui.interaction_state.insert(btm_key, if h { 1.0 } else { 0.0 });
@@ -516,18 +515,17 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                         .halign(Align::Center)
                         .valign(Align::Center)
                         .show(|ui| {
-                            ui.container()
-                                .width(14.0).height(11.0)
-                                .border(if state.ai_panel_visible { colors.accent } else { colors.text_muted.with_alpha(0.6) }, 1.0)
-                                .radius_all(2.0)
-                                .row()
-                                .halign(Align::Right)
-                                .show(|ui| {
-                                    ui.container()
-                                        .width(4.0).height(9.0)
-                                        .bg(if state.ai_panel_visible { colors.accent } else { Color::TRANSPARENT })
-                                        .show(|_| {});
-                                });
+                            let icon_color = if state.ai_panel_visible {
+                                colors.accent
+                            } else if right_hov {
+                                colors.text_primary
+                            } else {
+                                colors.text_muted
+                            };
+                            ui.text("\u{eb81}")
+                                .size(13.0)
+                                .color(icon_color)
+                                .show();
                         });
                     let h = right_resp.hovered;
                     let prev = ui.interaction_state.insert(right_key, if h { 1.0 } else { 0.0 });
