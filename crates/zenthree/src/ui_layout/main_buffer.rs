@@ -181,6 +181,7 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                             state.active_tab = Some(idx);
                             active_tab_idx = idx;
                             if let Some(ref path) = state.tabs[idx].path.clone() {
+                                state.selected_sidebar_path = Some(path.clone());
                                 state.check_language_support_prompt(path);
                             }
                             ui.request_redraw();

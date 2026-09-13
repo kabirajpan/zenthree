@@ -154,7 +154,7 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
                                 .valign(Align::Center)
                                 .gap(4.0)
                                 .show(|ui| {
-                                    let new_btn = ui.button("+")
+                                    let new_btn = ui.button("\u{ea7f}")
                                         .id(Id::from_u64(999997111))
                                         .width(18.0)
                                         .height(18.0)
@@ -169,16 +169,16 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
                                         do_new_file = true;
                                     }
 
-                                    let folder_btn = ui.button("\u{f115}+")
+                                    let folder_btn = ui.button("\u{ea83}")
                                         .id(Id::from_u64(999997110))
-                                        .width(22.0)
+                                        .width(18.0)
                                         .height(18.0)
                                         .bg(Color::TRANSPARENT)
                                         .hover_bg(Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, 0.1))
                                         .text_color(colors.text_muted)
                                         .radius_all(3.0)
                                         .padding(0.0, 0.0, 0.0, 0.0)
-                                        .size(10.5)
+                                        .size(12.0)
                                         .show();
                                     if folder_btn.clicked {
                                         do_new_folder = true;
@@ -232,7 +232,7 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
                                 .valign(Align::Center)
                                 .gap(2.0)
                                 .show(|ui| {
-                                    let new_btn = ui.button("+")
+                                    let new_btn = ui.button("\u{ea7f}")
                                         .id(Id::from_u64(999997101))
                                         .width(18.0)
                                         .height(18.0)
@@ -247,22 +247,22 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
                                         do_new_file = true;
                                     }
 
-                                    let folder_btn = ui.button("\u{f115}+")
+                                    let folder_btn = ui.button("\u{ea83}")
                                         .id(Id::from_u64(999997100))
-                                        .width(22.0)
+                                        .width(18.0)
                                         .height(18.0)
                                         .bg(Color::TRANSPARENT)
                                         .hover_bg(Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, 0.1))
                                         .text_color(colors.text_muted)
                                         .radius_all(3.0)
                                         .padding(0.0, 0.0, 0.0, 0.0)
-                                        .size(10.5)
+                                        .size(12.0)
                                         .show();
                                     if folder_btn.clicked {
                                         do_new_folder = true;
                                     }
 
-                                    let ref_btn = ui.button("↺")
+                                    let ref_btn = ui.button("\u{ea84}")
                                         .id(Id::from_u64(999997102))
                                         .width(18.0)
                                         .height(18.0)
@@ -271,13 +271,13 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
                                         .text_color(colors.text_muted)
                                         .radius_all(3.0)
                                         .padding(0.0, 0.0, 0.0, 0.0)
-                                        .size(11.0)
+                                        .size(12.0)
                                         .show();
                                     if ref_btn.clicked {
                                         do_refresh = true;
                                     }
 
-                                    let col_btn = ui.button("⊟")
+                                    let col_btn = ui.button("\u{ea85}")
                                         .id(Id::from_u64(999997103))
                                         .width(18.0)
                                         .height(18.0)
@@ -286,7 +286,7 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
                                         .text_color(colors.text_muted)
                                         .radius_all(3.0)
                                         .padding(0.0, 0.0, 0.0, 0.0)
-                                        .size(11.0)
+                                        .size(12.0)
                                         .show();
                                     if col_btn.clicked {
                                         do_collapse = true;
@@ -344,7 +344,7 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
                                 .color(colors.text_muted)
                                 .show();
 
-                            let new_btn = ui.button("+")
+                            let new_btn = ui.button("\u{ea7f}")
                                 .id(Id::from_u64(999997121))
                                 .width(18.0)
                                 .height(18.0)
@@ -359,22 +359,22 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
                                 do_new_file = true;
                             }
 
-                            let folder_btn = ui.button("\u{f115}+")
+                            let folder_btn = ui.button("\u{ea83}")
                                 .id(Id::from_u64(999997120))
-                                .width(22.0)
+                                .width(18.0)
                                 .height(18.0)
                                 .bg(Color::TRANSPARENT)
                                 .hover_bg(Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, 0.1))
                                 .text_color(colors.text_muted)
                                 .radius_all(3.0)
                                 .padding(0.0, 0.0, 0.0, 0.0)
-                                .size(10.5)
+                                .size(12.0)
                                 .show();
                             if folder_btn.clicked {
                                 do_new_folder = true;
                             }
 
-                            let ref_btn = ui.button("↺")
+                            let ref_btn = ui.button("\u{ea84}")
                                 .id(Id::from_u64(999997104))
                                 .width(18.0)
                                 .height(18.0)
@@ -383,13 +383,13 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
                                 .text_color(colors.text_muted)
                                 .radius_all(3.0)
                                 .padding(0.0, 0.0, 0.0, 0.0)
-                                .size(11.0)
+                                .size(12.0)
                                 .show();
                             if ref_btn.clicked {
                                 do_refresh = true;
                             }
 
-                            let col_btn = ui.button("⊟")
+                            let col_btn = ui.button("\u{ea85}")
                                 .id(Id::from_u64(999997105))
                                 .width(18.0)
                                 .height(18.0)
@@ -398,7 +398,7 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
                                 .text_color(colors.text_muted)
                                 .radius_all(3.0)
                                 .padding(0.0, 0.0, 0.0, 0.0)
-                                .size(11.0)
+                                .size(12.0)
                                 .show();
                             if col_btn.clicked {
                                 do_collapse = true;
@@ -495,24 +495,33 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
                         let is_dir = node.is_dir;
                         let item_id = Id::from_u64(999993000 + idx as u64);
 
-                        let icon_source = if is_dir {
-                            icon_theme.get_icon_for_folder(&node.name, node.is_expanded)
+                        let is_being_renamed = match &state.inline_tree_input {
+                            Some(crate::state::InlineTreeState { mode: InlineTreeInputMode::Rename { target_path }, .. }) => {
+                                *target_path == node.path
+                            }
+                            _ => false,
+                        };
+
+                        let effective_name = if is_being_renamed {
+                            let t = state.inline_tree_input.as_ref().map(|i| i.text.as_str()).unwrap_or("");
+                            if t.is_empty() { &node.name } else { t }
                         } else {
-                            icon_theme.get_icon_for_file(&node.name, Some(&node.path))
+                            &node.name
+                        };
+
+                        let icon_source = if is_dir {
+                            icon_theme.get_icon_for_folder(effective_name, node.is_expanded)
+                        } else {
+                            icon_theme.get_icon_for_file(effective_name, Some(&node.path))
                         };
 
                         let active_tab_path = state.active_tab
                             .and_then(|idx| state.tabs.get(idx))
                             .and_then(|t| t.path.as_ref());
 
-                        let is_selected = state.selected_sidebar_path.as_ref() == Some(&node.path)
-                            || (!node.is_dir && active_tab_path == Some(&node.path));
-
-                        let is_being_renamed = match &state.inline_tree_input {
-                            Some(crate::state::InlineTreeState { mode: InlineTreeInputMode::Rename { target_path }, .. }) => {
-                                *target_path == node.path
-                            }
-                            _ => false,
+                        let is_selected = match &state.selected_sidebar_path {
+                            Some(selected) => selected == &node.path,
+                            None => !node.is_dir && active_tab_path == Some(&node.path),
                         };
 
                         let mut item_container = ui.container()
@@ -805,11 +814,11 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
                 .column()
                 .gap(1.0)
                 .show(|ui| {
-                    if draw_menu_item(ui, Id::from_u64(999996001), "+", "New File...", "", true, false, &colors) {
+                    if draw_menu_item(ui, Id::from_u64(999996001), "\u{ea7f}", "New File...", "", true, false, &colors) {
                         state.start_new_file_inline(Some(target_dir.clone()));
                         close_menu = true;
                     }
-                    if draw_menu_item(ui, Id::from_u64(999996002), "\u{f115}+", "New Folder...", "", true, false, &colors) {
+                    if draw_menu_item(ui, Id::from_u64(999996002), "\u{ea83}", "New Folder...", "", true, false, &colors) {
                         state.start_new_folder_inline(Some(target_dir.clone()));
                         close_menu = true;
                     }
@@ -950,7 +959,7 @@ fn draw_inline_create_row(
     ui: &mut Ui,
     state: &ZenthreeState,
     depth: usize,
-    _icon_theme: &crate::theme::IconTheme,
+    icon_theme: &crate::theme::IconTheme,
     preset: crate::state::ExplorerPreset,
     sidebar_w: f32,
     pad_h: f32,
@@ -979,9 +988,9 @@ fn draw_inline_create_row(
         crate::state::ExplorerPreset::ModernMinimalist => depth as f32 * 14.0,
     };
 
-    // Approximate available width for text input
-    let icon_and_padding = pad_h * 2.0 + indent_px + 13.0 + 4.0;
-    let avail_w = (sidebar_w - icon_and_padding - 16.0).max(60.0);
+    // Approximate available width for text input: account for indent, arrow container (12px), icon (13px), padding & gaps
+    let icon_and_padding = pad_h * 2.0 + indent_px + 12.0 + 13.0 + 4.0 * 2.0;
+    let avail_w = (sidebar_w - icon_and_padding - 20.0).max(60.0);
 
     ui.container()
         .full_width()
@@ -1000,17 +1009,29 @@ fn draw_inline_create_row(
                 ui.spacing(indent_px);
             }
 
-            // Icon
-            let icon_char = if is_folder_mode { "\u{f07b}" } else { "\u{f15b}" };
-            let icon_color = if is_folder_mode {
-                Color::rgb(250.0 / 255.0, 204.0 / 255.0, 21.0 / 255.0)
+            // Arrow spacer container (12px) to align icon with normal tree items
+            ui.container()
+                .width(12.0)
+                .valign(Align::Center)
+                .halign(Align::Center)
+                .show(|ui| {
+                    if is_folder_mode {
+                        ui.text("\u{f054}")
+                            .size(7.5)
+                            .color(colors.text_muted)
+                            .show();
+                    }
+                });
+
+            // Dynamic Icon matching theme icon pack
+            let icon_source = if is_folder_mode {
+                let folder_name = if input_text.is_empty() { "folder" } else { input_text };
+                icon_theme.get_icon_for_folder(folder_name, false)
             } else {
-                colors.text_muted
+                let file_name = if input_text.is_empty() { "file" } else { input_text };
+                icon_theme.get_icon_for_file(file_name, None)
             };
-            ui.text(icon_char)
-                .size(13.0)
-                .color(icon_color)
-                .show();
+            icon_source.show(ui, 13.0);
 
             // Text input box
             ui.container()

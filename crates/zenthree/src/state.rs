@@ -527,6 +527,7 @@ impl ZenthreeState {
                             .and_then(|t| t.path.clone())
                             .or_else(|| self.tabs.first().and_then(|t| t.path.clone()));
                         if let Some(p) = startup_path {
+                            self.selected_sidebar_path = Some(p.clone());
                             self.check_language_support_prompt(&p);
                         }
                     }
@@ -722,6 +723,7 @@ impl ZenthreeState {
         self.save_persistent_state();
     }
 
+    #[allow(dead_code)]
     pub fn new_file_in_workspace(&mut self) {
         if !self.has_workspace {
             self.new_untitled_file();
@@ -1302,9 +1304,16 @@ impl ZenthreeState {
             }
             if self.tabs.is_empty() {
                 self.active_tab = None;
+                self.selected_sidebar_path = None;
             } else if let Some(active) = self.active_tab {
-                if active >= self.tabs.len() {
-                    self.active_tab = Some(self.tabs.len() - 1);
+                let new_active = if active >= self.tabs.len() {
+                    self.tabs.len() - 1
+                } else {
+                    active
+                };
+                self.active_tab = Some(new_active);
+                if let Some(ref path) = self.tabs[new_active].path {
+                    self.selected_sidebar_path = Some(path.clone());
                 }
             }
             self.status_message = "Tab closed".to_string();
