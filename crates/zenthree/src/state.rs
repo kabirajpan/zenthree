@@ -243,6 +243,8 @@ pub struct ZenthreeState {
     pub inline_tree_input: Option<InlineTreeState>,
     pub tree_context_menu: Option<TreeContextMenu>,
     pub tree_clipboard: Option<TreeClipboardAction>,
+    #[allow(dead_code)]
+    pub groq_api_key: Option<String>,
 }
 
 impl ZenthreeState {
@@ -354,6 +356,7 @@ impl ZenthreeState {
             inline_tree_input: None,
             tree_context_menu: None,
             tree_clipboard: None,
+            groq_api_key: std::env::var("GROQ_API_KEY").ok(),
         };
 
         // Restore previous session preferences (theme, accent, extensions, etc.)
