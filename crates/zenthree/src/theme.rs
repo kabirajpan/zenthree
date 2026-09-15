@@ -20,6 +20,7 @@ pub struct ThemeColors {
     pub text_dim: Color,
     pub accent: Color,
     pub highlight: Color,
+    pub cursor: Color,
 }
 
 pub const ACCENT_COLOR_OPTIONS: &[(&str, &str)] = &[
@@ -74,6 +75,7 @@ impl ThemeColors {
                 text_dim: Color::rgb(82.0 / 255.0, 88.0 / 255.0, 102.0 / 255.0),
                 accent,
                 highlight: Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, 0.08),
+                cursor: Color::WHITE,
             },
             ThemeMode::Light => Self {
                 bg_base: Color::rgb(240.0 / 255.0, 240.0 / 255.0, 242.0 / 255.0),
@@ -88,6 +90,7 @@ impl ThemeColors {
                 text_dim: Color::rgb(190.0 / 255.0, 190.0 / 255.0, 195.0 / 255.0),
                 accent,
                 highlight: Color::rgba(0.0, 0.0, 0.0, 0.08),
+                cursor: Color::rgb(59.0 / 255.0, 130.0 / 255.0, 246.0 / 255.0),
             },
         }
     }

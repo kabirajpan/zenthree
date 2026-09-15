@@ -24,13 +24,7 @@ pub fn draw_status_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                 .gap(6.0)
                 .show(|ui| {
                     if !state.status_message.is_empty() {
-                        let max_chars = ((avail_w * 0.35) / 7.0).max(10.0) as usize;
-                        let msg = if state.status_message.len() > max_chars {
-                            format!("{}...", &state.status_message[..max_chars - 3])
-                        } else {
-                            state.status_message.clone()
-                        };
-                        ui.text(&msg)
+                        ui.text(&state.status_message)
                             .size(11.0)
                             .color(colors.text_muted)
                             .show();

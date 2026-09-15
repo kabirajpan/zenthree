@@ -262,7 +262,7 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
                                         do_new_folder = true;
                                     }
 
-                                    let ref_btn = ui.button("↺")
+                                    let ref_btn = ui.button("\u{eb37}")
                                         .id(Id::from_u64(999997102))
                                         .width(18.0)
                                         .height(18.0)
@@ -277,7 +277,7 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
                                         do_refresh = true;
                                     }
 
-                                    let col_btn = ui.button("⊟")
+                                    let col_btn = ui.button("\u{eb15}")
                                         .id(Id::from_u64(999997103))
                                         .width(18.0)
                                         .height(18.0)
@@ -374,7 +374,7 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
                                 do_new_folder = true;
                             }
 
-                            let ref_btn = ui.button("↺")
+                            let ref_btn = ui.button("\u{eb37}")
                                 .id(Id::from_u64(999997104))
                                 .width(18.0)
                                 .height(18.0)
@@ -389,7 +389,7 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
                                 do_refresh = true;
                             }
 
-                            let col_btn = ui.button("⊟")
+                            let col_btn = ui.button("\u{eb15}")
                                 .id(Id::from_u64(999997105))
                                 .width(18.0)
                                 .height(18.0)
@@ -647,22 +647,7 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
                                             .show();
                                     });
                             } else {
-                                let indent_w = if state.explorer_tree_guides {
-                                    node.guide_prefix.chars().count() as f32 * 6.5
-                                } else {
-                                    (node.depth as f32 * 14.0) + 12.0
-                                };
-                                let git_w = if state.explorer_git_status && node.git_status.is_some() {
-                                    24.0
-                                } else {
-                                    0.0
-                                };
-                                let used_w = pad_h * 2.0 + indent_w + 13.0 + 8.0 + git_w + 10.0;
-                                let avail_w = (sidebar_w - used_w).max(24.0);
-                                let max_chars = (avail_w / 6.8).max(4.0) as usize;
-                                let display_name = truncate_filename(&node.name, max_chars);
-
-                                ui.text(&display_name)
+                                ui.text(&node.name)
                                     .size(11.5)
                                     .color(text_color)
                                     .show();
@@ -1236,28 +1221,9 @@ fn draw_no_folder_view(ui: &mut Ui, state: &mut ZenthreeState, sidebar_w: f32) {
         });
 }
 
-pub fn truncate_filename(name: &str, max_chars: usize) -> String {
-    let char_count = name.chars().count();
-    if char_count <= max_chars {
-        name.to_string()
-    } else if max_chars <= 4 {
-        let mut s: String = name.chars().take(max_chars.saturating_sub(1)).collect();
-        s.push('…');
-        s
-    } else {
-        if let Some(dot_pos) = name.rfind('.') {
-            let ext = &name[dot_pos..];
-            let ext_len = ext.chars().count();
-            if ext_len >= 2 && ext_len <= 6 && ext_len < max_chars.saturating_sub(2) {
-                let keep_stem = max_chars - ext_len - 1;
-                let stem: String = name.chars().take(keep_stem).collect();
-                return format!("{}…{}", stem, ext);
-            }
-        }
-        let mut s: String = name.chars().take(max_chars.saturating_sub(1)).collect();
-        s.push('…');
-        s
-    }
+#[allow(dead_code)]
+pub fn truncate_filename(name: &str, _max_chars: usize) -> String {
+    name.to_string()
 }
 
 #[cfg(test)]
@@ -1272,17 +1238,19 @@ mod tests {
 
     #[test]
     fn test_truncate_filename_long_with_extension() {
-        let truncated = truncate_filename("very_long_component_name.tsx", 14);
-        assert_eq!(truncated.chars().count(), 14);
-        assert!(truncated.ends_with(".tsx"));
-        assert!(truncated.contains('…'));
+        let name = truncate_filename("very_long_component_name.tsx", 14);
+        assert_eq!(name, "very_long_component_name.tsx");
+        assert!(name.ends_with(".tsx"));
+        assert!(!name.contains('…'));
+        assert!(!name.contains("..."));
     }
 
     #[test]
     fn test_truncate_filename_no_extension() {
-        let truncated = truncate_filename("very_long_folder_name", 10);
-        assert_eq!(truncated.chars().count(), 10);
-        assert_eq!(truncated, "very_long…");
+        let name = truncate_filename("very_long_folder_name", 10);
+        assert_eq!(name, "very_long_folder_name");
+        assert!(!name.contains('…'));
+        assert!(!name.contains("..."));
     }
 }
 

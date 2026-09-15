@@ -1,7 +1,11 @@
-use crate::state::ZenthreeState;
+use crate::state::{ZenthreeState, DiffLineState, EditedFileSummary, TaskStatus, PendingModification, AiInputDrawer};
+use crate::session::{format_relative_time, format_bytes};
 use zenthra::{Color, Ui, Align, FontWeight, Id, CursorIcon};
 
 pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height: f32) {
+    if state.poll_ai_responses() {
+        ui.request_redraw();
+    }
     let colors = state.colors();
     let ai_panel_w = width;
     let ai_id = Id::from_u64(999999801);
@@ -111,6 +115,28 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                         .valign(Align::Center)
                         .gap(5.0)
                         .show(|ui| {
+                            // Left arrow to return to session list
+                            if !state.ai_showing_session_list {
+                                let back_btn = ui.container()
+                                    .padding(2.0, 4.0, 2.0, 4.0)
+                                    .radius_all(3.0)
+                                    .hover_bg(colors.highlight)
+                                    .row()
+                                    .valign(Align::Center)
+                                    .show(|ui| {
+                                        ui.text("\u{f053}")
+                                            .size(9.5)
+                                            .weight(FontWeight::Bold)
+                                            .color(colors.text_primary)
+                                            .show();
+                                    });
+                                if back_btn.clicked {
+                                    state.session_list = crate::session::list_saved_sessions(&state.current_dir);
+                                    state.ai_showing_session_list = true;
+                                    ui.needs_redraw = true;
+                                }
+                            }
+
                             // Sparkle glyph
                             ui.text("\u{f005}")
                                 .size(11.5)
@@ -137,6 +163,14 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                     .show();
                             }
 
+                            let (provider_label, provider_color) = if state.gemini_api_key.is_some() {
+                                ("Gemini Flash", Color::rgb(0.28, 0.58, 0.98))
+                            } else if state.groq_api_key.is_some() {
+                                ("Groq", Color::rgb(184.0 / 255.0, 187.0 / 255.0, 38.0 / 255.0))
+                            } else {
+                                ("Offline", colors.text_muted)
+                            };
+
                             // Responsive model badge
                             if ai_panel_w >= 340.0 {
                                 ui.container()
@@ -152,10 +186,10 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                             .width(5.0)
                                             .height(5.0)
                                             .radius_all(2.5)
-                                            .bg(Color::rgb(184.0 / 255.0, 187.0 / 255.0, 38.0 / 255.0))
+                                            .bg(provider_color)
                                             .show(|_| {});
 
-                                        ui.text("Claude 3.7")
+                                        ui.text(provider_label)
                                             .size(9.0)
                                             .color(colors.text_muted)
                                             .show();
@@ -174,10 +208,11 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                             .width(5.0)
                                             .height(5.0)
                                             .radius_all(2.5)
-                                            .bg(Color::rgb(184.0 / 255.0, 187.0 / 255.0, 38.0 / 255.0))
+                                            .bg(provider_color)
                                             .show(|_| {});
 
-                                        ui.text("3.7")
+                                        let short_label = if state.gemini_api_key.is_some() { "Gemini" } else { provider_label };
+                                        ui.text(short_label)
                                             .size(9.0)
                                             .color(colors.text_muted)
                                             .show();
@@ -185,12 +220,74 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                             }
                         });
 
-                    // Child 2: Right action icons (Reset + Close) securely pinned to right edge
+                    // Child 2: Right action icons (Cockpit + Reset + Close) securely pinned to right edge
                     ui.container()
                         .row()
                         .valign(Align::Center)
                         .gap(4.0)
                         .show(|ui| {
+                            // + New Agent Session Button
+                            let new_session_btn = ui.container()
+                                .height(18.0)
+                                .padding(1.0, 5.0, 1.0, 5.0)
+                                .radius_all(3.0)
+                                .bg(colors.bg_base)
+                                .border(colors.border, 1.0)
+                                .hover_bg(colors.highlight)
+                                .row()
+                                .gap(2.0)
+                                .valign(Align::Center)
+                                .show(|ui| {
+                                    ui.text("+")
+                                        .size(10.0)
+                                        .weight(FontWeight::Bold)
+                                        .color(colors.accent)
+                                        .show();
+                                    if ai_panel_w >= 310.0 {
+                                        ui.text("New")
+                                            .size(8.5)
+                                            .weight(FontWeight::SemiBold)
+                                            .color(colors.text_muted)
+                                            .show();
+                                    }
+                                });
+
+                            if new_session_btn.clicked {
+                                state.start_new_session();
+                                ui.needs_redraw = true;
+                            }
+
+                            // In Silico Connectome Cockpit Toggle Button
+                            let cockpit_active = state.connectome_cockpit_open;
+                            let cockpit_btn = ui.container()
+                                .height(18.0)
+                                .padding(1.0, 5.0, 1.0, 5.0)
+                                .radius_all(3.0)
+                                .bg(if cockpit_active { colors.accent.with_alpha(0.18) } else { colors.bg_base })
+                                .border(if cockpit_active { colors.accent } else { colors.border }, 1.0)
+                                .hover_bg(colors.highlight)
+                                .row()
+                                .gap(3.0)
+                                .valign(Align::Center)
+                                .show(|ui| {
+                                    ui.text("\u{f0e7}")
+                                        .size(9.0)
+                                        .color(if cockpit_active { colors.accent } else { colors.text_muted })
+                                        .show();
+                                    if ai_panel_w >= 290.0 {
+                                        ui.text("Brain")
+                                            .size(8.5)
+                                            .weight(FontWeight::Bold)
+                                            .color(if cockpit_active { colors.accent } else { colors.text_muted })
+                                            .show();
+                                    }
+                                });
+
+                            if cockpit_btn.clicked {
+                                state.connectome_cockpit_open = !state.connectome_cockpit_open;
+                                ui.needs_redraw = true;
+                            }
+
                             // Reset conversation button
                             let reset_btn = ui.container()
                                 .width(18.0)
@@ -213,6 +310,8 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                     content: "Conversation cleared. What would you like to work on next?".to_string(),
                                     code_snippet: None,
                                     thoughts: None,
+                                    deliberation: None,
+                                    ..Default::default()
                                 });
                                 ui.needs_redraw = true;
                             }
@@ -240,38 +339,247 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                         });
                 });
 
+            // ─── Default Session List View ──────────────────────────────
+            if state.ai_showing_session_list {
+                let session_list_h = (height - HEADER_H).max(100.0);
+                let session_scroll_id = Id::from_u64(999999805);
+
+                ui.container()
+                    .id(session_scroll_id)
+                    .width(ai_panel_w)
+                    .height(session_list_h)
+                    .padding(10.0, 10.0, 10.0, 10.0)
+                    .column()
+                    .gap(10.0)
+                    .scroll_y(true)
+                    .show(|ui| {
+                        // Top "+ Start New Session" Action Card
+                        let mut do_start_new = false;
+                        let start_new_btn = ui.container()
+                            .id(Id::from_u64(999999801))
+                            .width(ai_panel_w - 20.0)
+                            .bg(colors.bg_sidebar)
+                            .border(colors.border, 1.0)
+                            .hover_bg(colors.highlight)
+                            .radius_all(6.0)
+                            .padding(8.0, 10.0, 8.0, 10.0)
+                            .row()
+                            .valign(Align::Center)
+                            .halign(Align::SpaceBetween)
+                            .show(|ui| {
+                                ui.container()
+                                    .row()
+                                    .gap(8.0)
+                                    .valign(Align::Center)
+                                    .show(|ui| {
+                                        ui.container()
+                                            .width(22.0)
+                                            .height(22.0)
+                                            .radius_all(4.0)
+                                            .bg(colors.accent.with_alpha(0.18))
+                                            .valign(Align::Center)
+                                            .halign(Align::Center)
+                                            .show(|ui| {
+                                                ui.text("+")
+                                                    .size(14.0)
+                                                    .weight(FontWeight::Bold)
+                                                    .color(colors.accent)
+                                                    .show();
+                                            });
+
+                                        ui.container()
+                                            .column()
+                                            .gap(2.0)
+                                            .show(|ui| {
+                                                ui.text("Start New Session")
+                                                    .size(11.0)
+                                                    .weight(FontWeight::SemiBold)
+                                                    .color(colors.text_primary)
+                                                    .show();
+                                                ui.text("Begin fresh agent conversation")
+                                                    .size(9.0)
+                                                    .color(colors.text_muted)
+                                                    .show();
+                                            });
+                                    });
+
+                                let new_btn = ui.button("+ New")
+                                    .id(Id::from_u64(999998799))
+                                    .height(20.0)
+                                    .bg(colors.accent)
+                                    .hover_bg(colors.accent.with_alpha(0.85))
+                                    .text_color(Color::WHITE)
+                                    .radius_all(3.0)
+                                    .padding_left(8.0)
+                                    .padding_right(8.0)
+                                    .size(10.0)
+                                    .show();
+
+                                if new_btn.clicked {
+                                    do_start_new = true;
+                                }
+                            });
+
+                        if start_new_btn.clicked || do_start_new {
+                            state.start_new_session();
+                            ui.needs_redraw = true;
+                        }
+
+                        // Section Heading: Saved Sessions
+                        ui.container()
+                            .width(ai_panel_w - 20.0)
+                            .padding_top(6.0)
+                            .row()
+                            .valign(Align::Center)
+                            .halign(Align::SpaceBetween)
+                            .show(|ui| {
+                                ui.text("Saved Sessions")
+                                    .size(11.0)
+                                    .weight(FontWeight::Bold)
+                                    .color(colors.text_primary)
+                                    .show();
+                                let count_label = format!("{} session{}", state.session_list.len(), if state.session_list.len() == 1 { "" } else { "s" });
+                                ui.text(&count_label)
+                                    .size(9.5)
+                                    .color(colors.text_muted)
+                                    .show();
+                            });
+
+                        if state.session_list.is_empty() {
+                            ui.container()
+                                .width(ai_panel_w - 20.0)
+                                .height(80.0)
+                                .radius_all(6.0)
+                                .bg(colors.bg_base)
+                                .border(colors.border, 1.0)
+                                .padding(12.0, 12.0, 12.0, 12.0)
+                                .column()
+                                .valign(Align::Center)
+                                .halign(Align::Center)
+                                .gap(4.0)
+                                .show(|ui| {
+                                    ui.text("No previous sessions found in workspace")
+                                        .size(10.5)
+                                        .color(colors.text_muted)
+                                        .show();
+                                    ui.text("Click above to start your first session")
+                                        .size(9.5)
+                                        .color(colors.accent)
+                                        .show();
+                                });
+                        } else {
+                            let mut selected_session = None;
+
+                            for (idx, sess) in state.session_list.iter().enumerate() {
+                                let is_current = sess.id == state.current_session.id;
+                                let sess_card = ui.container()
+                                    .id(Id::from_u64(999998800 + idx as u64))
+                                    .width(ai_panel_w - 20.0)
+                                    .bg(if is_current { colors.accent.with_alpha(0.06) } else { colors.bg_sidebar })
+                                    .border(if is_current { colors.accent.with_alpha(0.5) } else { colors.border }, 1.0)
+                                    .hover_bg(colors.highlight)
+                                    .radius_all(6.0)
+                                    .padding(8.0, 10.0, 8.0, 10.0)
+                                    .row()
+                                    .valign(Align::Center)
+                                    .halign(Align::SpaceBetween)
+                                    .show(|ui| {
+                                        ui.container()
+                                            .row()
+                                            .gap(8.0)
+                                            .valign(Align::Center)
+                                            .show(|ui| {
+                                                // Icon glyph box matching extensions_panel.rs
+                                                ui.container()
+                                                    .width(22.0)
+                                                    .height(22.0)
+                                                    .bg(colors.accent.with_alpha(0.18))
+                                                    .radius_all(4.0)
+                                                    .valign(Align::Center)
+                                                    .halign(Align::Center)
+                                                    .show(|ui| {
+                                                        ui.text("\u{ea7f}")
+                                                            .size(12.0)
+                                                            .color(colors.accent)
+                                                            .show();
+                                                    });
+
+                                                ui.container()
+                                                    .column()
+                                                    .gap(2.0)
+                                                    .show(|ui| {
+                                                        ui.text(&sess.title)
+                                                            .size(11.0)
+                                                            .weight(FontWeight::SemiBold)
+                                                            .color(colors.text_primary)
+                                                            .show();
+
+                                                        let time_str = format_relative_time(sess.updated_at);
+                                                        let meta_text = format!("{} • {}", time_str, &sess.id);
+                                                        ui.text(&meta_text)
+                                                            .size(9.0)
+                                                            .color(colors.text_muted)
+                                                            .show();
+                                                    });
+                                            });
+
+                                        // Right: Action button matching extensions_panel.rs
+                                        if is_current {
+                                            ui.container()
+                                                .height(20.0)
+                                                .padding(2.0, 8.0, 2.0, 8.0)
+                                                .bg(colors.accent.with_alpha(0.15))
+                                                .border(colors.accent, 1.0)
+                                                .radius_all(3.0)
+                                                .valign(Align::Center)
+                                                .show(|ui| {
+                                                    ui.text("Current")
+                                                        .size(10.0)
+                                                        .weight(FontWeight::Medium)
+                                                        .color(colors.accent)
+                                                        .show();
+                                                });
+                                        } else {
+                                            let cont_btn = ui.button("Continue")
+                                                .id(Id::from_u64(999998900 + idx as u64))
+                                                .height(20.0)
+                                                .bg(colors.accent)
+                                                .hover_bg(colors.accent.with_alpha(0.85))
+                                                .text_color(Color::WHITE)
+                                                .radius_all(3.0)
+                                                .padding_left(8.0)
+                                                .padding_right(8.0)
+                                                .size(10.0)
+                                                .show();
+
+                                            if cont_btn.clicked {
+                                                selected_session = Some(sess.id.clone());
+                                            }
+                                        }
+                                    });
+
+                                if sess_card.clicked {
+                                    selected_session = Some(sess.id.clone());
+                                }
+                            }
+
+                            if let Some(id) = selected_session {
+                                state.switch_session(&id);
+                                ui.needs_redraw = true;
+                            }
+                        }
+                    });
+
+                return;
+            }
+
             // ─── Active Context Banner (Responsive & SpaceBetween) ──
             let active_filename = state.active_tab
                 .and_then(|idx| state.tabs.get(idx))
                 .map(|t| t.name.clone())
                 .unwrap_or_else(|| "No active file".to_string());
 
-            let max_name_len = if ai_panel_w >= 360.0 {
-                22
-            } else if ai_panel_w >= 280.0 {
-                14
-            } else {
-                8
-            };
-
-            let display_name = if active_filename.len() > max_name_len && max_name_len > 4 {
-                let ext_pos = active_filename.rfind('.');
-                if let Some(pos) = ext_pos {
-                    let ext = &active_filename[pos..];
-                    let prefix_len = (max_name_len.saturating_sub(ext.len() + 2)).max(2);
-                    format!("{}..{}", &active_filename[..prefix_len.min(active_filename.len())], ext)
-                } else {
-                    format!("{}...", &active_filename[..max_name_len - 3])
-                }
-            } else {
-                active_filename.clone()
-            };
-
-            let context_label = if ai_panel_w >= 290.0 {
-                format!("Context: {}", display_name)
-            } else {
-                display_name
-            };
+            let context_label = format!("Context: {}", active_filename);
 
             ui.container()
                 .width(ai_panel_w)
@@ -334,6 +642,186 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                     }
                 });
 
+            // ─── In Silico Connectome Cockpit & Biological Lab ───────────
+            let cockpit_drawer_h = if state.connectome_cockpit_open {
+                if state.connectome_ablation_enabled { 108.0 } else { 58.0 }
+            } else {
+                0.0
+            };
+
+            if state.connectome_cockpit_open {
+                ui.container()
+                    .full_width()
+                    .padding(6.0, 8.0, 6.0, 8.0)
+                    .bg(match state.theme {
+                        crate::theme::ThemeMode::Dark => Color::rgb(18.0 / 255.0, 21.0 / 255.0, 26.0 / 255.0),
+                        crate::theme::ThemeMode::Light => Color::rgb(238.0 / 255.0, 242.0 / 255.0, 246.0 / 255.0),
+                    })
+                    .border(colors.accent.with_alpha(0.3), 1.0)
+                    .column()
+                    .gap(4.0)
+                    .show(|ui| {
+                        // Title row
+                        ui.container()
+                            .full_width()
+                            .row()
+                            .valign(Align::Center)
+                            .halign(Align::SpaceBetween)
+                            .show(|ui| {
+                                ui.container()
+                                    .row()
+                                    .gap(5.0)
+                                    .valign(Align::Center)
+                                    .show(|ui| {
+                                        ui.text("\u{f0e7}")
+                                            .size(9.0)
+                                            .color(colors.accent)
+                                            .show();
+                                        ui.text("Connectome Cockpit")
+                                            .size(9.0)
+                                            .weight(FontWeight::Bold)
+                                            .color(colors.accent)
+                                            .show();
+                                    });
+
+                                ui.text("500 neurons • 5,399 synapses")
+                                    .size(8.0)
+                                    .color(colors.text_muted)
+                                    .show();
+                            });
+
+                        // Lesion toggle switch
+                        ui.container()
+                            .full_width()
+                            .row()
+                            .valign(Align::Center)
+                            .halign(Align::SpaceBetween)
+                            .show(|ui| {
+                                ui.text("In Silico Lesion:")
+                                    .size(8.5)
+                                    .weight(FontWeight::Medium)
+                                    .color(colors.text_primary)
+                                    .show();
+
+                                let is_on = state.connectome_ablation_enabled;
+                                let toggle_btn = ui.container()
+                                    .padding(2.0, 6.0, 2.0, 6.0)
+                                    .radius_all(3.0)
+                                    .bg(if is_on {
+                                        Color::rgb(180.0 / 255.0, 50.0 / 255.0, 40.0 / 255.0).with_alpha(0.25)
+                                    } else {
+                                        colors.bg_base
+                                    })
+                                    .border(if is_on {
+                                        Color::rgb(220.0 / 255.0, 70.0 / 255.0, 50.0 / 255.0)
+                                    } else {
+                                        colors.border
+                                    }, 1.0)
+                                    .hover_bg(colors.highlight)
+                                    .show(|ui| {
+                                        ui.text(if is_on { "\u{f0e7} ABLATION ON" } else { "DISABLED (INTACT)" })
+                                            .size(8.0)
+                                            .weight(FontWeight::Bold)
+                                            .color(if is_on {
+                                                Color::rgb(240.0 / 255.0, 100.0 / 255.0, 80.0 / 255.0)
+                                            } else {
+                                                colors.text_muted
+                                            })
+                                            .show();
+                                    });
+
+                                if toggle_btn.clicked {
+                                    state.connectome_ablation_enabled = !state.connectome_ablation_enabled;
+                                    ui.needs_redraw = true;
+                                }
+                            });
+
+                        // Ablation mode & fraction controls if ablation enabled
+                        if state.connectome_ablation_enabled {
+                            // Mode pills
+                            ui.container()
+                                .full_width()
+                                .row()
+                                .gap(4.0)
+                                .valign(Align::Center)
+                                .show(|ui| {
+                                    let modes = [
+                                        (connectome::AblationMode::TargetedHubs, "Hubs"),
+                                        (connectome::AblationMode::Random, "Random"),
+                                        (connectome::AblationMode::InhibitoryOnly, "GABA-"),
+                                        (connectome::AblationMode::ExcitatoryOnly, "ACh+"),
+                                    ];
+
+                                    for (mode, label) in modes {
+                                        let selected = state.connectome_ablation_mode == mode;
+                                        let pill = ui.container()
+                                            .padding(1.5, 5.0, 1.5, 5.0)
+                                            .radius_all(2.5)
+                                            .bg(if selected { colors.accent.with_alpha(0.25) } else { colors.bg_base })
+                                            .border(if selected { colors.accent } else { colors.border }, 1.0)
+                                            .hover_bg(colors.highlight)
+                                            .show(|ui| {
+                                                ui.text(label)
+                                                    .size(8.0)
+                                                    .weight(if selected { FontWeight::Bold } else { FontWeight::Regular })
+                                                    .color(if selected { colors.accent } else { colors.text_muted })
+                                                    .show();
+                                            });
+
+                                        if pill.clicked {
+                                            state.connectome_ablation_mode = mode;
+                                            ui.needs_redraw = true;
+                                        }
+                                    }
+                                });
+
+                            // Fraction selector
+                            ui.container()
+                                .full_width()
+                                .row()
+                                .gap(4.0)
+                                .valign(Align::Center)
+                                .halign(Align::SpaceBetween)
+                                .show(|ui| {
+                                    ui.container()
+                                        .row()
+                                        .gap(3.0)
+                                        .valign(Align::Center)
+                                        .show(|ui| {
+                                            let fractions = [0.10f32, 0.20f32, 0.30f32, 0.50f32];
+                                            for frac in fractions {
+                                                let selected = (state.connectome_ablation_pct - frac).abs() < 0.01;
+                                                let frac_btn = ui.container()
+                                                    .padding(1.0, 4.0, 1.0, 4.0)
+                                                    .radius_all(2.5)
+                                                    .bg(if selected { colors.accent.with_alpha(0.2) } else { colors.bg_base })
+                                                    .border(if selected { colors.accent } else { colors.border }, 1.0)
+                                                    .hover_bg(colors.highlight)
+                                                    .show(|ui| {
+                                                        ui.text(&format!("{:.0}%", frac * 100.0))
+                                                            .size(8.0)
+                                                            .weight(if selected { FontWeight::Bold } else { FontWeight::Regular })
+                                                            .color(if selected { colors.accent } else { colors.text_muted })
+                                                            .show();
+                                                    });
+
+                                                if frac_btn.clicked {
+                                                    state.connectome_ablation_pct = frac;
+                                                    ui.needs_redraw = true;
+                                                }
+                                            }
+                                        });
+
+                                    let silenced_est = (state.connectome_ablation_pct * 460.0).round() as usize;
+                                    ui.text(&format!("~{} silenced", silenced_est))
+                                        .size(8.0)
+                                        .color(Color::rgb(220.0 / 255.0, 100.0 / 255.0, 80.0 / 255.0))
+                                        .show();
+                                });
+                        }
+                    });
+            }
+
             // ─── Bottom Prompt Input Height & Messages Scroll Area ─────
             let ai_input_id = ui.id_from("ai_prompt_text_area");
             let is_input_focused = ui.focused_id == Some(ai_input_id);
@@ -351,9 +839,36 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
             };
 
             const CONTEXT_BANNER_H: f32 = 28.0;
-            const CHIPS_H: f32 = 26.0;
+            const TOOLBAR_H: f32 = 28.0;
+
+            let drawer_h = match state.active_input_drawer {
+                AiInputDrawer::None => 0.0,
+                AiInputDrawer::PendingModifications => {
+                    let count = state.pending_modifications.len().max(if state.pending_modification.is_some() { 1 } else { 0 });
+                    if count > 0 {
+                        let file_list_h = (count as f32 * 26.0 + 8.0).min(130.0);
+                        file_list_h + 1.0 + 34.0
+                    } else {
+                        38.0
+                    }
+                }
+                AiInputDrawer::Terminals => 72.0,
+                AiInputDrawer::Artifacts => {
+                    let arts = state.current_session.list_artifacts();
+                    (arts.len() as f32 * 26.0 + 38.0).clamp(44.0, 150.0)
+                }
+                AiInputDrawer::SessionChanges => {
+                    let count = state.session_modified_files.len();
+                    if count > 0 {
+                        (count as f32 * 26.0 + 38.0).clamp(44.0, 160.0)
+                    } else {
+                        44.0
+                    }
+                }
+            };
+
             let bottom_input_total_h = prompt_box_h + 16.0;
-            let msgs_h = (height - HEADER_H - CONTEXT_BANNER_H - CHIPS_H - bottom_input_total_h).max(60.0);
+            let msgs_h = (height - HEADER_H - CONTEXT_BANNER_H - bottom_input_total_h - cockpit_drawer_h - TOOLBAR_H - drawer_h).max(60.0);
             let max_content_w = (ai_panel_w - 24.0).max(80.0);
 
             let msgs_scroll_id = Id::from_u64(999999802);
@@ -367,7 +882,14 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                 .scroll_y(true)
                 .show(|ui| {
                     let msgs = state.ai_messages.clone();
-                    for msg in msgs {
+                    let total_msgs = msgs.len();
+                    let mut toggle_accordion_idx = None;
+                    let mut open_file_target = None;
+                    let mut open_session_target = None;
+
+                    for (msg_idx, msg) in msgs.iter().enumerate() {
+                        let is_last_msg = msg_idx + 1 == total_msgs;
+
                         if msg.is_user {
                             // User Message Bubble
                             let bubble_max_w = (ai_panel_w - 36.0).max(80.0);
@@ -404,175 +926,1146 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                         });
                                 });
                         } else {
-                            // Assistant Message Bubble
-                            let assistant_text_w = (max_content_w - 16.0).max(60.0);
+                            // Assistant Message: Clean Accordions + Edited Badges + Markdown Flow
+                            let assistant_text_w = max_content_w.max(60.0);
                             ui.container()
                                 .full_width()
-                                .padding(8.0, 8.0, 8.0, 8.0)
-                                .bg(colors.bg_base)
-                                .border(colors.border, 1.0)
-                                .radius_all(6.0)
+                                .padding(2.0, 2.0, 4.0, 2.0)
                                 .column()
-                                .gap(6.0)
+                                .gap(4.0)
                                 .show(|ui| {
-                                    ui.container()
-                                        .row()
-                                        .valign(Align::Center)
-                                        .gap(5.0)
-                                        .show(|ui| {
-                                            ui.text("\u{f005}")
-                                                .size(9.0)
-                                                .color(colors.accent)
-                                                .show();
-                                            ui.text("Zenthra Assistant")
-                                                .size(9.5)
-                                                .weight(FontWeight::Bold)
-                                                .color(colors.accent)
-                                                .show();
-                                        });
+                                    // 1. Collapsible "Explored N files >" / "Exploring N files v"
+                                    if !msg.explored_items.is_empty() || msg.is_working {
+                                        let unique_count = msg.explored_items.iter().map(|i| &i.file_name).collect::<std::collections::HashSet<_>>().len().max(if msg.is_working { 1 } else { 0 });
+                                        let is_expanded = state.expanded_explored_msgs.contains(&msg_idx)
+                                            || (msg.is_working && !state.expanded_explored_msgs.contains(&(msg_idx + 1_000_000)));
 
-                                    // Thoughts reasoning block
-                                    if let Some(ref thoughts) = msg.thoughts {
-                                        ui.container()
-                                            .full_width()
-                                            .padding(4.0, 6.0, 4.0, 6.0)
-                                            .bg(colors.bg_sidebar)
-                                            .border(colors.border, 1.0)
+                                        let arrow_sym = if is_expanded { "\u{f078}" } else { "\u{f054}" };
+                                        let header_title = if msg.is_working {
+                                            format!("Exploring {} file{}", unique_count, if unique_count == 1 { "" } else { "s" })
+                                        } else {
+                                            format!("Explored {} file{}", unique_count, if unique_count == 1 { "" } else { "s" })
+                                        };
+
+                                        let accordion_btn = ui.container()
+                                            .padding(2.0, 4.0, 2.0, 4.0)
+                                            .hover_bg(Color::rgba(1.0, 1.0, 1.0, 0.04))
                                             .radius_all(3.0)
+                                            .row()
+                                            .valign(Align::Center)
+                                            .gap(5.0)
                                             .show(|ui| {
-                                                ui.text(&format!("🧠 {}", thoughts))
-                                                    .size(9.5)
-                                                    .line_height(1.25)
-                                                    .color(colors.text_muted)
-                                                    .max_width((max_content_w - 24.0).max(50.0))
-                                                    .wrap(zenthra_text::prelude::TextWrap::Word)
+                                                ui.container()
+                                                    .width(12.0)
+                                                    .valign(Align::Center)
+                                                    .halign(Align::Center)
+                                                    .show(|ui| {
+                                                        ui.text(arrow_sym)
+                                                            .size(7.5)
+                                                            .color(colors.text_muted)
+                                                            .show();
+                                                    });
+                                                ui.text(&header_title)
+                                                    .size(10.5)
+                                                    .weight(FontWeight::Medium)
+                                                    .color(colors.text_dim)
                                                     .show();
                                             });
+
+                                        if accordion_btn.clicked {
+                                            toggle_accordion_idx = Some(msg_idx);
+                                        }
+
+                                        if is_expanded {
+                                            ui.container()
+                                                .padding_left(12.0)
+                                                .column()
+                                                .gap(3.0)
+                                                .show(|ui| {
+                                                    for item in &msg.explored_items {
+                                                        let glyph = get_file_glyph(&item.file_name);
+                                                        ui.container()
+                                                            .row()
+                                                            .gap(5.0)
+                                                            .valign(Align::Center)
+                                                            .show(|ui| {
+                                                                ui.text(&item.action_type)
+                                                                    .size(10.5)
+                                                                    .color(colors.text_dim)
+                                                                    .show();
+                                                                ui.text(glyph)
+                                                                    .size(10.5)
+                                                                    .color(colors.accent)
+                                                                    .show();
+                                                                ui.text(&item.file_name)
+                                                                    .size(10.5)
+                                                                    .weight(FontWeight::Medium)
+                                                                    .color(colors.text_primary)
+                                                                    .show();
+                                                                if let Some(ref range) = item.line_range {
+                                                                    ui.text(range)
+                                                                        .size(10.0)
+                                                                        .color(colors.text_dim)
+                                                                        .show();
+                                                                }
+                                                            });
+                                                    }
+
+                                                    if msg.is_working {
+                                                        ui.container()
+                                                            .row()
+                                                            .gap(4.0)
+                                                            .valign(Align::Center)
+                                                            .show(|ui| {
+                                                                ui.text("Working")
+                                                                    .size(10.5)
+                                                                    .color(colors.text_muted)
+                                                                    .show();
+                                                            });
+                                                    }
+                                                });
+                                        }
                                     }
 
-                                    // Content text with full word and character wrapping
-                                    ui.text(&msg.content)
-                                        .size(11.0)
-                                        .line_height(1.3)
-                                        .color(colors.text_primary)
-                                        .max_width(assistant_text_w)
-                                        .wrap(zenthra_text::prelude::TextWrap::Word)
-                                        .show();
+                                    // 2. "Edited 🦀 <filename> +<added> -<removed>"
+                                    let mut files_to_show = msg.edited_files.clone();
+                                    if is_last_msg {
+                                        if let Some(ref pending) = state.pending_modification {
+                                            let fname = pending.file_path.file_name().and_then(|n| n.to_str()).unwrap_or("file").to_string();
+                                            let added = pending.diff_lines.iter().filter(|(_, s)| *s == DiffLineState::Added).count();
+                                            let removed = pending.diff_lines.iter().filter(|(_, s)| *s == DiffLineState::Removed).count();
+                                            if !files_to_show.iter().any(|e| e.file_name == fname) {
+                                                files_to_show.push(EditedFileSummary {
+                                                    file_name: fname,
+                                                    lines_added: added,
+                                                    lines_removed: removed,
+                                                });
+                                            }
+                                        }
+                                    }
 
-                                    // Code snippet block
-                                    if let Some(ref code) = msg.code_snippet {
-                                        ui.container()
-                                            .full_width()
-                                            .padding(6.0, 8.0, 6.0, 8.0)
-                                            .bg(match state.theme {
-                                                crate::theme::ThemeMode::Dark => Color::rgb(29.0 / 255.0, 32.0 / 255.0, 33.0 / 255.0),
-                                                crate::theme::ThemeMode::Light => Color::rgb(235.0 / 255.0, 230.0 / 255.0, 220.0 / 255.0),
-                                            })
-                                            .border(colors.border, 1.0)
-                                            .radius_all(4.0)
-                                            .column()
-                                            .gap(4.0)
+                                    for edited in files_to_show {
+                                        let glyph = get_file_glyph(&edited.file_name);
+                                        let target_name = edited.file_name.clone();
+
+                                        let edit_btn = ui.container()
+                                            .padding(2.0, 4.0, 2.0, 4.0)
+                                            .hover_bg(Color::rgba(1.0, 1.0, 1.0, 0.04))
+                                            .radius_all(3.0)
+                                            .row()
+                                            .valign(Align::Center)
+                                            .gap(6.0)
                                             .show(|ui| {
-                                                ui.text(code)
-                                                    .size(10.5)
-                                                    .line_height(1.25)
-                                                    .color(colors.text_primary)
-                                                    .max_width((max_content_w - 24.0).max(50.0))
-                                                    .wrap(zenthra_text::prelude::TextWrap::Word)
+                                                ui.text("Edited")
+                                                    .size(11.0)
+                                                    .color(colors.text_muted)
                                                     .show();
-
-                                                ui.container()
-                                                    .row()
-                                                    .gap(6.0)
-                                                    .show(|ui| {
-                                                        let run_label = if ai_panel_w >= 300.0 {
-                                                            "Run in Terminal"
+                                                ui.text(glyph)
+                                                    .size(11.0)
+                                                    .color(colors.accent)
+                                                    .show();
+                                                ui.text(&edited.file_name)
+                                                    .size(11.0)
+                                                    .weight(FontWeight::SemiBold)
+                                                    .color(colors.text_primary)
+                                                    .show();
+                                                if edited.lines_added > 0 {
+                                                    ui.text(&format!("+{}", edited.lines_added))
+                                                        .size(10.5)
+                                                        .weight(FontWeight::Bold)
+                                                        .color(Color::rgb(0.35, 0.85, 0.45))
+                                                        .show();
+                                                }
+                                                if edited.lines_removed > 0 || edited.lines_added == 0 {
+                                                    ui.text(&format!("-{}", edited.lines_removed))
+                                                        .size(10.5)
+                                                        .weight(FontWeight::Bold)
+                                                        .color(if edited.lines_removed > 0 {
+                                                            Color::rgb(0.97, 0.45, 0.45)
                                                         } else {
-                                                            "Run >_"
-                                                        };
-
-                                                        let run_term_btn = ui.container()
-                                                            .padding(2.0, 6.0, 2.0, 6.0)
-                                                            .bg(colors.bg_base)
-                                                            .hover_bg(colors.highlight)
-                                                            .border(colors.border, 1.0)
-                                                            .radius_all(3.0)
-                                                            .show(|ui| {
-                                                                ui.text(run_label)
-                                                                    .size(9.0)
-                                                                    .color(colors.text_muted)
-                                                                    .show();
-                                                            });
-
-                                                        if run_term_btn.clicked {
-                                                            state.send_terminal_input(code);
-                                                            ui.needs_redraw = true;
-                                                        }
-
-                                                        let copy_btn = ui.container()
-                                                            .padding(2.0, 6.0, 2.0, 6.0)
-                                                            .bg(colors.bg_base)
-                                                            .hover_bg(colors.highlight)
-                                                            .border(colors.border, 1.0)
-                                                            .radius_all(3.0)
-                                                            .show(|ui| {
-                                                                ui.text("Copy")
-                                                                    .size(9.0)
-                                                                    .color(colors.text_muted)
-                                                                    .show();
-                                                            });
-
-                                                        if copy_btn.clicked {
-                                                            state.set_clipboard(code.clone());
-                                                            state.status_message = "Snippet copied to clipboard".to_string();
-                                                            ui.needs_redraw = true;
-                                                        }
-                                                    });
+                                                            colors.text_dim
+                                                        })
+                                                        .show();
+                                                }
                                             });
+
+                                        if edit_btn.clicked {
+                                            open_file_target = Some(target_name);
+                                        }
+                                    }
+
+                                    // 3. Markdown formatted response content
+                                    if !msg.content.trim().is_empty() {
+                                        let mut copy_action = None;
+                                        crate::markdown::render_markdown_preview(
+                                            ui,
+                                            &msg.content,
+                                            assistant_text_w,
+                                            &colors,
+                                            state.theme,
+                                            &mut copy_action,
+                                            &mut state.collapsed_code_blocks,
+                                        );
+
+                                        // Code snippet block if separate
+                                        if let Some(ref code) = msg.code_snippet {
+                                            let mut snippet_copy = None;
+                                            crate::markdown::render_markdown_preview(
+                                                ui,
+                                                &format!("```rust\n{}\n```", code),
+                                                assistant_text_w,
+                                                &colors,
+                                                state.theme,
+                                                &mut snippet_copy,
+                                                &mut state.collapsed_code_blocks,
+                                            );
+                                            if let Some(c) = snippet_copy {
+                                                copy_action = Some(c);
+                                            }
+                                        }
+
+                                        if let Some(text_to_copy) = copy_action {
+                                            state.set_clipboard(text_to_copy);
+                                            state.status_message = "Code copied to clipboard".to_string();
+                                            ui.needs_redraw = true;
+                                        }
                                     }
                                 });
                         }
                     }
+
+                    // ─── Bottom of Response: SESSION FILES (Markdown Artifacts) ──────────
+                    // As requested: Only show these files instead of the whole checklist.
+                    // Clicking any file opens the .md file in the editor buffer tab as a preview.
+                    let card_w = (ai_panel_w - 20.0).max(180.0);
+                    let has_active_mission = state.current_mission.as_ref().map(|m| m.is_active).unwrap_or(false);
+
+                    ui.container()
+                        .width(card_w)
+                        .bg(colors.bg_sidebar)
+                        .border(if has_active_mission { colors.accent.with_alpha(0.5) } else { colors.border }, 1.0)
+                        .radius_all(6.0)
+                        .padding(8.0, 10.0, 8.0, 10.0)
+                        .column()
+                        .gap(6.0)
+                        .show(|ui| {
+                            // Header: Session Files Title & Status Badge
+                            ui.container()
+                                .width(card_w - 20.0)
+                                .row()
+                                .valign(Align::Center)
+                                .show(|ui| {
+                                    ui.text("\u{ea80}")
+                                        .size(11.0)
+                                        .color(colors.accent)
+                                        .show();
+                                    ui.text(" SESSION ARTIFACTS")
+                                        .size(9.5)
+                                        .weight(FontWeight::Bold)
+                                        .color(colors.accent)
+                                        .show();
+
+                                    if let Some(ref mission) = state.current_mission {
+                                        let total_tasks = mission.tasks.len();
+                                        let completed_tasks = mission.tasks.iter().filter(|t| t.status == TaskStatus::Completed).count();
+                                        let status_color = if !mission.is_active && completed_tasks == total_tasks && total_tasks > 0 {
+                                            Color::rgb(0.35, 0.85, 0.45)
+                                        } else if mission.is_active {
+                                            colors.accent
+                                        } else {
+                                            colors.text_muted
+                                        };
+                                        ui.container()
+                                            .padding(1.0, 5.0, 1.0, 5.0)
+                                            .bg(status_color.with_alpha(0.15))
+                                            .radius_all(3.0)
+                                            .show(|ui| {
+                                                ui.text(&format!("{}/{} tasks", completed_tasks, total_tasks))
+                                                    .size(8.5)
+                                                    .weight(FontWeight::SemiBold)
+                                                    .color(status_color)
+                                                    .show();
+                                            });
+                                    }
+                                });
+
+                            // Progress Bar if mission is present
+                            if let Some(ref mission) = state.current_mission {
+                                let total_tasks = mission.tasks.len();
+                                let completed_tasks = mission.tasks.iter().filter(|t| t.status == TaskStatus::Completed).count();
+                                let progress_ratio = if total_tasks > 0 { completed_tasks as f32 / total_tasks as f32 } else { 0.0 };
+                                ui.container()
+                                    .width(card_w - 20.0)
+                                    .height(2.5)
+                                    .bg(colors.bg_base)
+                                    .radius_all(1.25)
+                                    .show(|ui| {
+                                        if progress_ratio > 0.0 {
+                                            ui.container()
+                                                .width((card_w - 20.0) * progress_ratio)
+                                                .height(2.5)
+                                                .bg(if progress_ratio >= 1.0 { Color::rgb(0.35, 0.85, 0.45) } else { colors.accent })
+                                                .radius_all(1.25)
+                                                .show(|_| {});
+                                        }
+                                    });
+
+                                if mission.is_paused {
+                                    ui.text("⏸ Mission paused by user")
+                                        .size(9.0)
+                                        .color(Color::rgb(0.92, 0.58, 0.20))
+                                        .show();
+                                } else if mission.self_healing_attempts > 0 && mission.is_active {
+                                    ui.text(&format!("\u{f0ad} Self-Healing in progress (Attempt {}/2)", mission.self_healing_attempts))
+                                        .size(9.0)
+                                        .color(Color::rgb(0.95, 0.60, 0.20))
+                                        .show();
+                                }
+                            }
+
+                            // Subtitle hint
+                            ui.text("Click to preview file in editor buffer:")
+                                .size(9.0)
+                                .color(colors.text_dim)
+                                .show();
+
+                            // 1. implementation_plan.md Chip
+                            let plan_pill = ui.container()
+                                .width(card_w - 20.0)
+                                .padding(4.0, 7.0, 4.0, 7.0)
+                                .bg(colors.bg_base)
+                                .hover_bg(colors.highlight)
+                                .border(colors.border, 1.0)
+                                .radius_all(4.0)
+                                .row()
+                                .valign(Align::Center)
+                                .gap(6.0)
+                                .show(|ui| {
+                                    ui.text("\u{ea7f}")
+                                        .size(11.0)
+                                        .color(colors.accent)
+                                        .show();
+                                    ui.text("implementation_plan.md")
+                                        .size(9.5)
+                                        .weight(FontWeight::SemiBold)
+                                        .color(colors.text_primary)
+                                        .show();
+                                    ui.text("Plan")
+                                        .size(8.5)
+                                        .color(colors.text_muted)
+                                        .show();
+                                    ui.text("↗")
+                                        .size(9.0)
+                                        .color(colors.accent)
+                                        .show();
+                                });
+                            if plan_pill.clicked {
+                                open_session_target = Some("implementation_plan.md".to_string());
+                            }
+
+                            // 2. mission.md Chip (replaces small checklist)
+                            let mission_status_label = if let Some(ref m) = state.current_mission {
+                                if m.is_paused {
+                                    "Paused"
+                                } else if m.is_active {
+                                    "Active"
+                                } else {
+                                    "Verified"
+                                }
+                            } else {
+                                "Mission"
+                            };
+                            let mission_pill = ui.container()
+                                .width(card_w - 20.0)
+                                .padding(4.0, 7.0, 4.0, 7.0)
+                                .bg(colors.bg_base)
+                                .hover_bg(colors.highlight)
+                                .border(colors.border, 1.0)
+                                .radius_all(4.0)
+                                .row()
+                                .valign(Align::Center)
+                                .gap(6.0)
+                                .show(|ui| {
+                                    ui.text("\u{f0e7}")
+                                        .size(11.0)
+                                        .color(colors.accent)
+                                        .show();
+                                    ui.text("mission.md")
+                                        .size(9.5)
+                                        .weight(FontWeight::SemiBold)
+                                        .color(colors.text_primary)
+                                        .show();
+                                    ui.text(mission_status_label)
+                                        .size(8.5)
+                                        .color(colors.text_muted)
+                                        .show();
+                                    ui.text("↗")
+                                        .size(9.0)
+                                        .color(colors.accent)
+                                        .show();
+                                });
+                            if mission_pill.clicked {
+                                open_session_target = Some("mission.md".to_string());
+                            }
+
+                            // 3. walkthrough.md Chip
+                            let has_edits = !state.ai_messages.is_empty() && state.ai_messages.iter().any(|m| !m.edited_files.is_empty());
+                            let walkthrough_label = if has_edits { "Changes" } else { "Summary" };
+                            let walkthrough_pill = ui.container()
+                                .width(card_w - 20.0)
+                                .padding(4.0, 7.0, 4.0, 7.0)
+                                .bg(colors.bg_base)
+                                .hover_bg(colors.highlight)
+                                .border(colors.border, 1.0)
+                                .radius_all(4.0)
+                                .row()
+                                .valign(Align::Center)
+                                .gap(6.0)
+                                .show(|ui| {
+                                    ui.text("\u{f15c}")
+                                        .size(11.0)
+                                        .color(colors.accent)
+                                        .show();
+                                    ui.text("walkthrough.md")
+                                        .size(9.5)
+                                        .weight(FontWeight::SemiBold)
+                                        .color(colors.text_primary)
+                                        .show();
+                                    ui.text(walkthrough_label)
+                                        .size(8.5)
+                                        .color(colors.text_muted)
+                                        .show();
+                                    ui.text("↗")
+                                        .size(9.0)
+                                        .color(colors.accent)
+                                        .show();
+                                });
+                            if walkthrough_pill.clicked {
+                                open_session_target = Some("walkthrough.md".to_string());
+                            }
+                        });
+
+                    if let Some(idx) = toggle_accordion_idx {
+                        state.toggle_explored_accordion(idx);
+                        ui.needs_redraw = true;
+                    }
+                    if let Some(target) = open_file_target {
+                        state.open_file_by_name(&target);
+                        ui.needs_redraw = true;
+                    }
+                    if let Some(target) = open_session_target {
+                        state.open_session_file(&target);
+                        ui.needs_redraw = true;
+                    }
                 });
 
-            // ─── Quick Prompt Chips ──────────────────────────────────
-            let prompt_chips: &[&str] = if ai_panel_w >= 340.0 {
-                &["Explain Code", "Refactor", "Generate Tests"]
-            } else if ai_panel_w >= 280.0 {
-                &["Explain", "Refactor"]
-            } else {
-                &["Explain"]
-            };
+            // ─── Active Drawer: Popover above Toolbar ──────────────────────
+            let mut file_to_open = None;
 
-            ui.container()
-                .width(ai_panel_w)
-                .height(CHIPS_H)
-                .bg(colors.bg_sidebar)
-                .border(colors.border, 1.0)
-                .padding_left(8.0)
-                .padding_right(8.0)
-                .row()
-                .valign(Align::Center)
-                .gap(4.0)
-                .show(|ui| {
-                    for prompt in prompt_chips {
-                        let btn = ui.container()
-                            .padding(2.0, 5.0, 2.0, 5.0)
-                            .bg(colors.bg_base)
-                            .hover_bg(colors.highlight)
+            match state.active_input_drawer {
+                AiInputDrawer::PendingModifications => {
+                    let pending_list: Vec<&PendingModification> = if !state.pending_modifications.is_empty() {
+                        state.pending_modifications.iter().collect()
+                    } else if let Some(ref pending) = state.pending_modification {
+                        vec![pending]
+                    } else {
+                        Vec::new()
+                    };
+
+                    if !pending_list.is_empty() {
+                        let total_files = pending_list.len();
+                        let file_list_h = (total_files as f32 * 26.0 + 8.0).min(130.0);
+                        let mut accept_pressed = false;
+                        let mut reject_pressed = false;
+
+                        ui.container()
+                            .width(ai_panel_w)
+                            .bg(colors.bg_sidebar)
                             .border(colors.border, 1.0)
-                            .radius_all(3.0)
+                            .radius(4.0, 4.0, 0.0, 0.0)
+                            .column()
                             .show(|ui| {
-                                ui.text(*prompt)
-                                    .size(9.0)
+                                ui.container()
+                                    .id(Id::from_u64(999999860))
+                                    .width(ai_panel_w - 2.0)
+                                    .height(file_list_h)
+                                    .padding(4.0, 8.0, 4.0, 8.0)
+                                    .column()
+                                    .gap(2.0)
+                                    .scroll_y(true)
+                                    .show(|ui| {
+                                        for item in &pending_list {
+                                            let added = item.diff_lines.iter().filter(|(_, s)| *s == DiffLineState::Added).count();
+                                            let removed = item.diff_lines.iter().filter(|(_, s)| *s == DiffLineState::Removed).count();
+                                            let is_new = item.original_code.trim().is_empty() || (removed == 0 && added > 0);
+
+                                            let file_name = item.file_path.file_name()
+                                                .and_then(|n| n.to_str())
+                                                .unwrap_or("file")
+                                                .to_string();
+
+                                            let rel_path = item.file_path.strip_prefix(&state.current_dir)
+                                                .unwrap_or(&item.file_path)
+                                                .to_string_lossy()
+                                                .to_string();
+
+                                            let file_row = ui.container()
+                                                .width(ai_panel_w - 18.0)
+                                                .height(24.0)
+                                                .padding(2.0, 4.0, 2.0, 4.0)
+                                                .radius_all(3.0)
+                                                .hover_bg(colors.highlight)
+                                                .row()
+                                                .valign(Align::Center)
+                                                .gap(8.0)
+                                                .show(|ui| {
+                                                    if is_new {
+                                                        ui.container()
+                                                            .width(16.0)
+                                                            .height(16.0)
+                                                            .border(Color::rgb(34.0 / 255.0, 197.0 / 255.0, 94.0 / 255.0), 1.0)
+                                                            .bg(Color::rgb(34.0 / 255.0, 197.0 / 255.0, 94.0 / 255.0).with_alpha(0.12))
+                                                            .radius_all(3.0)
+                                                            .valign(Align::Center)
+                                                            .halign(Align::Center)
+                                                            .show(|ui| {
+                                                                ui.text("+")
+                                                                    .size(11.0)
+                                                                    .weight(FontWeight::Bold)
+                                                                    .color(Color::rgb(34.0 / 255.0, 197.0 / 255.0, 94.0 / 255.0))
+                                                                    .show();
+                                                            });
+                                                    } else {
+                                                        ui.container()
+                                                            .width(16.0)
+                                                            .height(16.0)
+                                                            .border(Color::rgb(249.0 / 255.0, 115.0 / 255.0, 22.0 / 255.0), 1.0)
+                                                            .bg(Color::rgb(249.0 / 255.0, 115.0 / 255.0, 22.0 / 255.0).with_alpha(0.12))
+                                                            .radius_all(3.0)
+                                                            .valign(Align::Center)
+                                                            .halign(Align::Center)
+                                                            .show(|ui| {
+                                                                ui.text("•")
+                                                                    .size(11.0)
+                                                                    .weight(FontWeight::Bold)
+                                                                    .color(Color::rgb(249.0 / 255.0, 115.0 / 255.0, 22.0 / 255.0))
+                                                                    .show();
+                                                            });
+                                                    }
+
+                                                    ui.container()
+                                                        .row()
+                                                        .gap(4.0)
+                                                        .valign(Align::Center)
+                                                        .show(|ui| {
+                                                            ui.text(&format!("+{}", added))
+                                                                .size(10.0)
+                                                                .weight(FontWeight::Medium)
+                                                                .color(Color::rgb(34.0 / 255.0, 197.0 / 255.0, 94.0 / 255.0))
+                                                                .show();
+                                                            ui.text(&format!("-{}", removed))
+                                                                .size(10.0)
+                                                                .weight(FontWeight::Medium)
+                                                                .color(if removed > 0 { Color::rgb(239.0 / 255.0, 68.0 / 255.0, 68.0 / 255.0) } else { colors.text_dim })
+                                                                .show();
+                                                        });
+
+                                                    ui.text(&file_name)
+                                                        .size(10.5)
+                                                        .weight(FontWeight::SemiBold)
+                                                        .color(colors.text_primary)
+                                                        .show();
+
+                                                    ui.text(&rel_path)
+                                                        .size(9.5)
+                                                        .weight(FontWeight::Regular)
+                                                        .color(colors.text_muted)
+                                                        .show();
+                                                });
+
+                                            if file_row.clicked {
+                                                file_to_open = Some(item.file_path.clone());
+                                            }
+                                        }
+                                    });
+
+                                ui.container()
+                                    .width(ai_panel_w - 2.0)
+                                    .height(1.0)
+                                    .bg(colors.border)
+                                    .show(|_| {});
+
+                                ui.container()
+                                    .width(ai_panel_w - 2.0)
+                                    .height(32.0)
+                                    .padding(0.0, 8.0, 0.0, 8.0)
+                                    .row()
+                                    .valign(Align::Center)
+                                    .halign(Align::SpaceBetween)
+                                    .show(|ui| {
+                                        ui.container()
+                                            .row()
+                                            .gap(6.0)
+                                            .valign(Align::Center)
+                                            .show(|ui| {
+                                                ui.text("\u{ea7f}")
+                                                    .size(12.0)
+                                                    .color(colors.text_muted)
+                                                    .show();
+                                                let label = format!("{} File{} With Changes", total_files, if total_files == 1 { "" } else { "s" });
+                                                ui.text(&label)
+                                                    .size(10.0)
+                                                    .weight(FontWeight::Medium)
+                                                    .color(colors.text_primary)
+                                                    .show();
+                                            });
+
+                                        ui.container()
+                                            .row()
+                                            .gap(6.0)
+                                            .valign(Align::Center)
+                                            .show(|ui| {
+                                                let reject_btn = ui.container()
+                                                    .padding(2.0, 6.0, 2.0, 6.0)
+                                                    .bg(colors.bg_base)
+                                                    .border(colors.border, 1.0)
+                                                    .hover_bg(colors.highlight)
+                                                    .radius_all(3.0)
+                                                    .show(|ui| {
+                                                        ui.text("Reject all")
+                                                            .size(10.0)
+                                                            .weight(FontWeight::Medium)
+                                                            .color(colors.text_muted)
+                                                            .show();
+                                                    });
+                                                if reject_btn.clicked {
+                                                    reject_pressed = true;
+                                                }
+
+                                                let accept_btn = ui.container()
+                                                    .padding(2.0, 8.0, 2.0, 8.0)
+                                                    .bg(colors.accent)
+                                                    .hover_bg(colors.accent.with_alpha(0.85))
+                                                    .radius_all(3.0)
+                                                    .row()
+                                                    .gap(3.0)
+                                                    .valign(Align::Center)
+                                                    .show(|ui| {
+                                                        ui.text("Accept all")
+                                                            .size(10.0)
+                                                            .weight(FontWeight::SemiBold)
+                                                            .color(Color::WHITE)
+                                                            .show();
+                                                        ui.text("\u{f078}")
+                                                            .size(7.5)
+                                                            .color(Color::WHITE)
+                                                            .show();
+                                                    });
+                                                if accept_btn.clicked {
+                                                    accept_pressed = true;
+                                                }
+                                            });
+                                    });
+                            });
+
+                        if accept_pressed {
+                            state.accept_all_modifications();
+                            ui.needs_redraw = true;
+                        } else if reject_pressed {
+                            state.reject_all_modifications();
+                            ui.needs_redraw = true;
+                        }
+                    } else {
+                        ui.container()
+                            .width(ai_panel_w)
+                            .height(38.0)
+                            .bg(colors.bg_sidebar)
+                            .border(colors.border, 1.0)
+                            .padding_left(12.0)
+                            .row()
+                            .valign(Align::Center)
+                            .show(|ui| {
+                                ui.text("No pending modifications to review")
+                                    .size(10.5)
                                     .color(colors.text_muted)
                                     .show();
                             });
+                    }
+                }
+                AiInputDrawer::Terminals => {
+                    let mut close_term_requested = false;
+                    let mut start_term_requested = false;
 
-                        if btn.clicked {
-                            state.send_ai_message(prompt);
-                            ui.needs_redraw = true;
-                        }
+                    ui.container()
+                        .width(ai_panel_w)
+                        .height(72.0)
+                        .bg(colors.bg_sidebar)
+                        .border(colors.border, 1.0)
+                        .radius(4.0, 4.0, 0.0, 0.0)
+                        .padding(6.0, 10.0, 6.0, 10.0)
+                        .column()
+                        .gap(4.0)
+                        .show(|ui| {
+                            ui.container()
+                                .row()
+                                .valign(Align::Center)
+                                .halign(Align::SpaceBetween)
+                                .show(|ui| {
+                                    ui.container()
+                                        .row()
+                                        .gap(6.0)
+                                        .valign(Align::Center)
+                                        .show(|ui| {
+                                            ui.text("\u{ea85}")
+                                                .size(12.0)
+                                                .color(colors.accent)
+                                                .show();
+                                            ui.text("Background Terminals")
+                                                .size(10.5)
+                                                .weight(FontWeight::Bold)
+                                                .color(colors.text_primary)
+                                                .show();
+                                        });
+                                    if state.terminal_session.is_some() {
+                                        ui.text("1 running")
+                                            .size(9.5)
+                                            .color(Color::rgb(34.0 / 255.0, 197.0 / 255.0, 94.0 / 255.0))
+                                            .show();
+                                    }
+                                });
+
+                            if state.terminal_session.is_some() {
+                                ui.container()
+                                    .width(ai_panel_w - 22.0)
+                                    .height(28.0)
+                                    .bg(colors.bg_base)
+                                    .border(colors.border, 1.0)
+                                    .padding(2.0, 6.0, 2.0, 6.0)
+                                    .radius_all(3.0)
+                                    .row()
+                                    .valign(Align::Center)
+                                    .halign(Align::SpaceBetween)
+                                    .show(|ui| {
+                                        ui.container()
+                                            .row()
+                                            .gap(6.0)
+                                            .valign(Align::Center)
+                                            .show(|ui| {
+                                                ui.text("●")
+                                                    .size(6.0)
+                                                    .color(Color::rgb(34.0 / 255.0, 197.0 / 255.0, 94.0 / 255.0))
+                                                    .show();
+                                                ui.text("Terminal 1: bash (Interactive Shell)")
+                                                    .size(10.0)
+                                                    .weight(FontWeight::Medium)
+                                                    .color(colors.text_primary)
+                                                    .show();
+                                            });
+
+                                        let close_btn = ui.container()
+                                            .padding(1.0, 5.0, 1.0, 5.0)
+                                            .bg(colors.bg_sidebar)
+                                            .border(colors.border, 1.0)
+                                            .radius_all(3.0)
+                                            .hover_bg(colors.highlight)
+                                            .show(|ui| {
+                                                ui.text("✕")
+                                                    .size(9.5)
+                                                    .color(Color::rgb(239.0 / 255.0, 68.0 / 255.0, 68.0 / 255.0))
+                                                    .show();
+                                            });
+                                        if close_btn.clicked {
+                                            close_term_requested = true;
+                                        }
+                                    });
+                            } else {
+                                ui.container()
+                                    .width(ai_panel_w - 22.0)
+                                    .height(28.0)
+                                    .row()
+                                    .valign(Align::Center)
+                                    .halign(Align::SpaceBetween)
+                                    .show(|ui| {
+                                        ui.text("No background terminals running")
+                                            .size(10.0)
+                                            .color(colors.text_muted)
+                                            .show();
+
+                                        let start_btn = ui.container()
+                                            .padding(2.0, 6.0, 2.0, 6.0)
+                                            .bg(colors.bg_base)
+                                            .border(colors.border, 1.0)
+                                            .hover_bg(colors.highlight)
+                                            .radius_all(3.0)
+                                            .show(|ui| {
+                                                ui.text("+ Start Terminal")
+                                                    .size(9.5)
+                                                    .color(Color::rgb(34.0 / 255.0, 197.0 / 255.0, 94.0 / 255.0))
+                                                    .show();
+                                            });
+                                        if start_btn.clicked {
+                                            start_term_requested = true;
+                                        }
+                                    });
+                            }
+                        });
+
+                    if close_term_requested {
+                        state.terminal_session = None;
+                        state.terminal_lines.clear();
+                        state.terminal_visible = false;
+                        ui.needs_redraw = true;
+                    } else if start_term_requested {
+                        state.ensure_terminal_session();
+                        state.terminal_visible = true;
+                        ui.needs_redraw = true;
+                    }
+                }
+                AiInputDrawer::Artifacts => {
+                    let arts = state.current_session.list_artifacts();
+                    let arts_h = (arts.len() as f32 * 26.0 + 38.0).clamp(44.0, 150.0);
+
+                    ui.container()
+                        .width(ai_panel_w)
+                        .height(arts_h)
+                        .bg(colors.bg_sidebar)
+                        .border(colors.border, 1.0)
+                        .radius(4.0, 4.0, 0.0, 0.0)
+                        .padding(6.0, 10.0, 6.0, 10.0)
+                        .column()
+                        .gap(3.0)
+                        .show(|ui| {
+                            ui.container()
+                                .row()
+                                .valign(Align::Center)
+                                .halign(Align::SpaceBetween)
+                                .show(|ui| {
+                                    ui.container()
+                                        .row()
+                                        .gap(6.0)
+                                        .valign(Align::Center)
+                                        .show(|ui| {
+                                            ui.text("\u{ea84}")
+                                                .size(12.0)
+                                                .color(colors.accent)
+                                                .show();
+                                            ui.text("Session Artifacts")
+                                                .size(10.5)
+                                                .weight(FontWeight::Bold)
+                                                .color(colors.text_primary)
+                                                .show();
+                                        });
+                                    ui.text("Updated-wise")
+                                        .size(9.0)
+                                        .color(colors.text_dim)
+                                        .show();
+                                });
+
+                            for art in &arts {
+                                let art_row = ui.container()
+                                    .width(ai_panel_w - 22.0)
+                                    .height(24.0)
+                                    .padding(2.0, 4.0, 2.0, 4.0)
+                                    .radius_all(3.0)
+                                    .hover_bg(colors.highlight)
+                                    .row()
+                                    .valign(Align::Center)
+                                    .halign(Align::SpaceBetween)
+                                    .show(|ui| {
+                                        ui.container()
+                                            .row()
+                                            .gap(6.0)
+                                            .valign(Align::Center)
+                                            .show(|ui| {
+                                                ui.text("\u{ea7f}")
+                                                    .size(11.0)
+                                                    .color(colors.accent)
+                                                    .show();
+                                                ui.text(&art.name)
+                                                    .size(10.0)
+                                                    .weight(FontWeight::Medium)
+                                                    .color(colors.text_primary)
+                                                    .show();
+                                            });
+
+                                        ui.container()
+                                            .row()
+                                            .gap(6.0)
+                                            .valign(Align::Center)
+                                            .show(|ui| {
+                                                ui.text(&format_relative_time(art.updated_at))
+                                                    .size(9.0)
+                                                    .color(colors.text_dim)
+                                                    .show();
+                                                ui.text(&format_bytes(art.size_bytes))
+                                                    .size(9.0)
+                                                    .color(colors.text_muted)
+                                                    .show();
+                                            });
+                                    });
+
+                                if art_row.clicked {
+                                    file_to_open = Some(art.path.clone());
+                                }
+                            }
+                        });
+                }
+                AiInputDrawer::SessionChanges => {
+                    let total = state.session_modified_files.len();
+                    let rows_h = (total as f32 * 26.0 + 38.0).clamp(44.0, 160.0);
+
+                    ui.container()
+                        .width(ai_panel_w)
+                        .height(rows_h)
+                        .bg(colors.bg_sidebar)
+                        .border(colors.border, 1.0)
+                        .radius(4.0, 4.0, 0.0, 0.0)
+                        .padding(6.0, 10.0, 6.0, 10.0)
+                        .column()
+                        .gap(3.0)
+                        .show(|ui| {
+                            ui.container()
+                                .row()
+                                .valign(Align::Center)
+                                .halign(Align::SpaceBetween)
+                                .show(|ui| {
+                                    ui.container()
+                                        .row()
+                                        .gap(6.0)
+                                        .valign(Align::Center)
+                                        .show(|ui| {
+                                            ui.text("\u{ea71}")
+                                                .size(12.0)
+                                                .color(colors.accent)
+                                                .show();
+                                            ui.text("Whole Session Code Review")
+                                                .size(10.5)
+                                                .weight(FontWeight::Bold)
+                                                .color(colors.text_primary)
+                                                .show();
+                                        });
+                                    ui.text(&format!("{} modified file{}", total, if total == 1 { "" } else { "s" }))
+                                        .size(9.0)
+                                        .color(colors.text_dim)
+                                        .show();
+                                });
+
+                            if state.session_modified_files.is_empty() {
+                                ui.text("No files modified in this session yet")
+                                    .size(10.0)
+                                    .color(colors.text_muted)
+                                    .show();
+                            } else {
+                                for item in &state.session_modified_files {
+                                    let rel_path = item.file_path.strip_prefix(&state.current_dir)
+                                        .unwrap_or(&item.file_path)
+                                        .to_string_lossy()
+                                        .to_string();
+
+                                    let row = ui.container()
+                                        .width(ai_panel_w - 22.0)
+                                        .height(24.0)
+                                        .padding(2.0, 4.0, 2.0, 4.0)
+                                        .radius_all(3.0)
+                                        .hover_bg(colors.highlight)
+                                        .row()
+                                        .valign(Align::Center)
+                                        .halign(Align::SpaceBetween)
+                                        .show(|ui| {
+                                            ui.container()
+                                                .row()
+                                                .gap(6.0)
+                                                .valign(Align::Center)
+                                                .show(|ui| {
+                                                    if item.is_new_file {
+                                                        ui.text("[+]")
+                                                            .size(10.0)
+                                                            .weight(FontWeight::Bold)
+                                                            .color(Color::rgb(34.0 / 255.0, 197.0 / 255.0, 94.0 / 255.0))
+                                                            .show();
+                                                    } else {
+                                                        ui.text("[•]")
+                                                            .size(10.0)
+                                                            .weight(FontWeight::Bold)
+                                                            .color(Color::rgb(249.0 / 255.0, 115.0 / 255.0, 22.0 / 255.0))
+                                                            .show();
+                                                    }
+
+                                                    ui.text(&format!("+{}", item.lines_added))
+                                                        .size(9.5)
+                                                        .weight(FontWeight::Medium)
+                                                        .color(Color::rgb(34.0 / 255.0, 197.0 / 255.0, 94.0 / 255.0))
+                                                        .show();
+                                                    ui.text(&format!("-{}", item.lines_removed))
+                                                        .size(9.5)
+                                                        .weight(FontWeight::Medium)
+                                                        .color(if item.lines_removed > 0 { Color::rgb(239.0 / 255.0, 68.0 / 255.0, 68.0 / 255.0) } else { colors.text_dim })
+                                                        .show();
+
+                                                    ui.text(&item.file_name)
+                                                        .size(10.0)
+                                                        .weight(FontWeight::SemiBold)
+                                                        .color(colors.text_primary)
+                                                        .show();
+
+                                                    ui.text(&rel_path)
+                                                        .size(9.0)
+                                                        .color(colors.text_muted)
+                                                        .show();
+                                                });
+
+                                            ui.text(&format_relative_time(item.timestamp))
+                                                .size(9.0)
+                                                .color(colors.text_dim)
+                                                .show();
+                                        });
+
+                                    if row.clicked {
+                                        file_to_open = Some(item.file_path.clone());
+                                    }
+                                }
+                            }
+                        });
+                }
+                AiInputDrawer::None => {}
+            }
+
+            if let Some(target) = file_to_open {
+                state.open_file(&target);
+                ui.needs_redraw = true;
+            }
+
+            // ─── Top of Input Prompt Area: Toolbar (Unified Framework Badges) ───
+            let has_pending = !state.pending_modifications.is_empty() || state.pending_modification.is_some();
+            let has_running_term = state.terminal_session.is_some();
+            let has_artifacts = state.current_session.has_plan || state.current_session.has_mission || state.current_session.has_walkthrough;
+
+            ui.container()
+                .width(ai_panel_w)
+                .height(TOOLBAR_H)
+                .bg(colors.bg_sidebar)
+                .border(colors.border, 1.0)
+                .padding(0.0, 8.0, 0.0, 8.0)
+                .row()
+                .valign(Align::Center)
+                .halign(Align::SpaceBetween)
+                .show(|ui| {
+                    // Left toolbar badges: Modified Files, Terminal, Artifacts
+                    ui.container()
+                        .row()
+                        .gap(6.0)
+                        .valign(Align::Center)
+                        .show(|ui| {
+                            // 1. Modified Files Badge
+                            let is_pending_open = state.active_input_drawer == AiInputDrawer::PendingModifications;
+                            let mod_files_btn = ui.container()
+                                .padding(2.0, 6.0, 2.0, 6.0)
+                                .bg(if is_pending_open { colors.highlight } else { colors.bg_base })
+                                .border(if is_pending_open { colors.accent } else { colors.border }, 1.0)
+                                .hover_bg(colors.highlight)
+                                .radius_all(3.0)
+                                .row()
+                                .gap(3.0)
+                                .valign(Align::Center)
+                                .show(|ui| {
+                                    ui.text("\u{ea7f}")
+                                        .size(12.0)
+                                        .color(if is_pending_open { colors.text_primary } else { colors.text_muted })
+                                        .show();
+                                    if has_pending {
+                                        ui.text("●")
+                                            .size(6.0)
+                                            .color(colors.accent)
+                                            .show();
+                                    }
+                                });
+                            if mod_files_btn.clicked {
+                                state.active_input_drawer = if is_pending_open { AiInputDrawer::None } else { AiInputDrawer::PendingModifications };
+                                ui.needs_redraw = true;
+                            }
+
+                            // 2. Terminal List Badge
+                            let is_term_open = state.active_input_drawer == AiInputDrawer::Terminals;
+                            let term_btn = ui.container()
+                                .padding(2.0, 6.0, 2.0, 6.0)
+                                .bg(if is_term_open { colors.highlight } else { colors.bg_base })
+                                .border(if is_term_open { colors.accent } else { colors.border }, 1.0)
+                                .hover_bg(colors.highlight)
+                                .radius_all(3.0)
+                                .row()
+                                .gap(3.0)
+                                .valign(Align::Center)
+                                .show(|ui| {
+                                    ui.text("\u{ea85}")
+                                        .size(12.0)
+                                        .color(if is_term_open { colors.text_primary } else { colors.text_muted })
+                                        .show();
+                                    if has_running_term {
+                                        ui.text("●")
+                                            .size(6.0)
+                                            .color(Color::rgb(34.0 / 255.0, 197.0 / 255.0, 94.0 / 255.0))
+                                            .show();
+                                    }
+                                });
+                            if term_btn.clicked {
+                                state.active_input_drawer = if is_term_open { AiInputDrawer::None } else { AiInputDrawer::Terminals };
+                                ui.needs_redraw = true;
+                            }
+
+                            // 3. Artifact Box Badge
+                            let is_art_open = state.active_input_drawer == AiInputDrawer::Artifacts;
+                            let art_btn = ui.container()
+                                .padding(2.0, 6.0, 2.0, 6.0)
+                                .bg(if is_art_open { colors.highlight } else { colors.bg_base })
+                                .border(if is_art_open { colors.accent } else { colors.border }, 1.0)
+                                .hover_bg(colors.highlight)
+                                .radius_all(3.0)
+                                .row()
+                                .gap(3.0)
+                                .valign(Align::Center)
+                                .show(|ui| {
+                                    ui.text("\u{ea84}")
+                                        .size(12.0)
+                                        .color(if is_art_open { colors.text_primary } else { colors.text_muted })
+                                        .show();
+                                    if has_artifacts {
+                                        ui.text("●")
+                                            .size(6.0)
+                                            .color(colors.accent)
+                                            .show();
+                                    }
+                                });
+                            if art_btn.clicked {
+                                state.active_input_drawer = if is_art_open { AiInputDrawer::None } else { AiInputDrawer::Artifacts };
+                                ui.needs_redraw = true;
+                            }
+                        });
+
+                    // Right toolbar: [ \u{ea71} Review Changes ] Badge
+                    let is_rev_open = state.active_input_drawer == AiInputDrawer::SessionChanges;
+                    let review_btn = ui.container()
+                        .padding(2.0, 6.0, 2.0, 6.0)
+                        .bg(if is_rev_open { colors.highlight } else { colors.bg_base })
+                        .border(if is_rev_open { colors.accent } else { colors.border }, 1.0)
+                        .hover_bg(colors.highlight)
+                        .radius_all(3.0)
+                        .row()
+                        .gap(4.0)
+                        .valign(Align::Center)
+                        .show(|ui| {
+                            ui.text("\u{ea71}")
+                                .size(12.0)
+                                .color(if is_rev_open { colors.text_primary } else { colors.text_muted })
+                                .show();
+                            ui.text("Review Changes")
+                                .size(9.0)
+                                .weight(FontWeight::Medium)
+                                .color(if is_rev_open { colors.text_primary } else { colors.text_muted })
+                                .show();
+                        });
+                    if review_btn.clicked {
+                        state.active_input_drawer = if is_rev_open { AiInputDrawer::None } else { AiInputDrawer::SessionChanges };
+                        ui.needs_redraw = true;
                     }
                 });
 
@@ -626,11 +2119,11 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                             let avail_input_w = (ai_panel_w - 16.0 - 2.0 - send_btn_w - 6.0).max(40.0);
 
                             let placeholder = if ai_panel_w >= 340.0 {
-                                "Ask AI assistant... (Shift+Enter for newline)"
+                                "Ask AI assistant (Shift+Enter for newline)"
                             } else if ai_panel_w >= 260.0 {
-                                "Ask AI assistant..."
+                                "Ask AI assistant"
                             } else {
-                                "Ask..."
+                                "Ask AI"
                             };
 
                             // Child 1: Native Zenthra framework TextArea widget (auto-grows up to 14 lines, then scrolls)
@@ -652,28 +2145,56 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                 .submit_on_enter(true)
                                 .show();
 
-                            // Child 2: Send Button (pinned to bottom-right)
-                            let send_btn = ui.button("➤")
+                            // Child 2: Send / Pause / Resume Button (pinned to bottom-right)
+                            let is_working = state.is_agent_working();
+                            let is_paused = state.current_mission.as_ref().map(|m| m.is_paused).unwrap_or(false);
+                            let (icon, btn_bg, btn_hover) = if is_working {
+                                ("\u{f04c}", Color::rgb(0.92, 0.58, 0.20), Color::rgb(0.98, 0.68, 0.30)) // Amber Pause
+                            } else if is_paused && state.ai_input.trim().is_empty() {
+                                ("\u{f04b}", Color::rgb(0.35, 0.85, 0.45), Color::rgb(0.45, 0.95, 0.55)) // Green Resume
+                            } else {
+                                ("\u{f1d8}", colors.accent, colors.highlight)
+                            };
+
+                            let send_btn = ui.button(icon)
                                 .id("ai_send_button")
                                 .width(send_btn_w)
                                 .height(MIN_PROMPT_H)
-                                .bg(colors.accent)
-                                .hover_bg(colors.highlight)
+                                .bg(btn_bg)
+                                .hover_bg(btn_hover)
                                 .text_color(Color::WHITE)
-                                .size(10.0)
+                                .size(if is_working { 11.5 } else { 10.0 })
                                 .radius_all(4.0)
                                 .padding(0.0, 0.0, 0.0, 0.0)
                                 .align(zenthra_core::Align::Center)
                                 .show();
 
-                            if trigger_send || text_res.submitted || send_btn.clicked {
-                                let msg = state.ai_input.trim().to_string();
-                                if !msg.is_empty() {
-                                    state.send_ai_message(&msg);
+                            if send_btn.clicked {
+                                if is_working {
+                                    state.pause_agent_mission();
+                                    ui.needs_redraw = true;
+                                } else if is_paused && state.ai_input.trim().is_empty() {
+                                    state.resume_agent_mission();
+                                    ui.needs_redraw = true;
+                                } else {
+                                    let msg = state.ai_input.trim().to_string();
+                                    if !msg.is_empty() {
+                                        state.send_ai_message(&msg);
+                                    }
+                                    state.ai_input.clear();
+                                    ui.cursor_state.insert(ai_input_id, 0);
+                                    ui.needs_redraw = true;
                                 }
-                                state.ai_input.clear();
-                                ui.cursor_state.insert(ai_input_id, 0);
-                                ui.needs_redraw = true;
+                            } else if trigger_send || text_res.submitted {
+                                if !is_working {
+                                    let msg = state.ai_input.trim().to_string();
+                                    if !msg.is_empty() {
+                                        state.send_ai_message(&msg);
+                                    }
+                                    state.ai_input.clear();
+                                    ui.cursor_state.insert(ai_input_id, 0);
+                                    ui.needs_redraw = true;
+                                }
                             }
                         });
                 });
@@ -684,3 +2205,22 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
         ui.needs_redraw = true;
     }
 }
+
+fn get_file_glyph(name: &str) -> &'static str {
+    if name.ends_with(".rs") {
+        "\u{e7a8}"
+    } else if name.ends_with(".ts") || name.ends_with(".js") || name.ends_with(".tsx") || name.ends_with(".jsx") {
+        "\u{e628}"
+    } else if name.ends_with(".toml") || name.ends_with(".json") || name.ends_with(".yaml") || name.ends_with(".yml") {
+        "\u{e60b}"
+    } else if name.ends_with(".md") || name.ends_with(".txt") {
+        "\u{f15c}"
+    } else if name.ends_with(".py") {
+        "\u{e73c}"
+    } else if name.ends_with(".html") || name.ends_with(".css") {
+        "\u{e736}"
+    } else {
+        "\u{ea7f}"
+    }
+}
+

@@ -1,5 +1,5 @@
 use std::path::PathBuf;
-use crate::state::ZenthreeState;
+use crate::state::{ZenthreeState, DiffLineState};
 use crate::lsp::protocol::DiagnosticSeverity;
 use zenthra::{Color, Ui, Align, FontWeight, Id};
 use zenthra_widgets::ui::{DrawCommand, TextDraw, RectDraw, ScrollDrag};
@@ -427,8 +427,8 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                     let mut undo_action = false;
                     let mut redo_action = false;
                     let is_focused = ui.focused_id == Some(editor_id);
-                    if is_focused {
-                        ui.request_redraw_after(std::time::Duration::from_millis(250));
+                    if is_focused && state.cursor_blink {
+                        ui.request_redraw_after(std::time::Duration::from_millis(200));
                     }
 
                     // Handle scrollbar drag and scroll wheel before input events are taken/drained
@@ -723,7 +723,7 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                                 }
                             }
                             if changed {
-                                tab.is_dirty = true;
+                                tab.update_dirty_state();
                                 tab.version += 1;
                                 tab.shaping_cache.clear();
                                 if let Some(ref p) = tab.path {
@@ -893,22 +893,89 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                                 let mut adapter = CosmicFontProvider::new_with_system(fs.clone());
                                 adapter.set_layout_size(10000.0, 10000.0);
 
+                                let active_pending_diff = state.pending_modification.as_ref().filter(|p| {
+                                    tab.path.as_ref() == Some(&p.file_path)
+                                        || tab.name == p.file_path.file_name().and_then(|n| n.to_str()).unwrap_or("")
+                                });
+
                                 for i in visible_start..visible_end {
                                     let line_y = editor_y + (i as f32) * line_height_pixels - scroll_y;
-
-                                    // Line highlighting for cursor line
                                     let cursor_p = tab.editor.cursor();
-                                    if cursor_p.row == i && is_focused {
-                                        ui.draws.push(DrawCommand::Rect(RectDraw {
-                                            instance: RectInstance {
-                                                pos: [editor_x + gutter_w, line_y],
-                                                size: [editor_w - gutter_w, line_height_pixels],
-                                                color: Color::rgba(1.0, 1.0, 1.0, 0.04).to_array(),
-                                                radius: [0.0; 4],
-                                                clip_rect: clip,
-                                                ..Default::default()
+                                    let diff_line_state = active_pending_diff.and_then(|p| p.diff_lines.get(i).map(|(_, s)| *s));
+
+                                    // Line highlighting for diff lines (- in red, + in green)
+                                    match diff_line_state {
+                                        Some(DiffLineState::Added) => {
+                                            ui.draws.push(DrawCommand::Rect(RectDraw {
+                                                instance: RectInstance {
+                                                    pos: [editor_x + gutter_w, line_y],
+                                                    size: [editor_w - gutter_w, line_height_pixels],
+                                                    color: Color::rgba(0.18, 0.63, 0.26, 0.18).to_array(),
+                                                    radius: [0.0; 4],
+                                                    clip_rect: clip,
+                                                    ..Default::default()
+                                                }
+                                            }));
+                                            ui.draws.push(DrawCommand::Rect(RectDraw {
+                                                instance: RectInstance {
+                                                    pos: [editor_x, line_y],
+                                                    size: [3.5, line_height_pixels],
+                                                    color: Color::rgb(0.24, 0.78, 0.35).to_array(),
+                                                    radius: [0.0; 4],
+                                                    clip_rect: clip,
+                                                    ..Default::default()
+                                                }
+                                            }));
+                                            ui.draws.push(DrawCommand::Text(TextDraw {
+                                                text: "+".to_string(),
+                                                pos: [editor_x + gutter_w - 9.0, line_y + 3.0],
+                                                options: TextOptions::new().font_size(12.0).font_family("monospace").color(Color::rgb(0.35, 0.85, 0.45)),
+                                                clip,
+                                            }));
+                                        }
+                                        Some(DiffLineState::Removed) => {
+                                            ui.draws.push(DrawCommand::Rect(RectDraw {
+                                                instance: RectInstance {
+                                                    pos: [editor_x + gutter_w, line_y],
+                                                    size: [editor_w - gutter_w, line_height_pixels],
+                                                    color: Color::rgba(0.97, 0.32, 0.29, 0.22).to_array(),
+                                                    radius: [0.0; 4],
+                                                    clip_rect: clip,
+                                                    ..Default::default()
+                                                }
+                                            }));
+                                            ui.draws.push(DrawCommand::Rect(RectDraw {
+                                                instance: RectInstance {
+                                                    pos: [editor_x, line_y],
+                                                    size: [3.5, line_height_pixels],
+                                                    color: Color::rgb(0.97, 0.32, 0.29).to_array(),
+                                                    radius: [0.0; 4],
+                                                    clip_rect: clip,
+                                                    ..Default::default()
+                                                }
+                                            }));
+                                            ui.draws.push(DrawCommand::Text(TextDraw {
+                                                text: "-".to_string(),
+                                                pos: [editor_x + gutter_w - 9.0, line_y + 3.0],
+                                                options: TextOptions::new().font_size(12.0).font_family("monospace").color(Color::rgb(0.97, 0.45, 0.45)),
+                                                clip,
+                                            }));
+                                        }
+                                        _ => {
+                                            // Line highlighting for cursor line
+                                            if cursor_p.row == i && is_focused {
+                                                ui.draws.push(DrawCommand::Rect(RectDraw {
+                                                    instance: RectInstance {
+                                                        pos: [editor_x + gutter_w, line_y],
+                                                        size: [editor_w - gutter_w, line_height_pixels],
+                                                        color: Color::rgba(1.0, 1.0, 1.0, 0.04).to_array(),
+                                                        radius: [0.0; 4],
+                                                        clip_rect: clip,
+                                                        ..Default::default()
+                                                    }
+                                                }));
                                             }
-                                        }));
+                                        }
                                     }
 
                                     // Draw line number
@@ -995,28 +1062,38 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                                     }
 
                                     // Draw code line text itself
-                                    let line_spans = highlights.get(&i);
-                                    if let Some(spans) = line_spans {
-                                        let styled_spans = get_styled_spans(clean_text, spans, colors.text_primary, &shaped);
-                                        for span in styled_spans {
-                                            let span_opts = TextOptions::new()
-                                                .font_size(13.0)
-                                                .font_family("monospace")
-                                                .color(span.color);
-                                            ui.draws.push(DrawCommand::Text(TextDraw {
-                                                text: span.text,
-                                                pos: [editor_x + gutter_w + span.x_offset, line_y + 2.0],
-                                                options: span_opts,
-                                                clip,
-                                            }));
-                                        }
-                                    } else {
+                                    if diff_line_state == Some(DiffLineState::Removed) {
+                                        let removed_opts = TextOptions::new().font_size(13.0).font_family("monospace").color(Color::rgb(0.97, 0.50, 0.50));
                                         ui.draws.push(DrawCommand::Text(TextDraw {
                                             text: clean_text.to_string(),
                                             pos: [editor_x + gutter_w, line_y + 2.0],
-                                            options: opts,
+                                            options: removed_opts,
                                             clip,
                                         }));
+                                    } else {
+                                        let line_spans = highlights.get(&i);
+                                        if let Some(spans) = line_spans {
+                                            let styled_spans = get_styled_spans(clean_text, spans, colors.text_primary, &shaped);
+                                            for span in styled_spans {
+                                                let span_opts = TextOptions::new()
+                                                    .font_size(13.0)
+                                                    .font_family("monospace")
+                                                    .color(span.color);
+                                                ui.draws.push(DrawCommand::Text(TextDraw {
+                                                    text: span.text,
+                                                    pos: [editor_x + gutter_w + span.x_offset, line_y + 2.0],
+                                                    options: span_opts,
+                                                    clip,
+                                                }));
+                                            }
+                                        } else {
+                                            ui.draws.push(DrawCommand::Text(TextDraw {
+                                                text: clean_text.to_string(),
+                                                pos: [editor_x + gutter_w, line_y + 2.0],
+                                                options: opts,
+                                                clip,
+                                            }));
+                                        }
                                     }
 
                                     // Draw blinking cursor
@@ -1026,7 +1103,9 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                                         active_cursor_screen_pos = Some([editor_x + gutter_w + cursor_x, line_y + line_height_pixels]);
 
                                         let elapsed_ms = state.last_cursor_activity.elapsed().as_millis();
-                                        let show_cursor = if elapsed_ms < 500 {
+                                        let show_cursor = if !state.cursor_blink {
+                                            true
+                                        } else if elapsed_ms < 500 {
                                             true
                                         } else {
                                             ((elapsed_ms - 500) / 530) % 2 == 0
@@ -1036,7 +1115,7 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                                                 instance: RectInstance {
                                                     pos: [editor_x + gutter_w + cursor_x, line_y + 2.0],
                                                     size: [2.0, 16.0],
-                                                    color: colors.accent.to_array(),
+                                                    color: colors.cursor.to_array(),
                                                     radius: [0.0; 4],
                                                     clip_rect: clip,
                                                     ..Default::default()
@@ -1163,8 +1242,7 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                                     }
                                     tab.shaping_cache.get(&line_idx).unwrap().1.clone()
                                 };
-                                let byte_idx = shaped.index_at(rel_x, 5.0);
-                                col_idx = clean_text[..byte_idx.min(clean_text.len())].chars().count();
+                                col_idx = find_col_for_x(&shaped, clean_text, rel_x);
                             }
 
                             if state.shift_pressed {
@@ -1439,7 +1517,7 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                         if let Some(insert_text) = item_to_insert {
                             let tab = &mut state.tabs[active_tab_idx];
                             tab.editor.insert(&insert_text, tab.path.as_deref(), Some(&state.indent_calc));
-                            tab.is_dirty = true;
+                            tab.update_dirty_state();
                             tab.version += 1;
                             tab.shaping_cache.clear();
                             if let Some(ref p) = tab.path {
@@ -1564,6 +1642,39 @@ fn find_x_for_byte(shaped: &ShapedBuffer, clean_text: &str, byte_idx: usize) -> 
     best_x
 }
 
+fn find_col_for_x(shaped: &ShapedBuffer, clean_text: &str, rel_x: f32) -> usize {
+    if clean_text.is_empty() || rel_x <= 0.0 {
+        return 0;
+    }
+
+    let char_indices: Vec<(usize, char)> = clean_text.char_indices().collect();
+    let total_chars = char_indices.len();
+    if total_chars == 0 {
+        return 0;
+    }
+
+    let mut boundaries = Vec::with_capacity(total_chars + 1);
+    for &(byte_idx, _) in &char_indices {
+        boundaries.push(find_x_for_byte(shaped, clean_text, byte_idx));
+    }
+    boundaries.push(find_x_for_byte(shaped, clean_text, clean_text.len()));
+
+    if rel_x >= *boundaries.last().unwrap_or(&0.0) {
+        return total_chars;
+    }
+
+    for i in 0..total_chars {
+        let left = boundaries[i];
+        let right = boundaries[i + 1];
+        let mid = (left + right) / 2.0;
+        if rel_x < mid {
+            return i;
+        }
+    }
+
+    total_chars
+}
+
 struct StyledSpan {
     pub text: String,
     pub x_offset: f32,
@@ -1626,3 +1737,24 @@ fn get_styled_spans(
     
     result
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_find_col_for_x_empty() {
+        let shaped = ShapedBuffer::default();
+        assert_eq!(find_col_for_x(&shaped, "", 100.0), 0);
+        assert_eq!(find_col_for_x(&shaped, "hello", -10.0), 0);
+    }
+
+    #[test]
+    fn test_find_col_for_x_past_end() {
+        let shaped = ShapedBuffer::default();
+        let text = "## Breaking Changes in 0.3.0";
+        // When clicking far past the end of the line, column must be at the very end
+        assert_eq!(find_col_for_x(&shaped, text, 1000.0), text.chars().count());
+    }
+}
+

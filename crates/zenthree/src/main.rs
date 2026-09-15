@@ -7,6 +7,14 @@ mod mini_icons;
 pub mod native_terminal;
 pub mod extensions;
 pub mod lsp;
+pub mod markdown;
+pub mod groq;
+pub mod gemini;
+pub mod project_index;
+pub mod agent;
+pub mod session;
+
+
 
 use state::ZenthreeState;
 use theme::ThemeMode;
@@ -67,6 +75,12 @@ fn main() {
             if state.lsp_manager.poll() {
                 ui.request_redraw();
             }
+
+            // Poll background AI responses (Groq LLM + Connectome)
+            if state.poll_ai_responses() || state.ai_pending_requests > 0 {
+                ui.request_redraw();
+            }
+
 
             // Expose the active theme flag to interaction_state so widgets can read it
             let theme_val = if state.theme == ThemeMode::Light { 1.0 } else { 0.0 };
