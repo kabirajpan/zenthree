@@ -135,6 +135,8 @@ pub struct AiMessage {
     pub edited_files: Vec<EditedFileSummary>,
     #[serde(default)]
     pub is_working: bool,
+    #[serde(default)]
+    pub sub_agent: Option<crate::agent::SubAgentRole>,
 }
 
 impl Default for AiMessage {
@@ -148,6 +150,7 @@ impl Default for AiMessage {
             explored_items: Vec::new(),
             edited_files: Vec::new(),
             is_working: false,
+            sub_agent: None,
         }
     }
 }
@@ -189,9 +192,9 @@ pub struct SessionModifiedFile {
 pub use crate::agent::{
     AgentMission, AgentTask, TaskStatus, TargetFileModification,
     create_mission_for_prompt, build_autonomous_agent_prompt, extract_all_file_modifications,
-    run_project_compiler_check, build_self_healing_prompt,
-    AgentToolCall, parse_agent_tool_calls, execute_agent_tool,
-    ProviderChain,
+    run_project_compiler_check_with_env, build_self_healing_prompt,
+    AgentToolCall, parse_agent_tool_calls, execute_agent_tool_with_provider,
+    ProviderChain, DetectorAgent, ProjectEnvironment, SubAgentRole,
 };
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -369,6 +372,7 @@ pub struct ZenthreeState {
     pub custom_models: Vec<String>,
     pub adding_custom_model: bool,
     pub custom_model_input: String,
+    pub detected_environment: Option<ProjectEnvironment>,
 }
 
 impl ZenthreeState {
@@ -453,7 +457,7 @@ impl ZenthreeState {
             ai_messages: vec![
                 AiMessage {
                     is_user: false,
-                    content: "Hello! I am your Zenthra AI Assistant. How can I help you with your code today?".to_string(),
+                    content: "Hello! I am ZENE. How can I help you with your code today?".to_string(),
                     code_snippet: None,
                     thoughts: Some("Context initialized with workspace files and biological Connectome deliberation engine.".to_string()),
                     deliberation: None,
@@ -500,6 +504,7 @@ impl ZenthreeState {
             expanded_explored_msgs: std::collections::HashSet::new(),
             collapsed_code_blocks: std::collections::HashSet::new(),
             current_mission: None,
+            detected_environment: None,
             current_session: crate::session::AgentSession::new(&current_dir, None),
             session_list: crate::session::list_saved_sessions(&current_dir),
             session_dropdown_open: false,
@@ -830,6 +835,10 @@ impl ZenthreeState {
                                     saved_text: String::new(),
                                 });
                                 self.active_tab = Some(self.tabs.len() - 1);
+                                // Notify LSP and trigger language-support prompt for new file
+                                let ws_root = if self.has_workspace { Some(self.current_dir.as_path()) } else { None };
+                                self.lsp_manager.on_document_open(&target_file, &preview_text, ws_root);
+                                self.check_language_support_prompt(&target_file);
                             }
                         } else {
                             self.open_file(&target_file);
@@ -898,8 +907,28 @@ impl ZenthreeState {
             let tool_calls = parse_agent_tool_calls(&content);
             if summaries.is_empty() && !tool_calls.is_empty() {
                 let mut tool_results = Vec::new();
+                let provider = ProviderChain::new(
+                    self.gemini_api_key.clone(),
+                    self.groq_api_key.clone(),
+                    Some(self.selected_model.clone()),
+                );
                 for call in &tool_calls {
-                    let res = execute_agent_tool(&self.current_dir, call);
+                    let res = execute_agent_tool_with_provider(&self.current_dir, call, Some(&provider));
+                    if let AgentToolCall::DetectEnvironment { subpath } = call {
+                        let target = match subpath {
+                            Some(p) if !p.trim().is_empty() && p.trim() != "." => {
+                                let cleaned = p.trim().trim_matches('"').trim_matches('\'').trim();
+                                if Path::new(cleaned).is_absolute() {
+                                    PathBuf::from(cleaned)
+                                } else {
+                                    self.current_dir.join(cleaned)
+                                }
+                            }
+                            _ => self.current_dir.clone(),
+                        };
+                        let env = DetectorAgent::detect_with_llm(&target, Some(&provider));
+                        self.detected_environment = Some(env);
+                    }
                     tool_results.push(res);
                 }
 
@@ -910,6 +939,7 @@ impl ZenthreeState {
                         AgentToolCall::ListDirectory { path } => format!("list `{}`", path.as_deref().unwrap_or(".")),
                         AgentToolCall::RunCommand { cmd } => format!("run `{}`", cmd),
                         AgentToolCall::EditFile { path, .. } => format!("patch `{}`", path),
+                        AgentToolCall::DetectEnvironment { subpath } => format!("detect toolchain in `{}`", subpath.as_deref().unwrap_or(".")),
                     };
 
                     if let Some(ref mut mission) = self.current_mission {
@@ -1016,17 +1046,29 @@ impl ZenthreeState {
                         status: TaskStatus::Completed,
                         target_file: Some(sum.file_name.clone()),
                         diff_summary: Some(sum.clone()),
+                        sub_agent: Some(SubAgentRole::Builder),
                     });
                 }
 
                 let verify_idx = mission.tasks.len().saturating_sub(1);
                 mission.active_task_index = Some(verify_idx);
+                if let Some(task) = mission.tasks.get_mut(verify_idx) {
+                    task.sub_agent = Some(SubAgentRole::Tester);
+                }
 
-                // Step: Re-read the checklist & verify with project compiler
-                mission.status_message = "Agent reading checklist... verifying syntax & compiler diagnostics".to_string();
+                // Step: Re-read the checklist & verify with project compiler using detected environment
+                let env = self.detected_environment.clone().unwrap_or_else(|| {
+                    let provider = ProviderChain::new(
+                        self.gemini_api_key.clone(),
+                        self.groq_api_key.clone(),
+                        Some(self.selected_model.clone()),
+                    );
+                    DetectorAgent::detect_with_llm(&self.current_dir, Some(&provider))
+                });
+                mission.status_message = format!("[🛡️ Tester] Verifying syntax & compiler diagnostics via {} ({:?})...", env.build_system, env.language);
 
                 if !summaries.is_empty() {
-                    match run_project_compiler_check(&self.current_dir) {
+                    match run_project_compiler_check_with_env(&self.current_dir, &env) {
                         Some(Err(compiler_err)) => {
                             if mission.self_healing_attempts < 2 {
                                 mission.self_healing_attempts += 1;
@@ -1297,7 +1339,7 @@ impl ZenthreeState {
         self.ai_messages = vec![
             AiMessage {
                 is_user: false,
-                content: "Hello! I am your Zenthra AI Assistant. How can I help you with your code today?".to_string(),
+                content: "Hello! I am ZENE. How can I help you with your code today?".to_string(),
                 code_snippet: None,
                 thoughts: Some("Session initialized. Session markdown files ready in .zenthree/sessions/".to_string()),
                 deliberation: None,
@@ -2523,7 +2565,17 @@ impl ZenthreeState {
             }
 
             if self.has_workspace {
-                let mission = create_mission_for_prompt(trimmed, &explored_items);
+                let provider = ProviderChain::new(
+                    self.gemini_api_key.clone(),
+                    self.groq_api_key.clone(),
+                    Some(self.selected_model.clone()),
+                );
+                let env = DetectorAgent::detect_with_llm(&self.current_dir, Some(&provider));
+                self.detected_environment = Some(env.clone());
+                let mut mission = create_mission_for_prompt(trimmed, &explored_items);
+                if let Some(detect_task) = mission.tasks.iter_mut().find(|t| t.id == "task_2_detect") {
+                    detect_task.title = format!("Detect toolchain: {} ({:?})", env.build_system, env.language);
+                }
                 self.current_session.title = trimmed.to_string();
                 self.current_session.update_implementation_plan(trimmed, &explored_items, "");
                 self.current_session.update_mission_file(&mission);
@@ -2541,6 +2593,7 @@ impl ZenthreeState {
                 explored_items,
                 edited_files: Vec::new(),
                 is_working: true,
+                sub_agent: Some(SubAgentRole::Explorer),
             });
             self.save_current_session_messages();
 
@@ -2565,7 +2618,7 @@ impl ZenthreeState {
                 build_autonomous_agent_prompt(deliberation.confidence * 100.0)
             } else {
                 format!(
-                    "You are Zenthree AI, an intelligent coding and software engineering assistant integrated directly into the Zenthree code editor.\n\
+                    "You are ZENE, an intelligent coding and software engineering assistant integrated directly into the Zenthree code editor.\n\
                     Note: The user currently has NO workspace or folder opened.\n\
                     Help the user directly with their questions, code generation, algorithms, or explanations. Do not assume or reference files from any workspace unless provided by the user in the prompt or active editor buffer."
                 )
@@ -3288,10 +3341,15 @@ mod tests {
         state.send_ai_message("Implement JWT authentication");
         let mission = state.current_mission.as_ref().expect("Mission should be initialized");
         assert_eq!(mission.goal, "Implement JWT authentication");
-        assert_eq!(mission.tasks.len(), 3);
+        assert_eq!(mission.tasks.len(), 4);
         assert_eq!(mission.tasks[0].status, TaskStatus::Completed);
-        assert_eq!(mission.tasks[1].status, TaskStatus::InProgress);
-        assert_eq!(mission.tasks[2].status, TaskStatus::Pending);
+        assert_eq!(mission.tasks[0].sub_agent, Some(SubAgentRole::Explorer));
+        assert_eq!(mission.tasks[1].status, TaskStatus::Completed);
+        assert_eq!(mission.tasks[1].sub_agent, Some(SubAgentRole::Detector));
+        assert_eq!(mission.tasks[2].status, TaskStatus::InProgress);
+        assert_eq!(mission.tasks[2].sub_agent, Some(SubAgentRole::Builder));
+        assert_eq!(mission.tasks[3].status, TaskStatus::Pending);
+        assert_eq!(mission.tasks[3].sub_agent, Some(SubAgentRole::Tester));
         assert!(state.is_agent_working());
 
         // Test Pause
@@ -3329,22 +3387,25 @@ mod tests {
         }];
         let mission = create_mission_for_prompt("fix navbar bug", &items);
         assert_eq!(mission.self_healing_attempts, 0);
-        assert_eq!(mission.tasks.len(), 3);
-        assert_eq!(mission.tasks[2].id, "task_3_verify");
+        assert_eq!(mission.tasks.len(), 4);
+        let verify_idx = 3;
+        assert_eq!(mission.tasks[verify_idx].id, "task_4_test");
+        assert_eq!(mission.tasks[verify_idx].sub_agent, Some(SubAgentRole::Tester));
         state.current_mission = Some(mission);
 
         // Simulate simulated error in healing attempt
         if let Some(ref mut m) = state.current_mission {
             m.self_healing_attempts += 1;
-            m.tasks[2].status = TaskStatus::InProgress;
-            m.tasks[2].title = format!("🛠️ Self-Healing: Repair compiler errors (Attempt {}/2)", m.self_healing_attempts);
+            m.tasks[verify_idx].status = TaskStatus::InProgress;
+            m.tasks[verify_idx].title = format!("🛠️ Self-Healing: Repair compiler errors (Attempt {}/2)", m.self_healing_attempts);
         }
 
         let m = state.current_mission.as_ref().unwrap();
         assert_eq!(m.self_healing_attempts, 1);
-        assert_eq!(m.tasks[2].status, TaskStatus::InProgress);
-        assert!(m.tasks[2].title.contains("Attempt 1/2"));
+        assert_eq!(m.tasks[verify_idx].status, TaskStatus::InProgress);
+        assert!(m.tasks[verify_idx].title.contains("Attempt 1/2"));
     }
+
 
     #[test]
     fn test_accept_all_and_reject_all_modifications() {

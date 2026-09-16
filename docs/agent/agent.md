@@ -1,17 +1,19 @@
-# Zenthree AI Agent - Comprehensive System Specification
+# Z.E.N.E. Agent - Comprehensive System Specification
 
-This document details the architecture, internal subsystems, and operational workflows of **Zenthree AI**, the autonomous software engineering agent built directly into the Zenthree code editor.
+This document details the architecture, internal subsystems, and operational workflows of **Z.E.N.E.** (**Z**enthra **E**ngineering & **N**eural **E**xecutor), the autonomous software engineering agent built directly into the editor.
 
 ---
 
 ## 1. System Overview
 
-Zenthree AI is an autonomous, in-editor software engineering agent. Unlike typical chat assistants that generate code snippets for manual copy-pasting, Zenthree AI operates directly inside the editor runtime:
+**Z.E.N.E.** is an autonomous, in-editor software engineering agent. Unlike typical chat assistants that generate code snippets for manual copy-pasting, Z.E.N.E. operates directly inside the editor runtime:
 - **Autonomous Reasoning & Execution**: Analyzes workspace structure, inspects source files, deduces architectural conventions, and directly writes/patches files.
+- **Multi-Agent Coordination (Z.E.N.E.)**: Coordinates four specialized sub-agents (**Explorer**, **Detector**, **Builder**, **Tester**) to modularize exploration, toolchain detection, code editing, and verification without context bloat.
 - **Surgical Diff Engine**: Replaces specific slices of code using search-and-replace blocks rather than rewriting whole files.
 - **Biological Deliberation**: Integrates a simulated biological spiking neural connectome to weigh trade-offs and calculate confidence scores.
-- **Verification Gate**: Executes non-destructive compiler checks (`cargo check`, `npx tsc`) and initiates self-healing loops to repair diagnostics automatically.
+- **Verification Gate**: Executes non-destructive compiler checks (`cargo check`, `npx tsc`, `mypy`, `go vet`) and initiates self-healing loops to repair diagnostics automatically.
 - **Resilient Provider Chain**: Uses automated error classification, exponential backoff, and seamless fallback across Google Gemini and Groq Cloud models.
+
 
 ---
 
@@ -74,7 +76,7 @@ To handle large codebases without overflowing context windows or causing token d
 Full-file code generation by LLMs regularly drops helper functions, clobbers comments, or truncates large files (`// ... rest of code`).
 
 ### The Solution: Surgical SEARCH / REPLACE Blocks
-Zenthree AI edits existing files by outputting precise diff slices:
+Z.E.N.E. edits existing files by outputting precise diff slices:
 
 ```markdown
 ### File: src/ui_layout/sidebar.rs
@@ -123,6 +125,10 @@ The agent has access to a typed tool suite for workspace exploration and inspect
 5. **`edit_file`**
    - **Signature**: `{"tool": "edit_file", "path": "<file>", "search": "<old_str>", "replace": "<new_str>"}`
    - **Behavior**: Programmatically applies surgical patches to disk.
+6. **`detect_environment`**
+   - **Signature**: `{"tool": "detect_environment", "subpath": "<optional_subdir>"}`
+   - **Behavior**: Inspects project configuration files (`Cargo.toml`, `package.json`, `tsconfig.json`, `pyproject.toml`, `go.mod`, `CMakeLists.txt`, `Makefile`) to identify language, build tool, compiler check command, and test runner.
+
 
 ### Multi-Turn Tool Observation Flow
 ```
@@ -160,10 +166,19 @@ Zenthree incorporates a multi-provider fallback engine (`ProviderChain`) in [`ag
 
 ## 8. Non-Halting Orchestrator State Machine
 
-In contrast to single-prompt agents that fail permanently upon the first error, Zenthree's `AgentMission` manages a resilient task state machine:
+In contrast to single-prompt agents that fail permanently upon the first error, Zenthree's `AgentMission` manages a resilient task state machine with sub-agent role assignments:
 
 ### Task State Structure (`AgentTask`)
 ```rust
+pub struct AgentTask {
+    pub id: String,
+    pub title: String,
+    pub status: TaskStatus,
+    pub target_file: Option<String>,
+    pub diff_summary: Option<EditedFileSummary>,
+    pub sub_agent: Option<SubAgentRole>,
+}
+
 pub enum TaskStatus {
     Pending,
     ReadingChecklist,
@@ -184,9 +199,13 @@ pub enum TaskStatus {
 
 ## 9. Verification Gate & Self-Healing Loop
 
-1. **Automatic Compiler Check**:
-   - Inspects workspace for `Cargo.toml` (Rust) or `tsconfig.json` (TypeScript).
-   - Executes `cargo check --message-format=short` or `npx tsc --noEmit`.
+1. **Automatic Environment & Compiler Detection (`DetectorAgent`)**:
+   - Inspects workspace manifests and dynamically selects the correct toolchain and test runner:
+     - **Rust**: `Cargo.toml` $\rightarrow$ `cargo check --message-format=short`, `cargo test`
+     - **TypeScript / JavaScript**: `package.json`, `tsconfig.json`, lockfiles (`bun.lockb`, `pnpm-lock.yaml`, `yarn.lock`, `package-lock.json`, `deno.json`) $\rightarrow$ `npx tsc --noEmit` / `bun run check`, `npm test` / `bun test`
+     - **Python**: `pyproject.toml`, `requirements.txt`, `setup.py`, `Pipfile` $\rightarrow$ `mypy .`, `pytest`
+     - **Go**: `go.mod` $\rightarrow$ `go vet ./...`, `go test ./...`
+     - **C / C++**: `CMakeLists.txt`, `Makefile` $\rightarrow$ `cmake --build .` / `make -q`, `ctest` / `make test`
 2. **Error Filtering (`filter_compiler_errors`)**:
    - Filters raw compiler noise down to actionable error diagnostics (`error[E0425]`, file coordinates, compiler suggestions `help:`).
 3. **Self-Healing Loop (`build_self_healing_prompt`)**:
@@ -196,15 +215,96 @@ pub enum TaskStatus {
 
 ---
 
-## 10. File Map & Code Locations
+## 10. Multi-Agent Architecture: Z.E.N.E. & Sub-Agents
+
+Zenthree employs a cooperative multi-agent architecture where the lead agent coordinates specialized sub-agents to achieve end-to-end task completion without token bloat or context degradation.
+
+```
+                     ┌─────────────────────────────────────────┐
+                     │                  ZENE                   │
+                     │  Zenthree Engineering & Neural Executor │
+                     │  (User Dialog · Planner · Orchestrator) │
+                     └────────────────────┬────────────────────┘
+                                          │
+         ┌──────────────────┬─────────────┴────────────┬──────────────────┐
+         │                  │                          │                  │
+         ▼                  ▼                          ▼                  ▼
+┌─────────────────┐┌─────────────────┐        ┌─────────────────┐┌─────────────────┐
+│   🔍 EXPLORER   ││   🧠 DETECTOR   │        │   ⚡ BUILDER    ││   🛡️ TESTER     │
+│ Reconnaissance  ││ Toolchain & Env │        │ Code Synthesis  ││ Verification    │
+│ Files & Symbols ││ Compiler & Tests│        │ Surgical Diffs  ││ Self-Healing    │
+└─────────────────┘└─────────────────┘        └─────────────────┘└─────────────────┘
+```
+
+### Lead Agent: ZENE
+- **Full Form**: **Z**enthree **E**ngineering & **N**eural **E**xecutor (displayed simply as **ZENE** in the AI panel and editor)
+- **Role**: Primary interface with the user. Decomposes high-level requests into structured missions, assigns tasks to sub-agents, aggregates their findings, and renders formatted previews and chat responses.
+
+### Specialized Sub-Agents:
+
+1. 🔍 **Explorer** (`SubAgentRole::Explorer`)
+   - **Mission**: Scans project directories, traces symbol definitions, and gathers AST context without cluttering the primary prompt.
+   - **Tools Used**: `search_code`, `read_file`, `list_directory`.
+
+2. 🧠 **Detector** (`SubAgentRole::Detector`)
+   - **Mission**: Analyzes project files and toolchains to determine the programming language, build system, non-destructive compiler check command, and test runner.
+   - **Static Manifest Heuristics**:
+     - **Rust**: Detects `Cargo.toml` $\rightarrow$ Compiler: `cargo check --message-format=short`, Tests: `cargo test`.
+     - **TypeScript / JavaScript**: Detects `tsconfig.json`, `package.json`, lockfiles (`bun.lockb`, `pnpm-lock.yaml`, `yarn.lock`, `deno.json`) $\rightarrow$ Compiler: `npx tsc --noEmit` / `bun run check` / `deno check`, Tests: `npm test` / `bun test` / `deno test`.
+     - **Python**: Detects `pyproject.toml`, `requirements.txt`, `setup.py`, `Pipfile` $\rightarrow$ Linter/Checker: `mypy .`, Tests: `pytest`.
+     - **Go**: Detects `go.mod` $\rightarrow$ Compiler: `go vet ./...`, Tests: `go test ./...`.
+     - **C / C++**: Detects `CMakeLists.txt`, `Makefile` $\rightarrow$ Compiler: `cmake --build .` / `make -q`, Tests: `ctest` / `make test`.
+     - **Zig**: Detects `build.zig`, `build.zig.zon` $\rightarrow$ Compiler: `zig build`, Tests: `zig build test`.
+     - **Java / Kotlin**: Detects `build.gradle`, `build.gradle.kts`, `pom.xml` $\rightarrow$ Compiler: `./gradlew check` / `mvn test-compile`, Tests: `./gradlew test` / `mvn test`.
+     - **Swift**: Detects `Package.swift` $\rightarrow$ Compiler: `swift build`, Tests: `swift test`.
+     - **Ruby**: Detects `Gemfile` $\rightarrow$ Tests: `bundle exec rspec`.
+     - **PHP**: Detects `composer.json` $\rightarrow$ Tests: `composer test`.
+     - **Elixir**: Detects `mix.exs` $\rightarrow$ Compiler: `mix compile`, Tests: `mix test`.
+     - **Dart / Flutter**: Detects `pubspec.yaml` $\rightarrow$ Compiler: `dart analyze` / `flutter analyze`, Tests: `dart test` / `flutter test`.
+   - **Autonomous LLM Fallback (`detect_with_llm`)**:
+     - When static heuristics **find nothing** or **cannot identify the codebase** (`is_unidentified()` evaluates to true):
+       1. **Deep Context Inspection (`inspect_workspace_context`)**: Recursively crawls the repository up to 3 levels deep (filtering noise like `.git`, `node_modules`, `target`, `build`, `dist`, `venv`, `.cache`), collecting up to 60 sample file paths.
+       2. **Extension Frequency Analysis**: Tallies and ranks dominant file extensions (e.g. `.zig: 18`, `.kt: 12`, `.ex: 20`).
+       3. **Manifest Candidate Extraction**: Flags non-standard or nested build files (`build.zig`, `mix.exs`, `Taskfile.yml`, `justfile`, `Makefile`, etc.).
+       4. **Documentation Ingestion**: Ingests up to 20 lines of `README.md` or `README` for explicit build/run instructions.
+       5. **Structured LLM Inference**: Queries Gemini / Groq with the assembled context requesting a strict JSON payload (`language`, `build_system`, `compiler_check_cmd`, `test_cmd`, `details`).
+       6. **Safe Parsing**: Parses the response with markdown fence recovery and validates command tokens before returning the typed `ProjectEnvironment`.
+   - **Output**: Generates a typed `ProjectEnvironment` profile cached on `ZenthreeState` and consumed by **Builder** and **Tester**.
+   - **Tool Call**: Exposes `detect_environment` (`{"tool": "detect_environment", "subpath": "<path>"}`).
+
+
+3. ⚡ **Builder** (`SubAgentRole::Builder`)
+   - **Mission**: Writes the required changes as precise `SEARCH/REPLACE` blocks.
+   - **Tools Used**: `edit_file`, diff generation engine.
+
+4. 🛡️ **Tester** (`SubAgentRole::Tester`)
+   - **Mission**: Consumes the commands identified by **Detector** to execute non-destructive compiler checks and unit tests (`run_project_compiler_check_with_env`, `run_project_tests`), driving automated self-healing loops when errors occur.
+
+### 4-Stage Mission Decomposition:
+When a prompt is received, `create_mission_for_prompt` decomposes the mission into 4 coordinated tasks:
+1. `task_1_explore` (🔍 Explorer: Analyze workspace context & symbols)
+2. `task_2_detect` (🧠 Detector: Detect project toolchain & compiler commands)
+3. `task_3_build` (⚡ Builder: Implement changes / surgical diffs)
+4. `task_4_test` (🛡️ Tester: Verify syntax, compiler checks & test suite)
+
+### Live Visual Feedback in Editor UI:
+- **Message Headers**: Assistant messages display the coordinating badge `Z.E.N.E. » [Sub-Agent Badge]` (e.g. `Z.E.N.E. » 🔍 Explorer`).
+- **Mission Status Header**: Real-time pill badge shows active sub-agent next to task completion count (e.g. `2/4 tasks [⚡ Builder]`).
+- **Markdown Session Artifacts**: `mission.md` task checklists display assigned sub-agent badges next to task items (e.g. `- [/] **Implement changes** '`⚡ Builder`'`).
+
+---
+
+## 11. File Map & Code Locations
 
 | Component | File Path | Responsibilities |
 |---|---|---|
-| **Agent Engine** | [`crates/zenthree/src/agent.rs`](file:///home/kabir/Desktop/projects/personal/framworks/zenthra-v2/apps/zenthree/crates/zenthree/src/agent.rs) | `AgentMission`, `AgentTask`, `AgentToolCall`, `ProviderChain`, `apply_search_replace`, `execute_agent_tool`, `run_project_compiler_check`. |
-| **State Orchestrator** | [`crates/zenthree/src/state.rs`](file:///home/kabir/Desktop/projects/personal/framworks/zenthra-v2/apps/zenthree/crates/zenthree/src/state.rs) | Event loop, multi-turn AI message handling, editor tab patching, visual diff management, and mission progress. |
-| **AI UI Panel** | [`crates/zenthree/src/ui_layout/ai_panel.rs`](file:///home/kabir/Desktop/projects/personal/framworks/zenthra-v2/apps/zenthree/crates/zenthree/src/ui_layout/ai_panel.rs) | Live mission task checklist rendering, prompt input text area, model selector, and pill-shaped user bubbles. |
+| **Agent Engine** | [`crates/zenthree/src/agent.rs`](file:///home/kabir/Desktop/projects/personal/framworks/zenthra-v2/apps/zenthree/crates/zenthree/src/agent.rs) | `AgentMission`, `AgentTask`, `SubAgentRole`, `DetectorAgent`, `ProjectEnvironment`, `AgentToolCall`, `ProviderChain`, `apply_search_replace`, `execute_agent_tool`, `execute_detect_environment`, `run_project_compiler_check_with_env`, `run_project_tests`. |
+| **State Orchestrator** | [`crates/zenthree/src/state.rs`](file:///home/kabir/Desktop/projects/personal/framworks/zenthra-v2/apps/zenthree/crates/zenthree/src/state.rs) | Event loop, multi-turn AI message handling, editor tab patching, visual diff management, detected environment caching, and mission progress. |
+| **AI UI Panel** | [`crates/zenthree/src/ui_layout/ai_panel.rs`](file:///home/kabir/Desktop/projects/personal/framworks/zenthra-v2/apps/zenthree/crates/zenthree/src/ui_layout/ai_panel.rs) | Live mission task checklist rendering with sub-agent badges, prompt input text area, model selector, pill-shaped user bubbles, and `Z.E.N.E. » [Sub-Agent]` message tags. |
+| **Session Store** | [`crates/zenthree/src/session.rs`](file:///home/kabir/Desktop/projects/personal/framworks/zenthra-v2/apps/zenthree/crates/zenthree/src/session.rs) | Session persistence, sub-agent formatted `mission.md`, `implementation_plan.md`, and `walkthrough.md` generation. |
 | **Connectome** | [`crates/connectome/src/lib.rs`](file:///home/kabir/Desktop/projects/personal/framworks/zenthra-v2/apps/zenthree/crates/connectome/src/lib.rs) | Biological spiking neural simulation, evidence accumulation, and in-silico ablation models. |
 | **Gemini Client** | [`crates/zenthree/src/gemini.rs`](file:///home/kabir/Desktop/projects/personal/framworks/zenthra-v2/apps/zenthree/crates/zenthree/src/gemini.rs) | Google Gemini API communication, IPv4 DNS routing, multi-model fallback. |
 | **Groq Client** | [`crates/zenthree/src/groq.rs`](file:///home/kabir/Desktop/projects/personal/framworks/zenthra-v2/apps/zenthree/crates/zenthree/src/groq.rs) | Groq Cloud API communication and chat message payload structuring. |
-| **Session Store** | [`crates/zenthree/src/session.rs`](file:///home/kabir/Desktop/projects/personal/framworks/zenthra-v2/apps/zenthree/crates/zenthree/src/session.rs) | Session persistence, `implementation_plan.md`, `mission.md`, and `walkthrough.md` generation. |
 | **Project Index** | [`crates/zenthree/src/project_index.rs`](file:///home/kabir/Desktop/projects/personal/framworks/zenthra-v2/apps/zenthree/crates/zenthree/src/project_index.rs) | AST symbol exploration, workspace tree synthesis, framework convention discovery. |
+
+

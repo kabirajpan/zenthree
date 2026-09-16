@@ -968,6 +968,23 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                 .column()
                                 .gap(4.0)
                                 .show(|ui| {
+                                    // Sub-agent Badge (e.g. ZENE » 🔍 Explorer)
+                                    if let Some(sub_agent) = msg.sub_agent {
+                                        ui.container()
+                                            .padding(1.0, 6.0, 1.0, 6.0)
+                                            .bg(colors.accent.with_alpha(0.10))
+                                            .radius_all(4.0)
+                                            .row()
+                                            .valign(Align::Center)
+                                            .show(|ui| {
+                                                ui.text(&format!("ZENE » {}", sub_agent.badge()))
+                                                    .size(9.0)
+                                                    .weight(FontWeight::SemiBold)
+                                                    .color(colors.accent)
+                                                    .show();
+                                            });
+                                    }
+
                                     // 1. Collapsible "Explored N files >" / "Exploring N files v"
                                     if !msg.explored_items.is_empty() {
                                         let unique_count = msg.explored_items.iter().map(|i| &i.file_name).collect::<std::collections::HashSet<_>>().len();
@@ -1221,8 +1238,27 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                                         .color(status_color)
                                                         .show();
                                                 });
+
+                                            if let Some(active_idx) = mission.active_task_index {
+                                                if let Some(active_task) = mission.tasks.get(active_idx) {
+                                                    if let Some(sub_agent) = active_task.sub_agent {
+                                                        ui.container()
+                                                            .padding(1.0, 5.0, 1.0, 5.0)
+                                                            .bg(colors.accent.with_alpha(0.12))
+                                                            .radius_all(3.0)
+                                                            .show(|ui| {
+                                                                ui.text(&sub_agent.badge())
+                                                                    .size(8.5)
+                                                                    .weight(FontWeight::SemiBold)
+                                                                    .color(colors.accent)
+                                                                    .show();
+                                                            });
+                                                    }
+                                                }
+                                            }
                                         }
                                     });
+
 
                                 // Progress Bar if mission is present
                                 if let Some(ref mission) = state.current_mission {

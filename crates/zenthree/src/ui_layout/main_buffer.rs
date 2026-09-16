@@ -893,7 +893,9 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                                 let mut adapter = CosmicFontProvider::new_with_system(fs.clone());
                                 adapter.set_layout_size(10000.0, 10000.0);
 
-                                let active_pending_diff = state.pending_modification.as_ref().filter(|p| {
+                                // Search all pending modifications so diff markers show for every
+                                // file touched by the AI, not only the first one.
+                                let active_pending_diff = state.pending_modifications.iter().find(|p| {
                                     tab.path.as_ref() == Some(&p.file_path)
                                         || tab.name == p.file_path.file_name().and_then(|n| n.to_str()).unwrap_or("")
                                 });

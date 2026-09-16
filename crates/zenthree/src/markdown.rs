@@ -498,6 +498,7 @@ pub fn render_markdown_preview(
                             ui.container()
                                 .full_width()
                                 .row()
+                                .no_wrap()
                                 .gap(6.0)
                                 .valign(Align::Top)
                                 .show(|ui| {
@@ -536,6 +537,7 @@ pub fn render_markdown_preview(
                     .full_width()
                     .padding(3.0, 0.0, 3.0, 0.0)
                     .row()
+                    .no_wrap()
                     .gap(6.0)
                     .show(|ui| {
                         ui.container()

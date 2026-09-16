@@ -313,7 +313,8 @@ impl AgentSession {
                 crate::agent::TaskStatus::Pending => "[ ]",
                 crate::agent::TaskStatus::Failed(_) => "[!]",
             };
-            content.push_str(&format!("- {} **{}**", mark, task.title));
+            let badge = task.sub_agent.map(|sa| format!(" `{}`", sa.badge())).unwrap_or_default();
+            content.push_str(&format!("- {} **{}**{}", mark, task.title, badge));
             if let Some(ref target) = task.target_file {
                 content.push_str(&format!(" (`{}`)", target));
             }
@@ -323,7 +324,7 @@ impl AgentSession {
             content.push_str("\n");
         }
 
-        content.push_str("\n---\n*Generated autonomously by Zenthree Agent*\n");
+        content.push_str("\n---\n*Generated autonomously by ZENE Agent*\n");
 
         let _ = std::fs::write(&path, content);
         self.has_mission = true;
@@ -544,6 +545,7 @@ mod tests {
                     status: TaskStatus::Completed,
                     target_file: Some("auth.rs".to_string()),
                     diff_summary: None,
+                    sub_agent: Some(crate::agent::SubAgentRole::Explorer),
                 },
                 AgentTask {
                     id: "task_2".to_string(),
@@ -551,6 +553,7 @@ mod tests {
                     status: TaskStatus::InProgress,
                     target_file: Some("auth.rs".to_string()),
                     diff_summary: None,
+                    sub_agent: Some(crate::agent::SubAgentRole::Builder),
                 },
             ],
             active_task_index: Some(1),

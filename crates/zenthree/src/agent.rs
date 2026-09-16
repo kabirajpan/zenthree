@@ -10,6 +10,44 @@ pub enum TaskStatus {
     Failed(String),
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum SubAgentRole {
+    Explorer,
+    Detector,
+    Builder,
+    Tester,
+}
+
+impl SubAgentRole {
+    pub fn display_name(&self) -> &'static str {
+        match self {
+            SubAgentRole::Explorer => "Explorer",
+            SubAgentRole::Detector => "Detector",
+            SubAgentRole::Builder => "Builder",
+            SubAgentRole::Tester => "Tester",
+        }
+    }
+
+    pub fn icon(&self) -> &'static str {
+        match self {
+            SubAgentRole::Explorer => "🔍",
+            SubAgentRole::Detector => "🧠",
+            SubAgentRole::Builder => "⚡",
+            SubAgentRole::Tester => "🛡️",
+        }
+    }
+
+    pub fn badge(&self) -> String {
+        format!("{} {}", self.icon(), self.display_name())
+    }
+}
+
+impl Default for SubAgentRole {
+    fn default() -> Self {
+        SubAgentRole::Builder
+    }
+}
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct AgentTask {
     pub id: String,
@@ -17,6 +55,8 @@ pub struct AgentTask {
     pub status: TaskStatus,
     pub target_file: Option<String>,
     pub diff_summary: Option<EditedFileSummary>,
+    #[serde(default)]
+    pub sub_agent: Option<SubAgentRole>,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -126,6 +166,17 @@ impl ProviderChain {
             gemini_key,
             groq_key,
             preferred_model,
+        }
+    }
+
+    /// Creates a ProviderChain by checking environment variables GEMINI_API_KEY / GROQ_API_KEY
+    pub fn from_env() -> Self {
+        let gemini_key = std::env::var("GEMINI_API_KEY").ok().or_else(|| std::env::var("GEMINI_KEY").ok());
+        let groq_key = std::env::var("GROQ_API_KEY").ok().or_else(|| std::env::var("GROQ_KEY").ok());
+        Self {
+            gemini_key,
+            groq_key,
+            preferred_model: None,
         }
     }
 
@@ -285,6 +336,10 @@ pub enum AgentToolCall {
         search: String,
         replace: String,
     },
+    DetectEnvironment {
+        #[serde(default)]
+        subpath: Option<String>,
+    },
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -344,7 +399,7 @@ pub fn create_mission_for_prompt(prompt: &str, explored_items: &[ExploredItem]) 
 
     let mut tasks = Vec::new();
 
-    // Task 1: Context & Reading (Completed via tree-sitter & project indexing)
+    // Task 1: Context & Reading (Explorer)
     let read_title = if !explored_items.is_empty() {
         let file_list: Vec<&str> = explored_items.iter().take(2).map(|i| i.file_name.as_str()).collect();
         format!("Analyze workspace context ({})", file_list.join(", "))
@@ -352,14 +407,25 @@ pub fn create_mission_for_prompt(prompt: &str, explored_items: &[ExploredItem]) 
         "Analyze workspace context & symbols".to_string()
     };
     tasks.push(AgentTask {
-        id: "task_1_context".to_string(),
+        id: "task_1_explore".to_string(),
         title: read_title,
         status: TaskStatus::Completed,
         target_file: explored_items.first().map(|i| i.file_name.clone()),
         diff_summary: None,
+        sub_agent: Some(SubAgentRole::Explorer),
     });
 
-    // Task 2: Code Execution / Generation (In Progress)
+    // Task 2: Toolchain & Compiler Detection (Detector)
+    tasks.push(AgentTask {
+        id: "task_2_detect".to_string(),
+        title: "Detect project toolchain, compiler check & test runner".to_string(),
+        status: TaskStatus::Completed,
+        target_file: None,
+        diff_summary: None,
+        sub_agent: Some(SubAgentRole::Detector),
+    });
+
+    // Task 3: Code Execution / Generation (Builder)
     let exec_title = if lower.contains("create") || lower.contains("make") || lower.contains("add") {
         let desc = if trimmed.len() > 30 { &trimmed[..30] } else { trimmed };
         format!("Generate file & directory updates for `{}`", desc)
@@ -372,30 +438,32 @@ pub fn create_mission_for_prompt(prompt: &str, explored_items: &[ExploredItem]) 
         format!("Implement changes for `{}`", desc)
     };
     tasks.push(AgentTask {
-        id: "task_2_exec".to_string(),
+        id: "task_3_build".to_string(),
         title: exec_title,
         status: TaskStatus::InProgress,
         target_file: None,
         diff_summary: None,
+        sub_agent: Some(SubAgentRole::Builder),
     });
 
-    // Task 3: Verification & self-check (Pending)
+    // Task 4: Verification & self-check (Tester)
     tasks.push(AgentTask {
-        id: "task_3_verify".to_string(),
-        title: "Verify syntax and code consistency".to_string(),
+        id: "task_4_test".to_string(),
+        title: "Verify syntax, run compiler check & test suite".to_string(),
         status: TaskStatus::Pending,
         target_file: None,
         diff_summary: None,
+        sub_agent: Some(SubAgentRole::Tester),
     });
 
     AgentMission {
         id: format!("mission_{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)),
         goal: trimmed.to_string(),
         tasks,
-        active_task_index: Some(1),
+        active_task_index: Some(2),
         is_active: true,
         is_paused: false,
-        status_message: "Executing Task 2 of 3...".to_string(),
+        status_message: "Executing Task 3 of 4 [⚡ Builder]...".to_string(),
         self_healing_attempts: 0,
     }
 }
@@ -403,7 +471,7 @@ pub fn create_mission_for_prompt(prompt: &str, explored_items: &[ExploredItem]) 
 /// System prompt instructing the autonomous agent to plan and deduce file tree architecture
 pub fn build_autonomous_agent_prompt(_deliberation_confidence: f32) -> String {
     format!(
-        "You are Zenthree AI, an autonomous software engineering agent integrated directly into the Zenthree code editor with full workspace access.\n\
+        "You are ZENE, the lead autonomous software engineering and orchestrator agent integrated directly into the Zenthree code editor with full workspace access and specialized sub-agents (Explorer, Detector, Builder, Tester).\n\
         The Project Workspace File Tree is provided below in the context.\n\n\
         CRITICAL AUTONOMOUS RULES:\n\
         1. The user gives high-level feature requests without specifying file locations or paths (e.g. 'create contact page and add navigation on navbar').\n\
@@ -823,9 +891,17 @@ pub fn parse_single_tool_call_value(val: &serde_json::Value) -> Option<AgentTool
                 replace: replace.to_string(),
             })
         }
+        "detect_environment" | "detect_toolchain" | "detect_project" => {
+            let subpath = params.get("subpath")
+                .or_else(|| params.get("path"))
+                .and_then(|v| v.as_str())
+                .map(|s| s.trim().trim_matches('"').to_string());
+            Some(AgentToolCall::DetectEnvironment { subpath })
+        }
         _ => None,
     }
 }
+
 
 /// Parses structured tool calls from model output (JSON blocks, inline JSON, or legacy tags)
 pub fn parse_agent_tool_calls(content: &str) -> Vec<AgentToolCall> {
@@ -1213,6 +1289,15 @@ pub fn execute_run_command(workspace: &Path, cmd: &str) -> AgentToolResult {
 
 /// Executes an AgentToolCall against the workspace
 pub fn execute_agent_tool(workspace: &Path, call: &AgentToolCall) -> AgentToolResult {
+    execute_agent_tool_with_provider(workspace, call, None)
+}
+
+/// Executes an AgentToolCall against the workspace, forwarding provider context for LLM fallbacks
+pub fn execute_agent_tool_with_provider(
+    workspace: &Path,
+    call: &AgentToolCall,
+    provider: Option<&ProviderChain>,
+) -> AgentToolResult {
     match call {
         AgentToolCall::ReadFile { path, start_line, end_line } => {
             execute_read_file(workspace, path, *start_line, *end_line)
@@ -1256,6 +1341,9 @@ pub fn execute_agent_tool(workspace: &Path, call: &AgentToolCall) -> AgentToolRe
                     output: format!("Failed to apply patch to `{}`: {}", path, err),
                 },
             }
+        }
+        AgentToolCall::DetectEnvironment { subpath } => {
+            execute_detect_environment_with_provider(workspace, subpath.as_deref(), provider)
         }
     }
 }
@@ -1429,58 +1517,669 @@ pub fn filter_compiler_errors(output: &str) -> String {
     }
 }
 
-/// Detects workspace project compiler (Rust Cargo or TypeScript tsc) and runs non-destructive check
-pub fn run_project_compiler_check(workspace_root: &Path) -> Option<Result<(), String>> {
-    // 1. Rust workspace / crate
-    if workspace_root.join("Cargo.toml").exists() {
-        let res = std::process::Command::new("cargo")
-            .arg("check")
-            .arg("--message-format=short")
-            .current_dir(workspace_root)
-            .output();
-
-        if let Ok(out) = res {
-            if out.status.success() {
-                return Some(Ok(()));
-            } else {
-                let combined = format!(
-                    "{}\n{}",
-                    String::from_utf8_lossy(&out.stdout),
-                    String::from_utf8_lossy(&out.stderr)
-                );
-                return Some(Err(filter_compiler_errors(&combined)));
-            }
-        } else {
-            return None;
-        }
-    }
-
-    // 2. TypeScript / JavaScript project
-    if workspace_root.join("tsconfig.json").exists() {
-        let res = std::process::Command::new("npx")
-            .arg("tsc")
-            .arg("--noEmit")
-            .current_dir(workspace_root)
-            .output();
-
-        if let Ok(out) = res {
-            if out.status.success() {
-                return Some(Ok(()));
-            } else {
-                let combined = format!(
-                    "{}\n{}",
-                    String::from_utf8_lossy(&out.stdout),
-                    String::from_utf8_lossy(&out.stderr)
-                );
-                return Some(Err(filter_compiler_errors(&combined)));
-            }
-        } else {
-            return None;
-        }
-    }
-
-    None
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum ProjectLanguage {
+    Rust,
+    TypeScript,
+    JavaScript,
+    Python,
+    Go,
+    Cpp,
+    Java,
+    Kotlin,
+    Swift,
+    Zig,
+    Ruby,
+    CSharp,
+    PHP,
+    Elixir,
+    Dart,
+    Unknown(String),
 }
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ProjectEnvironment {
+    pub language: ProjectLanguage,
+    pub build_system: String,
+    pub compiler_check_cmd: Option<Vec<String>>,
+    pub test_cmd: Option<Vec<String>>,
+    pub details: String,
+}
+
+impl ProjectEnvironment {
+    /// Returns true if the codebase could not be conclusively identified by static heuristics
+    /// (e.g. unknown language, generic fallback, or missing compiler check and test commands).
+    pub fn is_unidentified(&self) -> bool {
+        matches!(self.language, ProjectLanguage::Unknown(_))
+            || self.build_system == "Generic"
+            || (self.compiler_check_cmd.is_none() && self.test_cmd.is_none())
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct WorkspaceDetectionContext {
+    pub file_tree_sample: Vec<String>,
+    pub file_extensions: Vec<(String, usize)>,
+    pub manifest_candidates: Vec<String>,
+    pub readme_sample: Option<String>,
+}
+
+pub struct DetectorAgent;
+
+impl DetectorAgent {
+    /// Deeply inspects the workspace directory structure, file extensions, candidate manifests,
+    /// and documentation to assemble rich context for the LLM when static heuristics fail.
+    pub fn inspect_workspace_context(workspace_root: &Path) -> WorkspaceDetectionContext {
+        let mut file_tree_sample = Vec::new();
+        let mut ext_counts: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+        let mut manifest_candidates = Vec::new();
+        let mut readme_sample = None;
+
+        let ignored_dirs = [
+            ".git", "target", "node_modules", "dist", "build", ".cache",
+            "venv", ".venv", "__pycache__", ".idea", ".vscode", "vendor",
+            ".next", ".nuxt", "bin", "obj", ".cargo",
+        ];
+
+        let manifest_names = [
+            "Cargo.toml", "package.json", "tsconfig.json", "deno.json",
+            "pyproject.toml", "requirements.txt", "setup.py", "Pipfile",
+            "go.mod", "CMakeLists.txt", "Makefile", "build.zig", "build.zig.zon",
+            "build.gradle", "build.gradle.kts", "pom.xml", "settings.gradle",
+            "Package.swift", "mix.exs", "rebar.config", "dune-project", "shard.yml",
+            "project.clj", "deps.edn", "justfile", "Taskfile.yml", "Dockerfile",
+            "docker-compose.yml", "Gemfile", "Rakefile", "composer.json",
+            "pubspec.yaml", "flake.nix", "default.nix",
+        ];
+
+        let mut dirs_to_visit = vec![(workspace_root.to_path_buf(), 0usize)];
+        while let Some((dir, depth)) = dirs_to_visit.pop() {
+            if let Ok(entries) = std::fs::read_dir(&dir) {
+                let mut sub_entries: Vec<_> = entries.flatten().collect();
+                sub_entries.sort_by_key(|e| e.file_name());
+
+                for entry in sub_entries {
+                    let path = entry.path();
+                    let fname = entry.file_name().to_string_lossy().to_string();
+
+                    if ignored_dirs.iter().any(|&ig| fname == ig) {
+                        continue;
+                    }
+
+                    let rel_path = path.strip_prefix(workspace_root)
+                        .unwrap_or(&path)
+                        .to_string_lossy()
+                        .to_string();
+
+                    if path.is_dir() {
+                        if depth < 2 {
+                            dirs_to_visit.push((path, depth + 1));
+                        }
+                    } else if path.is_file() {
+                        if manifest_names.iter().any(|&m| fname.eq_ignore_ascii_case(m)) {
+                            manifest_candidates.push(rel_path.clone());
+                        }
+
+                        if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
+                            let clean_ext = ext.to_lowercase();
+                            if !clean_ext.is_empty() && clean_ext.len() <= 10 {
+                                *ext_counts.entry(clean_ext).or_insert(0) += 1;
+                            }
+                        }
+
+                        if readme_sample.is_none() && (fname.eq_ignore_ascii_case("readme.md") || fname.eq_ignore_ascii_case("readme") || fname.eq_ignore_ascii_case("readme.txt")) {
+                            if let Ok(text) = std::fs::read_to_string(&path) {
+                                let excerpt: Vec<&str> = text.lines().take(20).collect();
+                                let mut joined = excerpt.join("\n");
+                                if joined.len() > 1200 {
+                                    joined.truncate(1200);
+                                    joined.push_str("...");
+                                }
+                                readme_sample = Some(joined);
+                            }
+                        }
+
+                        if file_tree_sample.len() < 60 {
+                            file_tree_sample.push(rel_path);
+                        }
+                    }
+                }
+            }
+        }
+
+        let mut file_extensions: Vec<(String, usize)> = ext_counts.into_iter().collect();
+        file_extensions.sort_by(|a, b| b.1.cmp(&a.1));
+        file_extensions.truncate(8);
+
+        WorkspaceDetectionContext {
+            file_tree_sample,
+            file_extensions,
+            manifest_candidates,
+            readme_sample,
+        }
+    }
+
+    /// Inspects the workspace root to deduce the language, build system, compiler check command, and test command
+    pub fn detect(workspace_root: &Path) -> ProjectEnvironment {
+        // 1. Rust workspace or crate
+        if workspace_root.join("Cargo.toml").exists() {
+            return ProjectEnvironment {
+                language: ProjectLanguage::Rust,
+                build_system: "Cargo".to_string(),
+                compiler_check_cmd: Some(vec![
+                    "cargo".to_string(),
+                    "check".to_string(),
+                    "--message-format=short".to_string(),
+                ]),
+                test_cmd: Some(vec![
+                    "cargo".to_string(),
+                    "test".to_string(),
+                ]),
+                details: "Rust project managed via Cargo (Cargo.toml)".to_string(),
+            };
+        }
+
+        // 2. TypeScript or JavaScript project
+        let has_tsconfig = workspace_root.join("tsconfig.json").exists();
+        let has_pkg_json = workspace_root.join("package.json").exists();
+        let has_deno = workspace_root.join("deno.json").exists() || workspace_root.join("deno.jsonc").exists();
+
+        if has_tsconfig || has_pkg_json || has_deno {
+            let is_ts = has_tsconfig
+                || workspace_root.join("src").join("index.ts").exists()
+                || workspace_root.join("index.ts").exists();
+            let language = if is_ts { ProjectLanguage::TypeScript } else { ProjectLanguage::JavaScript };
+
+            if has_deno {
+                return ProjectEnvironment {
+                    language,
+                    build_system: "Deno".to_string(),
+                    compiler_check_cmd: Some(vec!["deno".to_string(), "check".to_string()]),
+                    test_cmd: Some(vec!["deno".to_string(), "test".to_string()]),
+                    details: "Deno project detected (deno.json)".to_string(),
+                };
+            }
+
+            // Detect package manager
+            let (pkg_mgr, check_cmd, test_cmd) = if workspace_root.join("bun.lockb").exists() || workspace_root.join("bun.lock").exists() {
+                (
+                    "Bun",
+                    if is_ts { Some(vec!["bun".to_string(), "x".to_string(), "tsc".to_string(), "--noEmit".to_string()]) } else { None },
+                    Some(vec!["bun".to_string(), "test".to_string()]),
+                )
+            } else if workspace_root.join("pnpm-lock.yaml").exists() {
+                (
+                    "pnpm",
+                    if is_ts { Some(vec!["pnpm".to_string(), "exec".to_string(), "tsc".to_string(), "--noEmit".to_string()]) } else { None },
+                    Some(vec!["pnpm".to_string(), "test".to_string()]),
+                )
+            } else if workspace_root.join("yarn.lock").exists() {
+                (
+                    "Yarn",
+                    if is_ts { Some(vec!["yarn".to_string(), "tsc".to_string(), "--noEmit".to_string()]) } else { None },
+                    Some(vec!["yarn".to_string(), "test".to_string()]),
+                )
+            } else {
+                (
+                    "npm",
+                    if is_ts { Some(vec!["npx".to_string(), "tsc".to_string(), "--noEmit".to_string()]) } else { None },
+                    Some(vec!["npm".to_string(), "test".to_string()]),
+                )
+            };
+
+            return ProjectEnvironment {
+                language,
+                build_system: pkg_mgr.to_string(),
+                compiler_check_cmd: check_cmd,
+                test_cmd,
+                details: format!("{} project managed via {} (package.json/tsconfig.json)", if is_ts { "TypeScript" } else { "JavaScript" }, pkg_mgr),
+            };
+        }
+
+        // 3. Python project
+        if workspace_root.join("pyproject.toml").exists()
+            || workspace_root.join("requirements.txt").exists()
+            || workspace_root.join("setup.py").exists()
+            || workspace_root.join("Pipfile").exists()
+        {
+            let build_sys = if workspace_root.join("pyproject.toml").exists() {
+                "pyproject.toml"
+            } else if workspace_root.join("Pipfile").exists() {
+                "Pipfile"
+            } else {
+                "requirements.txt"
+            };
+
+            return ProjectEnvironment {
+                language: ProjectLanguage::Python,
+                build_system: build_sys.to_string(),
+                compiler_check_cmd: Some(vec!["mypy".to_string(), ".".to_string()]),
+                test_cmd: Some(vec!["pytest".to_string()]),
+                details: format!("Python project detected ({})", build_sys),
+            };
+        }
+
+        // 4. Go project
+        if workspace_root.join("go.mod").exists() {
+            return ProjectEnvironment {
+                language: ProjectLanguage::Go,
+                build_system: "go modules".to_string(),
+                compiler_check_cmd: Some(vec!["go".to_string(), "vet".to_string(), "./...".to_string()]),
+                test_cmd: Some(vec!["go".to_string(), "test".to_string(), "./...".to_string()]),
+                details: "Go module project detected (go.mod)".to_string(),
+            };
+        }
+
+        // 5. C / C++ project
+        if workspace_root.join("CMakeLists.txt").exists() || workspace_root.join("Makefile").exists() {
+            let has_cmake = workspace_root.join("CMakeLists.txt").exists();
+            return ProjectEnvironment {
+                language: ProjectLanguage::Cpp,
+                build_system: if has_cmake { "CMake".to_string() } else { "Make".to_string() },
+                compiler_check_cmd: if has_cmake {
+                    Some(vec!["cmake".to_string(), "--build".to_string(), ".".to_string()])
+                } else {
+                    Some(vec!["make".to_string(), "-q".to_string()])
+                },
+                test_cmd: if has_cmake {
+                    Some(vec!["ctest".to_string()])
+                } else {
+                    Some(vec!["make".to_string(), "test".to_string()])
+                },
+                details: if has_cmake { "C/C++ project managed via CMake" } else { "C/C++ project managed via Makefile" }.to_string(),
+            };
+        }
+
+        // 6. Zig project
+        if workspace_root.join("build.zig").exists() || workspace_root.join("build.zig.zon").exists() {
+            return ProjectEnvironment {
+                language: ProjectLanguage::Zig,
+                build_system: "Zig".to_string(),
+                compiler_check_cmd: Some(vec!["zig".to_string(), "build".to_string()]),
+                test_cmd: Some(vec!["zig".to_string(), "build".to_string(), "test".to_string()]),
+                details: "Zig project detected (build.zig)".to_string(),
+            };
+        }
+
+        // 7. Java / Kotlin project
+        if workspace_root.join("build.gradle").exists()
+            || workspace_root.join("build.gradle.kts").exists()
+            || workspace_root.join("pom.xml").exists()
+        {
+            let is_gradle = workspace_root.join("build.gradle").exists() || workspace_root.join("build.gradle.kts").exists();
+            let is_kotlin = workspace_root.join("build.gradle.kts").exists() || workspace_root.join("src").join("main").join("kotlin").exists();
+            let gradlew_bin = if cfg!(windows) { "gradlew.bat" } else { "./gradlew" };
+
+            return ProjectEnvironment {
+                language: if is_kotlin { ProjectLanguage::Kotlin } else { ProjectLanguage::Java },
+                build_system: if is_gradle { "Gradle".to_string() } else { "Maven".to_string() },
+                compiler_check_cmd: if is_gradle {
+                    Some(vec![gradlew_bin.to_string(), "check".to_string()])
+                } else {
+                    Some(vec!["mvn".to_string(), "test-compile".to_string()])
+                },
+                test_cmd: if is_gradle {
+                    Some(vec![gradlew_bin.to_string(), "test".to_string()])
+                } else {
+                    Some(vec!["mvn".to_string(), "test".to_string()])
+                },
+                details: format!("{} project managed via {}", if is_kotlin { "Kotlin" } else { "Java" }, if is_gradle { "Gradle" } else { "Maven" }),
+            };
+        }
+
+        // 8. Swift project
+        if workspace_root.join("Package.swift").exists() {
+            return ProjectEnvironment {
+                language: ProjectLanguage::Swift,
+                build_system: "SwiftPM".to_string(),
+                compiler_check_cmd: Some(vec!["swift".to_string(), "build".to_string()]),
+                test_cmd: Some(vec!["swift".to_string(), "test".to_string()]),
+                details: "Swift package detected (Package.swift)".to_string(),
+            };
+        }
+
+        // 9. Ruby project
+        if workspace_root.join("Gemfile").exists() {
+            return ProjectEnvironment {
+                language: ProjectLanguage::Ruby,
+                build_system: "Bundler".to_string(),
+                compiler_check_cmd: None,
+                test_cmd: Some(vec!["bundle".to_string(), "exec".to_string(), "rspec".to_string()]),
+                details: "Ruby project detected (Gemfile)".to_string(),
+            };
+        }
+
+        // 10. PHP project
+        if workspace_root.join("composer.json").exists() {
+            return ProjectEnvironment {
+                language: ProjectLanguage::PHP,
+                build_system: "Composer".to_string(),
+                compiler_check_cmd: None,
+                test_cmd: Some(vec!["composer".to_string(), "test".to_string()]),
+                details: "PHP project detected (composer.json)".to_string(),
+            };
+        }
+
+        // 11. Elixir project
+        if workspace_root.join("mix.exs").exists() {
+            return ProjectEnvironment {
+                language: ProjectLanguage::Elixir,
+                build_system: "Mix".to_string(),
+                compiler_check_cmd: Some(vec!["mix".to_string(), "compile".to_string()]),
+                test_cmd: Some(vec!["mix".to_string(), "test".to_string()]),
+                details: "Elixir project detected (mix.exs)".to_string(),
+            };
+        }
+
+        // 12. Dart / Flutter project
+        if workspace_root.join("pubspec.yaml").exists() {
+            let is_flutter = workspace_root.join("android").exists() || workspace_root.join("ios").exists();
+            let bin = if is_flutter { "flutter" } else { "dart" };
+            return ProjectEnvironment {
+                language: ProjectLanguage::Dart,
+                build_system: if is_flutter { "Flutter".to_string() } else { "Pub".to_string() },
+                compiler_check_cmd: Some(vec![bin.to_string(), "analyze".to_string()]),
+                test_cmd: Some(vec![bin.to_string(), "test".to_string()]),
+                details: format!("{} project detected (pubspec.yaml)", if is_flutter { "Flutter" } else { "Dart" }),
+            };
+        }
+
+        // Fallback: Generic/Unknown
+        ProjectEnvironment {
+            language: ProjectLanguage::Unknown("Unspecified".to_string()),
+            build_system: "Generic".to_string(),
+            compiler_check_cmd: None,
+            test_cmd: None,
+            details: "Standard directory without detected build manifest".to_string(),
+        }
+    }
+
+    /// Parses a JSON representation of a ProjectEnvironment returned by the LLM
+    pub fn parse_llm_environment(response: &str) -> Option<ProjectEnvironment> {
+        let json_str = if let Some(start) = response.find("```json") {
+            let rest = &response[start + 7..];
+            if let Some(end) = rest.find("```") {
+                rest[..end].trim()
+            } else {
+                rest.trim()
+            }
+        } else if let Some(start) = response.find("```") {
+            let rest = &response[start + 3..];
+            if let Some(end) = rest.find("```") {
+                rest[..end].trim()
+            } else {
+                rest.trim()
+            }
+        } else if let Some(start) = response.find('{') {
+            if let Some(end) = response.rfind('}') {
+                &response[start..=end]
+            } else {
+                response.trim()
+            }
+        } else {
+            response.trim()
+        };
+
+        let val: serde_json::Value = serde_json::from_str(json_str).ok()?;
+        let lang_str = val.get("language").and_then(|v| v.as_str()).unwrap_or("Unknown");
+        let language = match lang_str.to_lowercase().trim() {
+            "rust" => ProjectLanguage::Rust,
+            "typescript" | "ts" => ProjectLanguage::TypeScript,
+            "javascript" | "js" => ProjectLanguage::JavaScript,
+            "python" | "py" => ProjectLanguage::Python,
+            "go" | "golang" => ProjectLanguage::Go,
+            "c" | "cpp" | "c++" => ProjectLanguage::Cpp,
+            "java" => ProjectLanguage::Java,
+            "kotlin" | "kt" => ProjectLanguage::Kotlin,
+            "swift" => ProjectLanguage::Swift,
+            "zig" => ProjectLanguage::Zig,
+            "ruby" | "rb" => ProjectLanguage::Ruby,
+            "csharp" | "c#" | "cs" => ProjectLanguage::CSharp,
+            "php" => ProjectLanguage::PHP,
+            "elixir" | "ex" => ProjectLanguage::Elixir,
+            "dart" => ProjectLanguage::Dart,
+            other => ProjectLanguage::Unknown(other.to_string()),
+        };
+
+        let build_system = val.get("build_system")
+            .and_then(|v| v.as_str())
+            .unwrap_or("Custom")
+            .to_string();
+
+        let compiler_check_cmd = val.get("compiler_check_cmd").and_then(|v| {
+            if let Some(arr) = v.as_array() {
+                let parts: Vec<String> = arr.iter().filter_map(|x| x.as_str().map(|s| s.to_string())).collect();
+                if !parts.is_empty() { Some(parts) } else { None }
+            } else if let Some(s) = v.as_str() {
+                let parts: Vec<String> = s.split_whitespace().map(|x| x.to_string()).collect();
+                if !parts.is_empty() { Some(parts) } else { None }
+            } else {
+                None
+            }
+        });
+
+        let test_cmd = val.get("test_cmd").and_then(|v| {
+            if let Some(arr) = v.as_array() {
+                let parts: Vec<String> = arr.iter().filter_map(|x| x.as_str().map(|s| s.to_string())).collect();
+                if !parts.is_empty() { Some(parts) } else { None }
+            } else if let Some(s) = v.as_str() {
+                let parts: Vec<String> = s.split_whitespace().map(|x| x.to_string()).collect();
+                if !parts.is_empty() { Some(parts) } else { None }
+            } else {
+                None
+            }
+        });
+
+        let details = val.get("details")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| format!("{} project (inferred via LLM)", build_system));
+
+        Some(ProjectEnvironment {
+            language,
+            build_system,
+            compiler_check_cmd,
+            test_cmd,
+            details: format!("[Inferred via LLM] {}", details),
+        })
+    }
+
+    /// Detects project environment using fast static manifest checks, falling back to querying the LLM
+    /// if nothing is found or the codebase cannot be conclusively identified.
+    pub fn detect_with_llm(
+        workspace_root: &Path,
+        provider: Option<&ProviderChain>,
+    ) -> ProjectEnvironment {
+        let static_env = Self::detect(workspace_root);
+        // If static heuristics conclusively identified the project and compiler check command, return immediately
+        if !static_env.is_unidentified() && static_env.compiler_check_cmd.is_some() {
+            return static_env;
+        }
+
+        // If nothing was found or not identified, ask the LLM if a provider is configured (or available via env)
+        let resolved_prov = provider.cloned().or_else(|| {
+            let env_p = ProviderChain::from_env();
+            if env_p.gemini_key.is_some() || env_p.groq_key.is_some() {
+                Some(env_p)
+            } else {
+                None
+            }
+        });
+
+        if let Some(prov) = resolved_prov {
+            if prov.gemini_key.is_some() || prov.groq_key.is_some() {
+                let ctx = Self::inspect_workspace_context(workspace_root);
+                let ext_summary = if ctx.file_extensions.is_empty() {
+                    "None detected".to_string()
+                } else {
+                    ctx.file_extensions
+                        .iter()
+                        .map(|(ext, count)| format!(".{} ({})", ext, count))
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                };
+                let manifests_summary = if ctx.manifest_candidates.is_empty() {
+                    "None detected".to_string()
+                } else {
+                    ctx.manifest_candidates.join(", ")
+                };
+                let tree_sample = if ctx.file_tree_sample.is_empty() {
+                    "(empty or inaccessible directory)".to_string()
+                } else {
+                    ctx.file_tree_sample.join("\n  - ")
+                };
+                let readme_section = if let Some(readme) = ctx.readme_sample {
+                    format!("\n• Project README Excerpt:\n```markdown\n{}\n```", readme)
+                } else {
+                    String::new()
+                };
+
+                let prompt = format!(
+                    "Static heuristics found nothing or could not conclusively identify the compiler or test toolchain for workspace `{}`.\n\n\
+                    Codebase Context:\n\
+                    • Manifest Candidates: {}\n\
+                    • Dominant File Extensions: {}\n\
+                    • Sample File Tree:\n  - {}{}\n\n\
+                    As Detector (the toolchain & compiler discovery sub-agent for ZENE), inspect this context and deduce the programming language, build system, non-destructive compiler/type-check command, and test command.\n\n\
+                    Respond strictly with a JSON object conforming to this schema:\n\
+                    {{\n\
+                      \"language\": \"Language Name\",\n\
+                      \"build_system\": \"Build system or package manager\",\n\
+                      \"compiler_check_cmd\": [\"cmd\", \"arg1\"] or null,\n\
+                      \"test_cmd\": [\"cmd\", \"arg1\"] or null,\n\
+                      \"details\": \"Brief explanation of the detected toolchain\"\n\
+                    }}\n\
+                    Respond ONLY with valid JSON.",
+                    workspace_root.file_name().and_then(|n| n.to_str()).unwrap_or("workspace"),
+                    manifests_summary,
+                    ext_summary,
+                    tree_sample,
+                    readme_section,
+                );
+
+                let system_prompt = "You are Detector, the autonomous toolchain and environment discovery sub-agent for ZENE in Zenthree editor. If static checks find nothing or cannot identify the codebase, your job is to identify the language, build system, compiler check command, and test runner. Respond ONLY with valid JSON.";
+                if let Ok(reply) = prov.complete(system_prompt, &prompt, &[]) {
+                    if let Some(inferred) = Self::parse_llm_environment(&reply) {
+                        return inferred;
+                    }
+                }
+            }
+        }
+
+        static_env
+    }
+}
+
+/// Executes project environment & compiler/test toolchain detection
+pub fn execute_detect_environment(workspace: &Path, subpath: Option<&str>) -> AgentToolResult {
+    execute_detect_environment_with_provider(workspace, subpath, None)
+}
+
+/// Executes project environment & compiler/test toolchain detection with provider support for LLM fallback
+pub fn execute_detect_environment_with_provider(
+    workspace: &Path,
+    subpath: Option<&str>,
+    provider: Option<&ProviderChain>,
+) -> AgentToolResult {
+    let target_dir = match subpath {
+        Some(p) if !p.trim().is_empty() && p.trim() != "." => {
+            let cleaned = p.trim().trim_matches('"').trim_matches('\'').trim();
+            if Path::new(cleaned).is_absolute() {
+                PathBuf::from(cleaned)
+            } else {
+                workspace.join(cleaned)
+            }
+        }
+        _ => workspace.to_path_buf(),
+    };
+
+    let env = DetectorAgent::detect_with_llm(&target_dir, provider);
+    let check_str = env.compiler_check_cmd.as_ref().map(|c| c.join(" ")).unwrap_or_else(|| "none".to_string());
+    let test_str = env.test_cmd.as_ref().map(|c| c.join(" ")).unwrap_or_else(|| "none".to_string());
+
+    let output = format!(
+        "[🧠 Detector] {}\n• Language: {:?}\n• Build System: {}\n• Compiler Check: `{}`\n• Test Runner: `{}`",
+        env.details,
+        env.language,
+        env.build_system,
+        check_str,
+        test_str,
+    );
+
+    AgentToolResult {
+        tool_name: "detect_environment".to_string(),
+        ok: true,
+        output,
+    }
+}
+
+/// Runs non-destructive compiler check for the workspace using DetectorAgent inspection
+pub fn run_project_compiler_check(workspace_root: &Path) -> Option<Result<(), String>> {
+    let env = DetectorAgent::detect_with_llm(workspace_root, None);
+    run_project_compiler_check_with_env(workspace_root, &env)
+}
+
+/// Runs non-destructive compiler check using a pre-detected ProjectEnvironment
+pub fn run_project_compiler_check_with_env(workspace_root: &Path, env: &ProjectEnvironment) -> Option<Result<(), String>> {
+    let cmd_parts = env.compiler_check_cmd.as_ref()?;
+    if cmd_parts.is_empty() {
+        return None;
+    }
+
+    let program = &cmd_parts[0];
+    let args = &cmd_parts[1..];
+
+    let mut command = std::process::Command::new(program);
+    command.args(args).current_dir(workspace_root);
+
+    let res = command.output();
+    if let Ok(out) = res {
+        if out.status.success() {
+            Some(Ok(()))
+        } else {
+            let combined = format!(
+                "{}\n{}",
+                String::from_utf8_lossy(&out.stdout),
+                String::from_utf8_lossy(&out.stderr)
+            );
+            Some(Err(filter_compiler_errors(&combined)))
+        }
+    } else {
+        None
+    }
+}
+
+/// Runs project tests using the detected test command
+pub fn run_project_tests(workspace_root: &Path) -> Option<Result<(), String>> {
+    let env = DetectorAgent::detect(workspace_root);
+    let cmd_parts = env.test_cmd.as_ref()?;
+    if cmd_parts.is_empty() {
+        return None;
+    }
+
+    let program = &cmd_parts[0];
+    let args = &cmd_parts[1..];
+
+    let mut command = std::process::Command::new(program);
+    command.args(args).current_dir(workspace_root);
+
+    let res = command.output();
+    if let Ok(out) = res {
+        if out.status.success() {
+            Some(Ok(()))
+        } else {
+            let combined = format!(
+                "{}\n{}",
+                String::from_utf8_lossy(&out.stdout),
+                String::from_utf8_lossy(&out.stderr)
+            );
+            Some(Err(combined))
+        }
+    } else {
+        None
+    }
+}
+
 
 /// Generates a focused prompt asking the autonomous agent to repair the compiler errors
 pub fn build_self_healing_prompt(
@@ -1762,6 +2461,7 @@ let y = 20;
                     status: TaskStatus::InProgress,
                     target_file: None,
                     diff_summary: None,
+                    sub_agent: Some(SubAgentRole::Explorer),
                 },
                 AgentTask {
                     id: "t2".to_string(),
@@ -1769,6 +2469,7 @@ let y = 20;
                     status: TaskStatus::Pending,
                     target_file: None,
                     diff_summary: None,
+                    sub_agent: Some(SubAgentRole::Builder),
                 },
                 AgentTask {
                     id: "t3".to_string(),
@@ -1776,6 +2477,7 @@ let y = 20;
                     status: TaskStatus::Pending,
                     target_file: None,
                     diff_summary: None,
+                    sub_agent: Some(SubAgentRole::Tester),
                 },
             ],
             active_task_index: Some(0),
@@ -1825,5 +2527,173 @@ let y = 20;
             ProviderError::Fatal("401 Invalid API Key".to_string())
         );
     }
+
+    #[test]
+    fn test_sub_agent_roles_and_badges() {
+        assert_eq!(SubAgentRole::Explorer.badge(), "🔍 Explorer");
+        assert_eq!(SubAgentRole::Detector.badge(), "🧠 Detector");
+        assert_eq!(SubAgentRole::Builder.badge(), "⚡ Builder");
+        assert_eq!(SubAgentRole::Tester.badge(), "🛡️ Tester");
+    }
+
+    #[test]
+    fn test_detector_agent_rust() {
+        let temp_dir = std::env::temp_dir().join("zenthree_detector_rust");
+        let _ = std::fs::create_dir_all(&temp_dir);
+        let _ = std::fs::write(temp_dir.join("Cargo.toml"), "[package]\nname = \"demo\"");
+
+        let env = DetectorAgent::detect(&temp_dir);
+        assert_eq!(env.language, ProjectLanguage::Rust);
+        assert_eq!(env.build_system, "Cargo");
+        assert_eq!(env.compiler_check_cmd, Some(vec!["cargo".to_string(), "check".to_string(), "--message-format=short".to_string()]));
+        assert_eq!(env.test_cmd, Some(vec!["cargo".to_string(), "test".to_string()]));
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_detector_agent_typescript_bun() {
+        let temp_dir = std::env::temp_dir().join("zenthree_detector_ts_bun");
+        let _ = std::fs::create_dir_all(&temp_dir);
+        let _ = std::fs::write(temp_dir.join("tsconfig.json"), "{}");
+        let _ = std::fs::write(temp_dir.join("bun.lockb"), "");
+
+        let env = DetectorAgent::detect(&temp_dir);
+        assert_eq!(env.language, ProjectLanguage::TypeScript);
+        assert_eq!(env.build_system, "Bun");
+        assert_eq!(env.compiler_check_cmd, Some(vec!["bun".to_string(), "x".to_string(), "tsc".to_string(), "--noEmit".to_string()]));
+        assert_eq!(env.test_cmd, Some(vec!["bun".to_string(), "test".to_string()]));
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_detector_agent_python() {
+        let temp_dir = std::env::temp_dir().join("zenthree_detector_python");
+        let _ = std::fs::create_dir_all(&temp_dir);
+        let _ = std::fs::write(temp_dir.join("pyproject.toml"), "[project]");
+
+        let env = DetectorAgent::detect(&temp_dir);
+        assert_eq!(env.language, ProjectLanguage::Python);
+        assert_eq!(env.build_system, "pyproject.toml");
+        assert_eq!(env.compiler_check_cmd, Some(vec!["mypy".to_string(), ".".to_string()]));
+        assert_eq!(env.test_cmd, Some(vec!["pytest".to_string()]));
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_detector_agent_go() {
+        let temp_dir = std::env::temp_dir().join("zenthree_detector_go");
+        let _ = std::fs::create_dir_all(&temp_dir);
+        let _ = std::fs::write(temp_dir.join("go.mod"), "module example.com/demo");
+
+        let env = DetectorAgent::detect(&temp_dir);
+        assert_eq!(env.language, ProjectLanguage::Go);
+        assert_eq!(env.build_system, "go modules");
+        assert_eq!(env.compiler_check_cmd, Some(vec!["go".to_string(), "vet".to_string(), "./...".to_string()]));
+        assert_eq!(env.test_cmd, Some(vec!["go".to_string(), "test".to_string(), "./...".to_string()]));
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_execute_detect_environment_tool() {
+        let temp_dir = std::env::temp_dir().join("zenthree_tool_detect");
+        let _ = std::fs::create_dir_all(&temp_dir);
+        let _ = std::fs::write(temp_dir.join("Cargo.toml"), "[package]\nname = \"demo\"");
+
+        let tool_res = execute_detect_environment(&temp_dir, None);
+        assert_eq!(tool_res.tool_name, "detect_environment");
+        assert!(tool_res.ok);
+        assert!(tool_res.output.contains("[🧠 Detector]"));
+        assert!(tool_res.output.contains("Language: Rust"));
+        assert!(tool_res.output.contains("Compiler Check: `cargo check --message-format=short`"));
+        assert!(tool_res.output.contains("Test Runner: `cargo test`"));
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_decompose_mission_four_sub_agents() {
+        let items = vec![ExploredItem {
+            file_name: "src/auth.rs".to_string(),
+            line_range: Some("#L1-50".to_string()),
+            action_type: "Analyzed".to_string(),
+        }];
+        let mission = create_mission_for_prompt("Implement OAuth login", &items);
+        assert_eq!(mission.tasks.len(), 4);
+        assert_eq!(mission.tasks[0].sub_agent, Some(SubAgentRole::Explorer));
+        assert_eq!(mission.tasks[1].sub_agent, Some(SubAgentRole::Detector));
+        assert_eq!(mission.tasks[2].sub_agent, Some(SubAgentRole::Builder));
+        assert_eq!(mission.tasks[3].sub_agent, Some(SubAgentRole::Tester));
+        assert_eq!(mission.active_task_index, Some(2));
+    }
+
+    #[test]
+    fn test_detector_agent_parse_llm_environment() {
+        let json_reply = r#"
+        Here is the detected environment for your Zig project:
+        ```json
+        {
+          "language": "zig",
+          "build_system": "zig build",
+          "compiler_check_cmd": ["zig", "build-exe", "--check"],
+          "test_cmd": ["zig", "test"],
+          "details": "Zig project with build.zig"
+        }
+        ```
+        "#;
+        let env = DetectorAgent::parse_llm_environment(json_reply).expect("parse LLM env");
+        assert_eq!(env.language, ProjectLanguage::Zig);
+        assert_eq!(env.build_system, "zig build");
+        assert_eq!(env.compiler_check_cmd, Some(vec!["zig".to_string(), "build-exe".to_string(), "--check".to_string()]));
+        assert_eq!(env.test_cmd, Some(vec!["zig".to_string(), "test".to_string()]));
+        assert!(env.details.contains("[Inferred via LLM]"));
+
+        // Test arbitrary unknown language from LLM
+        let custom_reply = r#"{"language": "brainfuck", "build_system": "Custom", "compiler_check_cmd": null, "test_cmd": null, "details": "esoteric"}"#;
+        let custom_env = DetectorAgent::parse_llm_environment(custom_reply).expect("parse custom env");
+        assert_eq!(custom_env.language, ProjectLanguage::Unknown("brainfuck".to_string()));
+        assert!(custom_env.is_unidentified());
+    }
+
+    #[test]
+    fn test_project_environment_is_unidentified() {
+        let identified = ProjectEnvironment {
+            language: ProjectLanguage::Rust,
+            build_system: "Cargo".to_string(),
+            compiler_check_cmd: Some(vec!["cargo".to_string(), "check".to_string()]),
+            test_cmd: Some(vec!["cargo".to_string(), "test".to_string()]),
+            details: "Rust".to_string(),
+        };
+        assert!(!identified.is_unidentified());
+
+        let unknown = ProjectEnvironment {
+            language: ProjectLanguage::Unknown("Unspecified".to_string()),
+            build_system: "Generic".to_string(),
+            compiler_check_cmd: None,
+            test_cmd: None,
+            details: "Standard directory".to_string(),
+        };
+        assert!(unknown.is_unidentified());
+    }
+
+    #[test]
+    fn test_detector_inspect_workspace_context() {
+        let temp_dir = std::env::temp_dir().join("zenthree_detector_inspect_ctx");
+        let _ = std::fs::create_dir_all(temp_dir.join("src"));
+        let _ = std::fs::write(temp_dir.join("src").join("main.zig"), "const std = @import(\"std\");");
+        let _ = std::fs::write(temp_dir.join("README.md"), "# Zig App\nRun tests with zig build test.");
+
+        let ctx = DetectorAgent::inspect_workspace_context(&temp_dir);
+        assert!(ctx.file_tree_sample.iter().any(|p| p.contains("main.zig")));
+        assert!(ctx.file_extensions.iter().any(|(ext, count)| ext == "zig" && *count >= 1));
+        assert!(ctx.readme_sample.as_ref().map(|r| r.contains("Zig App")).unwrap_or(false));
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
 }
+
+
 
