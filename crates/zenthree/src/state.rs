@@ -195,6 +195,7 @@ pub use crate::agent::{
     run_project_compiler_check_with_env, build_self_healing_prompt,
     AgentToolCall, parse_agent_tool_calls, execute_agent_tool_with_provider,
     ProviderChain, DetectorAgent, ProjectEnvironment, SubAgentRole,
+    UserIntent, classify_user_intent, build_discussion_guide_prompt,
 };
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -373,6 +374,9 @@ pub struct ZenthreeState {
     pub adding_custom_model: bool,
     pub custom_model_input: String,
     pub detected_environment: Option<ProjectEnvironment>,
+    pub workspace_tree_overview: String,
+    pub session_artifacts_collapsed: bool,
+    pub last_provider_notice: Option<String>,
 }
 
 impl ZenthreeState {
@@ -518,6 +522,9 @@ impl ZenthreeState {
             custom_models: Vec::new(),
             adding_custom_model: false,
             custom_model_input: String::new(),
+            workspace_tree_overview: String::new(),
+            session_artifacts_collapsed: false,
+            last_provider_notice: None,
         };
 
         // Restore previous session preferences (theme, accent, extensions, etc.)
@@ -655,7 +662,7 @@ impl ZenthreeState {
                 if !saved.custom_models.is_empty() { self.custom_models = saved.custom_models; }
 
                 let args: Vec<String> = std::env::args().collect();
-                if args.len() > 1 {
+                if args.len() <= 1 {
                     if let Some(saved_dir) = saved.current_dir {
                         if saved_dir.exists() && saved_dir.is_dir() {
                             self.current_dir = saved_dir;
@@ -728,11 +735,28 @@ impl ZenthreeState {
         let mut updated = false;
         for (idx, content) in received {
             if let Some(msg) = self.ai_messages.get_mut(idx) {
-                msg.content = content.clone();
+                let trimmed_content = content.trim();
+                if trimmed_content.is_empty() {
+                    msg.content = format!(
+                        "I analyzed the workspace context for `{}`. Let me know what specific architectural details, component breakdowns, or code changes you would like to explore!",
+                        self.last_ai_prompt
+                    );
+                } else {
+                    msg.content = content.clone();
+                }
                 msg.is_working = false;
             }
             updated = true;
             self.ai_pending_requests = self.ai_pending_requests.saturating_sub(1);
+
+            // Track provider notices or quota status
+            if content.contains("503") || content.contains("capacity") {
+                self.last_provider_notice = Some("Google Gemini 503 (No capacity) · Auto-failover to Groq Cloud active".to_string());
+            } else if content.contains("429") || content.contains("quota") || content.contains("RESOURCE_EXHAUSTED") {
+                self.last_provider_notice = Some("Google Gemini 429 (Quota limit) · Auto-failover to Groq Cloud active".to_string());
+            } else if content.starts_with("⚠️") {
+                self.last_provider_notice = Some("AI Provider Error · Check quota and model selection".to_string());
+            }
 
             // API Error Guard: if Groq returned an error (e.g. 429, timeout, network)
             let is_api_error = content.trim().starts_with("⚠️");
@@ -907,13 +931,8 @@ impl ZenthreeState {
             let tool_calls = parse_agent_tool_calls(&content);
             if summaries.is_empty() && !tool_calls.is_empty() {
                 let mut tool_results = Vec::new();
-                let provider = ProviderChain::new(
-                    self.gemini_api_key.clone(),
-                    self.groq_api_key.clone(),
-                    Some(self.selected_model.clone()),
-                );
                 for call in &tool_calls {
-                    let res = execute_agent_tool_with_provider(&self.current_dir, call, Some(&provider));
+                    let res = execute_agent_tool_with_provider(&self.current_dir, call, None);
                     if let AgentToolCall::DetectEnvironment { subpath } = call {
                         let target = match subpath {
                             Some(p) if !p.trim().is_empty() && p.trim() != "." => {
@@ -926,7 +945,7 @@ impl ZenthreeState {
                             }
                             _ => self.current_dir.clone(),
                         };
-                        let env = DetectorAgent::detect_with_llm(&target, Some(&provider));
+                        let env = DetectorAgent::detect(&target);
                         self.detected_environment = Some(env);
                     }
                     tool_results.push(res);
@@ -952,6 +971,7 @@ impl ZenthreeState {
                     }
                     if let Some(msg) = self.ai_messages.get_mut(idx) {
                         msg.is_working = true;
+                        msg.content = format!("🔍 *Inspecting workspace:* `{}`...", first_desc);
                     }
                     self.ai_pending_requests += 1;
                     let gemini_key = self.gemini_api_key.clone();
@@ -963,7 +983,7 @@ impl ZenthreeState {
                     let mut tool_observation_str = String::new();
                     for r in &tool_results {
                         tool_observation_str.push_str(&format!(
-                            "### Tool Result: `{}` (Status: {})\n```\n{}\n```\n\n",
+                            "### Tool Observation: `{}` ({})\n```\n{}\n```\n\n",
                             r.tool_name,
                             if r.ok { "success" } else { "failed" },
                             r.output
@@ -971,12 +991,14 @@ impl ZenthreeState {
                     }
 
                     let continuation_prompt = format!(
-                        "Here are the tool execution results from the workspace:\n\n\
+                        "Here are the real workspace tool observation results:\n\n\
                         {}\
-                        User Goal: {}\n\n\
-                        Based on the real workspace tool observations above, fulfill the user goal. \
-                        For existing files use surgical `<<<<<<< SEARCH ... ======= ... >>>>>>> REPLACE` blocks under `### File: <path>`, \
-                        or for new files output full code under `### File: <path>`.",
+                        User Request: {}\n\n\
+                        Based on these real workspace tool observations and project context, provide a direct, comprehensive, and helpful answer to the user.\n\
+                        - If the user asked you to inspect, look into, or explain a component or folder, explain what you found thoroughly.\n\
+                        - If a folder was not found, explain clearly and suggest the correct locations based on the project tree.\n\
+                        - If code changes or new files are needed: for existing files use surgical `<<<<<<< SEARCH ... ======= ... >>>>>>> REPLACE` blocks under `### File: <path>`, or for new files output full code under `### File: <path>`.\n\
+                        - NEVER return an empty response; always provide a clear, helpful explanation.",
                         tool_observation_str,
                         goal_prompt
                     );
@@ -985,10 +1007,22 @@ impl ZenthreeState {
                         let chain = ProviderChain::new(gemini_key, groq_key, None);
                         match chain.complete(&system_prompt, &continuation_prompt, &[]) {
                             Ok(res_text) => {
-                                let _ = sender.send((idx, res_text));
+                                let final_text = if res_text.trim().is_empty() {
+                                    format!(
+                                        "### Workspace Inspection Results\n\n{}\nI analyzed the workspace for `{}`.",
+                                        tool_observation_str, goal_prompt
+                                    )
+                                } else {
+                                    res_text
+                                };
+                                let _ = sender.send((idx, final_text));
                             }
                             Err(e) => {
-                                let _ = sender.send((idx, format!("⚠️ Tool continuation error: {}", e)));
+                                let fallback_text = format!(
+                                    "### Workspace Inspection Results\n\n{}\n*(Note: {})*",
+                                    tool_observation_str, e
+                                );
+                                let _ = sender.send((idx, fallback_text));
                             }
                         }
                     });
@@ -1313,6 +1347,7 @@ impl ZenthreeState {
     pub fn rebuild_tree(&mut self) {
         self.sidebar_items.clear();
         if !self.has_workspace {
+            self.workspace_tree_overview.clear();
             return;
         }
         let root = self.current_dir.clone();
@@ -1323,6 +1358,16 @@ impl ZenthreeState {
         };
         let mut ancestors = Vec::new();
         self.scan_dir_recursive(&root, 0, &mut ancestors, &git_statuses);
+
+        // Store and maintain in-memory workspace tree structure in real-time
+        self.workspace_tree_overview = crate::project_index::generate_project_tree_overview(&root, 6);
+    }
+
+    pub fn get_or_update_workspace_tree(&mut self) -> &str {
+        if self.has_workspace && self.workspace_tree_overview.is_empty() {
+            self.workspace_tree_overview = crate::project_index::generate_project_tree_overview(&self.current_dir, 6);
+        }
+        &self.workspace_tree_overview
     }
 
     pub fn save_current_session_messages(&self) {
@@ -1422,7 +1467,28 @@ impl ZenthreeState {
         let is_current = self.current_session.id == session_id;
         crate::session::delete_session(&self.current_dir, session_id);
         if is_current {
-            self.start_new_session();
+            // Cleanly create new session without re-saving deleted session messages to disk
+            let new_sess = crate::session::AgentSession::new(&self.current_dir, None);
+            self.current_session = new_sess;
+            self.current_mission = None;
+            self.pending_modification = None;
+            self.pending_modifications.clear();
+            self.ai_messages = vec![
+                AiMessage {
+                    is_user: false,
+                    content: "Hello! I am ZENE. How can I help you with your code today?".to_string(),
+                    code_snippet: None,
+                    thoughts: Some("Session initialized. Session markdown files ready in .zenthree/sessions/".to_string()),
+                    deliberation: None,
+                    ..Default::default()
+                },
+            ];
+            self.save_current_session_messages();
+            self.session_list = crate::session::list_saved_sessions(&self.current_dir);
+            self.session_dropdown_open = false;
+            self.active_input_drawer = AiInputDrawer::None;
+            self.session_modified_files.clear();
+            self.ai_showing_session_list = false;
         } else {
             self.session_list = crate::session::list_saved_sessions(&self.current_dir);
         }
@@ -1447,6 +1513,7 @@ impl ZenthreeState {
         self.has_workspace = false;
         self.sidebar_items.clear();
         self.expanded_dirs.clear();
+        self.workspace_tree_overview.clear();
         self.current_session = crate::session::AgentSession::new(&self.current_dir, None);
         self.save_current_session_messages();
         self.session_list = crate::session::list_saved_sessions(&self.current_dir);
@@ -2468,19 +2535,23 @@ impl ZenthreeState {
 
         // 2. Biological Connectome Deliberation Gate:
         let lower = trimmed.to_lowercase();
+        let intent = classify_user_intent(trimmed);
+
         let is_refactor = lower.contains("refactor") || lower.contains("optimize");
         let is_explain = lower.contains("explain");
         let is_test = lower.contains("test");
-        let is_project_query = lower.contains("project")
+        let is_project_query = intent == UserIntent::WorkAndProject
+            || lower.contains("project")
             || lower.contains("workspace")
-            || lower.contains("about")
-            || lower == "hi"
-            || lower.starts_with("hi ")
-            || lower.starts_with("hello");
+            || lower.contains("feature")
+            || lower.contains("folder")
+            || lower.contains("tree")
+            || lower.contains("code");
 
-        // 2. Biological Connectome Deliberation Gate:
         // Formulate dual-channel evidence streams (Option A: Primary target action vs Option B: Conservative fallback)
-        let (ev_a, ev_b) = if is_refactor {
+        let (ev_a, ev_b) = if intent == UserIntent::DiscussionAndGuide {
+            (0.70, 0.40)
+        } else if is_refactor {
             (0.86, 0.24)
         } else if is_explain {
             (0.89, 0.18)
@@ -2499,10 +2570,74 @@ impl ZenthreeState {
             self.connectome.deliberate(ev_a, ev_b, 30)
         };
 
+        let mut explored_items = Vec::new();
+        let tree_overview = if self.has_workspace {
+            self.get_or_update_workspace_tree().to_string()
+        } else {
+            String::new()
+        };
+
+        let project_ctx = if self.has_workspace {
+            let ctx = crate::project_index::search_project_context(&self.current_dir, trimmed, 6);
+            for f in &ctx.matched_files {
+                let range = if let Some((first_l, _)) = f.snippet_lines.first() {
+                    let last_l = f.snippet_lines.last().map(|(l, _)| *l).unwrap_or(*first_l);
+                    if *first_l == last_l {
+                        Some(format!("#L{}", first_l))
+                    } else {
+                        Some(format!("#L{}-{}", first_l, (first_l + 15).max(last_l)))
+                    }
+                } else {
+                    None
+                };
+                let display_file = f.path.file_name().and_then(|n| n.to_str()).unwrap_or(&f.relative_path);
+                explored_items.push(ExploredItem {
+                    file_name: display_file.to_string(),
+                    line_range: range,
+                    action_type: "Analyzed".to_string(),
+                });
+            }
+            ctx
+        } else {
+            crate::project_index::ProjectContextSummary {
+                matched_files: Vec::new(),
+                symbol_locations: Vec::new(),
+                formatted_prompt_context: String::new(),
+            }
+        };
+
+        // Autonomous mission and subagents are only initiated for work/project intents that are not pure explanations
+        let sub_agent = if intent == UserIntent::WorkAndProject && self.has_workspace && !is_explain {
+            let env = DetectorAgent::detect(&self.current_dir);
+            self.detected_environment = Some(env.clone());
+            let mut mission = create_mission_for_prompt(trimmed, &explored_items);
+            if let Some(detect_task) = mission.tasks.iter_mut().find(|t| t.id == "task_2_detect") {
+                detect_task.title = format!("Detect toolchain: {} ({:?})", env.build_system, env.language);
+            }
+            self.current_session.title = trimmed.to_string();
+            self.current_session.update_implementation_plan(trimmed, &explored_items, "");
+            self.current_session.update_mission_file(&mission);
+            self.current_mission = Some(mission);
+            Some(SubAgentRole::Explorer)
+        } else if self.has_workspace {
+            let env = DetectorAgent::detect(&self.current_dir);
+            self.detected_environment = Some(env);
+            self.current_mission = None;
+            None
+        } else {
+            self.current_mission = None;
+            None
+        };
+
         // If Gemini or Groq API key is configured, query LLM asynchronously with Connectome deliberation attached
         if self.gemini_api_key.is_some() || self.groq_api_key.is_some() {
             let msg_idx = self.ai_messages.len();
-            let thoughts = if let Some(ref ctx) = ast_context {
+            let thoughts = if intent == UserIntent::DiscussionAndGuide {
+                format!(
+                    "Deliberation: {} dt ({:.0}% conf) | Discussion & Technical Guide",
+                    deliberation.reaction_time_dt, deliberation.confidence * 100.0
+                )
+            } else if let Some(ref ctx) = ast_context {
                 let target = ctx.function_name.as_deref()
                     .or(ctx.struct_name.as_deref())
                     .unwrap_or(&ctx.node_type);
@@ -2517,73 +2652,6 @@ impl ZenthreeState {
                 )
             };
 
-            let project_ctx = if self.has_workspace {
-                crate::project_index::search_project_context(&self.current_dir, trimmed, 6)
-            } else {
-                crate::project_index::ProjectContextSummary {
-                    matched_files: Vec::new(),
-                    symbol_locations: Vec::new(),
-                    formatted_prompt_context: String::new(),
-                }
-            };
-
-            let mut explored_items = Vec::new();
-            if self.has_workspace {
-                for f in &project_ctx.matched_files {
-                    let range = if let Some((first_l, _)) = f.snippet_lines.first() {
-                        let last_l = f.snippet_lines.last().map(|(l, _)| *l).unwrap_or(*first_l);
-                        if *first_l == last_l {
-                            Some(format!("#L{}", first_l))
-                        } else {
-                            Some(format!("#L{}-{}", first_l, (first_l + 15).max(last_l)))
-                        }
-                    } else {
-                        None
-                    };
-                    let display_file = f.path.file_name().and_then(|n| n.to_str()).unwrap_or(&f.relative_path);
-                    explored_items.push(ExploredItem {
-                        file_name: display_file.to_string(),
-                        line_range: range,
-                        action_type: "Analyzed".to_string(),
-                    });
-                }
-            }
-            if explored_items.is_empty() {
-                if let Some(tab_idx) = self.active_tab {
-                    if let Some(tab) = self.tabs.get(tab_idx) {
-                        let code = tab.editor.buffer.to_string();
-                        if !code.trim().is_empty() {
-                            let lines_cnt = tab.editor.buffer.line_count();
-                            explored_items.push(ExploredItem {
-                                file_name: tab.name.clone(),
-                                line_range: Some(format!("#L1-{}", lines_cnt.min(100))),
-                                action_type: "Analyzed".to_string(),
-                            });
-                        }
-                    }
-                }
-            }
-
-            if self.has_workspace {
-                let provider = ProviderChain::new(
-                    self.gemini_api_key.clone(),
-                    self.groq_api_key.clone(),
-                    Some(self.selected_model.clone()),
-                );
-                let env = DetectorAgent::detect_with_llm(&self.current_dir, Some(&provider));
-                self.detected_environment = Some(env.clone());
-                let mut mission = create_mission_for_prompt(trimmed, &explored_items);
-                if let Some(detect_task) = mission.tasks.iter_mut().find(|t| t.id == "task_2_detect") {
-                    detect_task.title = format!("Detect toolchain: {} ({:?})", env.build_system, env.language);
-                }
-                self.current_session.title = trimmed.to_string();
-                self.current_session.update_implementation_plan(trimmed, &explored_items, "");
-                self.current_session.update_mission_file(&mission);
-                self.current_mission = Some(mission);
-            } else {
-                self.current_mission = None;
-            }
-
             self.ai_messages.push(AiMessage {
                 is_user: false,
                 content: String::new(),
@@ -2593,7 +2661,7 @@ impl ZenthreeState {
                 explored_items,
                 edited_files: Vec::new(),
                 is_working: true,
-                sub_agent: Some(SubAgentRole::Explorer),
+                sub_agent,
             });
             self.save_current_session_messages();
 
@@ -2614,7 +2682,9 @@ impl ZenthreeState {
 
             self.last_ai_prompt = trimmed.to_string();
 
-            let system_prompt = if self.has_workspace {
+            let system_prompt = if intent == UserIntent::DiscussionAndGuide {
+                build_discussion_guide_prompt()
+            } else if self.has_workspace {
                 build_autonomous_agent_prompt(deliberation.confidence * 100.0)
             } else {
                 format!(
@@ -2625,13 +2695,18 @@ impl ZenthreeState {
             };
 
             let mut user_prompt = String::new();
+            if self.has_workspace && !tree_overview.is_empty() {
+                user_prompt.push_str(&format!(
+                    "### Project Workspace Tree Structure:\n```\n{}\n```\n\nAnalyze this workspace tree to understand module layout, file locations, and architecture.\n\n",
+                    tree_overview
+                ));
+            }
             if self.has_workspace && !project_ctx.formatted_prompt_context.is_empty() {
                 user_prompt.push_str(&project_ctx.formatted_prompt_context);
                 user_prompt.push_str("\n\n");
             }
-            // Include contents of top matched project files so the AI can read and trace symbols across unopened files
             if self.has_workspace {
-                for f in project_ctx.matched_files.iter().take(2) {
+                for f in project_ctx.matched_files.iter().take(4) {
                     if let Ok(c) = std::fs::read_to_string(&f.path) {
                         if !c.trim().is_empty() {
                             let sample: String = c.chars().take(4000).collect();
@@ -2640,7 +2715,12 @@ impl ZenthreeState {
                     }
                 }
             }
-            if !buffer_snippet.is_empty() {
+            let user_requested_buffer = is_refactor || is_explain || is_test
+                || lower.contains("this file")
+                || lower.contains("current file")
+                || lower.contains("this code")
+                || lower.contains("buffer");
+            if user_requested_buffer && !buffer_snippet.is_empty() {
                 let code_sample: String = buffer_snippet.chars().take(4000).collect();
                 user_prompt.push_str(&format!("Active buffer `{}`:\n```\n{}\n```\n\n", active_file, code_sample));
             }
@@ -2705,6 +2785,44 @@ impl ZenthreeState {
                 "### Suggested Optimization for `{}`\n\nBiological deliberation reached **{:.1}% confidence** across **{} dt**.\n\n```rust\n// Zero-allocation idiomatic implementation\npub fn optimize() -> Result<bool, Box<dyn std::error::Error>> {{\n    // In-place processing\n    Ok(true)\n}}\n```",
                 active_file, deliberation.confidence * 100.0, deliberation.reaction_time_dt
             )
+        } else if is_project_query && self.has_workspace {
+            let project_name = self.current_dir.file_name()
+                .map(|n| n.to_string_lossy().to_string())
+                .unwrap_or_else(|| "Workspace".to_string());
+
+            let tree = self.get_or_update_workspace_tree().to_string();
+
+            let ecosystem = if self.current_dir.join("Cargo.toml").exists() {
+                "Rust / Cargo Workspace"
+            } else if self.current_dir.join("package.json").exists() {
+                "Node.js / Web Application"
+            } else if self.current_dir.join("pyproject.toml").exists() || self.current_dir.join("requirements.txt").exists() {
+                "Python Ecosystem"
+            } else {
+                "Software Project"
+            };
+
+            let mut out = format!("## Project: `{}`\n\n", project_name);
+            out.push_str(&format!("- **Ecosystem**: {}\n", ecosystem));
+            out.push_str(&format!("- **Workspace Root**: `{}`\n", self.current_dir.display()));
+            out.push_str(&format!("- **Active Document**: `{}`\n\n", active_file));
+
+            if !tree.is_empty() {
+                out.push_str("### Project Workspace Tree Structure:\n```\n");
+                out.push_str(&tree);
+                out.push_str("\n```\n\n");
+            }
+
+            out.push_str("### What would you like to build or explore?\n");
+            out.push_str("- **Feature Implementation**: Describe any feature or component to generate code\n");
+            out.push_str("- **Explain Code**: Inspect syntax structures and AST symbol scopes\n");
+            out.push_str("- **Refactor**: Suggest zero-allocation idiomatic improvements\n");
+            out.push_str("- **Generate Tests**: Write automated unit test suites");
+            out
+        } else if intent == UserIntent::DiscussionAndGuide {
+            format!(
+                "### Discussion & Technical Guide\n\nHello! I'm ZENE, your engineering collaborator and architectural guide.\n\nI'm here to:\n- Discuss system architecture, tradeoffs, and design patterns\n- Help brainstorm and plan upcoming features\n- Guide you through workflows and answer technical questions\n\nWhenever you're ready to inspect code, analyze files, or implement changes in your workspace, just let me know what you'd like to work on!"
+            )
         } else if is_explain {
             let is_empty_buffer = if let Some(idx) = self.active_tab {
                 self.tabs.get(idx).map(|t| t.editor.buffer.to_string().trim().is_empty()).unwrap_or(true)
@@ -2736,60 +2854,10 @@ impl ZenthreeState {
                 "### Unit Test Suite for `{}`\n\n```rust\n#[cfg(test)]\nmod tests {{\n    use super::*;\n\n    #[test]\n    fn test_core_flow() {{\n        assert!(true);\n    }}\n}}\n```",
                 active_file
             )
-        } else if is_project_query {
-            if !self.has_workspace {
-                format!(
-                    "### No Folder Opened\n\nYou currently do not have a folder or workspace open in Zenthree.\n\nTo open a project:\n- Click **Open Folder** in the Explorer sidebar on the left.\n- Or use `Ctrl+O`.\n\nOnce opened, I can analyze your codebase and project architecture!"
-                )
-            } else {
-                let project_name = self.current_dir.file_name()
-                    .map(|n| n.to_string_lossy().to_string())
-                    .unwrap_or_else(|| "Workspace".to_string());
-
-            let readme_path = self.current_dir.join("README.md");
-            let readme_summary = if readme_path.exists() {
-                std::fs::read_to_string(&readme_path)
-                    .ok()
-                    .and_then(|content| {
-                        let lines: Vec<&str> = content.lines()
-                            .map(|l| l.trim())
-                            .filter(|l| !l.is_empty() && !l.starts_with('#'))
-                            .take(2)
-                            .collect();
-                        if lines.is_empty() { None } else { Some(lines.join(" ")) }
-                    })
-            } else {
-                None
-            };
-
-            let ecosystem = if self.current_dir.join("Cargo.toml").exists() {
-                "Rust / Cargo Workspace"
-            } else if self.current_dir.join("package.json").exists() {
-                "Node.js / Web Application"
-            } else if self.current_dir.join("pyproject.toml").exists() || self.current_dir.join("requirements.txt").exists() {
-                "Python Ecosystem"
-            } else {
-                "Software Project"
-            };
-
-            let mut out = format!("## Project: `{}`\n\n", project_name);
-            out.push_str(&format!("- **Ecosystem**: {}\n", ecosystem));
-            out.push_str(&format!("- **Workspace Root**: `{}`\n", self.current_dir.display()));
-            out.push_str(&format!("- **Active Document**: `{}`\n", active_file));
-            out.push_str(&format!("- **Open Tabs**: {} tabs active\n\n", self.tabs.len()));
-
-            if let Some(summary) = readme_summary {
-                out.push_str("### About\n");
-                out.push_str(&summary);
-                out.push_str("\n\n");
-            }
-
-            out.push_str("### What would you like to explore?\n");
-            out.push_str("- **Explain Code**: Inspect syntax structures and AST symbol scopes\n");
-            out.push_str("- **Refactor**: Suggest zero-allocation idiomatic improvements\n");
-            out.push_str("- **Generate Tests**: Write automated unit test suites");
-            out
-            }
+        } else if is_project_query || intent == UserIntent::WorkAndProject {
+            format!(
+                "### No Folder Opened\n\nYou currently do not have a folder or workspace open in Zenthree.\n\nTo open a project:\n- Click **Open Folder** in the Explorer sidebar on the left.\n- Or use `Ctrl+O`.\n\nOnce opened, I can analyze your codebase and project architecture!"
+            )
         } else {
             format!(
                 "Query: `{}`\n\nConnectome neural gate verified the prompt with **{:.1}% confidence** ({}) across **{} dt**.\n\n- Use **Explain Code** to break down syntax trees\n- Use **Refactor** for idiomatic optimizations\n- Use **Generate Tests** for test suites",
@@ -2797,7 +2865,12 @@ impl ZenthreeState {
             )
         };
 
-        let thoughts = if let Some(ref ctx) = ast_context {
+        let thoughts = if intent == UserIntent::DiscussionAndGuide {
+            format!(
+                "Deliberation: {} dt ({:.0}% conf) | Discussion & Technical Guide",
+                deliberation.reaction_time_dt, deliberation.confidence * 100.0
+            )
+        } else if let Some(ref ctx) = ast_context {
             let target = ctx.function_name.as_deref()
                 .or(ctx.struct_name.as_deref())
                 .unwrap_or(&ctx.node_type);
@@ -2818,6 +2891,8 @@ impl ZenthreeState {
             code_snippet: None,
             thoughts: Some(thoughts),
             deliberation: Some(deliberation),
+            explored_items,
+            sub_agent,
             ..Default::default()
         });
         self.save_current_session_messages();
@@ -3461,6 +3536,121 @@ mod tests {
         assert_eq!(std::fs::read_to_string(&file_a).unwrap(), "fn original_a() {}");
         assert!(!file_b.exists());
         assert!(state.status_message.contains("Rejected changes to 2 files"));
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_delete_current_session_clean_reset() {
+        let temp_dir = std::env::temp_dir().join(format!("zenthree_del_test_{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        let _ = std::fs::create_dir_all(&temp_dir);
+
+        let mut state = ZenthreeState::new();
+        state.open_workspace(temp_dir.clone());
+        let current_id = state.current_session.id.clone();
+        let session_folder = state.current_session.dir_path.clone();
+
+        assert!(session_folder.exists());
+
+        // Deleting current session
+        state.delete_session(&current_id);
+
+        // Old session folder must not exist
+        assert!(!session_folder.exists());
+        // New session must have a different ID
+        assert_ne!(state.current_session.id, current_id);
+        assert!(!state.ai_showing_session_list);
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_send_ai_message_standalone_python_workspace() {
+        let temp_dir = std::env::temp_dir().join(format!("zenthree_py_test_{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        let _ = std::fs::create_dir_all(&temp_dir);
+        let script_file = temp_dir.join("calculator.py");
+        std::fs::write(&script_file, "def add(a, b): return a + b\n").unwrap();
+
+        let mut state = ZenthreeState::new();
+        state.open_workspace(temp_dir.clone());
+        state.groq_api_key = None;
+        state.gemini_api_key = None;
+
+        state.send_ai_message("inspect python project");
+
+        assert!(state.detected_environment.is_some());
+        let env = state.detected_environment.as_ref().unwrap();
+        assert_eq!(env.language, crate::agent::ProjectLanguage::Python);
+        assert_eq!(env.build_system, "Python");
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_send_ai_message_greeting_discussion_mode() {
+        let temp_dir = std::env::temp_dir().join(format!("zenthree_disc_test_{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        let _ = std::fs::create_dir_all(&temp_dir);
+        let secret_code_file = temp_dir.join("secret.rs");
+        std::fs::write(&secret_code_file, "fn secret_algorithm() { let x = 42; }\n").unwrap();
+
+        let mut state = ZenthreeState::new();
+        state.open_workspace(temp_dir.clone());
+        state.open_file(&secret_code_file);
+        state.groq_api_key = None;
+        state.gemini_api_key = None;
+
+        // Saying "hi" or greeting must act as discussion & guide without reading active buffer code
+        state.send_ai_message("hi");
+
+        let reply = state.ai_messages.iter().filter(|m| !m.is_user).last().expect("assistant reply");
+        assert!(reply.content.contains("Discussion & Technical Guide"));
+        assert!(!reply.content.contains("secret_algorithm"));
+        assert!(reply.explored_items.is_empty());
+        assert!(state.current_mission.is_none());
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_workspace_tree_realtime_in_memory_updates() {
+        let temp_dir = std::env::temp_dir().join(format!("zenthree_tree_test_{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        let src_dir = temp_dir.join("src");
+        let _ = std::fs::create_dir_all(&src_dir);
+        let main_file = src_dir.join("main.rs");
+        std::fs::write(&main_file, "fn main() {}\n").unwrap();
+
+        let mut state = ZenthreeState::new();
+        state.open_workspace(temp_dir.clone());
+
+        // In-memory workspace tree structure is stored in real-time
+        let tree1 = state.get_or_update_workspace_tree().to_string();
+        assert!(tree1.contains("main.rs"));
+        assert!(!tree1.contains("auth_handler.rs"));
+
+        // Work query reads the tree structure
+        state.groq_api_key = None;
+        state.gemini_api_key = None;
+        state.send_ai_message("add new feature to project");
+        let reply1 = state.ai_messages.iter().filter(|m| !m.is_user).last().expect("assistant reply");
+        assert!(reply1.content.contains("main.rs"));
+        assert!(state.current_mission.is_some());
+
+        // Add a new file in real time
+        let new_file = src_dir.join("auth_handler.rs");
+        std::fs::write(&new_file, "pub fn authenticate() -> bool { true }\n").unwrap();
+        state.rebuild_tree();
+
+        // The in-memory tree in state management updates in real time
+        let tree2 = state.get_or_update_workspace_tree().to_string();
+        assert!(tree2.contains("auth_handler.rs"));
+
+        // Delete file in real time
+        std::fs::remove_file(&new_file).unwrap();
+        state.rebuild_tree();
+
+        // The in-memory tree reflects deletion immediately
+        let tree3 = state.get_or_update_workspace_tree().to_string();
+        assert!(!tree3.contains("auth_handler.rs"));
 
         let _ = std::fs::remove_dir_all(&temp_dir);
     }

@@ -82,19 +82,18 @@ pub fn call_gemini_api_with_model(
 ) -> Result<String, String> {
     // Model preference: Google Gemini models verified live for this API key:
     let mut models = vec![
-        "gemini-3.5-flash",
-        "gemini-3.1-flash-lite",
-        "gemini-flash-lite-latest",
         "gemini-3.6-flash",
-        "gemini-3.7-flash",
-        "gemini-3.8-flash",
+        "gemini-3.1-flash-lite-preview",
         "gemini-flash-latest",
+        "gemini-flash-lite-latest",
+        "gemini-2.5-pro",
+        "gemini-3.5-flash",
         "gemma-4-31b-it",
     ];
     if let Some(pref) = preferred_model {
         let mut trimmed = pref.trim();
-        if trimmed == "gemini-2.5-flash" {
-            trimmed = "gemini-3.5-flash";
+        if trimmed == "gemini-2.5-flash" || trimmed == "gemini-3.5-flash" {
+            trimmed = "gemini-3.6-flash";
         }
         if !trimmed.is_empty() {
             if let Some(pos) = models.iter().position(|m| *m == trimmed) {
@@ -109,7 +108,7 @@ pub fn call_gemini_api_with_model(
 
     let agent = ureq::builder()
         .resolver(ipv4_resolver)
-        .timeout(std::time::Duration::from_secs(45))
+        .timeout(std::time::Duration::from_secs(12))
         .build();
 
     for model in &models {
@@ -167,7 +166,12 @@ pub fn call_gemini_api_with_model(
 
                 if let Some(err) = json.get("error") {
                     let msg = err["message"].as_str().unwrap_or("Unknown Gemini error");
-                    last_error = format!("Gemini error on {}: {}", model, msg);
+                    let code = err.get("code").and_then(|c| c.as_i64()).unwrap_or(0);
+                    if code == 429 || msg.contains("429") || msg.contains("quota") || msg.contains("Quota") {
+                        last_error = format!("Gemini quota limit (429) on {}: {}", model, msg);
+                    } else {
+                        last_error = format!("Gemini error on {}: {}", model, msg);
+                    }
                     continue;
                 }
 
@@ -180,6 +184,16 @@ pub fn call_gemini_api_with_model(
                 }
 
                 last_error = format!("Unexpected response format from Gemini API on {}", model);
+            }
+            Err(ureq::Error::Status(code, resp)) => {
+                let body = resp.into_string().unwrap_or_default();
+                if code == 429 || body.contains("429") || body.contains("quota") || body.contains("RESOURCE_EXHAUSTED") {
+                    last_error = format!("Gemini quota limit (429) on {}: {}", model, body);
+                } else if code == 503 || body.contains("503") || body.contains("UNAVAILABLE") || body.contains("No capacity") {
+                    last_error = format!("Gemini server unavailable / no capacity (503) on {}: {}", model, body);
+                } else {
+                    last_error = format!("Gemini API error (HTTP {}) on {}: {}", code, model, body);
+                }
             }
             Err(e) => {
                 last_error = format!("Gemini API request error on {}: {}", model, e);

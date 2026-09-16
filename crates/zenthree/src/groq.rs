@@ -99,7 +99,7 @@ pub fn call_groq_api_messages_with_model(
 
     let agent = ureq::builder()
         .resolver(ipv4_resolver)
-        .timeout(std::time::Duration::from_secs(45))
+        .timeout(std::time::Duration::from_secs(15))
         .build();
 
     for model in &models {
@@ -134,6 +134,16 @@ pub fn call_groq_api_messages_with_model(
                     return Err(format!("Groq error: {}", err_msg));
                 }
 
+                if let Some(content) = json["choices"][0]["message"]["content"].as_str() {
+                    if !content.trim().is_empty() {
+                        return Ok(content.to_string());
+                    }
+                }
+                if let Some(reasoning) = json["choices"][0]["message"]["reasoning"].as_str() {
+                    if !reasoning.trim().is_empty() {
+                        return Ok(reasoning.to_string());
+                    }
+                }
                 if let Some(content) = json["choices"][0]["message"]["content"].as_str() {
                     return Ok(content.to_string());
                 } else {

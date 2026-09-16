@@ -1063,16 +1063,47 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                                     }
 
                                                     if msg.is_working {
+                                                        let now_ms = std::time::SystemTime::now()
+                                                            .duration_since(std::time::UNIX_EPOCH)
+                                                            .map(|d| d.as_millis())
+                                                            .unwrap_or(0);
+                                                        let spinner_frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
+                                                        let spinner = spinner_frames[((now_ms / 80) % 10) as usize];
+                                                        let dots_count = ((now_ms / 350) % 4) as usize;
+                                                        let dots = match dots_count {
+                                                            0 => "",
+                                                            1 => ".",
+                                                            2 => "..",
+                                                            _ => "...",
+                                                        };
+                                                        let action_label = match msg.sub_agent {
+                                                            Some(crate::agent::SubAgentRole::Explorer) => "Exploring workspace",
+                                                            Some(crate::agent::SubAgentRole::Detector) => "Detecting files & env",
+                                                            Some(crate::agent::SubAgentRole::Builder) => "Building solution",
+                                                            Some(crate::agent::SubAgentRole::Tester) => "Verifying code",
+                                                            None => "Analyzing & exploring",
+                                                        };
+
                                                         ui.container()
                                                             .row()
-                                                            .gap(4.0)
+                                                            .gap(5.0)
                                                             .valign(Align::Center)
+                                                            .padding(2.0, 6.0, 2.0, 6.0)
+                                                            .bg(colors.accent.with_alpha(0.08))
+                                                            .border(colors.accent.with_alpha(0.25), 1.0)
+                                                            .radius_all(10.0)
                                                             .show(|ui| {
-                                                                ui.text("Working")
-                                                                    .size(10.5)
-                                                                    .color(colors.text_muted)
+                                                                ui.text(spinner)
+                                                                    .size(11.0)
+                                                                    .color(colors.accent)
+                                                                    .show();
+                                                                ui.text(&format!("{}{}", action_label, dots))
+                                                                    .size(10.0)
+                                                                    .weight(FontWeight::Medium)
+                                                                    .color(colors.accent)
                                                                     .show();
                                                             });
+                                                        ui.needs_redraw = true;
                                                     }
                                                 });
                                         }
@@ -1147,6 +1178,43 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
 
                                     // 3. Markdown formatted response content
                                     if !msg.content.trim().is_empty() {
+                                        let is_err_or_quota = msg.content.trim().starts_with("⚠️")
+                                            || msg.content.contains("UNAVAILABLE")
+                                            || msg.content.contains("quota limit")
+                                            || msg.content.contains("RESOURCE_EXHAUSTED")
+                                            || msg.content.contains("No capacity available");
+
+                                        if is_err_or_quota {
+                                            ui.container()
+                                                .width(assistant_text_w)
+                                                .padding(6.0, 8.0, 6.0, 8.0)
+                                                .bg(Color::rgba(0.95, 0.45, 0.2, 0.12))
+                                                .border(Color::rgba(0.95, 0.45, 0.2, 0.45), 1.0)
+                                                .radius_all(6.0)
+                                                .row()
+                                                .gap(8.0)
+                                                .valign(Align::Center)
+                                                .show(|ui| {
+                                                    ui.text("⚠️")
+                                                        .size(14.0)
+                                                        .show();
+                                                    ui.container()
+                                                        .column()
+                                                        .gap(2.0)
+                                                        .show(|ui| {
+                                                            ui.text("AI Engine Service Notice")
+                                                                .size(10.0)
+                                                                .weight(FontWeight::Bold)
+                                                                .color(Color::rgb(0.95, 0.65, 0.3))
+                                                                .show();
+                                                            ui.text("Quota limit or server capacity reached. Auto-routed request to active provider.")
+                                                                .size(9.0)
+                                                                .color(colors.text_dim)
+                                                                .show();
+                                                        });
+                                                });
+                                        }
+
                                         let mut copy_action = None;
                                         crate::markdown::render_markdown_preview(
                                             ui,
@@ -1192,226 +1260,254 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                         let card_w = (ai_panel_w - 20.0).max(180.0);
                         let has_active_mission = state.current_mission.as_ref().map(|m| m.is_active).unwrap_or(false);
 
+                        let is_collapsed = state.session_artifacts_collapsed;
+                        let arrow_icon = if is_collapsed { "\u{f054}" } else { "\u{f078}" }; // ▶ right vs ▼ down
+
                         ui.container()
                             .width(card_w)
                             .bg(colors.bg_sidebar)
                             .border(if has_active_mission { colors.accent.with_alpha(0.5) } else { colors.border }, 1.0)
                             .radius_all(6.0)
-                            .padding(8.0, 10.0, 8.0, 10.0)
+                            .padding(6.0, 10.0, 6.0, 10.0)
                             .column()
-                            .gap(6.0)
+                            .gap(if is_collapsed { 0.0 } else { 6.0 })
                             .show(|ui| {
                                 // Header: Session Files Title & Status Badge
                                 ui.container()
                                     .width(card_w - 20.0)
                                     .row()
                                     .valign(Align::Center)
+                                    .halign(Align::SpaceBetween)
                                     .show(|ui| {
-                                        ui.text("\u{ea80}")
-                                            .size(11.0)
-                                            .color(colors.accent)
-                                            .show();
-                                        ui.text(" SESSION ARTIFACTS")
-                                            .size(9.5)
-                                            .weight(FontWeight::Bold)
-                                            .color(colors.accent)
-                                            .show();
+                                        let toggle_btn = ui.container()
+                                            .row()
+                                            .gap(5.0)
+                                            .valign(Align::Center)
+                                            .padding(1.0, 4.0, 1.0, 4.0)
+                                            .radius_all(3.0)
+                                            .hover_bg(colors.highlight)
+                                            .show(|ui| {
+                                                ui.text(arrow_icon)
+                                                    .size(8.5)
+                                                    .color(colors.accent)
+                                                    .show();
+                                                ui.text("\u{ea80}")
+                                                    .size(11.0)
+                                                    .color(colors.accent)
+                                                    .show();
+                                                ui.text(" SESSION ARTIFACTS")
+                                                    .size(9.5)
+                                                    .weight(FontWeight::Bold)
+                                                    .color(colors.accent)
+                                                    .show();
+                                            });
+                                        if toggle_btn.clicked {
+                                            state.session_artifacts_collapsed = !state.session_artifacts_collapsed;
+                                            ui.needs_redraw = true;
+                                        }
 
                                         if let Some(ref mission) = state.current_mission {
-                                            let total_tasks = mission.tasks.len();
-                                            let completed_tasks = mission.tasks.iter().filter(|t| t.status == TaskStatus::Completed).count();
-                                            let status_color = if !mission.is_active && completed_tasks == total_tasks && total_tasks > 0 {
-                                                Color::rgb(0.35, 0.85, 0.45)
-                                            } else if mission.is_active {
-                                                colors.accent
-                                            } else {
-                                                colors.text_muted
-                                            };
                                             ui.container()
-                                                .padding(1.0, 5.0, 1.0, 5.0)
-                                                .bg(status_color.with_alpha(0.15))
-                                                .radius_all(3.0)
+                                                .row()
+                                                .gap(4.0)
+                                                .valign(Align::Center)
                                                 .show(|ui| {
-                                                    ui.text(&format!("{}/{} tasks", completed_tasks, total_tasks))
-                                                        .size(8.5)
-                                                        .weight(FontWeight::SemiBold)
-                                                        .color(status_color)
-                                                        .show();
-                                                });
+                                                    let total_tasks = mission.tasks.len();
+                                                    let completed_tasks = mission.tasks.iter().filter(|t| t.status == TaskStatus::Completed).count();
+                                                    let status_color = if !mission.is_active && completed_tasks == total_tasks && total_tasks > 0 {
+                                                        Color::rgb(0.35, 0.85, 0.45)
+                                                    } else if mission.is_active {
+                                                        colors.accent
+                                                    } else {
+                                                        colors.text_muted
+                                                    };
+                                                    ui.container()
+                                                        .padding(1.0, 5.0, 1.0, 5.0)
+                                                        .bg(status_color.with_alpha(0.15))
+                                                        .radius_all(3.0)
+                                                        .show(|ui| {
+                                                            ui.text(&format!("{}/{} tasks", completed_tasks, total_tasks))
+                                                                .size(8.5)
+                                                                .weight(FontWeight::SemiBold)
+                                                                .color(status_color)
+                                                                .show();
+                                                        });
 
-                                            if let Some(active_idx) = mission.active_task_index {
-                                                if let Some(active_task) = mission.tasks.get(active_idx) {
-                                                    if let Some(sub_agent) = active_task.sub_agent {
-                                                        ui.container()
-                                                            .padding(1.0, 5.0, 1.0, 5.0)
-                                                            .bg(colors.accent.with_alpha(0.12))
-                                                            .radius_all(3.0)
-                                                            .show(|ui| {
-                                                                ui.text(&sub_agent.badge())
-                                                                    .size(8.5)
-                                                                    .weight(FontWeight::SemiBold)
-                                                                    .color(colors.accent)
-                                                                    .show();
-                                                            });
+                                                    if let Some(active_idx) = mission.active_task_index {
+                                                        if let Some(active_task) = mission.tasks.get(active_idx) {
+                                                            if let Some(sub_agent) = active_task.sub_agent {
+                                                                ui.container()
+                                                                    .padding(1.0, 5.0, 1.0, 5.0)
+                                                                    .bg(colors.accent.with_alpha(0.12))
+                                                                    .radius_all(3.0)
+                                                                    .show(|ui| {
+                                                                        ui.text(&sub_agent.badge())
+                                                                            .size(8.5)
+                                                                            .weight(FontWeight::SemiBold)
+                                                                            .color(colors.accent)
+                                                                            .show();
+                                                                    });
+                                                            }
+                                                        }
                                                     }
-                                                }
-                                            }
+                                                });
                                         }
                                     });
 
-
-                                // Progress Bar if mission is present
-                                if let Some(ref mission) = state.current_mission {
-                                    let total_tasks = mission.tasks.len();
-                                    let completed_tasks = mission.tasks.iter().filter(|t| t.status == TaskStatus::Completed).count();
-                                    let progress_ratio = if total_tasks > 0 { completed_tasks as f32 / total_tasks as f32 } else { 0.0 };
-                                    ui.container()
-                                        .width(card_w - 20.0)
-                                        .height(2.5)
-                                        .bg(colors.bg_base)
-                                        .radius_all(1.25)
-                                        .show(|ui| {
-                                            if progress_ratio > 0.0 {
-                                                ui.container()
-                                                    .width((card_w - 20.0) * progress_ratio)
-                                                    .height(2.5)
-                                                    .bg(if progress_ratio >= 1.0 { Color::rgb(0.35, 0.85, 0.45) } else { colors.accent })
-                                                    .radius_all(1.25)
-                                                    .show(|_| {});
-                                            }
-                                        });
-                                }
-
-                                ui.text("Click to preview file in editor buffer:")
-                                    .size(9.0)
-                                    .color(colors.text_dim)
-                                    .show();
-
-                                // 1. implementation_plan.md Chip
-                                let plan_pill = ui.container()
-                                    .full_width()
-                                    .height(22.0)
-                                    .padding(2.0, 6.0, 2.0, 6.0)
-                                    .bg(colors.bg_base)
-                                    .hover_bg(colors.highlight)
-                                    .border(colors.border, 1.0)
-                                    .radius_all(4.0)
-                                    .row()
-                                    .valign(Align::Center)
-                                    .gap(6.0)
-                                    .show(|ui| {
-                                        ui.text("\u{ea7f}")
-                                            .size(11.0)
-                                            .color(colors.accent)
-                                            .show();
-                                        ui.text("implementation_plan.md")
-                                            .size(9.5)
-                                            .weight(FontWeight::SemiBold)
-                                            .color(colors.text_primary)
-                                            .show();
-                                        ui.text("Plan")
-                                            .size(8.5)
-                                            .color(colors.text_muted)
-                                            .show();
-                                        ui.text("↗")
-                                            .size(9.0)
-                                            .color(colors.accent)
-                                            .show();
-                                    });
-                                if plan_pill.clicked {
-                                    open_session_target = Some("implementation_plan.md".to_string());
-                                }
-
-                                // 2. mission.md Chip (replaces small checklist)
-                                let mission_status_label = if let Some(ref m) = state.current_mission {
-                                    if m.is_paused {
-                                        "Paused"
-                                    } else if m.is_active {
-                                        "Active"
-                                    } else {
-                                        "Verified"
+                                if !is_collapsed {
+                                    // Progress Bar if mission is present
+                                    if let Some(ref mission) = state.current_mission {
+                                        let total_tasks = mission.tasks.len();
+                                        let completed_tasks = mission.tasks.iter().filter(|t| t.status == TaskStatus::Completed).count();
+                                        let progress_ratio = if total_tasks > 0 { completed_tasks as f32 / total_tasks as f32 } else { 0.0 };
+                                        ui.container()
+                                            .width(card_w - 20.0)
+                                            .height(2.5)
+                                            .bg(colors.bg_base)
+                                            .radius_all(1.25)
+                                            .show(|ui| {
+                                                if progress_ratio > 0.0 {
+                                                    ui.container()
+                                                        .width((card_w - 20.0) * progress_ratio)
+                                                        .height(2.5)
+                                                        .bg(if progress_ratio >= 1.0 { Color::rgb(0.35, 0.85, 0.45) } else { colors.accent })
+                                                        .radius_all(1.25)
+                                                        .show(|_| {});
+                                                }
+                                            });
                                     }
-                                } else {
-                                    "Ready"
-                                };
 
-                                let mission_pill = ui.container()
-                                    .full_width()
-                                    .height(22.0)
-                                    .padding(2.0, 6.0, 2.0, 6.0)
-                                    .bg(colors.bg_base)
-                                    .hover_bg(colors.highlight)
-                                    .border(colors.border, 1.0)
-                                    .radius_all(4.0)
-                                    .row()
-                                    .valign(Align::Center)
-                                    .gap(6.0)
-                                    .show(|ui| {
-                                        ui.text("\u{f0e7}")
-                                            .size(10.5)
-                                            .color(Color::rgb(0.9, 0.75, 0.2))
-                                            .show();
-                                        ui.text("mission.md")
-                                            .size(9.5)
-                                            .weight(FontWeight::SemiBold)
-                                            .color(colors.text_primary)
-                                            .show();
-                                        ui.text(mission_status_label)
-                                            .size(8.5)
-                                            .color(colors.text_muted)
-                                            .show();
-                                        ui.text("↗")
-                                            .size(9.0)
-                                            .color(colors.accent)
-                                            .show();
-                                    });
-                                if mission_pill.clicked {
-                                    open_session_target = Some("mission.md".to_string());
-                                }
+                                    ui.text("Click to preview file in editor buffer:")
+                                        .size(9.0)
+                                        .color(colors.text_dim)
+                                        .show();
 
-                                // 3. walkthrough.md Chip
-                                let walkthrough_label = if let Some(ref m) = state.current_mission {
-                                    if !m.is_active && m.tasks.iter().all(|t| t.status == TaskStatus::Completed) {
-                                        "Completed"
+                                    // 1. implementation_plan.md Chip
+                                    let plan_pill = ui.container()
+                                        .full_width()
+                                        .height(22.0)
+                                        .padding(2.0, 6.0, 2.0, 6.0)
+                                        .bg(colors.bg_base)
+                                        .hover_bg(colors.highlight)
+                                        .border(colors.border, 1.0)
+                                        .radius_all(4.0)
+                                        .row()
+                                        .valign(Align::Center)
+                                        .gap(6.0)
+                                        .show(|ui| {
+                                            ui.text("\u{ea7f}")
+                                                .size(11.0)
+                                                .color(colors.accent)
+                                                .show();
+                                            ui.text("implementation_plan.md")
+                                                .size(9.5)
+                                                .weight(FontWeight::SemiBold)
+                                                .color(colors.text_primary)
+                                                .show();
+                                            ui.text("Plan")
+                                                .size(8.5)
+                                                .color(colors.text_muted)
+                                                .show();
+                                            ui.text("↗")
+                                                .size(9.0)
+                                                .color(colors.accent)
+                                                .show();
+                                        });
+                                    if plan_pill.clicked {
+                                        open_session_target = Some("implementation_plan.md".to_string());
+                                    }
+
+                                    // 2. mission.md Chip (replaces small checklist)
+                                    let mission_status_label = if let Some(ref m) = state.current_mission {
+                                        if m.is_paused {
+                                            "Paused"
+                                        } else if m.is_active {
+                                            "Active"
+                                        } else {
+                                            "Verified"
+                                        }
+                                    } else {
+                                        "Ready"
+                                    };
+
+                                    let mission_pill = ui.container()
+                                        .full_width()
+                                        .height(22.0)
+                                        .padding(2.0, 6.0, 2.0, 6.0)
+                                        .bg(colors.bg_base)
+                                        .hover_bg(colors.highlight)
+                                        .border(colors.border, 1.0)
+                                        .radius_all(4.0)
+                                        .row()
+                                        .valign(Align::Center)
+                                        .gap(6.0)
+                                        .show(|ui| {
+                                            ui.text("\u{f0e7}")
+                                                .size(10.5)
+                                                .color(Color::rgb(0.9, 0.75, 0.2))
+                                                .show();
+                                            ui.text("mission.md")
+                                                .size(9.5)
+                                                .weight(FontWeight::SemiBold)
+                                                .color(colors.text_primary)
+                                                .show();
+                                            ui.text(mission_status_label)
+                                                .size(8.5)
+                                                .color(colors.text_muted)
+                                                .show();
+                                            ui.text("↗")
+                                                .size(9.0)
+                                                .color(colors.accent)
+                                                .show();
+                                        });
+                                    if mission_pill.clicked {
+                                        open_session_target = Some("mission.md".to_string());
+                                    }
+
+                                    // 3. walkthrough.md Chip
+                                    let walkthrough_label = if let Some(ref m) = state.current_mission {
+                                        if !m.is_active && m.tasks.iter().all(|t| t.status == TaskStatus::Completed) {
+                                            "Completed"
+                                        } else {
+                                            "Summary"
+                                        }
                                     } else {
                                         "Summary"
-                                    }
-                                } else {
-                                    "Summary"
-                                };
+                                    };
 
-                                let walkthrough_pill = ui.container()
-                                    .full_width()
-                                    .height(22.0)
-                                    .padding(2.0, 6.0, 2.0, 6.0)
-                                    .bg(colors.bg_base)
-                                    .hover_bg(colors.highlight)
-                                    .border(colors.border, 1.0)
-                                    .radius_all(4.0)
-                                    .row()
-                                    .valign(Align::Center)
-                                    .gap(6.0)
-                                    .show(|ui| {
-                                        ui.text("\u{f15c}")
-                                            .size(11.0)
-                                            .color(colors.accent)
-                                            .show();
-                                        ui.text("walkthrough.md")
-                                            .size(9.5)
-                                            .weight(FontWeight::SemiBold)
-                                            .color(colors.text_primary)
-                                            .show();
-                                        ui.text(walkthrough_label)
-                                            .size(8.5)
-                                            .color(colors.text_muted)
-                                            .show();
-                                        ui.text("↗")
-                                            .size(9.0)
-                                            .color(colors.accent)
-                                            .show();
-                                    });
-                                if walkthrough_pill.clicked {
-                                    open_session_target = Some("walkthrough.md".to_string());
+                                    let walkthrough_pill = ui.container()
+                                        .full_width()
+                                        .height(22.0)
+                                        .padding(2.0, 6.0, 2.0, 6.0)
+                                        .bg(colors.bg_base)
+                                        .hover_bg(colors.highlight)
+                                        .border(colors.border, 1.0)
+                                        .radius_all(4.0)
+                                        .row()
+                                        .valign(Align::Center)
+                                        .gap(6.0)
+                                        .show(|ui| {
+                                            ui.text("\u{f15c}")
+                                                .size(11.0)
+                                                .color(colors.accent)
+                                                .show();
+                                            ui.text("walkthrough.md")
+                                                .size(9.5)
+                                                .weight(FontWeight::SemiBold)
+                                                .color(colors.text_primary)
+                                                .show();
+                                            ui.text(walkthrough_label)
+                                                .size(8.5)
+                                                .color(colors.text_muted)
+                                                .show();
+                                            ui.text("↗")
+                                                .size(9.0)
+                                                .color(colors.accent)
+                                                .show();
+                                        });
+                                    if walkthrough_pill.clicked {
+                                        open_session_target = Some("walkthrough.md".to_string());
+                                    }
                                 }
                             });
                     }
@@ -2139,6 +2235,100 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                         ui.needs_redraw = true;
                     }
                 });
+
+            // ─── AI Quota & Engine Status Bar ─────────────────────────────────
+            let quota_banner_w = ai_panel_w;
+            let active_notice = state.last_provider_notice.clone();
+            let mut dismiss_notice = false;
+
+            if let Some(ref notice) = active_notice {
+                ui.container()
+                    .width(quota_banner_w)
+                    .bg(Color::rgba(0.95, 0.45, 0.2, 0.12))
+                    .border(Color::rgba(0.95, 0.45, 0.2, 0.35), 1.0)
+                    .padding(3.0, 8.0, 3.0, 8.0)
+                    .row()
+                    .gap(6.0)
+                    .valign(Align::Center)
+                    .halign(Align::SpaceBetween)
+                    .show(|ui| {
+                        ui.container()
+                            .row()
+                            .gap(5.0)
+                            .valign(Align::Center)
+                            .show(|ui| {
+                                ui.text("⚠️")
+                                    .size(10.0)
+                                    .show();
+                                ui.text(notice)
+                                    .size(9.0)
+                                    .weight(FontWeight::Medium)
+                                    .color(Color::rgb(0.95, 0.65, 0.3))
+                                    .show();
+                            });
+                        let dismiss = ui.container()
+                            .padding(1.0, 4.0, 1.0, 4.0)
+                            .hover_bg(colors.highlight)
+                            .radius_all(2.0)
+                            .show(|ui| {
+                                ui.text("✕")
+                                    .size(8.5)
+                                    .color(colors.text_muted)
+                                    .show();
+                            });
+                        if dismiss.clicked {
+                            dismiss_notice = true;
+                        }
+                    });
+
+                if dismiss_notice {
+                    state.last_provider_notice = None;
+                    ui.needs_redraw = true;
+                }
+            } else {
+                ui.container()
+                    .width(quota_banner_w)
+                    .height(18.0)
+                    .bg(colors.bg_sidebar)
+                    .border(colors.border.with_alpha(0.4), 0.5)
+                    .padding(1.0, 8.0, 1.0, 8.0)
+                    .row()
+                    .gap(8.0)
+                    .valign(Align::Center)
+                    .halign(Align::SpaceBetween)
+                    .show(|ui| {
+                        ui.container()
+                            .row()
+                            .gap(4.0)
+                            .valign(Align::Center)
+                            .show(|ui| {
+                                ui.text("⚡")
+                                    .size(8.5)
+                                    .color(Color::rgb(0.35, 0.85, 0.45))
+                                    .show();
+                                ui.text("AI Engine:")
+                                    .size(8.5)
+                                    .color(colors.text_dim)
+                                    .show();
+                                ui.text("Auto-Failover Active · Groq & Gemini")
+                                    .size(8.5)
+                                    .weight(FontWeight::Medium)
+                                    .color(colors.text_muted)
+                                    .show();
+                            });
+                        ui.container()
+                            .row()
+                            .gap(4.0)
+                            .valign(Align::Center)
+                            .show(|ui| {
+                                ui.text("Quota: Ready")
+                                    .size(8.5)
+                                    .weight(FontWeight::SemiBold)
+                                    .color(Color::rgb(0.35, 0.85, 0.45))
+                                    .show();
+                            });
+                    });
+            }
 
             // ─── Bottom Prompt Input (Auto-growing TextArea, Context Menu, Model Selector & Circle Send Button) ─────
             ui.container()

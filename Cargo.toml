@@ -7,3 +7,15 @@ members = [
     "crates/connectome",
 ]
 resolver = "2"
+
+[profile.dev]
+opt-level = 0
+debug = 1
+incremental = true
+
+[profile.dev.package."*"]
+opt-level = 3
+
+[patch.crates-io]
+winit = { git = "https://github.com/rust-windowing/winit", rev = "refs/pull/4580/head" }
+

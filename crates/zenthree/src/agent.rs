@@ -204,17 +204,26 @@ impl ProviderChain {
         }
 
         let mut errors = Vec::new();
+        let mut gemini_quota_error: Option<String> = None;
 
         if try_gemini_first {
             if let Some(ref gkey) = self.gemini_key {
                 let pref = self.preferred_model.as_deref();
                 for attempt in 0..2 {
                     if attempt > 0 {
-                        std::thread::sleep(std::time::Duration::from_millis(500));
+                        std::thread::sleep(std::time::Duration::from_millis(200));
                     }
                     match crate::gemini::call_gemini_api_with_model(gkey, system_prompt, user_prompt, history, pref) {
                         Ok(res) => return Ok(res),
                         Err(e) => {
+                            let is_quota = e.contains("429") || e.contains("quota") || e.contains("Quota") || e.contains("RESOURCE_EXHAUSTED");
+                            let is_unavailable = e.contains("503") || e.contains("UNAVAILABLE") || e.contains("No capacity");
+                            if is_quota || is_unavailable {
+                                let reason = if is_quota { "Gemini quota limit reached (429)" } else { "Gemini server unavailable (503 - No capacity available)" };
+                                gemini_quota_error = Some(reason.to_string());
+                                errors.push(format!("{}: {}", reason, e));
+                                break; // Instantly failover to Groq
+                            }
                             let classified = classify_provider_error(&e);
                             match classified {
                                 ProviderError::Transient(_) if attempt == 0 => {
@@ -249,7 +258,17 @@ impl ProviderChain {
 
                 let pref = if is_groq_target { self.preferred_model.as_deref() } else { None };
                 match crate::groq::call_groq_api_messages_with_model(qkey, &messages, pref) {
-                    Ok(res) => return Ok(res),
+                    Ok(res) => {
+                        if let Some(ref q_err) = gemini_quota_error {
+                            let note = if q_err.contains("503") || q_err.contains("capacity") {
+                                "> [!WARNING]\n> **AI Provider Notice**: Google Gemini server unavailable (code 503: No capacity available). Auto-routed request to **Groq Cloud (Active)**.\n\n"
+                            } else {
+                                "> [!NOTE]\n> **AI Provider Notice**: Google Gemini quota limit reached (429). Auto-routed request to **Groq Cloud (Active)**.\n\n"
+                            };
+                            return Ok(format!("{}{}", note, res));
+                        }
+                        return Ok(res);
+                    }
                     Err(e) => errors.push(format!("Groq fallback failed: {}", e)),
                 }
             }
@@ -272,7 +291,7 @@ impl ProviderChain {
                 let pref = self.preferred_model.as_deref();
                 for attempt in 0..2 {
                     if attempt > 0 {
-                        std::thread::sleep(std::time::Duration::from_millis(500));
+                        std::thread::sleep(std::time::Duration::from_millis(200));
                     }
                     match crate::groq::call_groq_api_messages_with_model(qkey, &messages, pref) {
                         Ok(res) => return Ok(res),
@@ -307,7 +326,12 @@ impl ProviderChain {
         if errors.is_empty() {
             Err("No AI provider configured (GEMINI_API_KEY or GROQ_API_KEY required)".to_string())
         } else {
-            Err(errors.join(" | "))
+            let mut summary = String::from("⚠️ **AI Provider Service Notice**:\n\n");
+            for err in &errors {
+                summary.push_str(&format!("- {}\n", err));
+            }
+            summary.push_str("\n*Tip: Check your API key quotas or switch models via the bottom model selector.*");
+            Err(summary)
         }
     }
 }
@@ -474,29 +498,124 @@ pub fn build_autonomous_agent_prompt(_deliberation_confidence: f32) -> String {
         "You are ZENE, the lead autonomous software engineering and orchestrator agent integrated directly into the Zenthree code editor with full workspace access and specialized sub-agents (Explorer, Detector, Builder, Tester).\n\
         The Project Workspace File Tree is provided below in the context.\n\n\
         CRITICAL AUTONOMOUS RULES:\n\
-        1. The user gives high-level feature requests without specifying file locations or paths (e.g. 'create contact page and add navigation on navbar').\n\
-        2. Inspect the Project Workspace File Tree to deduce the framework (Qwik City, React, Next.js, Vite, Vue, Svelte, Rust, Python, etc.) and project conventions.\n\
-        3. Formulate an Architectural Plan stating target files to create or modify.\n\
-        4. SURGICAL CODE EDITING & DIRECT GENERATION REQUIREMENT:\n\
-           - When you know what changes to make, output code modifications IMMEDIATELY:\n\
-             * For NEW files: `### File: <relative_path>` followed by the full file in a fenced code block.\n\
-             * For EXISTING files: Use surgical SEARCH/REPLACE diff blocks so modifications are precise:\n\
-               `### File: <relative_path>`\n\
-               ```\n\
-               <<<<<<< SEARCH\n\
-               // exact snippet from existing file to replace\n\
-               =======\n\
-               // new replacement snippet\n\
-               >>>>>>> REPLACE\n\
-               ```\n\
-        5. WORKSPACE INSPECTION TOOLS (When you need to discover symbols, read files, or check codebase):\n\
+        1. When the user asks to explain, describe, or walk through a project, architecture, or code (e.g. 'can you explain the react calculator project?'), provide a thorough, structured, and helpful markdown explanation.\n\
+        2. Break down the project architecture, entry points, key components, dependencies, and data flow using the provided workspace context.\n\
+        3. If the user asks for code changes, bug fixes, or new features:\n\
+           * For NEW files: `### File: <relative_path>` followed by the full file in a fenced code block.\n\
+           * For EXISTING files: Use surgical SEARCH/REPLACE diff blocks so modifications are precise:\n\
+             `### File: <relative_path>`\n\
+             ```\n\
+             <<<<<<< SEARCH\n\
+             // exact snippet from existing file to replace\n\
+             =======\n\
+             // new replacement snippet\n\
+             >>>>>>> REPLACE\n\
+             ```\n\
+        4. WORKSPACE INSPECTION TOOLS (When you need to discover symbols, read files, or check codebase):\n\
            You may emit JSON tool calls to inspect the workspace before writing code:\n\
            - `{{\"tool\": \"search_code\", \"query\": \"<pattern>\"}}`: Grep code & symbols across workspace files.\n\
            - `{{\"tool\": \"read_file\", \"path\": \"<relative_path>\", \"start_line\": 1, \"end_line\": 50}}`: Read file with line numbers.\n\
            - `{{\"tool\": \"list_directory\", \"path\": \"<optional_path>\"}}`: List files and subdirectories.\n\
            - `{{\"tool\": \"run_command\", \"cmd\": \"<command>\"}}`: Run verification or test command.\n\
-        6. Never output placeholders, ellipses (`// ...`), or unfinished functions inside REPLACE blocks. Provide full, working implementations.\n\
-        The editor executes tools or parses `### File: <path>` diffs directly to apply changes and verify with the compiler."
+        5. Never output placeholders, ellipses (`// ...`), or unfinished functions inside REPLACE blocks. Provide full, working implementations.\n\
+        6. NEVER return an empty response. Always provide a clear, comprehensive explanation to the user."
+    )
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum UserIntent {
+    DiscussionAndGuide,
+    WorkAndProject,
+}
+
+/// Classifies user input to determine whether to act as a discussion & guidance partner
+/// or an active project/code execution agent.
+pub fn classify_user_intent(text: &str) -> UserIntent {
+    let trimmed = text.trim();
+    let lower = trimmed.to_lowercase();
+    let words: Vec<&str> = lower.split_whitespace().collect();
+
+    if words.is_empty() {
+        return UserIntent::DiscussionAndGuide;
+    }
+
+    // Pure greetings & conversational small talk
+    let is_greeting = matches!(
+        words[0],
+        "hi" | "hello" | "hey" | "greetings" | "sup" | "yo" | "hola"
+    ) || lower == "good morning"
+      || lower == "good afternoon"
+      || lower == "good evening"
+      || lower == "how are you"
+      || lower == "who are you"
+      || lower == "what can you do";
+
+    if is_greeting && words.len() <= 3 {
+        return UserIntent::DiscussionAndGuide;
+    }
+
+    // Explanation, question, and inquiry triggers: User wants understanding, architecture, or guidance
+    let is_inquiry = lower.starts_with("can you explain")
+        || lower.starts_with("could you explain")
+        || lower.starts_with("please explain")
+        || lower.starts_with("explain")
+        || lower.starts_with("what is")
+        || lower.starts_with("what does")
+        || lower.starts_with("what are")
+        || lower.starts_with("why is")
+        || lower.starts_with("how does")
+        || lower.starts_with("how do")
+        || lower.starts_with("how to")
+        || lower.starts_with("tell me about")
+        || lower.starts_with("walk me through")
+        || lower.starts_with("overview of")
+        || lower.starts_with("describe")
+        || lower.starts_with("guide me")
+        || lower.starts_with("let's discuss")
+        || lower.starts_with("lets discuss")
+        || lower.starts_with("what do you think")
+        || lower.contains("can you explain")
+        || lower.contains("could you explain")
+        || lower.contains("please explain")
+        || lower.contains("explain the")
+        || lower.contains("explain this")
+        || lower.contains("tell me how")
+        || lower.ends_with('?') && (lower.contains("why") || lower.contains("what") || lower.contains("how"));
+
+    if is_inquiry {
+        return UserIntent::DiscussionAndGuide;
+    }
+
+    // Code implementation and modification action triggers (creating, editing, fixing files)
+    let action_triggers = [
+        "implement", "create", "build", "add", "make", "fix", "debug", "refactor",
+        "optimize", "update", "delete", "remove", "edit", "write", "generate",
+        "inspect", "analyze", "explore", "test", "tests", "run", "compile",
+        "patch", "modify", "code this", "write code"
+    ];
+
+    let has_action_trigger = action_triggers.iter().any(|&trigger| {
+        words.iter().any(|&w| w == trigger || w.starts_with(trigger) || w.ends_with(trigger))
+    });
+
+    if has_action_trigger {
+        return UserIntent::WorkAndProject;
+    }
+
+    UserIntent::DiscussionAndGuide
+}
+
+/// Prompt used when engaging in discussion, technical guidance, code explanations, or architectural inquiries.
+pub fn build_discussion_guide_prompt() -> String {
+    format!(
+        "You are ZENE, an expert software engineering collaborator and architectural guide integrated directly into the Zenthree code editor.\n\
+        The user is seeking an explanation of their code/project, discussing architecture, or asking technical questions.\n\n\
+        CORE GUIDELINES:\n\
+        1. When the user asks to explain, describe, or walk through a project or code (e.g. 'can you explain the react calculator project?'), provide a comprehensive, beautifully structured markdown explanation.\n\
+        2. Break down the project architecture, entry points, key components, logic, dependencies, and data flow using the provided workspace context.\n\
+        3. Be direct, articulate, insightful, and practical.\n\
+        4. Do NOT output surgical SEARCH/REPLACE diff blocks or create task checklists unless the user explicitly requests code implementation.\n\
+        5. Answer the user's questions directly and thoroughly in formatted markdown with headings, code snippets, and bullet points."
     )
 }
 
@@ -1882,6 +2001,73 @@ impl DetectorAgent {
                 test_cmd: Some(vec![bin.to_string(), "test".to_string()]),
                 details: format!("{} project detected (pubspec.yaml)", if is_flutter { "Flutter" } else { "Dart" }),
             };
+        }
+
+        // 13. Standalone source files detection (Python, JS, TS, Rust, Go, etc.)
+        if let Ok(entries) = std::fs::read_dir(workspace_root) {
+            let mut has_py = false;
+            let mut has_js = false;
+            let mut has_ts = false;
+            let mut has_rs = false;
+            let mut has_go = false;
+            for entry in entries.flatten() {
+                let p = entry.path();
+                if p.is_file() {
+                    match p.extension().and_then(|e| e.to_str()) {
+                        Some("py") => has_py = true,
+                        Some("js") | Some("mjs") | Some("cjs") => has_js = true,
+                        Some("ts") | Some("tsx") => has_ts = true,
+                        Some("rs") => has_rs = true,
+                        Some("go") => has_go = true,
+                        _ => {}
+                    }
+                }
+            }
+            if has_py {
+                return ProjectEnvironment {
+                    language: ProjectLanguage::Python,
+                    build_system: "Python".to_string(),
+                    compiler_check_cmd: Some(vec!["python3".to_string(), "-m".to_string(), "py_compile".to_string()]),
+                    test_cmd: Some(vec!["pytest".to_string()]),
+                    details: "Python script environment (standalone .py files)".to_string(),
+                };
+            }
+            if has_ts {
+                return ProjectEnvironment {
+                    language: ProjectLanguage::TypeScript,
+                    build_system: "TypeScript".to_string(),
+                    compiler_check_cmd: None,
+                    test_cmd: None,
+                    details: "TypeScript source files detected".to_string(),
+                };
+            }
+            if has_js {
+                return ProjectEnvironment {
+                    language: ProjectLanguage::JavaScript,
+                    build_system: "Node.js".to_string(),
+                    compiler_check_cmd: None,
+                    test_cmd: None,
+                    details: "JavaScript source files detected".to_string(),
+                };
+            }
+            if has_rs {
+                return ProjectEnvironment {
+                    language: ProjectLanguage::Rust,
+                    build_system: "Rust".to_string(),
+                    compiler_check_cmd: Some(vec!["rustc".to_string(), "--edition=2021".to_string()]),
+                    test_cmd: None,
+                    details: "Standalone Rust source files detected".to_string(),
+                };
+            }
+            if has_go {
+                return ProjectEnvironment {
+                    language: ProjectLanguage::Go,
+                    build_system: "Go".to_string(),
+                    compiler_check_cmd: Some(vec!["go".to_string(), "vet".to_string()]),
+                    test_cmd: Some(vec!["go".to_string(), "test".to_string()]),
+                    details: "Standalone Go source files detected".to_string(),
+                };
+            }
         }
 
         // Fallback: Generic/Unknown

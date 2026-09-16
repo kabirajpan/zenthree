@@ -77,8 +77,10 @@ fn main() {
             }
 
             // Poll background AI responses (Groq LLM + Connectome)
-            if state.poll_ai_responses() || state.ai_pending_requests > 0 {
+            if state.poll_ai_responses() {
                 ui.request_redraw();
+            } else if state.ai_pending_requests > 0 {
+                ui.request_redraw_after(std::time::Duration::from_millis(33));
             }
 
 

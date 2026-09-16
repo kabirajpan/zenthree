@@ -65,11 +65,13 @@ pub struct AgentSession {
 
 impl AgentSession {
     pub fn new(base_workspace: &Path, title: Option<&str>) -> Self {
+        static SESSION_COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(1);
         let now = std::time::SystemTime::now()
             .duration_since(std::time::UNIX_EPOCH)
             .map(|d| d.as_secs())
             .unwrap_or(0);
-        let id = format!("sess_{}", now);
+        let seq = SESSION_COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+        let id = format!("sess_{}_{}", now, seq);
         let session_title = title.unwrap_or("New Session").to_string();
 
         let dir_path = get_session_dir(base_workspace, &id);
@@ -146,6 +148,7 @@ impl AgentSession {
     }
 
     pub fn save_messages(&self, messages: &[AiMessage]) {
+        let _ = std::fs::create_dir_all(&self.dir_path);
         let path = self.messages_file_path();
         if let Ok(json) = serde_json::to_string_pretty(messages) {
             let _ = std::fs::write(path, json);
@@ -274,6 +277,7 @@ impl AgentSession {
 
         content.push_str("\n## Verification Plan\n- Automated syntax checks and compiler diagnostics\n- Workspace parity verification\n");
 
+        let _ = std::fs::create_dir_all(&self.dir_path);
         let _ = std::fs::write(&path, content);
         self.has_plan = true;
         self.updated_at = std::time::SystemTime::now()
@@ -326,6 +330,7 @@ impl AgentSession {
 
         content.push_str("\n---\n*Generated autonomously by ZENE Agent*\n");
 
+        let _ = std::fs::create_dir_all(&self.dir_path);
         let _ = std::fs::write(&path, content);
         self.has_mission = true;
     }
@@ -355,6 +360,9 @@ impl AgentSession {
             content.push_str("⏳ Code changes pending verification / acceptance\n");
         }
 
+        content.push_str("\n---\n*Generated autonomously by ZENE Agent*\n");
+
+        let _ = std::fs::create_dir_all(&self.dir_path);
         let _ = std::fs::write(&path, content);
         self.has_walkthrough = true;
     }
