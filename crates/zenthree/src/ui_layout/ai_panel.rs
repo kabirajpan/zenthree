@@ -353,11 +353,18 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                     .gap(10.0)
                     .scroll_y(true)
                     .show(|ui| {
+                        let card_w = (ai_panel_w - 20.0).max(120.0);
+                        let card_inner_w = (card_w - 20.0).max(80.0);
+
                         // Top "+ Start New Session" Action Card
                         let mut do_start_new = false;
+                        let start_btn_w = 52.0;
+                        let start_title_w = (card_inner_w - 30.0 - start_btn_w - 6.0).max(40.0);
+
                         let start_new_btn = ui.container()
                             .id(Id::from_u64(999999801))
-                            .width(ai_panel_w - 20.0)
+                            .width(card_w)
+                            .clip(true)
                             .bg(colors.bg_sidebar)
                             .border(colors.border, 1.0)
                             .hover_bg(colors.highlight)
@@ -368,6 +375,7 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                             .halign(Align::SpaceBetween)
                             .show(|ui| {
                                 ui.container()
+                                    .width(30.0 + start_title_w)
                                     .row()
                                     .gap(8.0)
                                     .valign(Align::Center)
@@ -388,6 +396,8 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                             });
 
                                         ui.container()
+                                            .width(start_title_w)
+                                            .clip(true)
                                             .column()
                                             .gap(2.0)
                                             .show(|ui| {
@@ -395,23 +405,27 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                                     .size(11.0)
                                                     .weight(FontWeight::SemiBold)
                                                     .color(colors.text_primary)
+                                                    .max_width(start_title_w)
+                                                    .ellipsis(true)
                                                     .show();
                                                 ui.text("Begin fresh agent conversation")
                                                     .size(9.0)
                                                     .color(colors.text_muted)
+                                                    .max_width(start_title_w)
+                                                    .ellipsis(true)
                                                     .show();
                                             });
                                     });
 
                                 let new_btn = ui.button("+ New")
                                     .id(Id::from_u64(999998799))
+                                    .width(start_btn_w)
                                     .height(20.0)
                                     .bg(colors.accent)
                                     .hover_bg(colors.accent.with_alpha(0.85))
                                     .text_color(Color::WHITE)
                                     .radius_all(3.0)
-                                    .padding_left(8.0)
-                                    .padding_right(8.0)
+                                    .padding(0.0, 0.0, 0.0, 0.0)
                                     .size(10.0)
                                     .show();
 
@@ -427,7 +441,7 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
 
                         // Section Heading: Saved Sessions
                         ui.container()
-                            .width(ai_panel_w - 20.0)
+                            .width(card_w)
                             .padding_top(6.0)
                             .row()
                             .valign(Align::Center)
@@ -447,7 +461,7 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
 
                         if state.session_list.is_empty() {
                             ui.container()
-                                .width(ai_panel_w - 20.0)
+                                .width(card_w)
                                 .height(80.0)
                                 .radius_all(6.0)
                                 .bg(colors.bg_base)
@@ -469,12 +483,15 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                 });
                         } else {
                             let mut selected_session = None;
+                            let btn_w = 56.0;
+                            let title_col_w = (card_inner_w - 30.0 - btn_w - 6.0).max(40.0);
 
                             for (idx, sess) in state.session_list.iter().enumerate() {
                                 let is_current = sess.id == state.current_session.id;
                                 let sess_card = ui.container()
                                     .id(Id::from_u64(999998800 + idx as u64))
-                                    .width(ai_panel_w - 20.0)
+                                    .width(card_w)
+                                    .clip(true)
                                     .bg(if is_current { colors.accent.with_alpha(0.06) } else { colors.bg_sidebar })
                                     .border(if is_current { colors.accent.with_alpha(0.5) } else { colors.border }, 1.0)
                                     .hover_bg(colors.highlight)
@@ -485,6 +502,7 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                     .halign(Align::SpaceBetween)
                                     .show(|ui| {
                                         ui.container()
+                                            .width(30.0 + title_col_w)
                                             .row()
                                             .gap(8.0)
                                             .valign(Align::Center)
@@ -505,6 +523,8 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                                     });
 
                                                 ui.container()
+                                                    .width(title_col_w)
+                                                    .clip(true)
                                                     .column()
                                                     .gap(2.0)
                                                     .show(|ui| {
@@ -512,6 +532,8 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                                             .size(11.0)
                                                             .weight(FontWeight::SemiBold)
                                                             .color(colors.text_primary)
+                                                            .max_width(title_col_w)
+                                                            .ellipsis(true)
                                                             .show();
 
                                                         let time_str = format_relative_time(sess.updated_at);
@@ -519,6 +541,8 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                                         ui.text(&meta_text)
                                                             .size(9.0)
                                                             .color(colors.text_muted)
+                                                            .max_width(title_col_w)
+                                                            .ellipsis(true)
                                                             .show();
                                                     });
                                             });
@@ -526,12 +550,13 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                         // Right: Action button matching extensions_panel.rs
                                         if is_current {
                                             ui.container()
+                                                .width(btn_w)
                                                 .height(20.0)
-                                                .padding(2.0, 8.0, 2.0, 8.0)
                                                 .bg(colors.accent.with_alpha(0.15))
                                                 .border(colors.accent, 1.0)
                                                 .radius_all(3.0)
                                                 .valign(Align::Center)
+                                                .halign(Align::Center)
                                                 .show(|ui| {
                                                     ui.text("Current")
                                                         .size(10.0)
@@ -542,13 +567,13 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                         } else {
                                             let cont_btn = ui.button("Continue")
                                                 .id(Id::from_u64(999998900 + idx as u64))
+                                                .width(btn_w)
                                                 .height(20.0)
                                                 .bg(colors.accent)
                                                 .hover_bg(colors.accent.with_alpha(0.85))
                                                 .text_color(Color::WHITE)
                                                 .radius_all(3.0)
-                                                .padding_left(8.0)
-                                                .padding_right(8.0)
+                                                .padding(0.0, 0.0, 0.0, 0.0)
                                                 .size(10.0)
                                                 .show();
 
