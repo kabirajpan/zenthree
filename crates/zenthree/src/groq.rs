@@ -69,15 +69,32 @@ fn ipv4_resolver(netloc: &str) -> std::io::Result<Vec<std::net::SocketAddr>> {
     Ok(addrs)
 }
 
-/// Calls Groq chat completions API with full multi-turn conversation messages,
-/// automatically falling back to lighter high-quota models if rate limit (429) is hit.
 pub fn call_groq_api_messages(
     api_key: &str,
     messages: &[ChatMessage],
 ) -> Result<String, String> {
+    call_groq_api_messages_with_model(api_key, messages, None)
+}
+
+pub fn call_groq_api_messages_with_model(
+    api_key: &str,
+    messages: &[ChatMessage],
+    preferred_model: Option<&str>,
+) -> Result<String, String> {
     let url = "https://api.groq.com/openai/v1/chat/completions";
 
-    let models = [PRIMARY_MODEL, FALLBACK_MODEL, TERTIARY_MODEL];
+    let mut models = vec![PRIMARY_MODEL, FALLBACK_MODEL, TERTIARY_MODEL];
+    if let Some(pref) = preferred_model {
+        let trimmed = pref.trim();
+        if !trimmed.is_empty() {
+            if let Some(pos) = models.iter().position(|m| *m == trimmed) {
+                let m = models.remove(pos);
+                models.insert(0, m);
+            } else {
+                models.insert(0, trimmed);
+            }
+        }
+    }
     let mut last_error = String::new();
 
     let agent = ureq::builder()
@@ -143,6 +160,15 @@ pub fn call_groq_api(
     system_prompt: &str,
     user_prompt: &str,
 ) -> Result<String, String> {
+    call_groq_api_with_model(api_key, system_prompt, user_prompt, None)
+}
+
+pub fn call_groq_api_with_model(
+    api_key: &str,
+    system_prompt: &str,
+    user_prompt: &str,
+    preferred_model: Option<&str>,
+) -> Result<String, String> {
     let messages = vec![
         ChatMessage {
             role: "system".to_string(),
@@ -153,5 +179,5 @@ pub fn call_groq_api(
             content: user_prompt.to_string(),
         },
     ];
-    call_groq_api_messages(api_key, &messages)
+    call_groq_api_messages_with_model(api_key, &messages, preferred_model)
 }

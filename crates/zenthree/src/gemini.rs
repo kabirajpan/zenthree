@@ -70,14 +70,41 @@ pub fn call_gemini_api(
     user_prompt: &str,
     history: &[crate::groq::ChatMessage],
 ) -> Result<String, String> {
+    call_gemini_api_with_model(api_key, system_prompt, user_prompt, history, None)
+}
+
+pub fn call_gemini_api_with_model(
+    api_key: &str,
+    system_prompt: &str,
+    user_prompt: &str,
+    history: &[crate::groq::ChatMessage],
+    preferred_model: Option<&str>,
+) -> Result<String, String> {
     // Model preference: Google Gemini models verified live for this API key:
-    let models = [
+    let mut models = vec![
+        "gemini-3.5-flash",
+        "gemini-3.1-flash-lite",
+        "gemini-flash-lite-latest",
         "gemini-3.6-flash",
         "gemini-3.7-flash",
-        "gemini-flash-latest",
         "gemini-3.8-flash",
-        "gemini-2.5-flash",
+        "gemini-flash-latest",
+        "gemma-4-31b-it",
     ];
+    if let Some(pref) = preferred_model {
+        let mut trimmed = pref.trim();
+        if trimmed == "gemini-2.5-flash" {
+            trimmed = "gemini-3.5-flash";
+        }
+        if !trimmed.is_empty() {
+            if let Some(pos) = models.iter().position(|m| *m == trimmed) {
+                let m = models.remove(pos);
+                models.insert(0, m);
+            } else {
+                models.insert(0, trimmed);
+            }
+        }
+    }
     let mut last_error = String::new();
 
     let agent = ureq::builder()

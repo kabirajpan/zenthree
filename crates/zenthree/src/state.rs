@@ -189,7 +189,9 @@ pub struct SessionModifiedFile {
 pub use crate::agent::{
     AgentMission, AgentTask, TaskStatus, TargetFileModification,
     create_mission_for_prompt, build_autonomous_agent_prompt, extract_all_file_modifications,
-    run_project_compiler_check, build_self_healing_prompt, extract_tool_call_read_paths,
+    run_project_compiler_check, build_self_healing_prompt,
+    AgentToolCall, parse_agent_tool_calls, execute_agent_tool,
+    ProviderChain,
 };
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -242,6 +244,12 @@ pub struct PersistentState {
     pub installed_extensions: Vec<String>,
     #[serde(default)]
     pub ignored_language_prompts: Vec<String>,
+    #[serde(default)]
+    pub selected_model: Option<String>,
+    #[serde(default)]
+    pub model_auto_mode: Option<bool>,
+    #[serde(default)]
+    pub custom_models: Vec<String>,
 }
 
 pub fn get_config_path() -> PathBuf {
@@ -354,6 +362,13 @@ pub struct ZenthreeState {
     pub active_input_drawer: AiInputDrawer,
     pub session_modified_files: Vec<SessionModifiedFile>,
     pub ai_showing_session_list: bool,
+    pub ai_context_menu_open: bool,
+    pub ai_model_menu_open: bool,
+    pub model_auto_mode: bool,
+    pub selected_model: String,
+    pub custom_models: Vec<String>,
+    pub adding_custom_model: bool,
+    pub custom_model_input: String,
 }
 
 impl ZenthreeState {
@@ -491,11 +506,20 @@ impl ZenthreeState {
             active_input_drawer: AiInputDrawer::None,
             session_modified_files: Vec::new(),
             ai_showing_session_list: true,
+            ai_context_menu_open: false,
+            ai_model_menu_open: false,
+            model_auto_mode: true,
+            selected_model: "Auto".to_string(),
+            custom_models: Vec::new(),
+            adding_custom_model: false,
+            custom_model_input: String::new(),
         };
 
         // Restore previous session preferences (theme, accent, extensions, etc.)
         #[cfg(not(test))]
         state.load_persistent_state();
+
+        state.save_current_session_messages();
 
         // If CLI argument was explicitly provided, open specified file or workspace
         #[allow(unused_mut)]
@@ -535,6 +559,7 @@ impl ZenthreeState {
     }
 
     pub fn save_persistent_state(&self) {
+        self.save_current_session_messages();
         let path = get_config_path();
         let current_dir = if self.has_workspace {
             Some(self.current_dir.clone())
@@ -581,6 +606,9 @@ impl ZenthreeState {
             sidebar_view: Some(self.sidebar_view),
             installed_extensions: self.installed_extensions.iter().cloned().collect(),
             ignored_language_prompts: self.ignored_language_prompts.iter().cloned().collect(),
+            selected_model: Some(self.selected_model.clone()),
+            model_auto_mode: Some(self.model_auto_mode),
+            custom_models: self.custom_models.clone(),
         };
 
         if let Ok(json) = serde_json::to_string_pretty(&state) {
@@ -617,6 +645,9 @@ impl ZenthreeState {
                 if !saved.ignored_language_prompts.is_empty() {
                     self.ignored_language_prompts = saved.ignored_language_prompts.into_iter().collect();
                 }
+                if let Some(m) = saved.selected_model { self.selected_model = m; }
+                if let Some(a) = saved.model_auto_mode { self.model_auto_mode = a; }
+                if !saved.custom_models.is_empty() { self.custom_models = saved.custom_models; }
 
                 let args: Vec<String> = std::env::args().collect();
                 if args.len() > 1 {
@@ -739,18 +770,17 @@ impl ZenthreeState {
                         &self.current_dir,
                         active_path,
                     ) {
-                        file_modifications.push(TargetFileModification {
-                            file_path: target_file,
+                        file_modifications.push(TargetFileModification::new_overwrite(
+                            target_file,
                             proposed_code,
-                        });
+                        ));
                     }
                 }
             }
 
             let mut summaries = Vec::new();
             for modif in file_modifications {
-                let target_file = modif.file_path;
-                let proposed_code = modif.proposed_code;
+                let target_file = modif.file_path.clone();
 
                 if let Some(parent) = target_file.parent() {
                     let _ = std::fs::create_dir_all(parent);
@@ -763,6 +793,14 @@ impl ZenthreeState {
                     disk_content
                 } else {
                     String::new()
+                };
+
+                let proposed_code = match modif.apply_to(&original_code) {
+                    Ok(code) => code,
+                    Err(err) => {
+                        log::warn!("Surgical patch application failed for {}: {}", target_file.display(), err);
+                        continue;
+                    }
                 };
 
                 if is_new_file || (!original_code.trim().is_empty() && proposed_code != original_code) {
@@ -856,25 +894,28 @@ impl ZenthreeState {
                 self.current_session.update_walkthrough_file(&self.last_ai_prompt, &summaries, false);
             }
 
-            // 3. Check if the model attempted a tool call to read files
-            let requested_read_paths = extract_tool_call_read_paths(&content);
-            if summaries.is_empty() && !requested_read_paths.is_empty() {
-                let mut read_snippets = Vec::new();
-                for rel_path in &requested_read_paths {
-                    let full_path = self.current_dir.join(rel_path);
-                    if let Ok(c) = std::fs::read_to_string(&full_path) {
-                        if !c.trim().is_empty() {
-                            let sample: String = c.chars().take(4000).collect();
-                            read_snippets.push(format!("File `{}`:\n```\n{}\n```", rel_path, sample));
-                        }
-                    }
+            // 3. Check if the model requested workspace tools (search_code, read_file, list_directory, run_command)
+            let tool_calls = parse_agent_tool_calls(&content);
+            if summaries.is_empty() && !tool_calls.is_empty() {
+                let mut tool_results = Vec::new();
+                for call in &tool_calls {
+                    let res = execute_agent_tool(&self.current_dir, call);
+                    tool_results.push(res);
                 }
 
-                if !read_snippets.is_empty() && (self.gemini_api_key.is_some() || self.groq_api_key.is_some()) {
+                if !tool_results.is_empty() && (self.gemini_api_key.is_some() || self.groq_api_key.is_some()) {
+                    let first_desc = match &tool_calls[0] {
+                        AgentToolCall::SearchCode { query } => format!("search for `{}`", query),
+                        AgentToolCall::ReadFile { path, .. } => format!("read `{}`", path),
+                        AgentToolCall::ListDirectory { path } => format!("list `{}`", path.as_deref().unwrap_or(".")),
+                        AgentToolCall::RunCommand { cmd } => format!("run `{}`", cmd),
+                        AgentToolCall::EditFile { path, .. } => format!("patch `{}`", path),
+                    };
+
                     if let Some(ref mut mission) = self.current_mission {
-                        mission.status_message = format!("Agent read {} requested files... generating code", read_snippets.len());
+                        mission.status_message = format!("Agent executed {} tool(s) ({})", tool_results.len(), first_desc);
                         if let Some(task) = mission.tasks.get_mut(1) {
-                            task.title = format!("Read {} files & implement code", read_snippets.len());
+                            task.title = format!("Workspace tool observation: {}", first_desc);
                             task.status = TaskStatus::InProgress;
                         }
                         self.current_session.update_mission_file(mission);
@@ -888,33 +929,38 @@ impl ZenthreeState {
                     let sender = self.ai_sender.clone();
                     let system_prompt = build_autonomous_agent_prompt(95.0);
                     let goal_prompt = self.last_ai_prompt.clone();
+
+                    let mut tool_observation_str = String::new();
+                    for r in &tool_results {
+                        tool_observation_str.push_str(&format!(
+                            "### Tool Result: `{}` (Status: {})\n```\n{}\n```\n\n",
+                            r.tool_name,
+                            if r.ok { "success" } else { "failed" },
+                            r.output
+                        ));
+                    }
+
                     let continuation_prompt = format!(
-                        "Here are the contents of the files you requested from the workspace:\n\n\
-                        {}\n\n\
-                        User Goal: {}\n\
-                        NOW write the complete code implementation for each target file using `### File: <path>` tags and fenced code blocks.",
-                        read_snippets.join("\n\n"),
+                        "Here are the tool execution results from the workspace:\n\n\
+                        {}\
+                        User Goal: {}\n\n\
+                        Based on the real workspace tool observations above, fulfill the user goal. \
+                        For existing files use surgical `<<<<<<< SEARCH ... ======= ... >>>>>>> REPLACE` blocks under `### File: <path>`, \
+                        or for new files output full code under `### File: <path>`.",
+                        tool_observation_str,
                         goal_prompt
                     );
 
                     std::thread::spawn(move || {
-                        if let Some(ref gkey) = gemini_key {
-                            let res_text = match crate::gemini::call_gemini_api(gkey, &system_prompt, &continuation_prompt, &[]) {
-                                Ok(txt) => txt,
-                                Err(e) => format!("⚠️ Gemini continuation error: {}", e),
-                            };
-                            let _ = sender.send((idx, res_text));
-                            return;
+                        let chain = ProviderChain::new(gemini_key, groq_key, None);
+                        match chain.complete(&system_prompt, &continuation_prompt, &[]) {
+                            Ok(res_text) => {
+                                let _ = sender.send((idx, res_text));
+                            }
+                            Err(e) => {
+                                let _ = sender.send((idx, format!("⚠️ Tool continuation error: {}", e)));
+                            }
                         }
-                        if let Some(ref qkey) = groq_key {
-                            let res_text = match crate::groq::call_groq_api(qkey, &system_prompt, &continuation_prompt) {
-                                Ok(txt) => txt,
-                                Err(e) => format!("⚠️ Groq continuation error: {}", e),
-                            };
-                            let _ = sender.send((idx, res_text));
-                            return;
-                        }
-                        let _ = sender.send((idx, "⚠️ No AI provider configured".to_string()));
                     });
                     continue;
                 }
@@ -994,12 +1040,8 @@ impl ZenthreeState {
                                 self_healing_prompt = build_self_healing_prompt(&mission.goal, &compiler_err, target_hint);
                                 trigger_self_healing = true;
                             } else {
-                                if let Some(task) = mission.tasks.get_mut(verify_idx) {
-                                    task.title = "Compiler check (Errors remain after 2 healing attempts)".to_string();
-                                    task.status = TaskStatus::Failed(compiler_err);
-                                }
-                                mission.is_active = false;
-                                mission.status_message = "⚠️ Self-healing limit reached (2 attempts). Review errors manually.".to_string();
+                                mission.mark_task_failed_and_continue(verify_idx, compiler_err);
+                                self.status_message = mission.status_message.clone();
                             }
                         }
                         Some(Ok(())) => {
@@ -1041,25 +1083,20 @@ impl ZenthreeState {
                 let sender = self.ai_sender.clone();
                 let system_prompt = build_autonomous_agent_prompt(95.0);
                 std::thread::spawn(move || {
-                    if let Some(ref gkey) = gemini_key {
-                        let res = match crate::gemini::call_gemini_api(gkey, &system_prompt, &self_healing_prompt, &[]) {
-                            Ok(txt) => txt,
-                            Err(e) => format!("⚠️ Self-healing (Gemini) failed: {}", e),
-                        };
-                        let _ = sender.send((idx, res));
-                        return;
+                    let chain = ProviderChain::new(gemini_key, groq_key, None);
+                    match chain.complete(&system_prompt, &self_healing_prompt, &[]) {
+                        Ok(res) => {
+                            let _ = sender.send((idx, res));
+                        }
+                        Err(e) => {
+                            let _ = sender.send((idx, format!("⚠️ Self-healing error: {}", e)));
+                        }
                     }
-                    if let Some(ref qkey) = groq_key {
-                        let res = match crate::groq::call_groq_api(qkey, &system_prompt, &self_healing_prompt) {
-                            Ok(txt) => txt,
-                            Err(e) => format!("⚠️ Self-healing (Groq) failed: {}", e),
-                        };
-                        let _ = sender.send((idx, res));
-                        return;
-                    }
-                    let _ = sender.send((idx, "⚠️ Self-healing: No AI provider configured.".to_string()));
                 });
             }
+        }
+        if updated {
+            self.save_current_session_messages();
         }
         updated
     }
@@ -1246,7 +1283,12 @@ impl ZenthreeState {
         self.scan_dir_recursive(&root, 0, &mut ancestors, &git_statuses);
     }
 
+    pub fn save_current_session_messages(&self) {
+        self.current_session.save_messages(&self.ai_messages);
+    }
+
     pub fn start_new_session(&mut self) {
+        self.save_current_session_messages();
         let new_sess = crate::session::AgentSession::new(&self.current_dir, None);
         self.current_session = new_sess;
         self.current_mission = None;
@@ -1262,6 +1304,7 @@ impl ZenthreeState {
                 ..Default::default()
             },
         ];
+        self.save_current_session_messages();
         self.session_list = crate::session::list_saved_sessions(&self.current_dir);
         self.session_dropdown_open = false;
         self.active_input_drawer = AiInputDrawer::None;
@@ -1280,6 +1323,9 @@ impl ZenthreeState {
     }
 
     pub fn switch_session(&mut self, session_id: &str) {
+        // Save conversation of current session first
+        self.save_current_session_messages();
+
         if let Some(sess) = crate::session::AgentSession::load(&self.current_dir, session_id) {
             self.current_session = sess;
             self.current_mission = None;
@@ -1288,37 +1334,66 @@ impl ZenthreeState {
             self.session_modified_files.clear();
             self.active_input_drawer = AiInputDrawer::None;
 
-            let mut msgs = Vec::new();
-            let mut thoughts = format!("Resumed session: {}", self.current_session.title);
-
-            let walk_path = self.current_session.walkthrough_file_path();
-            if let Ok(walk_text) = std::fs::read_to_string(&walk_path) {
-                if walk_text.contains("## Changes Implemented") {
-                    thoughts.push_str(" (Previous changes and artifacts loaded)");
+            if let Some(saved_msgs) = self.current_session.load_messages() {
+                if !saved_msgs.is_empty() {
+                    self.ai_messages = saved_msgs;
+                } else {
+                    self.init_resumed_session_message();
                 }
+            } else {
+                self.init_resumed_session_message();
             }
 
-            msgs.push(AiMessage {
-                is_user: false,
-                content: format!("Resumed session **{}**.\nYou can continue this conversation, review files, or issue new tasks.", self.current_session.title),
-                code_snippet: None,
-                thoughts: Some(thoughts),
-                deliberation: None,
-                ..Default::default()
-            });
+            if let Some(last_user) = self.ai_messages.iter().filter(|m| m.is_user).last() {
+                self.last_ai_prompt = last_user.content.clone();
+            }
 
-            self.ai_messages = msgs;
             self.ai_showing_session_list = false;
             self.session_dropdown_open = false;
             self.status_message = format!("Switched to session {}", self.current_session.title);
         }
     }
 
+    fn init_resumed_session_message(&mut self) {
+        let mut thoughts = format!("Resumed session: {}", self.current_session.title);
+        let walk_path = self.current_session.walkthrough_file_path();
+        if let Ok(walk_text) = std::fs::read_to_string(&walk_path) {
+            if walk_text.contains("## Changes Implemented") {
+                thoughts.push_str(" (Previous changes and artifacts loaded)");
+            }
+        }
+
+        self.ai_messages = vec![
+            AiMessage {
+                is_user: false,
+                content: format!("Resumed session **{}**.\nYou can continue this conversation, review files, or issue new tasks.", self.current_session.title),
+                code_snippet: None,
+                thoughts: Some(thoughts),
+                deliberation: None,
+                ..Default::default()
+            },
+        ];
+        self.save_current_session_messages();
+    }
+
+    pub fn delete_session(&mut self, session_id: &str) {
+        let is_current = self.current_session.id == session_id;
+        crate::session::delete_session(&self.current_dir, session_id);
+        if is_current {
+            self.start_new_session();
+        } else {
+            self.session_list = crate::session::list_saved_sessions(&self.current_dir);
+        }
+        self.status_message = format!("Deleted session {}", session_id);
+    }
+
     pub fn open_workspace(&mut self, path: PathBuf) {
+        self.save_current_session_messages();
         self.current_dir = path;
         self.has_workspace = true;
         self.expanded_dirs.clear();
         self.current_session = crate::session::AgentSession::new(&self.current_dir, None);
+        self.save_current_session_messages();
         self.session_list = crate::session::list_saved_sessions(&self.current_dir);
         self.rebuild_tree();
         self.status_message = format!("Opened workspace: {}", self.current_dir.display());
@@ -1326,10 +1401,12 @@ impl ZenthreeState {
     }
 
     pub fn close_workspace(&mut self) {
+        self.save_current_session_messages();
         self.has_workspace = false;
         self.sidebar_items.clear();
         self.expanded_dirs.clear();
         self.current_session = crate::session::AgentSession::new(&self.current_dir, None);
+        self.save_current_session_messages();
         self.session_list = crate::session::list_saved_sessions(&self.current_dir);
         self.status_message = "Workspace closed".to_string();
         self.save_persistent_state();
@@ -2320,6 +2397,7 @@ impl ZenthreeState {
             deliberation: None,
             ..Default::default()
         });
+        self.save_current_session_messages();
 
         // 1. Extract AST context via tree-sitter
         let (ast_context, active_file) = if let Some(idx) = self.active_tab {
@@ -2397,45 +2475,62 @@ impl ZenthreeState {
                 )
             };
 
-            let project_ctx = crate::project_index::search_project_context(&self.current_dir, trimmed, 6);
+            let project_ctx = if self.has_workspace {
+                crate::project_index::search_project_context(&self.current_dir, trimmed, 6)
+            } else {
+                crate::project_index::ProjectContextSummary {
+                    matched_files: Vec::new(),
+                    symbol_locations: Vec::new(),
+                    formatted_prompt_context: String::new(),
+                }
+            };
 
             let mut explored_items = Vec::new();
-            for f in &project_ctx.matched_files {
-                let range = if let Some((first_l, _)) = f.snippet_lines.first() {
-                    let last_l = f.snippet_lines.last().map(|(l, _)| *l).unwrap_or(*first_l);
-                    if *first_l == last_l {
-                        Some(format!("#L{}", first_l))
+            if self.has_workspace {
+                for f in &project_ctx.matched_files {
+                    let range = if let Some((first_l, _)) = f.snippet_lines.first() {
+                        let last_l = f.snippet_lines.last().map(|(l, _)| *l).unwrap_or(*first_l);
+                        if *first_l == last_l {
+                            Some(format!("#L{}", first_l))
+                        } else {
+                            Some(format!("#L{}-{}", first_l, (first_l + 15).max(last_l)))
+                        }
                     } else {
-                        Some(format!("#L{}-{}", first_l, (first_l + 15).max(last_l)))
-                    }
-                } else {
-                    None
-                };
-                let display_file = f.path.file_name().and_then(|n| n.to_str()).unwrap_or(&f.relative_path);
-                explored_items.push(ExploredItem {
-                    file_name: display_file.to_string(),
-                    line_range: range,
-                    action_type: "Analyzed".to_string(),
-                });
+                        None
+                    };
+                    let display_file = f.path.file_name().and_then(|n| n.to_str()).unwrap_or(&f.relative_path);
+                    explored_items.push(ExploredItem {
+                        file_name: display_file.to_string(),
+                        line_range: range,
+                        action_type: "Analyzed".to_string(),
+                    });
+                }
             }
             if explored_items.is_empty() {
                 if let Some(tab_idx) = self.active_tab {
                     if let Some(tab) = self.tabs.get(tab_idx) {
-                        let lines_cnt = tab.editor.buffer.line_count();
-                        explored_items.push(ExploredItem {
-                            file_name: tab.name.clone(),
-                            line_range: Some(format!("#L1-{}", lines_cnt.min(100))),
-                            action_type: "Analyzed".to_string(),
-                        });
+                        let code = tab.editor.buffer.to_string();
+                        if !code.trim().is_empty() {
+                            let lines_cnt = tab.editor.buffer.line_count();
+                            explored_items.push(ExploredItem {
+                                file_name: tab.name.clone(),
+                                line_range: Some(format!("#L1-{}", lines_cnt.min(100))),
+                                action_type: "Analyzed".to_string(),
+                            });
+                        }
                     }
                 }
             }
 
-            let mission = create_mission_for_prompt(trimmed, &explored_items);
-            self.current_session.title = trimmed.to_string();
-            self.current_session.update_implementation_plan(trimmed, &explored_items, "");
-            self.current_session.update_mission_file(&mission);
-            self.current_mission = Some(mission);
+            if self.has_workspace {
+                let mission = create_mission_for_prompt(trimmed, &explored_items);
+                self.current_session.title = trimmed.to_string();
+                self.current_session.update_implementation_plan(trimmed, &explored_items, "");
+                self.current_session.update_mission_file(&mission);
+                self.current_mission = Some(mission);
+            } else {
+                self.current_mission = None;
+            }
 
             self.ai_messages.push(AiMessage {
                 is_user: false,
@@ -2447,6 +2542,7 @@ impl ZenthreeState {
                 edited_files: Vec::new(),
                 is_working: true,
             });
+            self.save_current_session_messages();
 
             self.ai_pending_requests += 1;
             let gemini_key = self.gemini_api_key.clone();
@@ -2465,19 +2561,29 @@ impl ZenthreeState {
 
             self.last_ai_prompt = trimmed.to_string();
 
-            let system_prompt = build_autonomous_agent_prompt(deliberation.confidence * 100.0);
+            let system_prompt = if self.has_workspace {
+                build_autonomous_agent_prompt(deliberation.confidence * 100.0)
+            } else {
+                format!(
+                    "You are Zenthree AI, an intelligent coding and software engineering assistant integrated directly into the Zenthree code editor.\n\
+                    Note: The user currently has NO workspace or folder opened.\n\
+                    Help the user directly with their questions, code generation, algorithms, or explanations. Do not assume or reference files from any workspace unless provided by the user in the prompt or active editor buffer."
+                )
+            };
 
             let mut user_prompt = String::new();
-            if !project_ctx.formatted_prompt_context.is_empty() {
+            if self.has_workspace && !project_ctx.formatted_prompt_context.is_empty() {
                 user_prompt.push_str(&project_ctx.formatted_prompt_context);
                 user_prompt.push_str("\n\n");
             }
             // Include contents of top matched project files so the AI can read and trace symbols across unopened files
-            for f in project_ctx.matched_files.iter().take(2) {
-                if let Ok(c) = std::fs::read_to_string(&f.path) {
-                    if !c.trim().is_empty() {
-                        let sample: String = c.chars().take(4000).collect();
-                        user_prompt.push_str(&format!("Project file `{}`:\n```\n{}\n```\n\n", f.relative_path, sample));
+            if self.has_workspace {
+                for f in project_ctx.matched_files.iter().take(2) {
+                    if let Ok(c) = std::fs::read_to_string(&f.path) {
+                        if !c.trim().is_empty() {
+                            let sample: String = c.chars().take(4000).collect();
+                            user_prompt.push_str(&format!("Project file `{}`:\n```\n{}\n```\n\n", f.relative_path, sample));
+                        }
                     }
                 }
             }
@@ -2515,33 +2621,28 @@ impl ZenthreeState {
                 content: user_prompt.clone(),
             });
 
+            let preferred_model = if !self.model_auto_mode && !self.selected_model.is_empty() && self.selected_model != "Auto" {
+                Some(self.selected_model.clone())
+            } else {
+                None
+            };
+
             std::thread::spawn(move || {
-                // 1. Google Gemini (Preferred when configured)
-                if let Some(ref gkey) = gemini_key {
-                    let history = if chat_messages.len() > 2 {
-                        &chat_messages[1..chat_messages.len() - 1]
-                    } else {
-                        &[]
-                    };
-                    let result = match crate::gemini::call_gemini_api(gkey, &system_prompt, &user_prompt, history) {
-                        Ok(txt) => txt,
-                        Err(e) => format!("⚠️ Gemini API error: {}", e),
-                    };
-                    let _ = sender.send((msg_idx, result));
-                    return;
+                let preferred = preferred_model.as_deref();
+                let history = if chat_messages.len() > 2 {
+                    &chat_messages[1..chat_messages.len() - 1]
+                } else {
+                    &[]
+                };
+                let chain = ProviderChain::new(gemini_key, groq_key, preferred.map(|s| s.to_string()));
+                match chain.complete(&system_prompt, &user_prompt, history) {
+                    Ok(txt) => {
+                        let _ = sender.send((msg_idx, txt));
+                    }
+                    Err(e) => {
+                        let _ = sender.send((msg_idx, format!("⚠️ AI Provider error: {}", e)));
+                    }
                 }
-
-                // 2. Groq (only if Gemini is not configured)
-                if let Some(ref qkey) = groq_key {
-                    let result = match crate::groq::call_groq_api_messages(qkey, &chat_messages) {
-                        Ok(txt) => txt,
-                        Err(e) => format!("⚠️ Groq API error: {}", e),
-                    };
-                    let _ = sender.send((msg_idx, result));
-                    return;
-                }
-
-                let _ = sender.send((msg_idx, "⚠️ No AI provider configured. Add GEMINI_API_KEY in .env".to_string()));
             });
             return;
         }
@@ -2583,9 +2684,14 @@ impl ZenthreeState {
                 active_file
             )
         } else if is_project_query {
-            let project_name = self.current_dir.file_name()
-                .map(|n| n.to_string_lossy().to_string())
-                .unwrap_or_else(|| "Workspace".to_string());
+            if !self.has_workspace {
+                format!(
+                    "### No Folder Opened\n\nYou currently do not have a folder or workspace open in Zenthree.\n\nTo open a project:\n- Click **Open Folder** in the Explorer sidebar on the left.\n- Or use `Ctrl+O`.\n\nOnce opened, I can analyze your codebase and project architecture!"
+                )
+            } else {
+                let project_name = self.current_dir.file_name()
+                    .map(|n| n.to_string_lossy().to_string())
+                    .unwrap_or_else(|| "Workspace".to_string());
 
             let readme_path = self.current_dir.join("README.md");
             let readme_summary = if readme_path.exists() {
@@ -2630,6 +2736,7 @@ impl ZenthreeState {
             out.push_str("- **Refactor**: Suggest zero-allocation idiomatic improvements\n");
             out.push_str("- **Generate Tests**: Write automated unit test suites");
             out
+            }
         } else {
             format!(
                 "Query: `{}`\n\nConnectome neural gate verified the prompt with **{:.1}% confidence** ({}) across **{} dt**.\n\n- Use **Explain Code** to break down syntax trees\n- Use **Refactor** for idiomatic optimizations\n- Use **Generate Tests** for test suites",
@@ -2660,6 +2767,7 @@ impl ZenthreeState {
             deliberation: Some(deliberation),
             ..Default::default()
         });
+        self.save_current_session_messages();
 
         self.ai_input.clear();
     }
@@ -3119,6 +3227,7 @@ mod tests {
     #[test]
     fn test_connectome_ai_markdown_and_deliberation() {
         let mut state = ZenthreeState::new();
+        state.has_workspace = true;
         state.groq_api_key = None; // Test offline connectome + local markdown path
         state.gemini_api_key = None;
 
@@ -3170,6 +3279,8 @@ mod tests {
     #[test]
     fn test_agent_mission_and_checklist_lifecycle() {
         let mut state = ZenthreeState::new();
+        state.has_workspace = true;
+        state.groq_api_key = Some("test_mock_key".to_string());
         assert!(!state.is_agent_working());
         assert!(state.current_mission.is_none());
 
@@ -3201,9 +3312,9 @@ mod tests {
         let mods = extract_all_file_modifications(content, &tmp, None);
         assert_eq!(mods.len(), 2);
         assert_eq!(mods[0].file_path, tmp.join("src/components/Navbar.tsx"));
-        assert!(mods[0].proposed_code.contains("export const Navbar"));
+        assert!(mods[0].apply_to("").unwrap().contains("export const Navbar"));
         assert_eq!(mods[1].file_path, tmp.join("src/pages/Contact.tsx"));
-        assert!(mods[1].proposed_code.contains("export const Contact"));
+        assert!(mods[1].apply_to("").unwrap().contains("export const Contact"));
     }
 
     #[test]

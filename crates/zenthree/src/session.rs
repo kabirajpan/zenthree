@@ -1,5 +1,5 @@
 use std::path::{Path, PathBuf};
-use crate::state::{EditedFileSummary, ExploredItem};
+use crate::state::{AiMessage, EditedFileSummary, ExploredItem};
 use crate::agent::AgentMission;
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -8,6 +8,8 @@ pub struct SessionSummary {
     pub title: String,
     pub created_at: u64,
     pub updated_at: u64,
+    #[serde(default)]
+    pub message_count: usize,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -137,6 +139,29 @@ impl AgentSession {
 
     pub fn walkthrough_file_path(&self) -> PathBuf {
         self.dir_path.join("walkthrough.md")
+    }
+
+    pub fn messages_file_path(&self) -> PathBuf {
+        self.dir_path.join("messages.json")
+    }
+
+    pub fn save_messages(&self, messages: &[AiMessage]) {
+        let path = self.messages_file_path();
+        if let Ok(json) = serde_json::to_string_pretty(messages) {
+            let _ = std::fs::write(path, json);
+        }
+    }
+
+    pub fn load_messages(&self) -> Option<Vec<AiMessage>> {
+        let path = self.messages_file_path();
+        if path.exists() {
+            if let Ok(content) = std::fs::read_to_string(&path) {
+                if let Ok(messages) = serde_json::from_str::<Vec<AiMessage>>(&content) {
+                    return Some(messages);
+                }
+            }
+        }
+        None
     }
 
     pub fn list_artifacts(&self) -> Vec<SessionArtifact> {
@@ -388,6 +413,17 @@ pub fn get_session_dir(base_workspace: &Path, session_id: &str) -> PathBuf {
     }
 }
 
+/// Deletes a session directory and its contents from disk
+pub fn delete_session(base_workspace: &Path, session_id: &str) -> bool {
+    let dir = get_session_dir(base_workspace, session_id);
+    if dir.exists() {
+        let _ = std::fs::remove_dir_all(&dir);
+        true
+    } else {
+        false
+    }
+}
+
 /// Lists all saved session summaries from `.zenthree/sessions` sorted by last modified
 pub fn list_saved_sessions(base_workspace: &Path) -> Vec<SessionSummary> {
     let root = if base_workspace.exists() && base_workspace.is_dir() {
@@ -422,11 +458,23 @@ pub fn list_saved_sessions(base_workspace: &Path) -> Vec<SessionSummary> {
                     .and_then(|t| t.duration_since(std::time::UNIX_EPOCH).ok())
                     .map(|d| d.as_secs())
                     .unwrap_or(0);
+
+                let mut message_count = 0;
+                let msgs_path = entry.path().join("messages.json");
+                if msgs_path.exists() {
+                    if let Ok(content) = std::fs::read_to_string(&msgs_path) {
+                        if let Ok(parsed) = serde_json::from_str::<Vec<serde_json::Value>>(&content) {
+                            message_count = parsed.len();
+                        }
+                    }
+                }
+
                 list.push(SessionSummary {
                     id,
                     title,
                     created_at: updated_at,
                     updated_at,
+                    message_count,
                 });
             }
         }
@@ -574,6 +622,47 @@ mod tests {
         assert_eq!(format_bytes(512), "512 B");
         assert_eq!(format_bytes(2048), "2.0 KB");
         assert_eq!(format_relative_time(0), "recently");
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn test_session_messages_persistence_and_deletion() {
+        let tmp = make_test_tempdir();
+        let session = AgentSession::new(&tmp, Some("msg_session"));
+
+        let msgs = vec![
+            AiMessage {
+                is_user: true,
+                content: "How to parse JSON in Rust?".to_string(),
+                ..Default::default()
+            },
+            AiMessage {
+                is_user: false,
+                content: "Use serde_json crate!".to_string(),
+                ..Default::default()
+            },
+        ];
+
+        session.save_messages(&msgs);
+        assert!(session.messages_file_path().exists());
+
+        let loaded = session.load_messages().expect("load saved messages");
+        assert_eq!(loaded.len(), 2);
+        assert_eq!(loaded[0].content, "How to parse JSON in Rust?");
+        assert_eq!(loaded[1].content, "Use serde_json crate!");
+
+        let summaries = list_saved_sessions(&tmp);
+        let s = summaries.iter().find(|s| s.id == session.id).expect("session in summary");
+        assert_eq!(s.message_count, 2);
+
+        // Delete session
+        let deleted = delete_session(&tmp, &session.id);
+        assert!(deleted);
+        assert!(!session.dir_path.exists());
+
+        let summaries_after = list_saved_sessions(&tmp);
+        assert!(!summaries_after.iter().any(|s| s.id == session.id));
 
         let _ = std::fs::remove_dir_all(&tmp);
     }
