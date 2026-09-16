@@ -476,16 +476,7 @@ impl ZenthreeState {
             ai_panel_visible: false,
             ai_panel_width: 340.0,
             active_resize_ai_panel: false,
-            ai_messages: vec![
-                AiMessage {
-                    is_user: false,
-                    content: "Hello! I am ZENE. How can I help you with your code today?".to_string(),
-                    code_snippet: None,
-                    thoughts: Some("Context initialized with workspace files and biological Connectome deliberation engine.".to_string()),
-                    deliberation: None,
-                    ..Default::default()
-                },
-            ],
+            ai_messages: Vec::new(),
             ai_input: String::new(),
             user_profile_open: false,
             terminal_session: None,
@@ -532,7 +523,7 @@ impl ZenthreeState {
             session_dropdown_open: false,
             active_input_drawer: AiInputDrawer::None,
             session_modified_files: Vec::new(),
-            ai_showing_session_list: true,
+            ai_showing_session_list: false,
             ai_context_menu_open: false,
             ai_model_menu_open: false,
             model_auto_mode: true,
@@ -558,8 +549,6 @@ impl ZenthreeState {
         // Restore previous session preferences (theme, accent, extensions, etc.)
         #[cfg(not(test))]
         state.load_persistent_state();
-
-        state.save_current_session_messages();
 
         // If CLI argument was explicitly provided, open specified file or workspace
         #[allow(unused_mut)]
@@ -591,6 +580,8 @@ impl ZenthreeState {
             state.tabs.clear();
             state.new_untitled_file();
         }
+
+        state.init_workspace_session();
 
         if state.has_workspace {
             state.rebuild_tree();
@@ -1402,33 +1393,46 @@ impl ZenthreeState {
     }
 
     pub fn save_current_session_messages(&self) {
+        if self.ai_messages.is_empty() {
+            return;
+        }
         self.current_session.save_messages(&self.ai_messages);
     }
 
-    pub fn start_new_session(&mut self) {
-        self.save_current_session_messages();
-        let new_sess = crate::session::AgentSession::new(&self.current_dir, None);
-        self.current_session = new_sess;
-        self.current_mission = None;
-        self.pending_modification = None;
-        self.pending_modifications.clear();
-        self.ai_messages = vec![
-            AiMessage {
-                is_user: false,
-                content: "Hello! I am ZENE. How can I help you with your code today?".to_string(),
-                code_snippet: None,
-                thoughts: Some("Session initialized. Session markdown files ready in .zenthree/sessions/".to_string()),
-                deliberation: None,
-                ..Default::default()
-            },
-        ];
-        self.save_current_session_messages();
+    pub fn init_workspace_session(&mut self) {
         self.session_list = crate::session::list_saved_sessions(&self.current_dir);
+        if let Some(latest) = self.session_list.first() {
+            if let Some(sess) = crate::session::AgentSession::load(&self.current_dir, &latest.id) {
+                self.current_session = sess;
+                self.ai_messages = self.current_session.load_messages().unwrap_or_default();
+                if let Some(last_user) = self.ai_messages.iter().filter(|m| m.is_user).last() {
+                    self.last_ai_prompt = last_user.content.clone();
+                }
+                return;
+            }
+        }
+        self.current_session = crate::session::AgentSession::new(&self.current_dir, None);
+        self.ai_messages.clear();
+        self.ai_showing_session_list = false;
+        self.session_list = crate::session::list_saved_sessions(&self.current_dir);
+    }
+
+    pub fn start_new_session(&mut self) {
+        if !self.ai_messages.is_empty() {
+            self.save_current_session_messages();
+            let new_sess = crate::session::AgentSession::new(&self.current_dir, None);
+            self.current_session = new_sess;
+            self.current_mission = None;
+            self.pending_modification = None;
+            self.pending_modifications.clear();
+            self.ai_messages.clear();
+            self.session_list = crate::session::list_saved_sessions(&self.current_dir);
+            self.session_modified_files.clear();
+            self.status_message = "Started new agent session".to_string();
+        }
         self.session_dropdown_open = false;
         self.active_input_drawer = AiInputDrawer::None;
-        self.session_modified_files.clear();
         self.ai_showing_session_list = false;
-        self.status_message = "Started new agent session".to_string();
     }
 
     pub fn open_session_file(&mut self, filename: &str) {
@@ -1441,7 +1445,7 @@ impl ZenthreeState {
     }
 
     pub fn switch_session(&mut self, session_id: &str) {
-        // Save conversation of current session first
+        // Save conversation of current session first if it has messages
         self.save_current_session_messages();
 
         if let Some(sess) = crate::session::AgentSession::load(&self.current_dir, session_id) {
@@ -1452,15 +1456,8 @@ impl ZenthreeState {
             self.session_modified_files.clear();
             self.active_input_drawer = AiInputDrawer::None;
 
-            if let Some(saved_msgs) = self.current_session.load_messages() {
-                if !saved_msgs.is_empty() {
-                    self.ai_messages = saved_msgs;
-                } else {
-                    self.init_resumed_session_message();
-                }
-            } else {
-                self.init_resumed_session_message();
-            }
+            // Load saved chat messages directly
+            self.ai_messages = self.current_session.load_messages().unwrap_or_default();
 
             if let Some(last_user) = self.ai_messages.iter().filter(|m| m.is_user).last() {
                 self.last_ai_prompt = last_user.content.clone();
@@ -1472,55 +1469,34 @@ impl ZenthreeState {
         }
     }
 
-    fn init_resumed_session_message(&mut self) {
-        let mut thoughts = format!("Resumed session: {}", self.current_session.title);
-        let walk_path = self.current_session.walkthrough_file_path();
-        if let Ok(walk_text) = std::fs::read_to_string(&walk_path) {
-            if walk_text.contains("## Changes Implemented") {
-                thoughts.push_str(" (Previous changes and artifacts loaded)");
-            }
-        }
-
-        self.ai_messages = vec![
-            AiMessage {
-                is_user: false,
-                content: format!("Resumed session **{}**.\nYou can continue this conversation, review files, or issue new tasks.", self.current_session.title),
-                code_snippet: None,
-                thoughts: Some(thoughts),
-                deliberation: None,
-                ..Default::default()
-            },
-        ];
-        self.save_current_session_messages();
-    }
-
     pub fn delete_session(&mut self, session_id: &str) {
         let is_current = self.current_session.id == session_id;
         crate::session::delete_session(&self.current_dir, session_id);
+        self.session_list = crate::session::list_saved_sessions(&self.current_dir);
+
         if is_current {
-            // Cleanly create new session without re-saving deleted session messages to disk
-            let new_sess = crate::session::AgentSession::new(&self.current_dir, None);
-            self.current_session = new_sess;
+            if let Some(next_sess) = self.session_list.first() {
+                if let Some(sess) = crate::session::AgentSession::load(&self.current_dir, &next_sess.id) {
+                    self.current_session = sess;
+                    self.ai_messages = self.current_session.load_messages().unwrap_or_default();
+                    if let Some(last_user) = self.ai_messages.iter().filter(|m| m.is_user).last() {
+                        self.last_ai_prompt = last_user.content.clone();
+                    }
+                } else {
+                    self.current_session = crate::session::AgentSession::new(&self.current_dir, None);
+                    self.ai_messages.clear();
+                }
+            } else {
+                self.current_session = crate::session::AgentSession::new(&self.current_dir, None);
+                self.ai_messages.clear();
+            }
             self.current_mission = None;
             self.pending_modification = None;
             self.pending_modifications.clear();
-            self.ai_messages = vec![
-                AiMessage {
-                    is_user: false,
-                    content: "Hello! I am ZENE. How can I help you with your code today?".to_string(),
-                    code_snippet: None,
-                    thoughts: Some("Session initialized. Session markdown files ready in .zenthree/sessions/".to_string()),
-                    deliberation: None,
-                    ..Default::default()
-                },
-            ];
-            self.save_current_session_messages();
-            self.session_list = crate::session::list_saved_sessions(&self.current_dir);
-            self.session_dropdown_open = false;
-            self.active_input_drawer = AiInputDrawer::None;
             self.session_modified_files.clear();
+            self.active_input_drawer = AiInputDrawer::None;
+            self.session_dropdown_open = false;
             self.ai_showing_session_list = false;
-        } else {
             self.session_list = crate::session::list_saved_sessions(&self.current_dir);
         }
         self.status_message = format!("Deleted session {}", session_id);
@@ -1531,9 +1507,7 @@ impl ZenthreeState {
         self.current_dir = path;
         self.has_workspace = true;
         self.expanded_dirs.clear();
-        self.current_session = crate::session::AgentSession::new(&self.current_dir, None);
-        self.save_current_session_messages();
-        self.session_list = crate::session::list_saved_sessions(&self.current_dir);
+        self.init_workspace_session();
         self.rebuild_tree();
         self.status_message = format!("Opened workspace: {}", self.current_dir.display());
         self.save_persistent_state();
@@ -1545,9 +1519,7 @@ impl ZenthreeState {
         self.sidebar_items.clear();
         self.expanded_dirs.clear();
         self.workspace_tree_overview.clear();
-        self.current_session = crate::session::AgentSession::new(&self.current_dir, None);
-        self.save_current_session_messages();
-        self.session_list = crate::session::list_saved_sessions(&self.current_dir);
+        self.init_workspace_session();
         self.status_message = "Workspace closed".to_string();
         self.save_persistent_state();
     }
@@ -2534,6 +2506,16 @@ impl ZenthreeState {
         self.ai_generation_ticks = 1;
         self.ai_context_snapshot = self.build_ai_context_snapshot();
 
+        if self.current_session.title == "New Session" || self.current_session.title.is_empty() {
+            let clean_title = trimmed.lines().next().unwrap_or(trimmed).trim();
+            let display_title = if clean_title.chars().count() > 36 {
+                format!("{}...", clean_title.chars().take(36).collect::<String>())
+            } else {
+                clean_title.to_string()
+            };
+            self.current_session.title = display_title;
+        }
+
         self.ai_messages.push(AiMessage {
             is_user: true,
             content: trimmed.to_string(),
@@ -2543,6 +2525,7 @@ impl ZenthreeState {
             ..Default::default()
         });
         self.save_current_session_messages();
+        self.session_list = crate::session::list_saved_sessions(&self.current_dir);
 
         // 1. Extract AST context via tree-sitter
         let (ast_context, active_file) = if let Some(idx) = self.active_tab {
@@ -2650,7 +2633,13 @@ impl ZenthreeState {
             if let Some(detect_task) = mission.tasks.iter_mut().find(|t| t.id == "task_2_detect") {
                 detect_task.title = format!("Detect toolchain: {} ({:?})", env.build_system, env.language);
             }
-            self.current_session.title = trimmed.to_string();
+            let clean_title = trimmed.lines().next().unwrap_or(trimmed).trim();
+            let display_title = if clean_title.chars().count() > 36 {
+                format!("{}...", clean_title.chars().take(36).collect::<String>())
+            } else {
+                clean_title.to_string()
+            };
+            self.current_session.title = display_title;
             self.current_session.update_implementation_plan(trimmed, &explored_items, "");
             self.current_session.update_mission_file(&mission);
             self.current_mission = Some(mission);
@@ -2932,6 +2921,7 @@ impl ZenthreeState {
             ..Default::default()
         });
         self.save_current_session_messages();
+        self.session_list = crate::session::list_saved_sessions(&self.current_dir);
 
         self.ai_status = AiStatus::Ready;
         self.ai_input.clear();
@@ -3437,12 +3427,17 @@ mod tests {
 
     #[test]
     fn test_terminal_and_ai_panel_state() {
+        let temp_dir = std::env::temp_dir().join(format!("zenthree_term_ai_{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        let _ = std::fs::create_dir_all(&temp_dir);
+
         let mut state = ZenthreeState::new();
+        state.open_workspace(temp_dir.clone());
         assert!(!state.terminal_visible);
         assert!(!state.ai_panel_visible);
 
         // Toggle terminal & send command
         state.terminal_visible = true;
+        assert!(state.terminal_visible);
         state.send_terminal_input("echo hello");
         assert!(state.terminal_session.is_some() || !state.terminal_lines.is_empty());
 
@@ -3462,6 +3457,8 @@ mod tests {
         assert!(state.ai_messages.is_empty());
         assert_eq!(state.ai_status, AiStatus::Ready);
         assert!(state.ai_error.is_none());
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
     }
 
     #[test]
@@ -3581,8 +3578,11 @@ mod tests {
 
     #[test]
     fn test_connectome_ai_markdown_and_deliberation() {
+        let temp_dir = std::env::temp_dir().join(format!("zenthree_delib_{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        let _ = std::fs::create_dir_all(&temp_dir);
+
         let mut state = ZenthreeState::new();
-        state.has_workspace = true;
+        state.open_workspace(temp_dir.clone());
         state.groq_api_key = None; // Test offline connectome + local markdown path
         state.gemini_api_key = None;
 
@@ -3605,6 +3605,8 @@ mod tests {
         assert!(msg2.content.contains("```rust"));
         let delib2 = msg2.deliberation.as_ref().expect("deliberation under ablation");
         assert!(delib2.ablated_neurons > 50, "Should have ablated neurons: {}", delib2.ablated_neurons);
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
     }
 
     #[test]
@@ -3633,8 +3635,11 @@ mod tests {
 
     #[test]
     fn test_agent_mission_and_checklist_lifecycle() {
+        let temp_dir = std::env::temp_dir().join(format!("zenthree_mission_test_{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        let _ = std::fs::create_dir_all(&temp_dir);
+
         let mut state = ZenthreeState::new();
-        state.has_workspace = true;
+        state.open_workspace(temp_dir.clone());
         state.groq_api_key = Some("test_mock_key".to_string());
         assert!(!state.is_agent_working());
         assert!(state.current_mission.is_none());
@@ -3663,6 +3668,8 @@ mod tests {
         state.resume_agent_mission();
         assert!(!state.current_mission.as_ref().unwrap().is_paused);
         assert!(state.is_agent_working());
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
     }
 
     #[test]
@@ -3774,6 +3781,7 @@ mod tests {
 
         let mut state = ZenthreeState::new();
         state.open_workspace(temp_dir.clone());
+        state.send_ai_message("Hello session");
         let current_id = state.current_session.id.clone();
         let session_folder = state.current_session.dir_path.clone();
 
@@ -3878,6 +3886,98 @@ mod tests {
         // The in-memory tree reflects deletion immediately
         let tree3 = state.get_or_update_workspace_tree().to_string();
         assert!(!tree3.contains("auth_handler.rs"));
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_workspace_session_resume_and_no_duplicates() {
+        let temp_dir = std::env::temp_dir().join(format!("zenthree_resume_test_{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        let _ = std::fs::create_dir_all(&temp_dir);
+
+        let mut state = ZenthreeState::new();
+        state.open_workspace(temp_dir.clone());
+        state.groq_api_key = None;
+        state.gemini_api_key = None;
+
+        // Send a message
+        state.send_ai_message("First user prompt");
+        let first_id = state.current_session.id.clone();
+        assert_eq!(state.ai_messages.len(), 2);
+        assert_eq!(state.session_list.len(), 1);
+
+        // Reopening the same workspace (simulating app relaunch or switching)
+        state.open_workspace(temp_dir.clone());
+
+        // Must resume the existing session without creating a duplicate!
+        assert_eq!(state.current_session.id, first_id);
+        assert_eq!(state.session_list.len(), 1);
+        assert_eq!(state.ai_messages.len(), 2);
+        assert_eq!(state.ai_messages[0].content, "First user prompt");
+
+        let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_project_isolated_sessions() {
+        let p1_dir = std::env::temp_dir().join(format!("zenthree_p1_{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        let p2_dir = std::env::temp_dir().join(format!("zenthree_p2_{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        let _ = std::fs::create_dir_all(&p1_dir);
+        let _ = std::fs::create_dir_all(&p2_dir);
+
+        let mut state = ZenthreeState::new();
+        state.groq_api_key = None;
+        state.gemini_api_key = None;
+
+        // Work in Project 1
+        state.open_workspace(p1_dir.clone());
+        state.send_ai_message("Task for Project 1");
+        let p1_sess_id = state.current_session.id.clone();
+        assert_eq!(state.session_list.len(), 1);
+        assert_eq!(state.ai_messages[0].content, "Task for Project 1");
+
+        // Switch to Project 2
+        state.open_workspace(p2_dir.clone());
+        assert_ne!(state.current_session.id, p1_sess_id);
+        assert_eq!(state.ai_messages.len(), 0); // clean state for new project
+        state.send_ai_message("Task for Project 2");
+        let p2_sess_id = state.current_session.id.clone();
+        assert_eq!(state.session_list.len(), 1);
+        assert_eq!(state.ai_messages[0].content, "Task for Project 2");
+
+        // Switch back to Project 1: must load Project 1's session and messages!
+        state.open_workspace(p1_dir.clone());
+        assert_eq!(state.current_session.id, p1_sess_id);
+        assert_eq!(state.session_list.len(), 1);
+        assert_eq!(state.ai_messages[0].content, "Task for Project 1");
+
+        // Switch back to Project 2: must load Project 2's session and messages!
+        state.open_workspace(p2_dir.clone());
+        assert_eq!(state.current_session.id, p2_sess_id);
+        assert_eq!(state.session_list.len(), 1);
+        assert_eq!(state.ai_messages[0].content, "Task for Project 2");
+
+        let _ = std::fs::remove_dir_all(&p1_dir);
+        let _ = std::fs::remove_dir_all(&p2_dir);
+    }
+
+    #[test]
+    fn test_empty_workspace_has_zero_saved_sessions_and_no_disk_write() {
+        let temp_dir = std::env::temp_dir().join(format!("zenthree_empty_test_{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        let _ = std::fs::create_dir_all(&temp_dir);
+
+        let mut state = ZenthreeState::new();
+        state.open_workspace(temp_dir.clone());
+
+        // When workspace is opened and no messages were sent:
+        // Must have 0 saved sessions and NO .zenthree directory created!
+        assert_eq!(state.session_list.len(), 0);
+        assert!(!temp_dir.join(".zenthree").exists());
+
+        // Reopening workspace without sending messages:
+        state.open_workspace(temp_dir.clone());
+        assert_eq!(state.session_list.len(), 0);
+        assert!(!temp_dir.join(".zenthree").exists());
 
         let _ = std::fs::remove_dir_all(&temp_dir);
     }

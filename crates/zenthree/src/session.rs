@@ -75,9 +75,8 @@ impl AgentSession {
         let session_title = title.unwrap_or("New Session").to_string();
 
         let dir_path = get_session_dir(base_workspace, &id);
-        let _ = std::fs::create_dir_all(&dir_path);
 
-        let mut session = Self {
+        Self {
             id,
             title: session_title,
             created_at: now,
@@ -86,14 +85,12 @@ impl AgentSession {
             has_plan: false,
             has_mission: false,
             has_walkthrough: false,
-        };
-
-        // Create empty or starter files
-        session.init_starter_files();
-        session
+        }
     }
 
     pub fn init_starter_files(&mut self) {
+        let _ = std::fs::create_dir_all(&self.dir_path);
+        let _ = std::fs::create_dir_all(self.artifacts_dir());
         let plan_path = self.dir_path.join("implementation_plan.md");
         if !plan_path.exists() {
             let initial_plan = format!(
@@ -380,6 +377,8 @@ impl AgentSession {
                 let t = first_line.trim_start_matches('#').trim();
                 if let Some(stripped) = t.strip_prefix("Implementation Plan:") {
                     title = stripped.trim().to_string();
+                } else if let Some(stripped) = t.strip_prefix("Implementation Plan -") {
+                    title = stripped.trim().to_string();
                 } else if !t.is_empty() {
                     title = t.to_string();
                 }
@@ -445,7 +444,7 @@ pub fn list_saved_sessions(base_workspace: &Path) -> Vec<SessionSummary> {
     };
 
     let mut list = Vec::new();
-    if let Ok(entries) = std::fs::read_dir(root) {
+    if let Ok(entries) = std::fs::read_dir(&root) {
         for entry in entries.flatten() {
             if entry.path().is_dir() {
                 let id = entry.file_name().to_string_lossy().to_string();
@@ -455,6 +454,8 @@ pub fn list_saved_sessions(base_workspace: &Path) -> Vec<SessionSummary> {
                     if let Some(first_line) = content.lines().next() {
                         let t = first_line.trim_start_matches('#').trim();
                         if let Some(stripped) = t.strip_prefix("Implementation Plan:") {
+                            title = stripped.trim().to_string();
+                        } else if let Some(stripped) = t.strip_prefix("Implementation Plan -") {
                             title = stripped.trim().to_string();
                         } else if !t.is_empty() {
                             title = t.to_string();
@@ -478,6 +479,12 @@ pub fn list_saved_sessions(base_workspace: &Path) -> Vec<SessionSummary> {
                     }
                 }
 
+                if message_count == 0 {
+                    // Empty ghost folder with 0 messages: clean it up and do not list it
+                    let _ = std::fs::remove_dir_all(entry.path());
+                    continue;
+                }
+
                 list.push(SessionSummary {
                     id,
                     title,
@@ -486,6 +493,12 @@ pub fn list_saved_sessions(base_workspace: &Path) -> Vec<SessionSummary> {
                     message_count,
                 });
             }
+        }
+    }
+    if list.is_empty() && root.exists() {
+        let _ = std::fs::remove_dir_all(&root);
+        if let Some(parent) = root.parent() {
+            let _ = std::fs::remove_dir(parent);
         }
     }
     list.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
@@ -515,6 +528,7 @@ mod tests {
         let workspace = &tmp;
 
         let mut session = AgentSession::new(workspace, Some("test_session_1"));
+        session.init_starter_files();
         assert_eq!(session.title, "test_session_1");
         assert!(session.id.starts_with("sess_"));
         assert!(session.dir_path.exists());
@@ -602,6 +616,8 @@ mod tests {
 
         let s1 = AgentSession::new(workspace, Some("sess_alpha"));
         let s2 = AgentSession::new(workspace, Some("sess_beta"));
+        s1.save_messages(&[AiMessage { is_user: true, content: "alpha msg".into(), ..Default::default() }]);
+        s2.save_messages(&[AiMessage { is_user: true, content: "beta msg".into(), ..Default::default() }]);
 
         let list = list_saved_sessions(workspace);
         assert!(list.iter().any(|s| s.id == s1.id));
@@ -613,7 +629,8 @@ mod tests {
     #[test]
     fn test_list_artifacts_and_formatters() {
         let tmp = make_test_tempdir();
-        let session = AgentSession::new(&tmp, Some("artifacts_session"));
+        let mut session = AgentSession::new(&tmp, Some("artifacts_session"));
+        session.init_starter_files();
 
         let arts = session.list_artifacts();
         assert_eq!(arts.len(), 3);

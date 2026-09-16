@@ -128,8 +128,8 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                         .valign(Align::Center)
                         .gap(5.0)
                         .show(|ui| {
-                            // Left arrow to return to session list
-                            if !state.ai_showing_session_list {
+                            // Left arrow to return to session list (only if saved sessions exist)
+                            if !state.ai_showing_session_list && !state.session_list.is_empty() {
                                 let back_btn = ui.container()
                                     .padding(2.0, 4.0, 2.0, 4.0)
                                     .radius_all(3.0)
@@ -318,14 +318,6 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
 
                             if reset_btn.clicked {
                                 state.ai_messages.clear();
-                                state.ai_messages.push(crate::state::AiMessage {
-                                    is_user: false,
-                                    content: "Conversation cleared. What would you like to work on next?".to_string(),
-                                    code_snippet: None,
-                                    thoughts: None,
-                                    deliberation: None,
-                                    ..Default::default()
-                                });
                                 state.save_current_session_messages();
                                 ui.needs_redraw = true;
                             }
@@ -354,7 +346,7 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                 });
 
             // ─── Default Session List View ──────────────────────────────
-            if state.ai_showing_session_list {
+            if state.ai_showing_session_list && !state.session_list.is_empty() {
                 let session_list_h = (height - HEADER_H).max(100.0);
                 let session_scroll_id = Id::from_u64(999999805);
 
@@ -498,17 +490,18 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                         } else {
                             let mut selected_session = None;
                             let mut to_delete_session = None;
-                            let right_w = 76.0;
+                            let right_w = 28.0;
                             let title_col_w = (card_inner_w - 30.0 - right_w - 8.0).max(40.0);
 
                             for (idx, sess) in state.session_list.iter().enumerate() {
                                 let is_current = sess.id == state.current_session.id;
+                                let mut del_clicked = false;
                                 let sess_card = ui.container()
                                     .id(Id::from_u64(999998800 + idx as u64))
                                     .width(card_w)
                                     .clip(true)
-                                    .bg(if is_current { colors.accent.with_alpha(0.06) } else { colors.bg_sidebar })
-                                    .border(if is_current { colors.accent.with_alpha(0.5) } else { colors.border }, 1.0)
+                                    .bg(if is_current { colors.accent.with_alpha(0.08) } else { colors.bg_sidebar })
+                                    .border(if is_current { colors.accent.with_alpha(0.6) } else { colors.border }, 1.0)
                                     .hover_bg(colors.highlight)
                                     .radius_all(6.0)
                                     .padding(8.0, 10.0, 8.0, 10.0)
@@ -555,7 +548,7 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                                         let meta_text = if sess.message_count > 0 {
                                                             format!("{} • {} msg{}", time_str, sess.message_count, if sess.message_count == 1 { "" } else { "s" })
                                                         } else {
-                                                            format!("{} • {}", time_str, &sess.id)
+                                                            time_str
                                                         };
                                                         ui.text(&meta_text)
                                                             .size(9.0)
@@ -566,51 +559,29 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                                     });
                                             });
 
-                                        // Right: Current badge (if active) and trash delete icon button
-                                        ui.container()
-                                            .row()
-                                            .gap(6.0)
+                                        // Right: trash delete icon button
+                                        let del_btn = ui.container()
+                                            .id(Id::from_u64(999998900 + idx as u64))
+                                            .width(22.0)
+                                            .height(22.0)
+                                            .radius_all(3.0)
+                                            .hover_bg(Color::rgb(239.0 / 255.0, 68.0 / 255.0, 68.0 / 255.0).with_alpha(0.18))
+                                            .halign(Align::Center)
                                             .valign(Align::Center)
                                             .show(|ui| {
-                                                if is_current {
-                                                    ui.container()
-                                                        .padding(2.0, 6.0, 2.0, 6.0)
-                                                        .bg(colors.accent.with_alpha(0.15))
-                                                        .border(colors.accent.with_alpha(0.4), 1.0)
-                                                        .radius_all(3.0)
-                                                        .valign(Align::Center)
-                                                        .halign(Align::Center)
-                                                        .show(|ui| {
-                                                            ui.text("Current")
-                                                                .size(9.5)
-                                                                .weight(FontWeight::Medium)
-                                                                .color(colors.accent)
-                                                                .show();
-                                                        });
-                                                }
-
-                                                let del_btn = ui.container()
-                                                    .id(Id::from_u64(999998900 + idx as u64))
-                                                    .width(22.0)
-                                                    .height(22.0)
-                                                    .radius_all(3.0)
-                                                    .hover_bg(Color::rgb(239.0 / 255.0, 68.0 / 255.0, 68.0 / 255.0).with_alpha(0.18))
-                                                    .halign(Align::Center)
-                                                    .valign(Align::Center)
-                                                    .show(|ui| {
-                                                        ui.text("\u{f1f8}")
-                                                            .size(11.0)
-                                                            .color(colors.text_muted)
-                                                            .show();
-                                                    });
-
-                                                if del_btn.clicked {
-                                                    to_delete_session = Some(sess.id.clone());
-                                                }
+                                                ui.text("\u{f1f8}")
+                                                    .size(11.0)
+                                                    .color(colors.text_muted)
+                                                    .show();
                                             });
+
+                                        if del_btn.clicked {
+                                            del_clicked = true;
+                                            to_delete_session = Some(sess.id.clone());
+                                        }
                                     });
 
-                                if sess_card.clicked && to_delete_session.is_none() {
+                                if sess_card.clicked && to_delete_session.is_none() && !del_clicked {
                                     selected_session = Some(sess.id.clone());
                                 }
                             }
@@ -925,6 +896,76 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                 .scroll_y(true)
                 .show(|ui| {
                     let msgs = state.ai_messages.clone();
+                    if msgs.is_empty() {
+                        // Centered ZENE Agent Intro Screen (Bold Moderniz typography)
+                        ui.container()
+                            .full_width()
+                            .column()
+                            .halign(Align::Center)
+                            .valign(Align::Center)
+                            .padding(36.0, 16.0, 24.0, 16.0)
+                            .gap(12.0)
+                            .show(|ui| {
+                                // Bold ZENE title in Moderniz font acting as brand title & icon
+                                ui.text("ZENE")
+                                    .family("MODERNIZ")
+                                    .bold()
+                                    .size(28.0)
+                                    .color(colors.text_primary)
+                                    .show();
+
+                                // Option 1 Subtext
+                                let subtext_w = (ai_panel_w - 48.0).max(120.0);
+                                ui.text("Start working with ZENE to build, edit, and explore your codebase.")
+                                    .size(11.5)
+                                    .line_height(1.4)
+                                    .color(colors.text_muted)
+                                    .max_width(subtext_w)
+                                    .wrap(zenthra_text::prelude::TextWrap::Word)
+                                    .show();
+
+                                ui.spacing(10.0);
+
+                                // Quick starter suggestion buttons (no icons)
+                                let prompt_card_w = (ai_panel_w - 40.0).max(120.0);
+                                let suggestions = [
+                                    ("Explain current file", "Explain the open file in detail and summarize its architecture."),
+                                    ("Find bugs & edge cases", "Review this code for bugs, edge cases, and potential performance improvements."),
+                                    ("Write unit tests", "Generate comprehensive unit tests covering key logic and edge cases."),
+                                ];
+
+                                for (label, prompt_fill) in suggestions {
+                                    let card = ui.container()
+                                        .width(prompt_card_w)
+                                        .padding(8.0, 12.0, 8.0, 12.0)
+                                        .bg(match state.theme {
+                                            crate::theme::ThemeMode::Dark => Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, 0.04),
+                                            crate::theme::ThemeMode::Light => Color::rgba(0.0 / 255.0, 0.0 / 255.0, 0.0 / 255.0, 0.03),
+                                        })
+                                        .border(colors.border, 1.0)
+                                        .radius_all(8.0)
+                                        .hover_bg(match state.theme {
+                                            crate::theme::ThemeMode::Dark => Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, 0.08),
+                                            crate::theme::ThemeMode::Light => Color::rgba(0.0 / 255.0, 0.0 / 255.0, 0.0 / 255.0, 0.06),
+                                        })
+                                        .row()
+                                        .valign(Align::Center)
+                                        .show(|ui| {
+                                            ui.text(label)
+                                                .size(11.0)
+                                                .color(colors.text_primary)
+                                                .show();
+                                        });
+
+                                    if card.clicked {
+                                        state.ai_input = prompt_fill.to_string();
+                                        state.active_input_drawer = AiInputDrawer::None;
+                                        ui.needs_redraw = true;
+                                    }
+                                }
+                            });
+                    }
+
                     let total_msgs = msgs.len();
                     let mut toggle_accordion_idx = None;
                     let mut open_file_target = None;

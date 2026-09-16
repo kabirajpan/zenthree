@@ -2,6 +2,46 @@ use crate::state::ZenthreeState;
 use crate::theme::{ThemeMode, ACCENT_COLOR_OPTIONS, ICON_THEME_OPTIONS};
 use zenthra::{Color, Ui, FontWeight, Align, Id};
 
+fn get_animated_app_title() -> (&'static str, std::time::Duration, bool) {
+    let now = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default();
+    let millis = (now.as_millis() % 12640) as u64;
+
+    if millis < 5000 {
+        // Hold ZENTHREE for 5 seconds
+        ("ZENTHREE", std::time::Duration::from_millis(5000 - millis), false)
+    } else if millis < 5240 {
+        ("ZENTHRE", std::time::Duration::from_millis(5240 - millis), true)
+    } else if millis < 5480 {
+        ("ZENTHE", std::time::Duration::from_millis(5480 - millis), true)
+    } else if millis < 5720 {
+        ("ZENTE", std::time::Duration::from_millis(5720 - millis), true)
+    } else if millis < 5960 {
+        // Arrived at ZENE with normal E
+        ("ZENE", std::time::Duration::from_millis(5960 - millis), true)
+    } else if millis < 6200 {
+        // Flip the E -> ZENƎ
+        ("ZEN\u{018e}", std::time::Duration::from_millis(6200 - millis), true)
+    } else if millis < 11200 {
+        // Hold ZENƎ for 5 seconds
+        ("ZEN\u{018e}", std::time::Duration::from_millis(11200 - millis), false)
+    } else if millis < 11440 {
+        // Flip back to normal E -> ZENE
+        ("ZENE", std::time::Duration::from_millis(11440 - millis), true)
+    } else if millis < 11680 {
+        ("ZENTE", std::time::Duration::from_millis(11680 - millis), true)
+    } else if millis < 11920 {
+        ("ZENTHE", std::time::Duration::from_millis(11920 - millis), true)
+    } else if millis < 12160 {
+        ("ZENTHRE", std::time::Duration::from_millis(12160 - millis), true)
+    } else if millis < 12400 {
+        ("ZENTHREE", std::time::Duration::from_millis(12400 - millis), true)
+    } else {
+        ("ZENTHREE", std::time::Duration::from_millis(12640 - millis), true)
+    }
+}
+
 pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
     let colors = state.colors();
 
@@ -31,21 +71,34 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                 .valign(Align::Center)
                 .padding_left(12.0)
                 .show(|ui| {
-                    // App Icon & Name
+                    // App Icon & Animated Name (ZENTHREE <-> ZENƎ with flipped E)
+                    let (app_title, next_redraw, is_animating) = get_animated_app_title();
+                    ui.request_redraw_after(next_redraw);
+                    if is_animating {
+                        ui.needs_redraw = true;
+                    }
+
                     ui.container()
                         .row()
                         .gap(8.0)
+                        .min_width(96.0)
                         .valign(Align::Center)
                         .show(|ui| {
                             ui.text(zenthra::icons::NF_FA_CODE)
                                 .size(14.0)
                                 .color(colors.accent)
                                 .show();
-                            ui.text("Zenthree")
+
+                            let mut title_builder = ui.text(app_title)
+                                .family("MODERNIZ")
                                 .size(12.0)
-                                .weight(FontWeight::Bold)
-                                .color(colors.text_primary)
-                                .show();
+                                .bold()
+                                .color(colors.accent);
+
+                            if is_animating {
+                                title_builder = title_builder.continuous();
+                            }
+                            title_builder.show();
                         });
 
                     // Dropdown menus with cascading submenus
