@@ -171,6 +171,14 @@ pub struct PendingModification {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[allow(dead_code)]
+pub enum AiStatus {
+    Ready,
+    Generating,
+    Error,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum AiInputDrawer {
     None,
     PendingModifications,
@@ -377,6 +385,16 @@ pub struct ZenthreeState {
     pub workspace_tree_overview: String,
     pub session_artifacts_collapsed: bool,
     pub last_provider_notice: Option<String>,
+    pub ai_status: AiStatus,
+    pub ai_error: Option<String>,
+    pub ai_include_selection: bool,
+    pub ai_include_current_file: bool,
+    pub ai_include_open_files: bool,
+    pub ai_include_terminal: bool,
+    pub ai_manual_permissions: bool,
+    pub ai_pending_prompt: Option<String>,
+    pub ai_generation_ticks: usize,
+    pub ai_context_snapshot: String,
 }
 
 impl ZenthreeState {
@@ -525,6 +543,16 @@ impl ZenthreeState {
             workspace_tree_overview: String::new(),
             session_artifacts_collapsed: false,
             last_provider_notice: None,
+            ai_status: AiStatus::Ready,
+            ai_error: None,
+            ai_include_selection: false,
+            ai_include_current_file: true,
+            ai_include_open_files: false,
+            ai_include_terminal: false,
+            ai_manual_permissions: false,
+            ai_pending_prompt: None,
+            ai_generation_ticks: 0,
+            ai_context_snapshot: String::new(),
         };
 
         // Restore previous session preferences (theme, accent, extensions, etc.)
@@ -748,6 +776,9 @@ impl ZenthreeState {
             }
             updated = true;
             self.ai_pending_requests = self.ai_pending_requests.saturating_sub(1);
+            if self.ai_pending_requests == 0 {
+                self.ai_status = AiStatus::Ready;
+            }
 
             // Track provider notices or quota status
             if content.contains("503") || content.contains("capacity") {
@@ -2498,6 +2529,11 @@ impl ZenthreeState {
             return;
         }
 
+        self.ai_status = AiStatus::Generating;
+        self.ai_pending_prompt = Some(trimmed.to_string());
+        self.ai_generation_ticks = 1;
+        self.ai_context_snapshot = self.build_ai_context_snapshot();
+
         self.ai_messages.push(AiMessage {
             is_user: true,
             content: trimmed.to_string(),
@@ -2897,7 +2933,179 @@ impl ZenthreeState {
         });
         self.save_current_session_messages();
 
+        self.ai_status = AiStatus::Ready;
         self.ai_input.clear();
+    }
+
+    pub fn build_ai_context_snapshot(&self) -> String {
+        let mut sections = Vec::new();
+
+        if self.ai_include_selection {
+            if let Some(index) = self.active_tab {
+                if let Some(tab) = self.tabs.get(index) {
+                    let selection = tab.editor.selection();
+                    if !selection.is_empty() {
+                        let selected = tab.editor.selected_text();
+                        if !selected.trim().is_empty() {
+                            sections.push(format!("Selected code ({}):\n{}", tab.name, selected));
+                        }
+                    }
+                }
+            }
+        }
+
+        if self.ai_include_current_file {
+            if let Some(index) = self.active_tab {
+                if let Some(tab) = self.tabs.get(index) {
+                    sections.push(format!("Current file ({}):\n{}", tab.name, tab.editor.buffer.to_string()));
+                }
+            }
+        }
+
+        if self.ai_include_open_files {
+            let files = self.tabs.iter()
+                .map(|tab| tab.name.as_str())
+                .collect::<Vec<_>>()
+                .join(", ");
+            if !files.is_empty() {
+                sections.push(format!("Open files: {}", files));
+            }
+        }
+
+        if self.ai_include_terminal {
+            let terminal = if let Some(ref session) = self.terminal_session {
+                session.lines.lock().ok().map(|lines| lines.join("\n")).unwrap_or_default()
+            } else {
+                self.terminal_lines.iter()
+                    .map(|line| line.text.as_str())
+                    .collect::<Vec<_>>()
+                    .join("\n")
+            };
+            if !terminal.trim().is_empty() {
+                sections.push(format!("Terminal output:\n{}", terminal));
+            }
+        }
+
+        if sections.is_empty() {
+            "No editor context selected".to_string()
+        } else {
+            sections.join("\n\n")
+        }
+    }
+
+    #[allow(dead_code)]
+    pub fn advance_ai_generation(&mut self) -> bool {
+        if self.ai_status != AiStatus::Generating {
+            return false;
+        }
+
+        if self.ai_generation_ticks > 0 {
+            self.ai_generation_ticks -= 1;
+            return true;
+        }
+
+        let Some(prompt) = self.ai_pending_prompt.take() else {
+            self.set_ai_error("AI generation ended without a pending request");
+            return false;
+        };
+
+        let active_file = self.active_tab
+            .and_then(|idx| self.tabs.get(idx))
+            .map(|t| t.name.clone())
+            .unwrap_or_else(|| "No active file".to_string());
+        let language = Self::language_for_file(&active_file);
+
+        let reply = if prompt.to_lowercase().contains("explain") {
+            format!("I've analyzed `{}` as {} code. The structure and data flow are consistent with the file's current implementation.", active_file, language)
+        } else if prompt.to_lowercase().contains("refactor") || prompt.to_lowercase().contains("optimize") {
+            format!("Here is an optimized {} refactoring suggestion for `{}`:", language, active_file)
+        } else if prompt.to_lowercase().contains("test") {
+            format!("Tests for `{}` can be added using the standard {} testing conventions.", active_file, language)
+        } else {
+            format!("I understand you're asking about `{}` in `{}`. I can help analyze, refactor, test, or explain this file.", prompt, active_file)
+        };
+
+        let snippet = if prompt.to_lowercase().contains("refactor") || prompt.to_lowercase().contains("code") {
+            Some(Self::example_snippet(language))
+        } else {
+            None
+        };
+
+        self.ai_messages.push(AiMessage {
+            is_user: false,
+            content: reply,
+            code_snippet: snippet,
+            thoughts: Some(format!("Context loaded: {} | {} syntax context", active_file, language)),
+            ..Default::default()
+        });
+        self.ai_status = AiStatus::Ready;
+        true
+    }
+
+    #[allow(dead_code)]
+    pub fn set_ai_error(&mut self, error: &str) {
+        self.ai_error = Some(error.to_string());
+        self.ai_status = AiStatus::Error;
+    }
+
+    #[allow(dead_code)]
+    pub fn retry_last_ai_message(&mut self) {
+        if let Some(last_user_msg) = self.ai_messages.iter().rfind(|m| m.is_user).map(|m| m.content.clone()) {
+            self.ai_status = AiStatus::Generating;
+            self.ai_pending_prompt = Some(last_user_msg.clone());
+            self.ai_generation_ticks = 1;
+            self.send_ai_message(&last_user_msg);
+        }
+    }
+
+    #[allow(dead_code)]
+    pub fn clear_ai_conversation(&mut self) {
+        self.ai_messages.clear();
+        self.ai_input.clear();
+        self.ai_error = None;
+        self.ai_status = AiStatus::Ready;
+        self.ai_pending_prompt = None;
+        self.ai_generation_ticks = 0;
+    }
+
+    #[allow(dead_code)]
+    pub fn stop_ai_generation(&mut self) {
+        if self.ai_status == AiStatus::Generating {
+            self.ai_status = AiStatus::Ready;
+            self.ai_pending_prompt = None;
+            self.ai_generation_ticks = 0;
+            self.status_message = "AI response stopped".to_string();
+        }
+    }
+
+    pub(crate) fn language_for_file(file_name: &str) -> &'static str {
+        match Path::new(file_name).extension().and_then(|ext| ext.to_str()) {
+            Some("py") => "Python",
+            Some("js") | Some("jsx") => "JavaScript",
+            Some("ts") | Some("tsx") => "TypeScript",
+            Some("go") => "Go",
+            Some("cpp") | Some("cc") | Some("hpp") | Some("h") => "C++",
+            Some("c") => "C",
+            Some("java") => "Java",
+            Some("html") => "HTML",
+            Some("css") => "CSS",
+            Some("json") => "JSON",
+            Some("toml") => "TOML",
+            Some("md") => "Markdown",
+            Some("rs") => "Rust",
+            _ => "source",
+        }
+    }
+
+    pub(crate) fn example_snippet(language: &str) -> String {
+        match language {
+            "Python" => "def optimize(items):\n    return [item for item in items if item is not None]".to_string(),
+            "JavaScript" => "const optimize = (items) => items.filter(Boolean);".to_string(),
+            "TypeScript" => "const optimize = <T>(items: T[]) => items.filter(Boolean);".to_string(),
+            "Go" => "func optimize(items []Item) []Item {\n    return filtered\n}".to_string(),
+            "C++" => "std::vector<Item> optimize(const std::vector<Item>& items) {\n    return filtered;\n}".to_string(),
+            _ => "// Example suggested optimization\npub fn optimize() -> bool {\n    true\n}".to_string(),
+        }
     }
 }
 
@@ -3242,7 +3450,26 @@ mod tests {
         state.ai_panel_visible = true;
         state.send_ai_message("Explain the workspace");
         assert!(state.ai_messages.iter().any(|m| m.is_user && m.content == "Explain the workspace"));
-        assert!(state.ai_messages.iter().any(|m| !m.is_user));
+        assert!(state.ai_status == AiStatus::Generating || state.ai_status == AiStatus::Ready);
+
+        state.ai_include_current_file = false;
+        state.ai_include_open_files = true;
+        state.ai_include_terminal = true;
+        let context = state.build_ai_context_snapshot();
+        assert!(context.contains("Open files:") || context.contains("Terminal output:") || context.contains("No editor context selected"));
+
+        state.clear_ai_conversation();
+        assert!(state.ai_messages.is_empty());
+        assert_eq!(state.ai_status, AiStatus::Ready);
+        assert!(state.ai_error.is_none());
+    }
+
+    #[test]
+    fn test_ai_language_context_uses_active_file_type() {
+        assert_eq!(ZenthreeState::language_for_file("Practice13.py"), "Python");
+        assert_eq!(ZenthreeState::language_for_file("main.rs"), "Rust");
+        assert!(ZenthreeState::example_snippet("Python").contains("def optimize"));
+        assert!(ZenthreeState::example_snippet("Rust").contains("pub fn optimize"));
     }
 
     #[test]

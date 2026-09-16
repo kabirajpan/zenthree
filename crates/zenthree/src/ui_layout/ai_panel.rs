@@ -96,7 +96,8 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
         let line_count = state.ai_input.split('\n').count();
         (line_count as f32 * 16.0 + 14.0).clamp(MIN_PROMPT_H, MAX_PROMPT_H)
     };
-    let bottom_input_total_h = prompt_box_h + 46.0;
+    const SUB_TOOLBAR_H: f32 = 22.0;
+    let bottom_input_total_h = prompt_box_h + 46.0 + SUB_TOOLBAR_H;
 
     // Main AI Agent Panel
     let panel_container = ui.container()
@@ -909,7 +910,8 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                 }
             };
 
-            let msgs_h = (height - HEADER_H - CONTEXT_BANNER_H - bottom_input_total_h - cockpit_drawer_h - TOOLBAR_H - drawer_h).max(60.0);
+            let quota_banner_h = if state.last_provider_notice.is_some() { 26.0 } else { 20.0 };
+            let msgs_h = (height - HEADER_H - CONTEXT_BANNER_H - bottom_input_total_h - cockpit_drawer_h - TOOLBAR_H - quota_banner_h - drawer_h - 12.0).max(60.0);
             let max_content_w = (ai_panel_w - 24.0).max(80.0);
 
             let msgs_scroll_id = Id::from_u64(999999802);
@@ -2554,6 +2556,129 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                             ui.cursor_state.insert(ai_input_id, 0);
                                             ui.needs_redraw = true;
                                         }
+                                    }
+                                });
+                        });
+
+                    // Child 3: Mode & Permissions Sub-Toolbar
+                    ui.container()
+                        .full_width()
+                        .height(20.0)
+                        .row()
+                        .valign(Align::Center)
+                        .gap(4.0)
+                        .show(|ui| {
+                            let mode_btn = ui.container()
+                                .padding(2.0, 6.0, 2.0, 6.0)
+                                .bg(colors.bg_base)
+                                .hover_bg(colors.highlight)
+                                .border(colors.border, 1.0)
+                                .radius_all(3.0)
+                                .show(|ui| {
+                                    ui.text("\u{f1d8} Agent")
+                                        .size(8.5)
+                                        .color(colors.text_muted)
+                                        .show();
+                                });
+                            if mode_btn.clicked {
+                                state.status_message = "Agent mode active".to_string();
+                                ui.needs_redraw = true;
+                            }
+
+                            let auto_btn = ui.container()
+                                .padding(2.0, 6.0, 2.0, 6.0)
+                                .bg(colors.bg_base)
+                                .hover_bg(colors.highlight)
+                                .border(colors.border, 1.0)
+                                .radius_all(3.0)
+                                .show(|ui| {
+                                    ui.text("\u{f085} Auto")
+                                        .size(8.5)
+                                        .color(colors.text_muted)
+                                        .show();
+                                });
+                            if auto_btn.clicked {
+                                state.status_message = "Auto mode active".to_string();
+                                ui.needs_redraw = true;
+                            }
+
+                            let mic_btn = ui.container()
+                                .width(20.0)
+                                .height(20.0)
+                                .radius_all(3.0)
+                                .hover_bg(colors.highlight)
+                                .halign(Align::Center)
+                                .valign(Align::Center)
+                                .show(|ui| {
+                                    ui.text("\u{f130}")
+                                        .size(9.0)
+                                        .color(colors.text_muted)
+                                        .show();
+                                });
+                            if mic_btn.clicked {
+                                state.status_message = "Voice input is not available yet".to_string();
+                                ui.needs_redraw = true;
+                            }
+
+                            ui.container()
+                                .full_width()
+                                .row()
+                                .halign(Align::Right)
+                                .valign(Align::Center)
+                                .show(|ui| {
+                                    let interactive_btn = ui.container()
+                                        .padding(2.0, 5.0, 2.0, 5.0)
+                                        .hover_bg(colors.highlight)
+                                        .show(|ui| {
+                                            ui.text("\u{f03d} Interactive")
+                                                .size(8.5)
+                                                .color(colors.text_muted)
+                                                .show();
+                                        });
+                                    if interactive_btn.clicked {
+                                        state.status_message = "Interactive mode active".to_string();
+                                        ui.needs_redraw = true;
+                                    }
+
+                                    let permissions_btn = ui.container()
+                                        .padding(2.0, 5.0, 2.0, 5.0)
+                                        .bg(if state.ai_manual_permissions {
+                                            colors.accent.with_alpha(0.16)
+                                        } else {
+                                            colors.bg_base
+                                        })
+                                        .border(
+                                            if state.ai_manual_permissions {
+                                                colors.accent
+                                            } else {
+                                                colors.border
+                                            },
+                                            1.0,
+                                        )
+                                        .radius_all(3.0)
+                                        .hover_bg(colors.highlight)
+                                        .show(|ui| {
+                                            ui.text(if state.ai_manual_permissions {
+                                                "\u{f023} Manual permissions"
+                                            } else {
+                                                "\u{f09c} Auto permissions"
+                                            })
+                                                .size(8.5)
+                                                .color(if state.ai_manual_permissions {
+                                                    colors.accent
+                                                } else {
+                                                    colors.text_muted
+                                                })
+                                                .show();
+                                        });
+                                    if permissions_btn.clicked {
+                                        state.ai_manual_permissions = !state.ai_manual_permissions;
+                                        state.status_message = if state.ai_manual_permissions {
+                                            "Manual permissions enabled".to_string()
+                                        } else {
+                                            "Auto permissions enabled".to_string()
+                                        };
+                                        ui.needs_redraw = true;
                                     }
                                 });
                         });
