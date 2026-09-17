@@ -78,6 +78,18 @@ fn main() {
                             state.save_persistent_state();
                             should_redraw = true;
                         }
+                        // Toggle/Open Source Control (Ctrl+Shift+G)
+                        winit::keyboard::KeyCode::KeyG if state.ctrl_pressed && state.shift_pressed => {
+                            if state.sidebar_visible && state.sidebar_view == state::SidebarView::SourceControl {
+                                state.sidebar_visible = false;
+                            } else {
+                                state.sidebar_visible = true;
+                                state.sidebar_view = state::SidebarView::SourceControl;
+                                state.refresh_git_status();
+                            }
+                            state.save_persistent_state();
+                            should_redraw = true;
+                        }
                         _ => {}
                     },
                     zenthra_platform::event::PlatformEvent::KeyUp { key } => match key {

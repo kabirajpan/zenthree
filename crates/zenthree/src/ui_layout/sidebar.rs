@@ -98,6 +98,8 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
         .show(|ui| {
             if state.sidebar_view == crate::state::SidebarView::Extensions {
                 crate::ui_layout::draw_extensions_panel(ui, state, sidebar_w);
+            } else if state.sidebar_view == crate::state::SidebarView::SourceControl {
+                crate::ui_layout::draw_source_control_panel(ui, state, sidebar_w);
             } else if !state.has_workspace {
                 draw_no_folder_view(ui, state, sidebar_w);
             } else {

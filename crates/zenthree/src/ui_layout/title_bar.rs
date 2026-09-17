@@ -256,6 +256,19 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                     });
 
                     ui.menu("View").show(|ui| {
+                        let sc_mark = if state.sidebar_visible && state.sidebar_view == crate::state::SidebarView::SourceControl { "● " } else { "  " };
+                        if ui.menu_item(&format!("{}Source Control", sc_mark)).shortcut("Ctrl+Shift+G").show().clicked {
+                            if state.sidebar_visible && state.sidebar_view == crate::state::SidebarView::SourceControl {
+                                state.sidebar_view = crate::state::SidebarView::Explorer;
+                            } else {
+                                state.sidebar_visible = true;
+                                state.sidebar_view = crate::state::SidebarView::SourceControl;
+                                state.refresh_git_status();
+                            }
+                            state.save_persistent_state();
+                            ui.request_redraw();
+                        }
+
                         let ext_mark = if state.sidebar_visible && state.sidebar_view == crate::state::SidebarView::Extensions { "● " } else { "  " };
                         if ui.menu_item(&format!("{}Extensions / Language Packs", ext_mark)).shortcut("Ctrl+Shift+X").show().clicked {
                             if state.sidebar_visible && state.sidebar_view == crate::state::SidebarView::Extensions {

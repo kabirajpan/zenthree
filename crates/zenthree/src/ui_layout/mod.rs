@@ -6,6 +6,7 @@ pub mod terminal;
 pub mod ai_panel;
 pub mod language_dialog;
 pub mod extensions_panel;
+pub mod source_control_panel;
 pub mod activity_bar;
 
 pub use title_bar::draw_title_bar;
@@ -16,6 +17,7 @@ pub use terminal::draw_terminal_panel;
 pub use ai_panel::draw_ai_panel;
 pub use language_dialog::draw_language_prompt_dialog;
 pub use extensions_panel::draw_extensions_panel;
+pub use source_control_panel::draw_source_control_panel;
 pub use activity_bar::{draw_activity_bar, ACTIVITY_BAR_WIDTH};
 
 use crate::state::ZenthreeState;
