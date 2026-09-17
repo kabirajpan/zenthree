@@ -450,18 +450,46 @@ pub fn render_markdown_preview(
                     continue;
                 }
 
-                ui.container()
-                    .full_width()
-                    .padding(2.0, 0.0, 3.0, 0.0)
-                    .row()
-                    .wrap(Wrap::Wrap)
-                    .gap(3.5)
-                    .valign(Align::Center)
-                    .show(|ui| {
-                        for token in tokens {
-                            render_token_widget(ui, token, colors, code_badge_bg);
+                // If paragraph is pure normal text (standard AI explanations),
+                // render as a single cohesive multi-line block with word wrapping so the
+                // entire paragraph can be smoothly drag-selected with comfortable line spacing!
+                let is_pure_text = tokens.iter().all(|t| t.style == SpanStyle::Normal);
+                if is_pure_text {
+                    let mut paragraph_text = String::new();
+                    for (i, t) in tokens.iter().enumerate() {
+                        if i > 0 && !t.text.starts_with(|c| c == ',' || c == '.' || c == ':' || c == ';' || c == '!' || c == '?') {
+                            paragraph_text.push(' ');
                         }
-                    });
+                        paragraph_text.push_str(&t.text);
+                    }
+
+                    ui.container()
+                        .full_width()
+                        .padding(3.0, 0.0, 5.0, 0.0)
+                        .show(|ui| {
+                            ui.text(&paragraph_text)
+                                .size(11.0)
+                                .line_height(1.48)
+                                .color(colors.text_primary)
+                                .max_width((max_w - 4.0).max(40.0))
+                                .wrap(zenthra_text::prelude::TextWrap::Word)
+                                .selectable(true)
+                                .show();
+                        });
+                } else {
+                    ui.container()
+                        .full_width()
+                        .padding(3.0, 0.0, 5.0, 0.0)
+                        .row()
+                        .wrap(Wrap::Wrap)
+                        .gap(4.0)
+                        .valign(Align::Center)
+                        .show(|ui| {
+                            for token in tokens {
+                                render_token_widget(ui, token, colors, code_badge_bg);
+                            }
+                        });
+                }
             }
 
             PreparedBlock::CodeBlock { lang, code, block_id, line_count } => {
@@ -684,22 +712,28 @@ fn render_token_widget(
     match &token.style {
         SpanStyle::Normal => {
             ui.text(&token.text)
-                .size(10.5)
+                .size(11.0)
+                .line_height(1.48)
                 .color(colors.text_primary)
+                .selectable(true)
                 .show();
         }
         SpanStyle::Bold => {
             ui.text(&token.text)
-                .size(10.5)
+                .size(11.0)
+                .line_height(1.48)
                 .weight(FontWeight::Bold)
                 .color(colors.text_primary)
+                .selectable(true)
                 .show();
         }
         SpanStyle::Italic => {
             ui.text(&token.text)
-                .size(10.5)
+                .size(11.0)
+                .line_height(1.48)
                 .italic()
                 .color(colors.text_muted)
+                .selectable(true)
                 .show();
         }
         SpanStyle::Code => {
@@ -710,17 +744,21 @@ fn render_token_widget(
                 .border(colors.border, 1.0)
                 .show(|ui| {
                     ui.text(&token.text)
-                        .size(9.5)
+                        .size(10.0)
+                        .line_height(1.4)
                         .monospace()
                         .color(colors.accent)
+                        .selectable(true)
                         .show();
                 });
         }
         SpanStyle::Link(_) => {
             ui.text(&token.text)
-                .size(10.5)
+                .size(11.0)
+                .line_height(1.48)
                 .weight(FontWeight::Medium)
                 .color(colors.accent)
+                .selectable(true)
                 .show();
         }
     }

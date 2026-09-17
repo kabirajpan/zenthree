@@ -23,6 +23,19 @@ pub enum AgentEvent {
         output_snippet: String,
         duration_ms: u64,
     },
+    FileAnalyzed {
+        file_path: String,
+        start_line: usize,
+        end_line: usize,
+    },
+    SearchExecuted {
+        query: String,
+        result_count: usize,
+    },
+    ThoughtBlock {
+        content: String,
+        duration_secs: u64,
+    },
     PendingModifications {
         summaries: Vec<EditedFileSummary>,
     },

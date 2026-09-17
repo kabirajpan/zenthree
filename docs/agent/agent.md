@@ -331,7 +331,26 @@ pub enum AgentBackend {
 
 ---
 
-## 12. File Map & Code Locations
+---
+
+## 13. Granular Cognitive Loop & Visual Deliberation ("See → Think → Edit → Reflect")
+
+*(For full specification, see [cognitive_loop_architecture.md](file:///home/kabir/Desktop/projects/personal/framworks/zenthra-v2/apps/zenthree/docs/agent/cognitive_loop_architecture.md))*
+
+Rather than blind full-file overwrites, Z.E.N.E. operates on a disciplined cognitive cycle for multi-location edits:
+1. **See Code Slice**: The agent issues bounded `read_file` calls (e.g. `#L1058-1085`) before generating any modification.
+2. **Deep Deliberation**: The internal chain of reasoning is captured in `<thought>` blocks and rendered in the UI as collapsible `Thought for Xs > / v` elements.
+3. **Surgical Multi-Location Editing**: Edits are applied location-by-location using search/replace patches without altering untouched sections.
+4. **Hierarchical UI Transparency**:
+   - `Worked for Xs`: Top-level completion timer.
+   - `Explored N files, N searches`: Pre-flight reconnaissance accordion.
+   - `Analyzed [icon] file #Lstart-end`: Direct clickable link to active lines in editor.
+   - `Thought for Xs >`: Expandable internal monologue disclosure.
+   - `Edited [icon] file +added -removed [✕]`: Surgical patch summary with instant rollback.
+
+---
+
+## 14. File Map & Code Locations
 
 | Subsystem | File Path | Responsibilities |
 |---|---|---|
@@ -348,4 +367,5 @@ pub enum AgentBackend {
 | **UI Streaming** | `crates/ai/src/types/events.rs` | Real-time `AgentEvent` definitions for 120 FPS UI feedback. |
 | **Buffer Diffing** | `crates/zenthree/src/ui_layout/main_buffer.rs` | Inline `+`/`-` line diff rendering with legible text & gutter bars. |
 | **AI Panel UI** | `crates/zenthree/src/ui_layout/ai_panel.rs` | Clean chat bubbles, shadowed drawers, and per-file reject actions. |
+| **Cognitive Spec** | `docs/agent/cognitive_loop_architecture.md` | Deep specification for See → Think → Edit → Reflect loop and UI components. |
 

@@ -40,7 +40,11 @@ fn main() {
         .decorations(false)
         .load_font_data(font_bytes)
         .with_ui(move |ui| {
-            // Track global modifier key states from input events
+            // Apply universal UI font scaling
+            ui.font_scale = state.zoom_level;
+
+            // Track global modifier key states and global shortcuts from input events
+            let mut should_redraw = false;
             for event in &ui.input_events {
                 match event {
                     zenthra_platform::event::PlatformEvent::KeyDown { key } => match key {
@@ -52,6 +56,27 @@ fn main() {
                         }
                         winit::keyboard::KeyCode::AltLeft | winit::keyboard::KeyCode::AltRight => {
                             state.alt_pressed = true;
+                        }
+                        // Universal font & UI zoom controller
+                        winit::keyboard::KeyCode::Equal | winit::keyboard::KeyCode::NumpadAdd if state.ctrl_pressed => {
+                            state.zoom_level = ((state.zoom_level + 0.1) * 10.0).round() / 10.0;
+                            state.zoom_level = state.zoom_level.min(2.5);
+                            state.status_message = format!("Zoom: {:.0}%", state.zoom_level * 100.0);
+                            state.save_persistent_state();
+                            should_redraw = true;
+                        }
+                        winit::keyboard::KeyCode::Minus | winit::keyboard::KeyCode::NumpadSubtract if state.ctrl_pressed => {
+                            state.zoom_level = ((state.zoom_level - 0.1) * 10.0).round() / 10.0;
+                            state.zoom_level = state.zoom_level.max(0.5);
+                            state.status_message = format!("Zoom: {:.0}%", state.zoom_level * 100.0);
+                            state.save_persistent_state();
+                            should_redraw = true;
+                        }
+                        winit::keyboard::KeyCode::Digit0 | winit::keyboard::KeyCode::Numpad0 if state.ctrl_pressed => {
+                            state.zoom_level = 1.0;
+                            state.status_message = "Zoom: 100%".to_string();
+                            state.save_persistent_state();
+                            should_redraw = true;
                         }
                         _ => {}
                     },
@@ -69,6 +94,9 @@ fn main() {
                     },
                     _ => {}
                 }
+            }
+            if should_redraw {
+                ui.request_redraw();
             }
 
             // Poll background LSP messages (diagnostics, completions, server lifecycle)

@@ -544,11 +544,11 @@ mod tests {
         // Update implementation plan
         session.update_implementation_plan(
             "Build authentication flow",
-            &[ExploredItem {
-                file_name: "auth.rs".to_string(),
-                line_range: Some("#L1-50".to_string()),
-                action_type: "Analyzed".to_string(),
-            }],
+            &[ExploredItem::new(
+                "auth.rs",
+                Some("#L1-50".to_string()),
+                "Analyzed",
+            )],
             "Plan: Add JWT validation and login handler.",
         );
 

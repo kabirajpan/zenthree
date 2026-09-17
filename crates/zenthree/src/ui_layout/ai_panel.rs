@@ -776,6 +776,9 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
 
                     let total_msgs = msgs.len();
                     let mut toggle_accordion_idx = None;
+                    let mut toggle_thought_key = None;
+                    let mut toggle_worked_idx = None;
+                    let mut jump_target = None;
                     let mut open_file_target = None;
                     let mut open_session_target = None;
 
@@ -793,7 +796,7 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                 .show(|ui| {
                                     ui.container()
                                         .max_width(bubble_max_w)
-                                        .padding(8.0, 14.0, 8.0, 14.0)
+                                        .padding(9.0, 14.0, 9.0, 14.0)
                                         .bg(match state.theme {
                                             crate::theme::ThemeMode::Dark => Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, 0.06),
                                             crate::theme::ThemeMode::Light => Color::rgba(0.0 / 255.0, 0.0 / 255.0, 0.0 / 255.0, 0.05),
@@ -803,10 +806,11 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                         .show(|ui| {
                                             ui.text(&msg.content)
                                                 .size(11.5)
-                                                .line_height(1.35)
+                                                .line_height(1.48)
                                                 .color(colors.text_primary)
                                                 .max_width(user_text_w)
                                                 .wrap(zenthra_text::prelude::TextWrap::Word)
+                                                .selectable(true)
                                                 .show();
                                         });
                                 });
@@ -836,20 +840,46 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                             });
                                     }
 
-                                    // 1. Collapsible "Explored N files >" / "Exploring N files v"
-                                    if !msg.explored_items.is_empty() {
-                                        let unique_count = msg.explored_items.iter().map(|i| &i.file_name).collect::<std::collections::HashSet<_>>().len();
-                                        let is_expanded = state.expanded_explored_msgs.contains(&msg_idx)
-                                            || (msg.is_working && !state.expanded_explored_msgs.contains(&(msg_idx + 1_000_000)));
+                                    let mut files_to_show = msg.edited_files.clone();
+                                    if is_last_msg {
+                                        if let Some(ref pending) = state.pending_modification {
+                                            let fname = pending.file_path.file_name().and_then(|n| n.to_str()).unwrap_or("file").to_string();
+                                            let added = pending.diff_lines.iter().filter(|(_, s)| *s == DiffLineState::Added).count();
+                                            let removed = pending.diff_lines.iter().filter(|(_, s)| *s == DiffLineState::Removed).count();
+                                            if !files_to_show.iter().any(|e| e.file_name == fname) {
+                                                files_to_show.push(EditedFileSummary {
+                                                    file_name: fname,
+                                                    lines_added: added,
+                                                    lines_removed: removed,
+                                                    original_code: None,
+                                                    proposed_code: None,
+                                                });
+                                            }
+                                        }
+                                    }
 
-                                        let arrow_sym = if is_expanded { "\u{f078}" } else { "\u{f054}" };
-                                        let header_title = if msg.is_working {
-                                            format!("Exploring {} file{}", unique_count, if unique_count == 1 { "" } else { "s" })
+                                    let mut chat_reject_single = None;
+
+                                    // Top-level Cognitive Work Accordion: "Worked for Xs" / "Working..."
+                                    let has_work_activity = msg.is_working
+                                        || msg.elapsed_secs.is_some()
+                                        || !msg.explored_items.is_empty()
+                                        || !files_to_show.is_empty()
+                                        || msg.thoughts.is_some();
+
+                                    if has_work_activity {
+                                        let is_worked_expanded = msg.is_working
+                                            || state.expanded_worked_msgs.contains(&msg_idx);
+                                        let worked_arrow = if is_worked_expanded { "\u{f078}" } else { "\u{f054}" };
+                                        let worked_title = if msg.is_working {
+                                            "Working...".to_string()
+                                        } else if let Some(secs) = msg.elapsed_secs {
+                                            format!("Worked for {}s", secs.max(1))
                                         } else {
-                                            format!("Explored {} file{}", unique_count, if unique_count == 1 { "" } else { "s" })
+                                            "Worked on workspace".to_string()
                                         };
 
-                                        let accordion_btn = ui.container()
+                                        let worked_btn = ui.container()
                                             .padding(2.0, 4.0, 2.0, 4.0)
                                             .hover_bg(Color::rgba(1.0, 1.0, 1.0, 0.04))
                                             .radius_all(3.0)
@@ -862,57 +892,237 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                                     .valign(Align::Center)
                                                     .halign(Align::Center)
                                                     .show(|ui| {
-                                                        ui.text(arrow_sym)
+                                                        ui.text(worked_arrow)
                                                             .size(7.5)
                                                             .color(colors.text_muted)
                                                             .show();
                                                     });
-                                                ui.text(&header_title)
+                                                ui.text(&worked_title)
                                                     .size(10.5)
                                                     .weight(FontWeight::Medium)
                                                     .color(colors.text_dim)
                                                     .show();
                                             });
 
-                                        if accordion_btn.clicked {
-                                            toggle_accordion_idx = Some(msg_idx);
+                                        if worked_btn.clicked {
+                                            toggle_worked_idx = Some(msg_idx);
                                         }
 
-                                        if is_expanded {
+                                        if is_worked_expanded {
                                             ui.container()
                                                 .padding_left(12.0)
                                                 .column()
-                                                .gap(3.0)
+                                                .gap(4.0)
                                                 .show(|ui| {
-                                                    for item in &msg.explored_items {
-                                                        let glyph = get_file_glyph(&item.file_name);
-                                                        ui.container()
+                                                    // 1. Exploration & Deliberation items
+                                                    if !msg.explored_items.is_empty() {
+                                                        let unique_count = msg.explored_items.iter().filter(|i| !i.file_name.is_empty()).map(|i| &i.file_name).collect::<std::collections::HashSet<_>>().len();
+                                                        let search_count = msg.explored_items.iter().filter(|i| i.action_type == "Searched").count();
+                                                        let is_explored_expanded = !state.expanded_explored_msgs.contains(&msg_idx);
+                                                        let exp_arrow = if is_explored_expanded { "\u{f078}" } else { "\u{f054}" };
+
+                                                        let header_title = if unique_count > 0 && search_count > 0 {
+                                                            format!("{} {} file{}, {} search{}", if msg.is_working { "Exploring" } else { "Explored" }, unique_count, if unique_count == 1 { "" } else { "s" }, search_count, if search_count == 1 { "" } else { "es" })
+                                                        } else if unique_count > 0 {
+                                                            format!("{} {} file{}", if msg.is_working { "Exploring" } else { "Explored" }, unique_count, if unique_count == 1 { "" } else { "s" })
+                                                        } else if search_count > 0 {
+                                                            format!("{} {} search{}", if msg.is_working { "Searching" } else { "Searched" }, search_count, if search_count == 1 { "" } else { "es" })
+                                                        } else {
+                                                            "Reasoning & steps".to_string()
+                                                        };
+
+                                                        let exp_btn = ui.container()
+                                                            .padding(1.0, 3.0, 1.0, 3.0)
+                                                            .hover_bg(Color::rgba(1.0, 1.0, 1.0, 0.03))
+                                                            .radius_all(3.0)
                                                             .row()
-                                                            .gap(5.0)
                                                             .valign(Align::Center)
+                                                            .gap(5.0)
                                                             .show(|ui| {
-                                                                ui.text(&item.action_type)
-                                                                    .size(10.5)
-                                                                    .color(colors.text_dim)
-                                                                    .show();
-                                                                ui.text(glyph)
-                                                                    .size(10.5)
-                                                                    .color(colors.accent)
-                                                                    .show();
-                                                                ui.text(&item.file_name)
-                                                                    .size(10.5)
+                                                                ui.container()
+                                                                    .width(10.0)
+                                                                    .valign(Align::Center)
+                                                                    .halign(Align::Center)
+                                                                    .show(|ui| {
+                                                                        ui.text(exp_arrow)
+                                                                            .size(7.0)
+                                                                            .color(colors.text_muted)
+                                                                            .show();
+                                                                    });
+                                                                ui.text(&header_title)
+                                                                    .size(10.0)
                                                                     .weight(FontWeight::Medium)
-                                                                    .color(colors.text_primary)
+                                                                    .color(colors.text_muted)
                                                                     .show();
-                                                                if let Some(ref range) = item.line_range {
-                                                                    ui.text(range)
-                                                                        .size(10.0)
-                                                                        .color(colors.text_dim)
-                                                                        .show();
-                                                                }
                                                             });
+
+                                                        if exp_btn.clicked {
+                                                            toggle_accordion_idx = Some(msg_idx);
+                                                        }
+
+                                                        if is_explored_expanded {
+                                                            ui.container()
+                                                                .padding_left(12.0)
+                                                                .column()
+                                                                .gap(3.0)
+                                                                .show(|ui| {
+                                                                    for (item_idx, item) in msg.explored_items.iter().enumerate() {
+                                                                        if item.action_type == "Thought" || item.thought_content.is_some() {
+                                                                            let thought_text = item.thought_content.as_deref().unwrap_or("");
+                                                                            let thought_dur = item.duration_secs.unwrap_or(1);
+                                                                            let is_thought_exp = state.expanded_thought_items.contains(&(msg_idx, item_idx));
+                                                                            let t_arrow = if is_thought_exp { "\u{f078}" } else { "\u{f054}" };
+
+                                                                            let t_btn = ui.container()
+                                                                                .padding(1.0, 3.0, 1.0, 3.0)
+                                                                                .hover_bg(Color::rgba(1.0, 1.0, 1.0, 0.03))
+                                                                                .radius_all(3.0)
+                                                                                .row()
+                                                                                .valign(Align::Center)
+                                                                                .gap(4.0)
+                                                                                .show(|ui| {
+                                                                                    ui.text(t_arrow)
+                                                                                        .size(6.5)
+                                                                                        .color(colors.text_muted)
+                                                                                        .show();
+                                                                                    ui.text(&format!("Thought for {}s", thought_dur))
+                                                                                        .size(9.5)
+                                                                                        .color(colors.text_muted)
+                                                                                        .show();
+                                                                                });
+
+                                                                            if t_btn.clicked {
+                                                                                toggle_thought_key = Some((msg_idx, item_idx));
+                                                                            }
+
+                                                                            if is_thought_exp && !thought_text.is_empty() {
+                                                                                ui.container()
+                                                                                    .padding(4.0, 8.0, 4.0, 8.0)
+                                                                                    .bg(Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, 0.03))
+                                                                                    .radius_all(4.0)
+                                                                                    .show(|ui| {
+                                                                                        ui.text(thought_text)
+                                                                                            .size(9.5)
+                                                                                            .line_height(1.3)
+                                                                                            .color(colors.text_dim)
+                                                                                            .max_width(assistant_text_w - 32.0)
+                                                                                            .wrap(zenthra_text::prelude::TextWrap::Word)
+                                                                                            .show();
+                                                                                    });
+                                                                            }
+                                                                        } else if item.action_type == "Searched" {
+                                                                            ui.container()
+                                                                                .row()
+                                                                                .gap(5.0)
+                                                                                .valign(Align::Center)
+                                                                                .show(|ui| {
+                                                                                    ui.text("•")
+                                                                                        .size(9.0)
+                                                                                        .color(colors.text_muted)
+                                                                                        .show();
+                                                                                    ui.text("Searched")
+                                                                                        .size(10.0)
+                                                                                        .color(colors.text_dim)
+                                                                                        .show();
+                                                                                    ui.text(&format!("`{}`", item.file_name))
+                                                                                        .size(10.0)
+                                                                                        .color(colors.accent)
+                                                                                        .show();
+                                                                                    if let Some(ref range) = item.line_range {
+                                                                                        ui.text(range)
+                                                                                            .size(9.5)
+                                                                                            .color(colors.text_muted)
+                                                                                            .show();
+                                                                                    }
+                                                                                });
+                                                                        } else {
+                                                                            // Analyzed file
+                                                                            let glyph = get_file_glyph(&item.file_name);
+                                                                            let analyze_btn = ui.container()
+                                                                                .padding(1.0, 3.0, 1.0, 3.0)
+                                                                                .hover_bg(Color::rgba(1.0, 1.0, 1.0, 0.03))
+                                                                                .radius_all(3.0)
+                                                                                .row()
+                                                                                .gap(5.0)
+                                                                                .valign(Align::Center)
+                                                                                .show(|ui| {
+                                                                                    ui.text("•")
+                                                                                        .size(9.0)
+                                                                                        .color(colors.text_muted)
+                                                                                        .show();
+                                                                                    ui.text(&item.action_type)
+                                                                                        .size(10.0)
+                                                                                        .color(colors.text_dim)
+                                                                                        .show();
+                                                                                    ui.text(glyph)
+                                                                                        .size(10.0)
+                                                                                        .color(colors.accent)
+                                                                                        .show();
+                                                                                    ui.text(&item.file_name)
+                                                                                        .size(10.0)
+                                                                                        .weight(FontWeight::Medium)
+                                                                                        .color(colors.text_primary)
+                                                                                        .show();
+                                                                                    if let Some(ref range) = item.line_range {
+                                                                                        ui.text(range)
+                                                                                            .size(9.5)
+                                                                                            .color(colors.accent.with_alpha(0.8))
+                                                                                            .show();
+                                                                                    }
+                                                                                });
+
+                                                                            if analyze_btn.clicked {
+                                                                                jump_target = Some((item.file_name.clone(), item.line_range.clone()));
+                                                                            }
+                                                                        }
+                                                                    }
+                                                                });
+                                                        }
+                                                    } else if let Some(ref thought_text) = msg.thoughts {
+                                                        // Fallback when explored_items is empty but thought exists
+                                                        let is_thought_exp = state.expanded_thought_items.contains(&(msg_idx, 999999));
+                                                        let t_arrow = if is_thought_exp { "\u{f078}" } else { "\u{f054}" };
+
+                                                        let t_btn = ui.container()
+                                                            .padding(1.0, 3.0, 1.0, 3.0)
+                                                            .hover_bg(Color::rgba(1.0, 1.0, 1.0, 0.03))
+                                                            .radius_all(3.0)
+                                                            .row()
+                                                            .valign(Align::Center)
+                                                            .gap(4.0)
+                                                            .show(|ui| {
+                                                                ui.text(t_arrow)
+                                                                    .size(6.5)
+                                                                    .color(colors.text_muted)
+                                                                    .show();
+                                                                ui.text("Thought for 1s")
+                                                                    .size(9.5)
+                                                                    .color(colors.text_muted)
+                                                                    .show();
+                                                            });
+
+                                                        if t_btn.clicked {
+                                                            toggle_thought_key = Some((msg_idx, 999999));
+                                                        }
+
+                                                        if is_thought_exp && !thought_text.trim().is_empty() {
+                                                            ui.container()
+                                                                .padding(4.0, 8.0, 4.0, 8.0)
+                                                                .bg(Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, 0.03))
+                                                                .radius_all(4.0)
+                                                                .show(|ui| {
+                                                                    ui.text(thought_text)
+                                                                        .size(9.5)
+                                                                        .line_height(1.3)
+                                                                        .color(colors.text_dim)
+                                                                        .max_width(assistant_text_w - 32.0)
+                                                                        .wrap(zenthra_text::prelude::TextWrap::Word)
+                                                                        .show();
+                                                                });
+                                                        }
                                                     }
 
+                                                    // 2. Real-time working spinner
                                                     if msg.is_working {
                                                         let now_ms = std::time::SystemTime::now()
                                                             .duration_since(std::time::UNIX_EPOCH)
@@ -957,104 +1167,84 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                                             });
                                                         ui.needs_redraw = true;
                                                     }
-                                                });
-                                        }
-                                    }
 
-                                    // 2. "Edited 🦀 <filename> <rel_path> +<added> -<removed> [✕] [✓]"
-                                    let mut files_to_show = msg.edited_files.clone();
-                                    if is_last_msg {
-                                        if let Some(ref pending) = state.pending_modification {
-                                            let fname = pending.file_path.file_name().and_then(|n| n.to_str()).unwrap_or("file").to_string();
-                                            let added = pending.diff_lines.iter().filter(|(_, s)| *s == DiffLineState::Added).count();
-                                            let removed = pending.diff_lines.iter().filter(|(_, s)| *s == DiffLineState::Removed).count();
-                                            if !files_to_show.iter().any(|e| e.file_name == fname) {
-                                                files_to_show.push(EditedFileSummary {
-                                                    file_name: fname,
-                                                    lines_added: added,
-                                                    lines_removed: removed,
-                                                    original_code: None,
-                                                    proposed_code: None,
-                                                });
-                                            }
-                                        }
-                                    }
+                                                    // 3. Edited files badges (nested INSIDE Worked for Xs)
+                                                    for edited in &files_to_show {
+                                                        let glyph = get_file_glyph(&edited.file_name);
+                                                        let target_name = edited.file_name.clone();
 
-                                    let mut chat_reject_single = None;
+                                                        let p = std::path::Path::new(&edited.file_name);
+                                                        let file_name = p.file_name().and_then(|n| n.to_str()).unwrap_or(&edited.file_name).to_string();
 
-                                    for edited in files_to_show {
-                                        let glyph = get_file_glyph(&edited.file_name);
-                                        let target_name = edited.file_name.clone();
-
-                                        let p = std::path::Path::new(&edited.file_name);
-                                        let file_name = p.file_name().and_then(|n| n.to_str()).unwrap_or(&edited.file_name).to_string();
-
-                                        let pending_match = state.pending_modifications.iter().find(|p| {
-                                            p.file_path.ends_with(&edited.file_name)
-                                                || p.file_path.file_name().and_then(|n| n.to_str()) == Some(&edited.file_name)
-                                        }).or_else(|| {
-                                            state.pending_modification.as_ref().filter(|p| {
-                                                p.file_path.ends_with(&edited.file_name)
-                                                    || p.file_path.file_name().and_then(|n| n.to_str()) == Some(&edited.file_name)
-                                            })
-                                        });
-
-                                        let edit_btn = ui.container()
-                                            .padding(2.0, 6.0, 2.0, 6.0)
-                                            .hover_bg(Color::rgba(1.0, 1.0, 1.0, 0.04))
-                                            .radius_all(3.0)
-                                            .row()
-                                            .valign(Align::Center)
-                                            .gap(6.0)
-                                            .show(|ui| {
-                                                ui.text("Edited")
-                                                    .size(10.5)
-                                                    .color(colors.text_muted)
-                                                    .show();
-                                                ui.text(glyph)
-                                                    .size(10.5)
-                                                    .color(colors.accent)
-                                                    .show();
-                                                ui.text(&file_name)
-                                                    .size(11.0)
-                                                    .weight(FontWeight::SemiBold)
-                                                    .color(colors.text_primary)
-                                                    .show();
-
-                                                if edited.lines_added > 0 {
-                                                    ui.text(&format!("+{}", edited.lines_added))
-                                                        .size(10.0)
-                                                        .weight(FontWeight::Bold)
-                                                        .color(Color::rgb(0.35, 0.85, 0.45))
-                                                        .show();
-                                                }
-                                                if edited.lines_removed > 0 {
-                                                    ui.text(&format!("-{}", edited.lines_removed))
-                                                        .size(10.0)
-                                                        .weight(FontWeight::Bold)
-                                                        .color(Color::rgb(0.97, 0.45, 0.45))
-                                                        .show();
-                                                }
-
-                                                if let Some(pending) = pending_match {
-                                                    let rej_btn = ui.container()
-                                                        .padding(1.0, 4.0, 1.0, 4.0)
-                                                        .radius_all(2.0)
-                                                        .hover_bg(Color::rgba(0.9, 0.2, 0.2, 0.15))
-                                                        .show(|ui| {
-                                                            ui.text("✕")
-                                                                .size(9.5)
-                                                                .color(Color::rgb(239.0 / 255.0, 68.0 / 255.0, 68.0 / 255.0))
-                                                                .show();
+                                                        let pending_match = state.pending_modifications.iter().find(|p| {
+                                                            p.file_path.ends_with(&edited.file_name)
+                                                                || p.file_path.file_name().and_then(|n| n.to_str()) == Some(&edited.file_name)
+                                                        }).or_else(|| {
+                                                            state.pending_modification.as_ref().filter(|p| {
+                                                                p.file_path.ends_with(&edited.file_name)
+                                                                    || p.file_path.file_name().and_then(|n| n.to_str()) == Some(&edited.file_name)
+                                                            })
                                                         });
-                                                    if rej_btn.clicked {
-                                                        chat_reject_single = Some(pending.file_path.clone());
-                                                    }
-                                                }
-                                            });
 
-                                        if edit_btn.clicked && chat_reject_single.is_none() {
-                                            open_file_target = Some(target_name);
+                                                        let edit_btn = ui.container()
+                                                            .padding(2.0, 6.0, 2.0, 6.0)
+                                                            .hover_bg(Color::rgba(1.0, 1.0, 1.0, 0.04))
+                                                            .radius_all(3.0)
+                                                            .row()
+                                                            .valign(Align::Center)
+                                                            .gap(6.0)
+                                                            .show(|ui| {
+                                                                ui.text("Edited")
+                                                                    .size(10.5)
+                                                                    .color(colors.text_muted)
+                                                                    .show();
+                                                                ui.text(glyph)
+                                                                    .size(10.5)
+                                                                    .color(colors.accent)
+                                                                    .show();
+                                                                ui.text(&file_name)
+                                                                    .size(11.0)
+                                                                    .weight(FontWeight::SemiBold)
+                                                                    .color(colors.text_primary)
+                                                                    .show();
+
+                                                                if edited.lines_added > 0 {
+                                                                    ui.text(&format!("+{}", edited.lines_added))
+                                                                        .size(10.0)
+                                                                        .weight(FontWeight::Bold)
+                                                                        .color(Color::rgb(0.35, 0.85, 0.45))
+                                                                        .show();
+                                                                }
+                                                                if edited.lines_removed > 0 {
+                                                                    ui.text(&format!("-{}", edited.lines_removed))
+                                                                        .size(10.0)
+                                                                        .weight(FontWeight::Bold)
+                                                                        .color(Color::rgb(0.97, 0.45, 0.45))
+                                                                        .show();
+                                                                }
+
+                                                                if let Some(pending) = pending_match {
+                                                                    let rej_btn = ui.container()
+                                                                        .padding(1.0, 4.0, 1.0, 4.0)
+                                                                        .radius_all(2.0)
+                                                                        .hover_bg(Color::rgba(0.9, 0.2, 0.2, 0.15))
+                                                                        .show(|ui| {
+                                                                            ui.text("✕")
+                                                                                .size(9.5)
+                                                                                .color(Color::rgb(239.0 / 255.0, 68.0 / 255.0, 68.0 / 255.0))
+                                                                                .show();
+                                                                        });
+                                                                    if rej_btn.clicked {
+                                                                        chat_reject_single = Some(pending.file_path.clone());
+                                                                    }
+                                                                }
+                                                            });
+
+                                                        if edit_btn.clicked && chat_reject_single.is_none() {
+                                                            open_file_target = Some(target_name);
+                                                        }
+                                                    }
+                                                });
                                         }
                                     }
 
@@ -1134,6 +1324,54 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                             state.set_clipboard(text_to_copy);
                                             state.status_message = "Code copied to clipboard".to_string();
                                             ui.needs_redraw = true;
+                                        }
+
+                                        // Action bar at bottom of assistant message (Copy Response)
+                                        if !msg.is_working && !msg.content.trim().is_empty() {
+                                            let copy_text = msg.content.clone();
+                                            let is_copied = state.status_message.starts_with("Response copied") && state.status_message.contains(&format!("#{}", msg_idx));
+
+                                            ui.container()
+                                                .row()
+                                                .gap(6.0)
+                                                .valign(Align::Center)
+                                                .padding(2.0, 0.0, 4.0, 0.0)
+                                                .show(|ui| {
+                                                    let copy_resp_btn = ui.container()
+                                                        .padding(2.0, 6.0, 2.0, 6.0)
+                                                        .radius_all(3.0)
+                                                        .hover_bg(Color::rgba(1.0, 1.0, 1.0, 0.05))
+                                                        .row()
+                                                        .gap(4.0)
+                                                        .valign(Align::Center)
+                                                        .show(|ui| {
+                                                            if is_copied {
+                                                                ui.text("\u{f00c}") // check icon
+                                                                    .size(9.0)
+                                                                    .color(Color::rgb(0.35, 0.85, 0.45))
+                                                                    .show();
+                                                                ui.text("Copied")
+                                                                    .size(9.0)
+                                                                    .color(Color::rgb(0.35, 0.85, 0.45))
+                                                                    .show();
+                                                            } else {
+                                                                ui.text("\u{f0c5}") // copy icon
+                                                                    .size(9.0)
+                                                                    .color(colors.text_muted)
+                                                                    .show();
+                                                                ui.text("Copy")
+                                                                    .size(9.0)
+                                                                    .color(colors.text_muted)
+                                                                    .show();
+                                                            }
+                                                        });
+
+                                                    if copy_resp_btn.clicked {
+                                                        state.set_clipboard(copy_text);
+                                                        state.status_message = format!("Response copied #{}", msg_idx);
+                                                        ui.needs_redraw = true;
+                                                    }
+                                                });
                                         }
                                     }
                                 });
@@ -1401,6 +1639,18 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
 
                     if let Some(idx) = toggle_accordion_idx {
                         state.toggle_explored_accordion(idx);
+                        ui.needs_redraw = true;
+                    }
+                    if let Some((msg_idx, item_idx)) = toggle_thought_key {
+                        state.toggle_thought_accordion(msg_idx, item_idx);
+                        ui.needs_redraw = true;
+                    }
+                    if let Some(idx) = toggle_worked_idx {
+                        state.toggle_worked_accordion(idx);
+                        ui.needs_redraw = true;
+                    }
+                    if let Some((file, range)) = jump_target {
+                        state.jump_to_file_and_line(&file, range.as_deref());
                         ui.needs_redraw = true;
                     }
                     if let Some(target) = open_file_target {
@@ -2175,15 +2425,36 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                         ui.needs_redraw = true;
                                     }
 
-                                    // Simple arrow send button
+                                    // Send & submit button with Lucide ArrowRight and Lucide Pause
                                     let is_working = state.is_agent_working();
                                     let is_paused = state.current_mission.as_ref().map(|m| m.is_paused).unwrap_or(false);
-                                    let (icon, btn_bg, btn_hover) = if is_working {
-                                        ("\u{f04c}", Color::rgb(0.92, 0.58, 0.20), Color::rgb(0.98, 0.68, 0.30)) // Amber Pause
+                                    let (icon, icon_color, icon_size, btn_bg, btn_hover, btn_border) = if is_working {
+                                        (
+                                            "\u{f04c}", // Lucide Pause (||)
+                                            Color::rgb(245.0 / 255.0, 75.0 / 255.0, 75.0 / 255.0), // Bright red icon
+                                            18.0,
+                                            Color::rgba(42.0 / 255.0, 42.0 / 255.0, 48.0 / 255.0, 1.0), // Dark gray circle dark bg
+                                            Color::rgba(58.0 / 255.0, 58.0 / 255.0, 66.0 / 255.0, 1.0),
+                                            Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, 0.15),
+                                        )
                                     } else if is_paused && state.ai_input.trim().is_empty() {
-                                        ("\u{f04b}", Color::rgb(0.35, 0.85, 0.45), Color::rgb(0.45, 0.95, 0.55)) // Green Resume
+                                        (
+                                            "\u{f04b}", // Resume green play
+                                            Color::WHITE,
+                                            14.5,
+                                            Color::rgb(0.35, 0.85, 0.45),
+                                            Color::rgb(0.45, 0.95, 0.55),
+                                            Color::TRANSPARENT,
+                                        )
                                     } else {
-                                        ("\u{f062}", colors.accent, colors.accent.with_alpha(0.85)) // Simple arrow up
+                                        (
+                                            "\u{ea9c}", // Lucide ArrowRight (-->)
+                                            Color::WHITE,
+                                            17.5,
+                                            colors.accent,
+                                            colors.accent.with_alpha(0.85),
+                                            Color::TRANSPARENT,
+                                        )
                                     };
 
                                     let send_circle = ui.container()
@@ -2193,18 +2464,20 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                         .radius_all(13.0)
                                         .bg(btn_bg)
                                         .hover_bg(btn_hover)
+                                        .border(btn_border, 1.0)
                                         .valign(Align::Center)
                                         .halign(Align::Center)
                                         .show(|ui| {
                                             ui.text(icon)
-                                                .size(if is_working { 10.5 } else { 11.0 })
+                                                .size(icon_size)
                                                 .weight(FontWeight::Bold)
-                                                .color(Color::WHITE)
+                                                .color(icon_color)
                                                 .show();
                                         });
 
                                     if send_circle.clicked {
                                         if is_working {
+                                            state.stop_ai_generation();
                                             state.pause_agent_mission();
                                             ui.needs_redraw = true;
                                         } else if is_paused && state.ai_input.trim().is_empty() {

@@ -455,7 +455,7 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
 
                     {
                         let tab_mut = &mut state.tabs[active_tab_idx];
-                        let line_height_pixels = 20.0;
+                        let line_height_pixels = (20.0 * state.zoom_level).round().max(12.0);
                         let total_lines = tab_mut.editor.buffer.line_count();
                         let content_h = total_lines as f32 * line_height_pixels;
                         let max_scroll_y = (content_h - editor_h).max(0.0);
@@ -779,7 +779,9 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                     let editor_w = width;
 
                     // Dimensions of typography
-                    let line_height_pixels = 20.0;
+                    let line_height_pixels = (20.0 * state.zoom_level).round().max(12.0);
+                    let code_font_size = 13.0 * state.zoom_level;
+                    let gutter_font_size = 12.0 * state.zoom_level;
                     let total_lines = state.tabs[active_tab_idx].editor.buffer.line_count();
                     let content_h = total_lines as f32 * line_height_pixels;
 
@@ -874,7 +876,7 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                             let clip = [editor_x + ui.offset_x, editor_y + ui.offset_y, editor_w, editor_h];
 
                             // 1. Draw gutter background
-                            let gutter_w = if state.line_numbers_visible { 44.0 } else { 8.0 };
+                            let gutter_w = if state.line_numbers_visible { (44.0 * state.zoom_level).round().max(24.0) } else { 8.0 };
                             if state.line_numbers_visible {
                                 ui.draws.push(DrawCommand::Rect(RectDraw {
                                     instance: RectInstance {
@@ -938,7 +940,7 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                                             ui.draws.push(DrawCommand::Text(TextDraw {
                                                 text: "+".to_string(),
                                                 pos: [editor_x + gutter_w - 9.0, line_y + 3.0],
-                                                options: TextOptions::new().font_size(12.0).font_family("monospace").color(Color::rgb(0.35, 0.85, 0.45)),
+                                                options: TextOptions::new().font_size(gutter_font_size).font_family("monospace").color(Color::rgb(0.35, 0.85, 0.45)),
                                                 clip,
                                             }));
                                         }
@@ -966,7 +968,7 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                                             ui.draws.push(DrawCommand::Text(TextDraw {
                                                 text: "-".to_string(),
                                                 pos: [editor_x + gutter_w - 9.0, line_y + 3.0],
-                                                options: TextOptions::new().font_size(12.0).font_family("monospace").color(Color::rgb(0.97, 0.45, 0.45)),
+                                                options: TextOptions::new().font_size(gutter_font_size).font_family("monospace").color(Color::rgb(0.97, 0.45, 0.45)),
                                                 clip,
                                             }));
                                         }
@@ -990,13 +992,13 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                                     // Draw line number
                                     if state.line_numbers_visible {
                                         let num_str = format!("{}", i + 1);
-                                        let num_x = editor_x + gutter_w - 16.0 - (num_str.len() as f32 * 6.5);
+                                        let num_x = editor_x + gutter_w - (16.0 * state.zoom_level) - (num_str.len() as f32 * (6.5 * state.zoom_level));
                                         let num_color = if cursor_p.row == i && is_focused { colors.text_primary } else { colors.text_dim };
 
                                         ui.draws.push(DrawCommand::Text(TextDraw {
                                             text: num_str,
                                             pos: [num_x, line_y + 3.0],
-                                            options: TextOptions::new().font_size(12.0).font_family("monospace").color(num_color),
+                                            options: TextOptions::new().font_size(gutter_font_size).font_family("monospace").color(num_color),
                                             clip,
                                         }));
                                     }
@@ -1026,7 +1028,7 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                                     let clean_text = line_text.trim_end_matches(&['\r', '\n'][..]);
 
                                     // Shape code line (cached)
-                                    let opts = TextOptions::new().font_size(13.0).font_family("monospace").color(colors.text_primary);
+                                    let opts = TextOptions::new().font_size(code_font_size).font_family("monospace").color(colors.text_primary);
                                     let shaped = {
                                         let needs_update = match tab.shaping_cache.get(&i) {
                                             Some((cached_text, _)) => cached_text != clean_text,
@@ -1072,7 +1074,7 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
 
                                     // Draw code line text itself
                                     if diff_line_state == Some(DiffLineState::Removed) {
-                                        let removed_opts = TextOptions::new().font_size(13.0).font_family("monospace").color(Color::rgb(0.97, 0.50, 0.50));
+                                        let removed_opts = TextOptions::new().font_size(code_font_size).font_family("monospace").color(Color::rgb(0.97, 0.50, 0.50));
                                         ui.draws.push(DrawCommand::Text(TextDraw {
                                             text: clean_text.to_string(),
                                             pos: [editor_x + gutter_w, line_y + 2.0],
@@ -1085,7 +1087,7 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                                             let styled_spans = get_styled_spans(clean_text, spans, colors.text_primary, &shaped);
                                             for span in styled_spans {
                                                 let span_opts = TextOptions::new()
-                                                    .font_size(13.0)
+                                                    .font_size(code_font_size)
                                                     .font_family("monospace")
                                                     .color(span.color);
                                                 ui.draws.push(DrawCommand::Text(TextDraw {
@@ -1123,7 +1125,7 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                                             ui.draws.push(DrawCommand::Rect(RectDraw {
                                                 instance: RectInstance {
                                                     pos: [editor_x + gutter_w + cursor_x, line_y + 2.0],
-                                                    size: [2.0, 16.0],
+                                                    size: [2.0, (16.0 * state.zoom_level).max(10.0)],
                                                     color: colors.cursor.to_array(),
                                                     radius: [0.0; 4],
                                                     clip_rect: clip,
@@ -1195,12 +1197,12 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                             ui.advance(editor_w, editor_h, draw_start);
                         });
 
-                    let gutter_w = if state.line_numbers_visible { 44.0 } else { 8.0 };
+                    let gutter_w = if state.line_numbers_visible { (44.0 * state.zoom_level).round().max(24.0) } else { 8.0 };
                     cursor_screen_pos = active_cursor_screen_pos.or_else(|| {
                         let cur = state.tabs.get(active_tab_idx)?.editor.cursor();
                         let line_y = editor_y + (cur.row as f32) * line_height_pixels - scroll_y;
                         if line_y >= editor_y && line_y <= editor_y + editor_h {
-                            Some([editor_x + gutter_w + (cur.column as f32 * 7.8), line_y + line_height_pixels])
+                            Some([editor_x + gutter_w + (cur.column as f32 * (7.8 * state.zoom_level)), line_y + line_height_pixels])
                         } else {
                             None
                         }
@@ -1229,7 +1231,7 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                             let rel_y = ui.mouse_y - (editor_y + ui.offset_y) + tab.scroll_y;
                             let line_idx = ((rel_y / line_height_pixels).max(0.0) as usize).min(total_lines.saturating_sub(1));
 
-                            let gutter_w = if state.line_numbers_visible { 44.0 } else { 8.0 };
+                            let gutter_w = if state.line_numbers_visible { (44.0 * state.zoom_level).round().max(24.0) } else { 8.0 };
                             let rel_x = ui.mouse_x - (editor_x + ui.offset_x) - gutter_w;
                             let rel_x = rel_x.max(0.0);
 
@@ -1237,7 +1239,7 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                             if let Some(fs) = ui.font_system.as_ref() {
                                 let line_text = tab.editor.buffer.line(line_idx).unwrap_or_default();
                                 let clean_text = line_text.trim_end_matches(&['\r', '\n'][..]);
-                                let opts = TextOptions::new().font_size(13.0).font_family("monospace");
+                                let opts = TextOptions::new().font_size(code_font_size).font_family("monospace");
                                 let shaped = {
                                     let needs_update = match tab.shaping_cache.get(&line_idx) {
                                         Some((cached_text, _)) => cached_text != clean_text,

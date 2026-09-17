@@ -152,6 +152,8 @@ impl AgentLoop {
                 delta: format!("Step {} of {}: Analyzing actions...", iteration + 1, max_steps),
             });
 
+            let step_start = Instant::now();
+
             // Query LLM
             let response = match chain.complete(&system_prompt, &current_user_prompt, &history) {
                 Ok(res) => res,
@@ -161,6 +163,14 @@ impl AgentLoop {
                     return Err(err_msg);
                 }
             };
+
+            let step_duration_secs = (step_start.elapsed().as_secs()).max(1);
+            if let Some(thought_content) = extract_thought_content(&response) {
+                (self.event_sender)(AgentEvent::ThoughtBlock {
+                    content: thought_content,
+                    duration_secs: step_duration_secs,
+                });
+            }
 
             last_response = response.clone();
 
@@ -237,6 +247,48 @@ impl AgentLoop {
                 let res = execute_agent_tool(&self.ctx.workspace_root, call);
                 let duration_ms = start_time.elapsed().as_millis() as u64;
 
+                // Emit granular cognitive loop events for UI exploration
+                match call {
+                    AgentToolCall::ReadFile { path, start_line, end_line } => {
+                        let s = start_line.unwrap_or(1);
+                        let e = end_line.unwrap_or(s.saturating_add(40));
+                        (self.event_sender)(AgentEvent::FileAnalyzed {
+                            file_path: path.clone(),
+                            start_line: s,
+                            end_line: e,
+                        });
+                    }
+                    AgentToolCall::SearchCode { query } => {
+                        let count = if res.ok {
+                            res.output.lines().filter(|l| !l.trim().is_empty()).count()
+                        } else {
+                            0
+                        };
+                        (self.event_sender)(AgentEvent::SearchExecuted {
+                            query: query.clone(),
+                            result_count: count,
+                        });
+                    }
+                    AgentToolCall::RunCommand { cmd } => {
+                        (self.event_sender)(AgentEvent::SearchExecuted {
+                            query: format!("run `{}`", cmd),
+                            result_count: if res.ok { 1 } else { 0 },
+                        });
+                    }
+                    AgentToolCall::ListDirectory { path } => {
+                        let count = if res.ok {
+                            res.output.lines().filter(|l| !l.trim().is_empty()).count()
+                        } else {
+                            0
+                        };
+                        (self.event_sender)(AgentEvent::SearchExecuted {
+                            query: format!("list `{}`", path.as_deref().unwrap_or(".")),
+                            result_count: count,
+                        });
+                    }
+                    _ => {}
+                }
+
                 let output_snippet = if res.output.chars().count() > 300 {
                     format!("{}...", res.output.chars().take(300).collect::<String>())
                 } else {
@@ -299,4 +351,41 @@ impl AgentLoop {
         });
         Ok(last_response)
     }
+}
+
+fn extract_thought_content(text: &str) -> Option<String> {
+    if let Some(start) = text.find("<thought>") {
+        if let Some(end) = text[start..].find("</thought>") {
+            let inner = &text[start + 9..start + end];
+            if !inner.trim().is_empty() {
+                return Some(inner.trim().to_string());
+            }
+        }
+    }
+    if let Some(start) = text.find("<thinking>") {
+        if let Some(end) = text[start..].find("</thinking>") {
+            let inner = &text[start + 10..start + end];
+            if !inner.trim().is_empty() {
+                return Some(inner.trim().to_string());
+            }
+        }
+    }
+    // Fallback: Check for preamble reasoning before first tool call or file block
+    let first_file = text.find("### File:");
+    let first_tool = text.find("{\"tool\":");
+    let cutoff = match (first_file, first_tool) {
+        (Some(f), Some(t)) => Some(f.min(t)),
+        (Some(f), None) => Some(f),
+        (None, Some(t)) => Some(t),
+        (None, None) => None,
+    };
+    if let Some(c) = cutoff {
+        if c > 15 {
+            let preamble = text[..c].trim();
+            if !preamble.is_empty() && !preamble.starts_with("```") {
+                return Some(preamble.to_string());
+            }
+        }
+    }
+    None
 }

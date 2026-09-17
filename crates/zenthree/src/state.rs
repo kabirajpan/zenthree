@@ -125,6 +125,8 @@ pub struct AiMessage {
     pub is_working: bool,
     #[serde(default)]
     pub sub_agent: Option<crate::agent::SubAgentRole>,
+    #[serde(default)]
+    pub elapsed_secs: Option<u64>,
 }
 
 impl Default for AiMessage {
@@ -139,6 +141,7 @@ impl Default for AiMessage {
             edited_files: Vec::new(),
             is_working: false,
             sub_agent: None,
+            elapsed_secs: None,
         }
     }
 }
@@ -375,6 +378,9 @@ pub struct ZenthreeState {
     pub pending_modifications: Vec<PendingModification>,
     pub last_ai_prompt: String,
     pub expanded_explored_msgs: std::collections::HashSet<usize>,
+    pub expanded_thought_items: std::collections::HashSet<(usize, usize)>,
+    pub expanded_worked_msgs: std::collections::HashSet<usize>,
+    pub ai_request_start_times: std::collections::HashMap<usize, std::time::Instant>,
     pub expanded_code_blocks: std::collections::HashSet<u64>,
     pub current_mission: Option<AgentMission>,
     pub current_session: crate::session::AgentSession,
@@ -529,6 +535,9 @@ impl ZenthreeState {
             pending_modifications: Vec::new(),
             last_ai_prompt: String::new(),
             expanded_explored_msgs: std::collections::HashSet::new(),
+            expanded_thought_items: std::collections::HashSet::new(),
+            expanded_worked_msgs: std::collections::HashSet::new(),
+            ai_request_start_times: std::collections::HashMap::new(),
             expanded_code_blocks: std::collections::HashSet::new(),
             current_mission: None,
             detected_environment: None,
@@ -953,9 +962,55 @@ impl ZenthreeState {
                     self.status_message = format!("✓ Updated {} file(s) - Review changes in editor", summaries.len());
                     updated = true;
                 }
+                ai::AgentEvent::FileAnalyzed { file_path, start_line, end_line } => {
+                    if let Some(msg) = self.ai_messages.get_mut(idx) {
+                        let p = std::path::Path::new(&file_path);
+                        let file_name = p.file_name().and_then(|n| n.to_str()).unwrap_or(&file_path).to_string();
+                        let range = format!("#L{}-{}", start_line, end_line);
+                        let already_has = msg.explored_items.iter().any(|i| i.file_name == file_name && i.line_range.as_deref() == Some(&range));
+                        if !already_has {
+                            msg.explored_items.push(ExploredItem {
+                                file_name,
+                                line_range: Some(range),
+                                action_type: "Analyzed".to_string(),
+                                thought_content: None,
+                                duration_secs: None,
+                            });
+                        }
+                    }
+                    updated = true;
+                }
+                ai::AgentEvent::SearchExecuted { query, result_count } => {
+                    if let Some(msg) = self.ai_messages.get_mut(idx) {
+                        msg.explored_items.push(ExploredItem {
+                            file_name: query.clone(),
+                            line_range: Some(format!("({} result{})", result_count, if result_count == 1 { "" } else { "s" })),
+                            action_type: "Searched".to_string(),
+                            thought_content: None,
+                            duration_secs: None,
+                        });
+                    }
+                    updated = true;
+                }
+                ai::AgentEvent::ThoughtBlock { content, duration_secs } => {
+                    if let Some(msg) = self.ai_messages.get_mut(idx) {
+                        msg.explored_items.push(ExploredItem {
+                            file_name: String::new(),
+                            line_range: None,
+                            action_type: "Thought".to_string(),
+                            thought_content: Some(content),
+                            duration_secs: Some(duration_secs),
+                        });
+                    }
+                    updated = true;
+                }
                 ai::AgentEvent::Completed { summary } => {
+                    let duration = self.ai_request_start_times.remove(&idx)
+                        .map(|t| t.elapsed().as_secs())
+                        .unwrap_or(0);
                     let trimmed_content = summary.trim();
                     if let Some(msg) = self.ai_messages.get_mut(idx) {
+                        msg.elapsed_secs = Some(duration.max(1));
                         if trimmed_content.is_empty() {
                             msg.content = format!(
                                 "I completed the workspace tasks for `{}`. Let me know if you would like any further changes or testing!",
@@ -1230,6 +1285,39 @@ impl ZenthreeState {
         }
     }
 
+    pub fn toggle_thought_accordion(&mut self, msg_idx: usize, item_idx: usize) {
+        let key = (msg_idx, item_idx);
+        if self.expanded_thought_items.contains(&key) {
+            self.expanded_thought_items.remove(&key);
+        } else {
+            self.expanded_thought_items.insert(key);
+        }
+    }
+
+    pub fn toggle_worked_accordion(&mut self, msg_idx: usize) {
+        if self.expanded_worked_msgs.contains(&msg_idx) {
+            self.expanded_worked_msgs.remove(&msg_idx);
+        } else {
+            self.expanded_worked_msgs.insert(msg_idx);
+        }
+    }
+
+    pub fn jump_to_file_and_line(&mut self, file_name: &str, line_range: Option<&str>) {
+        self.open_file_by_name(file_name);
+        if let Some(range_str) = line_range {
+            let clean = range_str.trim_start_matches("#L").trim_start_matches('L');
+            let start_line = clean.split('-').next().and_then(|s| s.parse::<usize>().ok()).unwrap_or(1);
+            if let Some(tab_idx) = self.active_tab {
+                if let Some(tab) = self.tabs.get_mut(tab_idx) {
+                    let total_lines = tab.editor.buffer.lines().len();
+                    let target_line = (start_line.saturating_sub(1)).min(total_lines.saturating_sub(1));
+                    tab.editor.set_cursor(editor::buffer::Point::new(target_line, 0));
+                    tab.scroll_y = (target_line as f32 * 20.0).max(0.0);
+                }
+            }
+        }
+    }
+
     pub fn open_file_by_name(&mut self, name: &str) {
         for (idx, tab) in self.tabs.iter().enumerate() {
             if tab.name == name || tab.path.as_ref().and_then(|p| p.file_name()).and_then(|n| n.to_str()) == Some(name) {
@@ -1244,7 +1332,9 @@ impl ZenthreeState {
     }
 
     pub fn is_agent_working(&self) -> bool {
-        self.ai_pending_requests > 0 || self.current_mission.as_ref().map(|m| m.is_active && !m.is_paused).unwrap_or(false)
+        self.ai_pending_requests > 0
+            || self.ai_messages.iter().any(|m| m.is_working)
+            || self.current_mission.as_ref().map(|m| m.is_active && !m.is_paused).unwrap_or(false)
     }
 
     pub fn pause_agent_mission(&mut self) {
@@ -2556,6 +2646,8 @@ impl ZenthreeState {
                     file_name: display_file.to_string(),
                     line_range: range,
                     action_type: "Analyzed".to_string(),
+                    thought_content: None,
+                    duration_secs: None,
                 });
             }
             ctx
@@ -2629,7 +2721,9 @@ impl ZenthreeState {
                 edited_files: Vec::new(),
                 is_working: true,
                 sub_agent,
+                elapsed_secs: None,
             });
+            self.ai_request_start_times.insert(msg_idx, std::time::Instant::now());
             self.save_current_session_messages();
 
             self.ai_pending_requests += 1;
@@ -3015,15 +3109,22 @@ impl ZenthreeState {
         self.ai_generation_ticks = 0;
     }
 
-    #[allow(dead_code)]
     pub fn stop_ai_generation(&mut self) {
-        if self.ai_status == AiStatus::Generating {
-            self.ai_cancellation_token.cancel();
-            self.ai_status = AiStatus::Ready;
-            self.ai_pending_prompt = None;
-            self.ai_generation_ticks = 0;
-            self.status_message = "AI response stopped".to_string();
+        self.ai_cancellation_token.cancel();
+        self.ai_status = AiStatus::Ready;
+        self.ai_pending_prompt = None;
+        self.ai_generation_ticks = 0;
+        self.ai_pending_requests = 0;
+        for msg in &mut self.ai_messages {
+            msg.is_working = false;
         }
+        if let Some(ref mut mission) = self.current_mission {
+            mission.is_active = false;
+            mission.is_paused = true;
+            mission.status_message = "⏹ Mission stopped by user".to_string();
+            self.current_session.update_mission_file(mission);
+        }
+        self.status_message = "AI response stopped".to_string();
     }
 
     pub fn cancel_ai_terminal_command(&mut self, cmd_id: &str) {
@@ -3797,11 +3898,11 @@ mod tests {
         let mut state = ZenthreeState::new();
         state.groq_api_key = None;
         state.gemini_api_key = None;
-        let items = vec![ExploredItem {
-            file_name: "src/main.rs".to_string(),
-            line_range: Some("#L1-10".to_string()),
-            action_type: "Analyzed".to_string(),
-        }];
+        let items = vec![ExploredItem::new(
+            "src/main.rs",
+            Some("#L1-10".to_string()),
+            "Analyzed",
+        )];
         let mission = create_mission_for_prompt("fix navbar bug", &items);
         assert_eq!(mission.self_healing_attempts, 0);
         assert_eq!(mission.tasks.len(), 4);
@@ -4138,6 +4239,125 @@ mod tests {
         assert_eq!(diff_del[1], ("deleted 1".to_string(), DiffLineState::Removed));
         assert_eq!(diff_del[2], ("deleted 2".to_string(), DiffLineState::Removed));
         assert_eq!(diff_del[3].1, DiffLineState::Unchanged);
+    }
+
+    #[test]
+    fn test_cognitive_loop_events_and_toggles() {
+        let mut state = ZenthreeState::new();
+        state.ai_messages.push(AiMessage {
+            is_user: false,
+            content: "I'll create the project.".to_string(),
+            code_snippet: None,
+            thoughts: None,
+            deliberation: None,
+            explored_items: Vec::new(),
+            edited_files: Vec::new(),
+            is_working: true,
+            sub_agent: None,
+            elapsed_secs: None,
+        });
+
+        // Test accordion toggles
+        assert!(!state.expanded_worked_msgs.contains(&0));
+        state.toggle_worked_accordion(0);
+        assert!(state.expanded_worked_msgs.contains(&0));
+        state.toggle_worked_accordion(0);
+        assert!(!state.expanded_worked_msgs.contains(&0));
+
+        assert!(!state.expanded_thought_items.contains(&(0, 1)));
+        state.toggle_thought_accordion(0, 1);
+        assert!(state.expanded_thought_items.contains(&(0, 1)));
+        state.toggle_thought_accordion(0, 1);
+        assert!(!state.expanded_thought_items.contains(&(0, 1)));
+
+        // Test event handling
+        state.ai_request_start_times.insert(0, std::time::Instant::now());
+
+        // FileAnalyzed
+        let analyzed_evt = ai::AgentEvent::FileAnalyzed {
+            file_path: "src/App.jsx".to_string(),
+            start_line: 10,
+            end_line: 45,
+        };
+        // SearchExecuted
+        let search_evt = ai::AgentEvent::SearchExecuted {
+            query: "calculator".to_string(),
+            result_count: 3,
+        };
+        // ThoughtBlock
+        let thought_evt = ai::AgentEvent::ThoughtBlock {
+            content: "Planning layout structure and state bindings".to_string(),
+            duration_secs: 2,
+        };
+        // Completed
+        let completed_evt = ai::AgentEvent::Completed {
+            summary: "Finished scaffolding".to_string(),
+        };
+
+        // Simulate event poll handling
+        if let Some(msg) = state.ai_messages.get_mut(0) {
+            match analyzed_evt {
+                ai::AgentEvent::FileAnalyzed { file_path, start_line, end_line } => {
+                    let range = format!("#L{}-{}", start_line, end_line);
+                    msg.explored_items.push(ExploredItem {
+                        file_name: file_path,
+                        line_range: Some(range),
+                        action_type: "Analyzed".to_string(),
+                        thought_content: None,
+                        duration_secs: None,
+                    });
+                }
+                _ => {}
+            }
+            match search_evt {
+                ai::AgentEvent::SearchExecuted { query, result_count } => {
+                    msg.explored_items.push(ExploredItem {
+                        file_name: query,
+                        line_range: Some(format!("({} results)", result_count)),
+                        action_type: "Searched".to_string(),
+                        thought_content: None,
+                        duration_secs: None,
+                    });
+                }
+                _ => {}
+            }
+            match thought_evt {
+                ai::AgentEvent::ThoughtBlock { content, duration_secs } => {
+                    msg.explored_items.push(ExploredItem {
+                        file_name: String::new(),
+                        line_range: None,
+                        action_type: "Thought".to_string(),
+                        thought_content: Some(content),
+                        duration_secs: Some(duration_secs),
+                    });
+                }
+                _ => {}
+            }
+            match completed_evt {
+                ai::AgentEvent::Completed { summary } => {
+                    msg.content = summary;
+                    msg.is_working = false;
+                    msg.elapsed_secs = Some(19);
+                }
+                _ => {}
+            }
+        }
+
+        let msg = &state.ai_messages[0];
+        assert_eq!(msg.explored_items.len(), 3);
+        assert_eq!(msg.explored_items[0].action_type, "Analyzed");
+        assert_eq!(msg.explored_items[0].file_name, "src/App.jsx");
+        assert_eq!(msg.explored_items[0].line_range.as_deref(), Some("#L10-45"));
+
+        assert_eq!(msg.explored_items[1].action_type, "Searched");
+        assert_eq!(msg.explored_items[1].file_name, "calculator");
+
+        assert_eq!(msg.explored_items[2].action_type, "Thought");
+        assert_eq!(msg.explored_items[2].thought_content.as_deref(), Some("Planning layout structure and state bindings"));
+        assert_eq!(msg.explored_items[2].duration_secs, Some(2));
+
+        assert_eq!(msg.elapsed_secs, Some(19));
+        assert_eq!(msg.is_working, false);
     }
 }
 

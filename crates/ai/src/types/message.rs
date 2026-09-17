@@ -6,6 +6,32 @@ pub struct ExploredItem {
     pub file_name: String,
     pub line_range: Option<String>,
     pub action_type: String,
+    #[serde(default)]
+    pub thought_content: Option<String>,
+    #[serde(default)]
+    pub duration_secs: Option<u64>,
+}
+
+impl ExploredItem {
+    pub fn new(file_name: impl Into<String>, line_range: Option<String>, action_type: impl Into<String>) -> Self {
+        Self {
+            file_name: file_name.into(),
+            line_range,
+            action_type: action_type.into(),
+            thought_content: None,
+            duration_secs: None,
+        }
+    }
+
+    pub fn new_thought(content: impl Into<String>, duration_secs: u64) -> Self {
+        Self {
+            file_name: String::new(),
+            line_range: None,
+            action_type: "Thought".to_string(),
+            thought_content: Some(content.into()),
+            duration_secs: Some(duration_secs),
+        }
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -35,6 +61,8 @@ pub struct AiMessage {
     pub is_working: bool,
     #[serde(default)]
     pub sub_agent: Option<SubAgentRole>,
+    #[serde(default)]
+    pub elapsed_secs: Option<u64>,
 }
 
 impl Default for AiMessage {
@@ -49,6 +77,7 @@ impl Default for AiMessage {
             edited_files: Vec::new(),
             is_working: false,
             sub_agent: None,
+            elapsed_secs: None,
         }
     }
 }
