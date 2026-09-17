@@ -866,7 +866,14 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                         38.0
                     }
                 }
-                AiInputDrawer::Terminals => 72.0,
+                AiInputDrawer::Terminals => {
+                    let running_count = state.ai_terminal_commands.iter().filter(|c| c.status == crate::state::AiCommandStatus::Running).count();
+                    if running_count > 0 {
+                        (running_count as f32 * 30.0 + 38.0).clamp(44.0, 140.0)
+                    } else {
+                        0.0
+                    }
+                }
                 AiInputDrawer::Artifacts => {
                     let arts = state.current_session.list_artifacts();
                     (arts.len() as f32 * 26.0 + 38.0).clamp(44.0, 150.0)
@@ -1266,7 +1273,7 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                             &colors,
                                             state.theme,
                                             &mut copy_action,
-                                            &mut state.collapsed_code_blocks,
+                                            &mut state.expanded_code_blocks,
                                         );
 
                                         // Code snippet block if separate
@@ -1279,7 +1286,7 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                                 &colors,
                                                 state.theme,
                                                 &mut snippet_copy,
-                                                &mut state.collapsed_code_blocks,
+                                                &mut state.expanded_code_blocks,
                                             );
                                             if let Some(c) = snippet_copy {
                                                 copy_action = Some(c);
@@ -1803,55 +1810,29 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                     }
                 }
                 AiInputDrawer::Terminals => {
-                    let mut close_term_requested = false;
-                    let mut start_term_requested = false;
+                    let running_cmds: Vec<_> = state.ai_terminal_commands.iter()
+                        .filter(|c| c.status == crate::state::AiCommandStatus::Running)
+                        .cloned()
+                        .collect();
 
-                    ui.container()
-                        .width(ai_panel_w)
-                        .height(72.0)
-                        .bg(colors.bg_sidebar)
-                        .border(colors.border, 1.0)
-                        .radius(4.0, 4.0, 0.0, 0.0)
-                        .padding(6.0, 10.0, 6.0, 10.0)
-                        .column()
-                        .gap(4.0)
-                        .show(|ui| {
-                            ui.container()
-                                .row()
-                                .valign(Align::Center)
-                                .halign(Align::SpaceBetween)
-                                .show(|ui| {
-                                    ui.container()
-                                        .row()
-                                        .gap(6.0)
-                                        .valign(Align::Center)
-                                        .show(|ui| {
-                                            ui.text("\u{ea85}")
-                                                .size(12.0)
-                                                .color(colors.accent)
-                                                .show();
-                                            ui.text("Background Terminals")
-                                                .size(10.5)
-                                                .weight(FontWeight::Bold)
-                                                .color(colors.text_primary)
-                                                .show();
-                                        });
-                                    if state.terminal_session.is_some() {
-                                        ui.text("1 running")
-                                            .size(9.5)
-                                            .color(Color::rgb(34.0 / 255.0, 197.0 / 255.0, 94.0 / 255.0))
-                                            .show();
-                                    }
-                                });
+                    if running_cmds.is_empty() {
+                        state.active_input_drawer = AiInputDrawer::None;
+                    } else {
+                        let mut cancel_requested_id = None;
+                        let mut close_drawer = false;
+                        let drawer_h = (running_cmds.len() as f32 * 30.0 + 38.0).clamp(44.0, 140.0);
 
-                            if state.terminal_session.is_some() {
+                        ui.container()
+                            .width(ai_panel_w)
+                            .height(drawer_h)
+                            .bg(colors.bg_sidebar)
+                            .border(colors.border, 1.0)
+                            .radius(4.0, 4.0, 0.0, 0.0)
+                            .padding(4.0, 8.0, 4.0, 8.0)
+                            .column()
+                            .gap(4.0)
+                            .show(|ui| {
                                 ui.container()
-                                    .width(ai_panel_w - 22.0)
-                                    .height(28.0)
-                                    .bg(colors.bg_base)
-                                    .border(colors.border, 1.0)
-                                    .padding(2.0, 6.0, 2.0, 6.0)
-                                    .radius_all(3.0)
                                     .row()
                                     .valign(Align::Center)
                                     .halign(Align::SpaceBetween)
@@ -1861,74 +1842,107 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                             .gap(6.0)
                                             .valign(Align::Center)
                                             .show(|ui| {
-                                                ui.text("●")
-                                                    .size(6.0)
+                                                ui.text("\u{ea85}")
+                                                    .size(12.0)
                                                     .color(Color::rgb(34.0 / 255.0, 197.0 / 255.0, 94.0 / 255.0))
                                                     .show();
-                                                ui.text("Terminal 1: bash (Interactive Shell)")
-                                                    .size(10.0)
-                                                    .weight(FontWeight::Medium)
+                                                ui.text("Active Terminal")
+                                                    .size(10.5)
+                                                    .weight(FontWeight::Bold)
                                                     .color(colors.text_primary)
                                                     .show();
                                             });
 
-                                        let close_btn = ui.container()
-                                            .padding(1.0, 5.0, 1.0, 5.0)
-                                            .bg(colors.bg_sidebar)
-                                            .border(colors.border, 1.0)
-                                            .radius_all(3.0)
-                                            .hover_bg(colors.highlight)
+                                        ui.container()
+                                            .row()
+                                            .gap(8.0)
+                                            .valign(Align::Center)
                                             .show(|ui| {
-                                                ui.text("✕")
-                                                    .size(9.5)
-                                                    .color(Color::rgb(239.0 / 255.0, 68.0 / 255.0, 68.0 / 255.0))
-                                                    .show();
-                                            });
-                                        if close_btn.clicked {
-                                            close_term_requested = true;
-                                        }
-                                    });
-                            } else {
-                                ui.container()
-                                    .width(ai_panel_w - 22.0)
-                                    .height(28.0)
-                                    .row()
-                                    .valign(Align::Center)
-                                    .halign(Align::SpaceBetween)
-                                    .show(|ui| {
-                                        ui.text("No background terminals running")
-                                            .size(10.0)
-                                            .color(colors.text_muted)
-                                            .show();
-
-                                        let start_btn = ui.container()
-                                            .padding(2.0, 6.0, 2.0, 6.0)
-                                            .bg(colors.bg_base)
-                                            .border(colors.border, 1.0)
-                                            .hover_bg(colors.highlight)
-                                            .radius_all(3.0)
-                                            .show(|ui| {
-                                                ui.text("+ Start Terminal")
-                                                    .size(9.5)
+                                                ui.text(&format!("● {} running", running_cmds.len()))
+                                                    .size(9.0)
+                                                    .weight(FontWeight::Medium)
                                                     .color(Color::rgb(34.0 / 255.0, 197.0 / 255.0, 94.0 / 255.0))
                                                     .show();
-                                            });
-                                        if start_btn.clicked {
-                                            start_term_requested = true;
-                                        }
-                                    });
-                            }
-                        });
 
-                    if close_term_requested {
-                        state.terminal_session = None;
-                        state.terminal_lines.clear();
-                        state.terminal_visible = false;
-                        ui.needs_redraw = true;
-                    } else if start_term_requested {
-                        state.ensure_terminal_session();
-                        state.terminal_visible = true;
-                        ui.needs_redraw = true;
+                                                let close_btn = ui.container()
+                                                    .padding(1.0, 4.0, 1.0, 4.0)
+                                                    .hover_bg(colors.highlight)
+                                                    .radius_all(2.0)
+                                                    .show(|ui| {
+                                                        ui.text("✕")
+                                                            .size(9.5)
+                                                            .color(colors.text_muted)
+                                                            .show();
+                                                    });
+                                                if close_btn.clicked {
+                                                    close_drawer = true;
+                                                }
+                                            });
+                                    });
+
+                                for cmd in &running_cmds {
+                                    ui.container()
+                                        .width(ai_panel_w - 20.0)
+                                        .height(26.0)
+                                        .bg(colors.bg_base)
+                                        .border(colors.border, 1.0)
+                                        .padding(2.0, 6.0, 2.0, 6.0)
+                                        .radius_all(3.0)
+                                        .row()
+                                        .valign(Align::Center)
+                                        .halign(Align::SpaceBetween)
+                                        .show(|ui| {
+                                            ui.container()
+                                                .row()
+                                                .gap(6.0)
+                                                .valign(Align::Center)
+                                                .show(|ui| {
+                                                    ui.text("●")
+                                                        .size(7.0)
+                                                        .color(Color::rgb(34.0 / 255.0, 197.0 / 255.0, 94.0 / 255.0))
+                                                        .show();
+
+                                                    let display_cmd = if cmd.command.chars().count() > 34 {
+                                                        format!("{}...", cmd.command.chars().take(34).collect::<String>())
+                                                    } else {
+                                                        cmd.command.clone()
+                                                    };
+                                                    ui.text(&display_cmd)
+                                                        .size(10.0)
+                                                        .weight(FontWeight::Medium)
+                                                        .color(colors.text_primary)
+                                                        .show();
+                                                });
+
+                                            // Cross icon button (✕) to cancel/kill active command
+                                            let cross_btn = ui.container()
+                                                .padding(1.0, 5.0, 1.0, 5.0)
+                                                .bg(colors.bg_sidebar)
+                                                .border(colors.border, 1.0)
+                                                .radius_all(3.0)
+                                                .hover_bg(Color::rgb(239.0 / 255.0, 68.0 / 255.0, 68.0 / 255.0).with_alpha(0.2))
+                                                .show(|ui| {
+                                                    ui.text("✕")
+                                                        .size(10.0)
+                                                        .weight(FontWeight::Bold)
+                                                        .color(Color::rgb(239.0 / 255.0, 68.0 / 255.0, 68.0 / 255.0))
+                                                        .show();
+                                                });
+                                            if cross_btn.clicked {
+                                                cancel_requested_id = Some(cmd.id.clone());
+                                            }
+                                        });
+                                }
+                            });
+
+                        if let Some(cmd_id) = cancel_requested_id {
+                            state.cancel_ai_terminal_command(&cmd_id);
+                            ui.needs_redraw = true;
+                        }
+                        if close_drawer {
+                            state.active_input_drawer = AiInputDrawer::None;
+                            ui.needs_redraw = true;
+                        }
                     }
                 }
                 AiInputDrawer::Artifacts => {
@@ -2147,7 +2161,7 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
 
             // ─── Top of Input Prompt Area: Toolbar (Unified Framework Badges) ───
             let has_pending = !state.pending_modifications.is_empty() || state.pending_modification.is_some();
-            let has_running_term = state.terminal_session.is_some();
+            let has_running_term = state.ai_terminal_commands.iter().any(|c| c.status == crate::state::AiCommandStatus::Running);
             let has_artifacts = state.current_session.has_plan || state.current_session.has_mission || state.current_session.has_walkthrough;
 
             ui.container()

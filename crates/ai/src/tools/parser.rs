@@ -80,7 +80,8 @@ pub fn parse_single_tool_call_value(val: &serde_json::Value) -> Option<AgentTool
         .get("tool")
         .or_else(|| val.get("name"))
         .or_else(|| val.get("function"))
-        .and_then(|v| v.as_str())?;
+        .or_else(|| val.get("action"))
+        .and_then(|v| v.as_str());
 
     let params = val
         .get("parameters")
@@ -88,49 +89,53 @@ pub fn parse_single_tool_call_value(val: &serde_json::Value) -> Option<AgentTool
         .or_else(|| val.get("arguments"))
         .unwrap_or(val);
 
-    match tool_name {
-        "read_file" => {
-            let path = params
-                .get("path")
-                .or_else(|| params.get("file_path"))
-                .or_else(|| params.get("file"))
-                .and_then(|v| v.as_str())?;
-            let start_line = params.get("start_line").and_then(|v| v.as_u64()).map(|v| v as usize);
-            let end_line = params.get("end_line").and_then(|v| v.as_u64()).map(|v| v as usize);
-            Some(AgentToolCall::ReadFile {
-                path: path.trim().trim_matches('"').to_string(),
-                start_line,
-                end_line,
-            })
-        }
-        "search_code" | "grep" | "search" => {
-            let query = params
-                .get("query")
-                .or_else(|| params.get("pattern"))
-                .or_else(|| params.get("search"))
-                .and_then(|v| v.as_str())?;
-            Some(AgentToolCall::SearchCode {
-                query: query.trim().to_string(),
-            })
-        }
-        "list_directory" | "list_dir" | "ls" => {
-            let path = params
-                .get("path")
-                .or_else(|| params.get("directory"))
-                .or_else(|| params.get("dir"))
-                .and_then(|v| v.as_str())
-                .map(|s| s.trim().trim_matches('"').to_string());
-            Some(AgentToolCall::ListDirectory { path })
-        }
-        "run_command" | "exec" | "terminal" => {
-            let cmd = params
-                .get("cmd")
-                .or_else(|| params.get("command"))
-                .and_then(|v| v.as_str())?;
-            Some(AgentToolCall::RunCommand {
-                cmd: cmd.trim().to_string(),
-            })
-        }
+    if let Some(tool) = tool_name {
+        match tool {
+            "read_file" => {
+                let path = params
+                    .get("path")
+                    .or_else(|| params.get("file_path"))
+                    .or_else(|| params.get("file"))
+                    .and_then(|v| v.as_str())?;
+                let start_line = params.get("start_line").and_then(|v| v.as_u64()).map(|v| v as usize);
+                let end_line = params.get("end_line").and_then(|v| v.as_u64()).map(|v| v as usize);
+                Some(AgentToolCall::ReadFile {
+                    path: path.trim().trim_matches('"').to_string(),
+                    start_line,
+                    end_line,
+                })
+            }
+            "search_code" | "grep" | "search" => {
+                let query = params
+                    .get("query")
+                    .or_else(|| params.get("pattern"))
+                    .or_else(|| params.get("search"))
+                    .and_then(|v| v.as_str())?;
+                Some(AgentToolCall::SearchCode {
+                    query: query.trim().to_string(),
+                })
+            }
+            "list_directory" | "list_dir" | "ls" => {
+                let path = params
+                    .get("path")
+                    .or_else(|| params.get("directory"))
+                    .or_else(|| params.get("dir"))
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.trim().trim_matches('"').to_string());
+                Some(AgentToolCall::ListDirectory { path })
+            }
+            "run_command" | "exec" | "terminal" | "bash" | "sh" | "shell" | "run" | "execute" | "execute_command" => {
+                let cmd = params
+                    .get("cmd")
+                    .or_else(|| params.get("command"))
+                    .or_else(|| params.get("input"))
+                    .or_else(|| params.get("code"))
+                    .or_else(|| params.get("script"))
+                    .and_then(|v| v.as_str())?;
+                Some(AgentToolCall::RunCommand {
+                    cmd: cmd.trim().to_string(),
+                })
+            }
         "edit_file" => {
             let path = params
                 .get("path")
@@ -168,6 +173,15 @@ pub fn parse_single_tool_call_value(val: &serde_json::Value) -> Option<AgentTool
         }
         _ => None,
     }
+} else {
+    // Fallback: Check if object directly specifies cmd/command
+    if let Some(cmd) = val.get("cmd").or_else(|| val.get("command")).or_else(|| val.get("run")).and_then(|v| v.as_str()) {
+        return Some(AgentToolCall::RunCommand {
+            cmd: cmd.trim().to_string(),
+        });
+    }
+    None
+}
 }
 
 /// Parses structured tool calls from model output (JSON blocks, inline JSON, or legacy tags)
@@ -222,9 +236,18 @@ pub fn parse_agent_tool_calls(content: &str) -> Vec<AgentToolCall> {
             if candidate.contains("\"tool\"")
                 || candidate.contains("\"function\"")
                 || candidate.contains("\"name\"")
+                || candidate.contains("\"action\"")
+                || candidate.contains("\"cmd\"")
+                || candidate.contains("\"command\"")
             {
                 if let Ok(val) = serde_json::from_str::<serde_json::Value>(candidate) {
                     if let Some(call) = parse_single_tool_call_value(&val) {
+                        if !results.iter().any(|r| r == &call) {
+                            results.push(call);
+                        }
+                    }
+                } else if candidate.contains("run_command") || candidate.contains("\"cmd\"") || candidate.contains("\"command\"") {
+                    if let Some(call) = extract_lenient_run_command(candidate) {
                         if !results.iter().any(|r| r == &call) {
                             results.push(call);
                         }
@@ -237,7 +260,111 @@ pub fn parse_agent_tool_calls(content: &str) -> Vec<AgentToolCall> {
         }
     }
 
+    // 3. Fallback: Parse XML command tags like <run_command>cmd</run_command> or <command>cmd</command>
+    for tag in ["run_command", "command", "bash", "terminal"] {
+        let open_tag = format!("<{}>", tag);
+        let close_tag = format!("</{}>", tag);
+        let mut cur = content;
+        while let Some(start) = cur.find(&open_tag) {
+            let after = &cur[start + open_tag.len()..];
+            if let Some(end) = after.find(&close_tag) {
+                let cmd = after[..end].trim();
+                if !cmd.is_empty() {
+                    let call = AgentToolCall::RunCommand { cmd: cmd.to_string() };
+                    if !results.iter().any(|r| r == &call) {
+                        results.push(call);
+                    }
+                }
+                cur = &after[end + close_tag.len()..];
+            } else {
+                break;
+            }
+        }
+    }
+
+    // 4. Fallback: Parse markdown command directives like ### Run: <cmd> or ### Command: <cmd>
+    for line in content.lines() {
+        let trimmed = line.trim();
+        if let Some(rest) = trimmed.strip_prefix("### Run:")
+            .or_else(|| trimmed.strip_prefix("### Command:"))
+            .or_else(|| trimmed.strip_prefix("### Exec:"))
+        {
+            let cmd = rest.trim().trim_matches('`').trim();
+            if !cmd.is_empty() {
+                let call = AgentToolCall::RunCommand { cmd: cmd.to_string() };
+                if !results.iter().any(|r| r == &call) {
+                    results.push(call);
+                }
+            }
+        }
+    }
+
+    // 5. Fallback: Parse runnable commands from fenced ```bash ... ``` or ```sh ... ``` code blocks
+    for block in content.split("```") {
+        let trimmed = block.trim();
+        let sh_code = if let Some(rest) = trimmed.strip_prefix("bash") {
+            Some(rest)
+        } else if let Some(rest) = trimmed.strip_prefix("sh") {
+            Some(rest)
+        } else if let Some(rest) = trimmed.strip_prefix("shell") {
+            Some(rest)
+        } else if let Some(rest) = trimmed.strip_prefix("terminal") {
+            Some(rest)
+        } else if let Some(rest) = trimmed.strip_prefix("zsh") {
+            Some(rest)
+        } else {
+            None
+        };
+
+        if let Some(code) = sh_code {
+            let lines: Vec<String> = code
+                .lines()
+                .map(|l| l.trim())
+                .filter(|l| !l.is_empty() && !l.starts_with('#') && !l.starts_with("//"))
+                .map(|l| {
+                    l.strip_prefix("$ ")
+                        .or_else(|| l.strip_prefix("> "))
+                        .unwrap_or(l)
+                        .trim()
+                        .to_string()
+                })
+                .filter(|l| !l.is_empty())
+                .collect();
+
+            if !lines.is_empty() {
+                let full_cmd = lines.join(" && ");
+                let call = AgentToolCall::RunCommand { cmd: full_cmd };
+                if !results.iter().any(|r| r == &call) {
+                    results.push(call);
+                }
+            }
+        }
+    }
+
     results
+}
+
+fn extract_lenient_run_command(text: &str) -> Option<AgentToolCall> {
+    let cmd_pos = text.find("\"cmd\"").or_else(|| text.find("\"command\""))?;
+    let after_cmd = &text[cmd_pos..];
+    let colon_pos = after_cmd.find(':')?;
+    let val_part = after_cmd[colon_pos + 1..].trim();
+    let cmd_body = if let Some(stripped) = val_part.strip_prefix('"') {
+        if let Some(end_q) = stripped.rfind('"') {
+            &stripped[..end_q]
+        } else {
+            stripped.trim_end_matches('}').trim()
+        }
+    } else {
+        val_part.trim_end_matches('}').trim()
+    };
+
+    let cleaned = cmd_body.trim();
+    if !cleaned.is_empty() {
+        Some(AgentToolCall::RunCommand { cmd: cleaned.to_string() })
+    } else {
+        None
+    }
 }
 
 pub fn extract_json_tool_modifications(
@@ -351,6 +478,24 @@ pub fn extract_all_file_modifications(
             Some(rest)
         } else if let Some(rest) = trimmed.strip_prefix("// file:") {
             Some(rest)
+        } else if let Some(rest) = trimmed.strip_prefix("/* File:") {
+            Some(rest.trim_end_matches("*/").trim())
+        } else if let Some(rest) = trimmed.strip_prefix("/* file:") {
+            Some(rest.trim_end_matches("*/").trim())
+        } else if let Some(rest) = trimmed.strip_prefix("### ") {
+            let candidate = rest.trim().trim_matches('`').trim_matches('*').trim();
+            if is_likely_filepath(candidate) {
+                Some(candidate)
+            } else {
+                None
+            }
+        } else if trimmed.starts_with("**") && trimmed.ends_with("**") && trimmed.len() > 4 {
+            let candidate = trimmed[2..trimmed.len() - 2].trim().trim_matches('`').trim();
+            if is_likely_filepath(candidate) {
+                Some(candidate)
+            } else {
+                None
+            }
         } else {
             None
         };
@@ -419,4 +564,24 @@ pub fn extract_all_file_modifications(
     flush_raw_patch(&current_target, &mut raw_patch_lines, &mut results);
 
     results
+}
+
+pub fn is_likely_filepath(s: &str) -> bool {
+    let lower = s.to_lowercase();
+    let has_ext = lower.ends_with(".rs")
+        || lower.ends_with(".jsx")
+        || lower.ends_with(".js")
+        || lower.ends_with(".tsx")
+        || lower.ends_with(".ts")
+        || lower.ends_with(".css")
+        || lower.ends_with(".html")
+        || lower.ends_with(".json")
+        || lower.ends_with(".toml")
+        || lower.ends_with(".py")
+        || lower.ends_with(".go")
+        || lower.ends_with(".md")
+        || lower.ends_with(".sh")
+        || lower.ends_with(".yaml")
+        || lower.ends_with(".yml");
+    has_ext && !s.contains(' ') && s.len() >= 3
 }

@@ -197,6 +197,24 @@ pub struct SessionModifiedFile {
     pub is_new_file: bool,
 }
 
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct AiTerminalCommand {
+    pub id: String,
+    pub command: String,
+    pub status: AiCommandStatus,
+    pub output: String,
+    pub duration_ms: Option<u64>,
+    pub timestamp: u64,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum AiCommandStatus {
+    Running,
+    Success,
+    Failed,
+}
+
+#[allow(unused_imports)]
 pub use crate::agent::{
     AgentMission, AgentTask, TaskStatus, TargetFileModification,
     create_mission_for_prompt, build_autonomous_agent_prompt, extract_all_file_modifications,
@@ -355,8 +373,9 @@ pub struct ZenthreeState {
     pub tree_clipboard: Option<TreeClipboardAction>,
     pub groq_api_key: Option<String>,
     pub gemini_api_key: Option<String>,
-    pub ai_receiver: Option<std::sync::mpsc::Receiver<(usize, String)>>,
-    pub ai_sender: std::sync::mpsc::Sender<(usize, String)>,
+    pub ai_receiver: Option<std::sync::mpsc::Receiver<(usize, ai::AgentEvent)>>,
+    pub ai_sender: std::sync::mpsc::Sender<(usize, ai::AgentEvent)>,
+    pub ai_cancellation_token: ai::CancellationToken,
     pub ai_pending_requests: usize,
     pub cursor_blink: bool,
     pub connectome: connectome::ConnectomeRNN,
@@ -368,13 +387,14 @@ pub struct ZenthreeState {
     pub pending_modifications: Vec<PendingModification>,
     pub last_ai_prompt: String,
     pub expanded_explored_msgs: std::collections::HashSet<usize>,
-    pub collapsed_code_blocks: std::collections::HashSet<u64>,
+    pub expanded_code_blocks: std::collections::HashSet<u64>,
     pub current_mission: Option<AgentMission>,
     pub current_session: crate::session::AgentSession,
     pub session_list: Vec<crate::session::SessionSummary>,
     pub session_dropdown_open: bool,
     pub active_input_drawer: AiInputDrawer,
     pub session_modified_files: Vec<SessionModifiedFile>,
+    pub ai_terminal_commands: Vec<AiTerminalCommand>,
     pub ai_showing_session_list: bool,
     pub ai_context_menu_open: bool,
     pub ai_model_menu_open: bool,
@@ -514,12 +534,13 @@ impl ZenthreeState {
             gemini_api_key: crate::gemini::load_gemini_api_key(),
             ai_receiver: Some(ai_receiver),
             ai_sender,
+            ai_cancellation_token: ai::CancellationToken::new(),
             ai_pending_requests: 0,
             pending_modification: None,
             pending_modifications: Vec::new(),
             last_ai_prompt: String::new(),
             expanded_explored_msgs: std::collections::HashSet::new(),
-            collapsed_code_blocks: std::collections::HashSet::new(),
+            expanded_code_blocks: std::collections::HashSet::new(),
             current_mission: None,
             detected_environment: None,
             current_session: crate::session::AgentSession::new(&current_dir, None),
@@ -527,6 +548,7 @@ impl ZenthreeState {
             session_dropdown_open: false,
             active_input_drawer: AiInputDrawer::None,
             session_modified_files: Vec::new(),
+            ai_terminal_commands: Vec::new(),
             ai_showing_session_list: false,
             ai_context_menu_open: false,
             ai_model_menu_open: false,
@@ -536,7 +558,7 @@ impl ZenthreeState {
             adding_custom_model: false,
             custom_model_input: String::new(),
             workspace_tree_overview: String::new(),
-            session_artifacts_collapsed: false,
+            session_artifacts_collapsed: true,
             last_provider_notice: None,
             ai_status: AiStatus::Ready,
             ai_error: None,
@@ -750,451 +772,242 @@ impl ZenthreeState {
     pub fn poll_ai_responses(&mut self) -> bool {
         let mut received = Vec::new();
         if let Some(ref rx) = self.ai_receiver {
-            while let Ok((idx, content)) = rx.try_recv() {
-                received.push((idx, content));
+            while let Ok((idx, event)) = rx.try_recv() {
+                received.push((idx, event));
             }
         }
 
         let mut updated = false;
-        for (idx, content) in received {
-            if let Some(msg) = self.ai_messages.get_mut(idx) {
-                let trimmed_content = content.trim();
-                if trimmed_content.is_empty() {
-                    msg.content = format!(
-                        "I analyzed the workspace context for `{}`. Let me know what specific architectural details, component breakdowns, or code changes you would like to explore!",
-                        self.last_ai_prompt
-                    );
-                } else {
-                    msg.content = content.clone();
-                }
-                msg.is_working = false;
-            }
-            updated = true;
-            self.ai_pending_requests = self.ai_pending_requests.saturating_sub(1);
-            if self.ai_pending_requests == 0 {
-                self.ai_status = AiStatus::Ready;
-            }
-
-            // Track provider notices or quota status
-            if content.contains("503") || content.contains("capacity") {
-                self.last_provider_notice = Some("Google Gemini 503 (No capacity) · Auto-failover to Groq Cloud active".to_string());
-            } else if content.contains("429") || content.contains("quota") || content.contains("RESOURCE_EXHAUSTED") {
-                self.last_provider_notice = Some("Google Gemini 429 (Quota limit) · Auto-failover to Groq Cloud active".to_string());
-            } else if content.starts_with("⚠️") {
-                self.last_provider_notice = Some("AI Provider Error · Check quota and model selection".to_string());
-            }
-
-            // API Error Guard: if Groq returned an error (e.g. 429, timeout, network)
-            let is_api_error = content.trim().starts_with("⚠️");
-            if is_api_error {
-                if let Some(ref mut mission) = self.current_mission {
-                    if let Some(task) = mission.tasks.get_mut(1) {
-                        task.status = TaskStatus::Failed(content.trim().to_string());
+        for (idx, event) in received {
+            match event {
+                ai::AgentEvent::Thinking { delta } => {
+                    if let Some(msg) = self.ai_messages.get_mut(idx) {
+                        msg.is_working = true;
+                        msg.thoughts = Some(delta.clone());
                     }
-                    let verify_idx = mission.tasks.len().saturating_sub(1);
-                    if let Some(task) = mission.tasks.get_mut(verify_idx) {
-                        task.status = TaskStatus::Failed("API call failed".to_string());
+                    self.status_message = delta;
+                    updated = true;
+                }
+                ai::AgentEvent::ToolStarted { tool, summary } => {
+                    if let Some(msg) = self.ai_messages.get_mut(idx) {
+                        msg.is_working = true;
+                        msg.content = format!("⚡ *Executing:* `{}`...", tool);
                     }
-                    mission.is_active = false;
-                    mission.status_message = format!("⚠️ Mission failed: {}", content.trim());
-                    self.current_session.update_mission_file(mission);
-                }
-                continue;
-            }
-
-            // 1. Check if response specifies folder / directory creation
-            let folders_to_create = detect_target_folders_from_response(&content, &self.last_ai_prompt, &self.current_dir);
-            for folder in folders_to_create {
-                if let Ok(_) = std::fs::create_dir_all(&folder) {
-                    self.expanded_dirs.insert(folder.clone());
-                    self.rebuild_tree();
-                    let folder_name = folder.file_name().and_then(|n| n.to_str()).unwrap_or("folder");
-                    self.status_message = format!("✓ Created directory `{}`", folder_name);
-                }
-            }
-
-            // 2. Check if response contains proposed code modifications or new files
-            let active_path = self.active_tab.and_then(|idx| self.tabs.get(idx)).and_then(|t| t.path.as_deref());
-            let mut file_modifications = extract_all_file_modifications(&content, &self.current_dir, active_path);
-
-            if file_modifications.is_empty() {
-                if let Some(proposed_code) = extract_code_from_markdown(&content) {
-                    if let Some(target_file) = detect_target_file_from_response(
-                        &content,
-                        &self.last_ai_prompt,
-                        &self.current_dir,
-                        active_path,
-                    ) {
-                        file_modifications.push(TargetFileModification::new_overwrite(
-                            target_file,
-                            proposed_code,
-                        ));
-                    }
-                }
-            }
-
-            let mut summaries = Vec::new();
-            for modif in file_modifications {
-                let target_file = modif.file_path.clone();
-
-                if let Some(parent) = target_file.parent() {
-                    let _ = std::fs::create_dir_all(parent);
-                }
-
-                let is_new_file = !target_file.exists();
-                let original_code = if let Some(tab) = self.tabs.iter().find(|t| t.path.as_deref() == Some(&target_file)) {
-                    tab.editor.buffer.to_string()
-                } else if let Ok(disk_content) = std::fs::read_to_string(&target_file) {
-                    disk_content
-                } else {
-                    String::new()
-                };
-
-                let proposed_code = match modif.apply_to(&original_code) {
-                    Ok(code) => code,
-                    Err(err) => {
-                        log::warn!("Surgical patch application failed for {}: {}", target_file.display(), err);
-                        continue;
-                    }
-                };
-
-                if is_new_file || (!original_code.trim().is_empty() && proposed_code != original_code) {
-                    let (diff_lines, preview_text) = compute_line_diff(&original_code, &proposed_code);
-                    let has_changes = is_new_file || diff_lines.iter().any(|(_, s)| *s != DiffLineState::Unchanged);
-                    if has_changes {
-                        // Write proposed code to disk so project compiler check can run against it
-                        let _ = std::fs::write(&target_file, &proposed_code);
-
-                        if is_new_file {
-                            let name = target_file.file_name().and_then(|n| n.to_str()).unwrap_or("New File").to_string();
-                            let existing_pos = self.tabs.iter().position(|t| t.path.as_deref() == Some(&target_file));
-                            if let Some(idx) = existing_pos {
-                                self.active_tab = Some(idx);
-                                if let Some(tab) = self.tabs.get_mut(idx) {
-                                    tab.editor.replace_all(&preview_text);
-                                }
-                            } else {
-                                self.tabs.push(EditorTab {
-                                    name,
-                                    path: Some(target_file.clone()),
-                                    editor: Editor::new(Buffer::from_text(&preview_text)),
-                                    is_dirty: true,
-                                    scroll_y: 0.0,
-                                    shaping_cache: std::collections::HashMap::new(),
-                                    version: 0,
-                                    saved_text: String::new(),
-                                });
-                                self.active_tab = Some(self.tabs.len() - 1);
-                                // Notify LSP and trigger language-support prompt for new file
-                                let ws_root = if self.has_workspace { Some(self.current_dir.as_path()) } else { None };
-                                self.lsp_manager.on_document_open(&target_file, &preview_text, ws_root);
-                                self.check_language_support_prompt(&target_file);
-                            }
-                        } else {
-                            self.open_file(&target_file);
-                            if let Some(idx) = self.active_tab {
-                                if let Some(tab) = self.tabs.get_mut(idx) {
-                                    tab.editor.replace_all(&preview_text);
-                                }
-                            }
-                        }
-
-                        let added_count = diff_lines.iter().filter(|(_, s)| *s == DiffLineState::Added).count();
-                        let removed_count = diff_lines.iter().filter(|(_, s)| *s == DiffLineState::Removed).count();
-                        let file_display = target_file.file_name().and_then(|n| n.to_str()).unwrap_or("file").to_string();
-                        summaries.push(EditedFileSummary {
-                            file_name: file_display,
-                            lines_added: added_count,
-                            lines_removed: removed_count,
-                        });
-
-                        let pm = PendingModification {
-                            file_path: target_file.clone(),
-                            original_code,
-                            proposed_code,
-                            diff_lines,
-                        };
-                        self.pending_modifications.push(pm.clone());
-                        if self.pending_modification.is_none() {
-                            self.pending_modification = Some(pm);
-                        }
-                    }
-                }
-            }
-
-            if !summaries.is_empty() {
-                let now_ts = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .map(|d| d.as_secs())
-                    .unwrap_or(0);
-                for s in &summaries {
-                    let fpath = self.current_dir.join(&s.file_name);
-                    if let Some(existing) = self.session_modified_files.iter_mut().find(|f| f.file_name == s.file_name) {
-                        existing.lines_added = s.lines_added;
-                        existing.lines_removed = s.lines_removed;
-                        existing.timestamp = now_ts;
-                    } else {
-                        self.session_modified_files.push(SessionModifiedFile {
-                            file_path: fpath,
-                            file_name: s.file_name.clone(),
-                            lines_added: s.lines_added,
-                            lines_removed: s.lines_removed,
-                            timestamp: now_ts,
-                            is_new_file: s.lines_removed == 0 && s.lines_added > 0,
-                        });
-                    }
-                }
-                self.active_input_drawer = AiInputDrawer::PendingModifications;
-                self.rebuild_tree();
-                self.status_message = "Review AI changes: +green added, -red removed. Accept or Reject above input box.".to_string();
-                if let Some(msg) = self.ai_messages.get_mut(idx) {
-                    msg.edited_files = summaries.clone();
-                }
-                self.current_session.update_walkthrough_file(&self.last_ai_prompt, &summaries, false);
-            }
-
-            // 3. Check if the model requested workspace tools (search_code, read_file, list_directory, run_command)
-            let tool_calls = parse_agent_tool_calls(&content);
-            if summaries.is_empty() && !tool_calls.is_empty() {
-                let mut tool_results = Vec::new();
-                for call in &tool_calls {
-                    let res = execute_agent_tool_with_provider(&self.current_dir, call, None);
-                    if let AgentToolCall::DetectEnvironment { subpath } = call {
-                        let target = match subpath {
-                            Some(p) if !p.trim().is_empty() && p.trim() != "." => {
-                                let cleaned = p.trim().trim_matches('"').trim_matches('\'').trim();
-                                if Path::new(cleaned).is_absolute() {
-                                    PathBuf::from(cleaned)
-                                } else {
-                                    self.current_dir.join(cleaned)
-                                }
-                            }
-                            _ => self.current_dir.clone(),
-                        };
-                        let env = DetectorAgent::detect(&target);
-                        self.detected_environment = Some(env);
-                    }
-                    tool_results.push(res);
-                }
-
-                if !tool_results.is_empty() && (self.gemini_api_key.is_some() || self.groq_api_key.is_some()) {
-                    let first_desc = match &tool_calls[0] {
-                        AgentToolCall::SearchCode { query } => format!("search for `{}`", query),
-                        AgentToolCall::ReadFile { path, .. } => format!("read `{}`", path),
-                        AgentToolCall::ListDirectory { path } => format!("list `{}`", path.as_deref().unwrap_or(".")),
-                        AgentToolCall::RunCommand { cmd } => format!("run `{}`", cmd),
-                        AgentToolCall::EditFile { path, .. } => format!("patch `{}`", path),
-                        AgentToolCall::DetectEnvironment { subpath } => format!("detect toolchain in `{}`", subpath.as_deref().unwrap_or(".")),
-                    };
-
                     if let Some(ref mut mission) = self.current_mission {
-                        mission.status_message = format!("Agent executed {} tool(s) ({})", tool_results.len(), first_desc);
+                        mission.status_message = format!("Agent running: {}", summary);
                         if let Some(task) = mission.tasks.get_mut(1) {
-                            task.title = format!("Workspace tool observation: {}", first_desc);
+                            task.title = format!("Running: {}", tool);
                             task.status = TaskStatus::InProgress;
                         }
                         self.current_session.update_mission_file(mission);
                     }
+
+                    // Track ONLY the currently active AI terminal command in the drawer
+                    let is_run_cmd = tool.starts_with("run ") || tool.starts_with("run `") || tool == "run_command" || tool.starts_with("run");
+                    if is_run_cmd {
+                        let cmd_str = if let Some(rest) = tool.strip_prefix("run ") {
+                            rest.trim_matches('`').trim()
+                        } else if let Some(rest) = tool.strip_prefix("run `") {
+                            rest.trim_matches('`').trim()
+                        } else if let Some(rest) = tool.strip_prefix("run") {
+                            rest.trim_matches('`').trim()
+                        } else {
+                            &tool
+                        };
+                        let now_ts = std::time::SystemTime::now()
+                            .duration_since(std::time::UNIX_EPOCH)
+                            .map(|d| d.as_secs())
+                            .unwrap_or(0);
+                        if self.ai_terminal_commands.len() > 15 {
+                            self.ai_terminal_commands.retain(|c| c.status == AiCommandStatus::Running);
+                        }
+                        let already_running = self.ai_terminal_commands.iter().any(|c| c.command == cmd_str && c.status == AiCommandStatus::Running);
+                        if !already_running {
+                            self.ai_terminal_commands.push(AiTerminalCommand {
+                                id: format!("cmd_{}", now_ts),
+                                command: cmd_str.to_string(),
+                                status: AiCommandStatus::Running,
+                                output: String::new(),
+                                duration_ms: None,
+                                timestamp: now_ts,
+                            });
+                        }
+                        self.active_input_drawer = AiInputDrawer::Terminals;
+                    }
+
+                    self.status_message = format!("⚡ {}", summary);
+                    updated = true;
+                }
+                ai::AgentEvent::ToolFinished { tool, ok, output_snippet, duration_ms } => {
                     if let Some(msg) = self.ai_messages.get_mut(idx) {
                         msg.is_working = true;
-                        msg.content = format!("🔍 *Inspecting workspace:* `{}`...", first_desc);
-                    }
-                    self.ai_pending_requests += 1;
-                    let gemini_key = self.gemini_api_key.clone();
-                    let groq_key = self.groq_api_key.clone();
-                    let sender = self.ai_sender.clone();
-                    let system_prompt = build_autonomous_agent_prompt(95.0);
-                    let goal_prompt = self.last_ai_prompt.clone();
-
-                    let mut tool_observation_str = String::new();
-                    for r in &tool_results {
-                        tool_observation_str.push_str(&format!(
-                            "### Tool Observation: `{}` ({})\n```\n{}\n```\n\n",
-                            r.tool_name,
-                            if r.ok { "success" } else { "failed" },
-                            r.output
-                        ));
+                        let icon = if ok { "✓" } else { "✗" };
+                        msg.content = format!("{} *Finished:* `{}` ({}ms)\n\n*Analyzing results...*", icon, tool, duration_ms);
                     }
 
-                    let continuation_prompt = format!(
-                        "Here are the real workspace tool observation results:\n\n\
-                        {}\
-                        User Request: {}\n\n\
-                        Based on these real workspace tool observations and project context, provide a direct, comprehensive, and helpful answer to the user.\n\
-                        - If the user asked you to inspect, look into, or explain a component or folder, explain what you found thoroughly.\n\
-                        - If a folder was not found, explain clearly and suggest the correct locations based on the project tree.\n\
-                        - If code changes or new files are needed: for existing files use surgical `<<<<<<< SEARCH ... ======= ... >>>>>>> REPLACE` blocks under `### File: <path>`, or for new files output full code under `### File: <path>`.\n\
-                        - NEVER return an empty response; always provide a clear, helpful explanation.",
-                        tool_observation_str,
-                        goal_prompt
-                    );
-
-                    std::thread::spawn(move || {
-                        let chain = ProviderChain::new(gemini_key, groq_key, None);
-                        match chain.complete(&system_prompt, &continuation_prompt, &[]) {
-                            Ok(res_text) => {
-                                let final_text = if res_text.trim().is_empty() {
-                                    format!(
-                                        "### Workspace Inspection Results\n\n{}\nI analyzed the workspace for `{}`.",
-                                        tool_observation_str, goal_prompt
-                                    )
-                                } else {
-                                    res_text
-                                };
-                                let _ = sender.send((idx, final_text));
+                    let is_run_cmd = tool.starts_with("run ") || tool.starts_with("run `") || tool == "run_command" || tool.starts_with("run");
+                    if is_run_cmd {
+                        let is_background = output_snippet.contains("running in the background")
+                            || output_snippet.contains("started successfully");
+                        if is_background {
+                            if let Some(last_cmd) = self.ai_terminal_commands.last_mut() {
+                                last_cmd.output = output_snippet.clone();
+                                last_cmd.duration_ms = Some(duration_ms);
+                                last_cmd.status = AiCommandStatus::Running;
                             }
-                            Err(e) => {
-                                let fallback_text = format!(
-                                    "### Workspace Inspection Results\n\n{}\n*(Note: {})*",
-                                    tool_observation_str, e
-                                );
-                                let _ = sender.send((idx, fallback_text));
+                        } else {
+                            // Command finished and is not background: remove so only active ones remain
+                            self.ai_terminal_commands.retain(|c| c.status == AiCommandStatus::Running && c.output.contains("running in the background"));
+                        }
+
+                        if self.ai_terminal_commands.is_empty() && self.active_input_drawer == AiInputDrawer::Terminals {
+                            self.active_input_drawer = AiInputDrawer::None;
+                        }
+                    }
+
+                    self.rebuild_tree();
+                    updated = true;
+                }
+                ai::AgentEvent::PendingModifications { summaries } => {
+                    let now_ts = std::time::SystemTime::now()
+                        .duration_since(std::time::UNIX_EPOCH)
+                        .map(|d| d.as_secs())
+                        .unwrap_or(0);
+
+                    for s in &summaries {
+                        let target_file = if Path::new(&s.file_name).is_absolute() {
+                            PathBuf::from(&s.file_name)
+                        } else {
+                            self.current_dir.join(&s.file_name)
+                        };
+
+                        let is_new_file = s.lines_removed == 0 && s.lines_added > 0;
+                        let disk_content = std::fs::read_to_string(&target_file).unwrap_or_default();
+
+                        if let Some(tab) = self.tabs.iter_mut().find(|t| t.path.as_deref() == Some(&target_file)) {
+                            let (diff_lines, preview_text) = compute_line_diff(&tab.saved_text, &disk_content);
+                            tab.editor.replace_all(&preview_text);
+                            tab.is_dirty = true;
+                            let pm = PendingModification {
+                                file_path: target_file.clone(),
+                                original_code: tab.saved_text.clone(),
+                                proposed_code: disk_content.clone(),
+                                diff_lines,
+                            };
+                            self.pending_modifications.push(pm.clone());
+                            if self.pending_modification.is_none() {
+                                self.pending_modification = Some(pm);
+                            }
+                        } else if is_new_file && self.tabs.len() < 10 {
+                            let name = target_file.file_name().and_then(|n| n.to_str()).unwrap_or("New File").to_string();
+                            let (diff_lines, preview_text) = compute_line_diff("", &disk_content);
+                            self.tabs.push(EditorTab {
+                                name,
+                                path: Some(target_file.clone()),
+                                editor: Editor::new(Buffer::from_text(&preview_text)),
+                                is_dirty: true,
+                                scroll_y: 0.0,
+                                shaping_cache: std::collections::HashMap::new(),
+                                version: 0,
+                                saved_text: String::new(),
+                            });
+                            self.active_tab = Some(self.tabs.len() - 1);
+                            let pm = PendingModification {
+                                file_path: target_file.clone(),
+                                original_code: String::new(),
+                                proposed_code: disk_content.clone(),
+                                diff_lines,
+                            };
+                            self.pending_modifications.push(pm.clone());
+                            if self.pending_modification.is_none() {
+                                self.pending_modification = Some(pm);
                             }
                         }
-                    });
-                    continue;
-                }
-            }
 
-            // 4. If prompt requested code action but model only returned plan/advice without code blocks
-            let is_action_prompt = {
-                let lower = self.last_ai_prompt.to_lowercase();
-                lower.contains("create")
-                    || lower.contains("add")
-                    || lower.contains("make")
-                    || lower.contains("update")
-                    || lower.contains("implement")
-                    || lower.contains("refactor")
-            };
-
-            if summaries.is_empty() && is_action_prompt {
-                if let Some(ref mut mission) = self.current_mission {
-                    if let Some(task) = mission.tasks.get_mut(1) {
-                        task.status = TaskStatus::Completed;
-                        task.title = "Formulate architectural plan".to_string();
+                        if let Some(existing) = self.session_modified_files.iter_mut().find(|f| f.file_name == s.file_name) {
+                            existing.lines_added = s.lines_added;
+                            existing.lines_removed = s.lines_removed;
+                            existing.timestamp = now_ts;
+                        } else {
+                            self.session_modified_files.push(SessionModifiedFile {
+                                file_path: target_file.clone(),
+                                file_name: s.file_name.clone(),
+                                lines_added: s.lines_added,
+                                lines_removed: s.lines_removed,
+                                timestamp: now_ts,
+                                is_new_file,
+                            });
+                        }
                     }
-                    let verify_idx = mission.tasks.len().saturating_sub(1);
-                    if let Some(task) = mission.tasks.get_mut(verify_idx) {
-                        task.title = "Plan formulated (Send 'now update it' or 'proceed' to write code)".to_string();
-                        task.status = TaskStatus::Pending;
-                    }
-                    mission.is_active = false;
-                    mission.status_message = "Architectural plan ready. Ask AI to write code to apply.".to_string();
-                    self.current_session.update_mission_file(mission);
-                }
-                continue;
-            }
 
-            let mut trigger_self_healing = false;
-            let mut self_healing_prompt = String::new();
+                    let state_summaries: Vec<EditedFileSummary> = summaries.iter().map(|s| EditedFileSummary {
+                        file_name: s.file_name.clone(),
+                        lines_added: s.lines_added,
+                        lines_removed: s.lines_removed,
+                    }).collect();
 
-            // Update Agent Mission: complete task 2, re-read checklist, then run compiler self-healing check
-            if let Some(ref mut mission) = self.current_mission {
-                if let Some(task) = mission.tasks.get_mut(1) {
-                    task.status = TaskStatus::Completed;
-                    if let Some(first_sum) = summaries.first() {
-                        task.diff_summary = Some(first_sum.clone());
-                        task.target_file = Some(first_sum.file_name.clone());
-                    }
-                }
-
-                // If multiple files were edited, ensure each is registered in the mission checklist
-                for sum in summaries.iter().skip(1) {
-                    mission.tasks.push(AgentTask {
-                        id: format!("task_file_{}", sum.file_name),
-                        title: format!("Create / update `{}`", sum.file_name),
-                        status: TaskStatus::Completed,
-                        target_file: Some(sum.file_name.clone()),
-                        diff_summary: Some(sum.clone()),
-                        sub_agent: Some(SubAgentRole::Builder),
-                    });
-                }
-
-                let verify_idx = mission.tasks.len().saturating_sub(1);
-                mission.active_task_index = Some(verify_idx);
-                if let Some(task) = mission.tasks.get_mut(verify_idx) {
-                    task.sub_agent = Some(SubAgentRole::Tester);
-                }
-
-                // Step: Re-read the checklist & verify with project compiler using detected environment
-                let env = self.detected_environment.clone().unwrap_or_else(|| {
-                    let provider = ProviderChain::new(
-                        self.gemini_api_key.clone(),
-                        self.groq_api_key.clone(),
-                        Some(self.selected_model.clone()),
-                    );
-                    DetectorAgent::detect_with_llm(&self.current_dir, Some(&provider))
-                });
-                mission.status_message = format!("[🛡️ Tester] Verifying syntax & compiler diagnostics via {} ({:?})...", env.build_system, env.language);
-
-                if !summaries.is_empty() {
-                    match run_project_compiler_check_with_env(&self.current_dir, &env) {
-                        Some(Err(compiler_err)) => {
-                            if mission.self_healing_attempts < 2 {
-                                mission.self_healing_attempts += 1;
-                                mission.is_active = true;
-                                mission.status_message = format!("🛠️ Self-Healing: Repairing compiler errors (Attempt {}/2)...", mission.self_healing_attempts);
-                                if let Some(task) = mission.tasks.get_mut(verify_idx) {
-                                    task.title = format!("🛠️ Self-Healing: Repair compiler errors (Attempt {}/2)", mission.self_healing_attempts);
-                                    task.status = TaskStatus::InProgress;
-                                }
-                                let target_hint = summaries.first().map(|s| s.file_name.as_str());
-                                self_healing_prompt = build_self_healing_prompt(&mission.goal, &compiler_err, target_hint);
-                                trigger_self_healing = true;
-                            } else {
-                                mission.mark_task_failed_and_continue(verify_idx, compiler_err);
-                                self.status_message = mission.status_message.clone();
+                    if let Some(msg) = self.ai_messages.get_mut(idx) {
+                        for s in &state_summaries {
+                            if !msg.edited_files.iter().any(|f| f.file_name == s.file_name) {
+                                msg.edited_files.push(s.clone());
                             }
                         }
-                        Some(Ok(())) => {
-                            if let Some(task) = mission.tasks.get_mut(verify_idx) {
-                                task.title = "Verify syntax & compiler check (Passed ✓)".to_string();
+                    }
+
+                    self.active_input_drawer = AiInputDrawer::PendingModifications;
+                    self.current_session.update_walkthrough_file(&self.last_ai_prompt, &state_summaries, false);
+                    self.rebuild_tree();
+                    self.status_message = format!("✓ Updated {} file(s) - Review changes in editor", summaries.len());
+                    updated = true;
+                }
+                ai::AgentEvent::Completed { summary } => {
+                    let trimmed_content = summary.trim();
+                    if let Some(msg) = self.ai_messages.get_mut(idx) {
+                        if trimmed_content.is_empty() {
+                            msg.content = format!(
+                                "I completed the workspace tasks for `{}`. Let me know if you would like any further changes or testing!",
+                                self.last_ai_prompt
+                            );
+                        } else {
+                            msg.content = summary;
+                        }
+                        msg.is_working = false;
+                    }
+                    self.ai_pending_requests = self.ai_pending_requests.saturating_sub(1);
+                    if self.ai_pending_requests == 0 {
+                        self.ai_status = AiStatus::Ready;
+                    }
+                    if let Some(ref mut mission) = self.current_mission {
+                        for task in &mut mission.tasks {
+                            if task.status != TaskStatus::Completed {
                                 task.status = TaskStatus::Completed;
                             }
-                            mission.is_active = false;
-                            mission.status_message = "✓ All tasks completed and verified with compiler".to_string();
                         }
-                        None => {
-                            if let Some(task) = mission.tasks.get_mut(verify_idx) {
-                                task.title = "Verify syntax and code consistency (Passed ✓)".to_string();
-                                task.status = TaskStatus::Completed;
-                            }
-                            mission.is_active = false;
-                            mission.status_message = "✓ All tasks completed successfully".to_string();
-                        }
+                        mission.is_active = false;
+                        mission.status_message = "✓ All tasks completed successfully".to_string();
+                        self.current_session.update_mission_file(mission);
                     }
-                } else {
-                    if let Some(task) = mission.tasks.get_mut(verify_idx) {
-                        task.status = TaskStatus::Completed;
-                    }
-                    mission.is_active = false;
-                    mission.status_message = "✓ All tasks completed successfully".to_string();
+                    self.rebuild_tree();
+                    updated = true;
                 }
-
-                self.current_session.update_mission_file(mission);
-            }
-
-            // If compiler self-healing was triggered and API key is available, dispatch repair LLM call
-            if trigger_self_healing && (self.gemini_api_key.is_some() || self.groq_api_key.is_some()) {
-                if let Some(msg) = self.ai_messages.get_mut(idx) {
-                    msg.is_working = true;
-                }
-                self.ai_pending_requests += 1;
-                let gemini_key = self.gemini_api_key.clone();
-                let groq_key = self.groq_api_key.clone();
-                let sender = self.ai_sender.clone();
-                let system_prompt = build_autonomous_agent_prompt(95.0);
-                std::thread::spawn(move || {
-                    let chain = ProviderChain::new(gemini_key, groq_key, None);
-                    match chain.complete(&system_prompt, &self_healing_prompt, &[]) {
-                        Ok(res) => {
-                            let _ = sender.send((idx, res));
-                        }
-                        Err(e) => {
-                            let _ = sender.send((idx, format!("⚠️ Self-healing error: {}", e)));
-                        }
+                ai::AgentEvent::Error { error } => {
+                    if let Some(msg) = self.ai_messages.get_mut(idx) {
+                        msg.content = format!("⚠️ {}", error);
+                        msg.is_working = false;
                     }
-                });
+                    self.ai_pending_requests = self.ai_pending_requests.saturating_sub(1);
+                    if self.ai_pending_requests == 0 {
+                        self.ai_status = AiStatus::Ready;
+                    }
+                    if let Some(ref mut mission) = self.current_mission {
+                        mission.is_active = false;
+                        mission.status_message = format!("⚠️ Mission failed: {}", error);
+                        self.current_session.update_mission_file(mission);
+                    }
+                    self.last_provider_notice = Some(format!("AI Notice: {}", error));
+                    updated = true;
+                }
+                _ => {}
             }
         }
         if updated {
@@ -1390,8 +1203,10 @@ impl ZenthreeState {
     }
 
     pub fn get_or_update_workspace_tree(&mut self) -> &str {
-        if self.has_workspace && self.workspace_tree_overview.is_empty() {
+        if self.has_workspace {
             self.workspace_tree_overview = crate::project_index::generate_project_tree_overview(&self.current_dir, 6);
+        } else {
+            self.workspace_tree_overview.clear();
         }
         &self.workspace_tree_overview
     }
@@ -2735,44 +2550,48 @@ impl ZenthreeState {
                 )
             };
 
-            let mut user_prompt = String::new();
+            let preferred_model = if !self.model_auto_mode && !self.selected_model.is_empty() && self.selected_model != "Auto" {
+                Some(self.selected_model.clone())
+            } else {
+                None
+            };
+
+            let mut loop_ctx = ai::AgentLoopContext::new(self.current_dir.clone());
+            loop_ctx.gemini_key = gemini_key;
+            loop_ctx.groq_key = groq_key;
+            loop_ctx.preferred_model = preferred_model;
+            loop_ctx.system_prompt = Some(system_prompt);
+            loop_ctx.active_file = self.active_tab
+                .and_then(|idx| self.tabs.get(idx))
+                .and_then(|t| t.path.clone());
+            loop_ctx.active_buffer = if !buffer_snippet.is_empty() {
+                Some(buffer_snippet)
+            } else {
+                None
+            };
+            loop_ctx.cursor_line = self.active_tab
+                .and_then(|idx| self.tabs.get(idx))
+                .map(|t| t.editor.cursor().row);
+            loop_ctx.open_tabs = self.tabs.iter()
+                .filter_map(|t| t.path.clone())
+                .collect();
+            let term_text = if let Some(ref session) = self.terminal_session {
+                session.lines.lock().ok().map(|lines| lines.join("\n")).unwrap_or_default()
+            } else {
+                self.terminal_lines.iter().map(|l| l.text.as_str()).collect::<Vec<_>>().join("\n")
+            };
+            if !term_text.trim().is_empty() {
+                loop_ctx.recent_terminal_output = Some(term_text);
+            }
             if self.has_workspace && !tree_overview.is_empty() {
-                user_prompt.push_str(&format!(
-                    "### Project Workspace Tree Structure:\n```\n{}\n```\n\nAnalyze this workspace tree to understand module layout, file locations, and architecture.\n\n",
-                    tree_overview
-                ));
+                loop_ctx.workspace_tree = Some(tree_overview);
             }
             if self.has_workspace && !project_ctx.formatted_prompt_context.is_empty() {
-                user_prompt.push_str(&project_ctx.formatted_prompt_context);
-                user_prompt.push_str("\n\n");
+                loop_ctx.project_context = Some(project_ctx.formatted_prompt_context);
             }
-            if self.has_workspace {
-                for f in project_ctx.matched_files.iter().take(4) {
-                    if let Ok(c) = std::fs::read_to_string(&f.path) {
-                        if !c.trim().is_empty() {
-                            let sample: String = c.chars().take(4000).collect();
-                            user_prompt.push_str(&format!("Project file `{}`:\n```\n{}\n```\n\n", f.relative_path, sample));
-                        }
-                    }
-                }
-            }
-            let user_requested_buffer = is_refactor || is_explain || is_test
-                || lower.contains("this file")
-                || lower.contains("current file")
-                || lower.contains("this code")
-                || lower.contains("buffer");
-            if user_requested_buffer && !buffer_snippet.is_empty() {
-                let code_sample: String = buffer_snippet.chars().take(4000).collect();
-                user_prompt.push_str(&format!("Active buffer `{}`:\n```\n{}\n```\n\n", active_file, code_sample));
-            }
-            user_prompt.push_str(&format!("User Request:\n{}", query));
-
-            // Build multi-turn chat messages including recent conversation turns
-            let mut chat_messages = Vec::new();
-            chat_messages.push(crate::groq::ChatMessage {
-                role: "system".to_string(),
-                content: system_prompt.clone(),
-            });
+            loop_ctx.max_iterations = 10;
+            self.ai_cancellation_token.reset();
+            loop_ctx.cancellation_token = self.ai_cancellation_token.clone();
 
             let total_msgs = self.ai_messages.len();
             if total_msgs > 2 {
@@ -2783,40 +2602,21 @@ impl ZenthreeState {
                         continue;
                     }
                     let role = if prev.is_user { "user" } else { "assistant" };
-                    chat_messages.push(crate::groq::ChatMessage {
+                    loop_ctx.prior_history.push(ai::ChatMessage {
                         role: role.to_string(),
                         content: prev.content.clone(),
                     });
                 }
             }
 
-            chat_messages.push(crate::groq::ChatMessage {
-                role: "user".to_string(),
-                content: user_prompt.clone(),
-            });
-
-            let preferred_model = if !self.model_auto_mode && !self.selected_model.is_empty() && self.selected_model != "Auto" {
-                Some(self.selected_model.clone())
-            } else {
-                None
-            };
-
             std::thread::spawn(move || {
-                let preferred = preferred_model.as_deref();
-                let history = if chat_messages.len() > 2 {
-                    &chat_messages[1..chat_messages.len() - 1]
-                } else {
-                    &[]
-                };
-                let chain = ProviderChain::new(gemini_key, groq_key, preferred.map(|s| s.to_string()));
-                match chain.complete(&system_prompt, &user_prompt, history) {
-                    Ok(txt) => {
-                        let _ = sender.send((msg_idx, txt));
-                    }
-                    Err(e) => {
-                        let _ = sender.send((msg_idx, format!("⚠️ AI Provider error: {}", e)));
-                    }
-                }
+                let mut agent_loop = ai::AgentLoop::new(
+                    loop_ctx,
+                    Box::new(move |event| {
+                        let _ = sender.send((msg_idx, event));
+                    }),
+                );
+                let _ = agent_loop.run(&query);
             });
             return;
         }
@@ -3077,10 +2877,48 @@ impl ZenthreeState {
     #[allow(dead_code)]
     pub fn stop_ai_generation(&mut self) {
         if self.ai_status == AiStatus::Generating {
+            self.ai_cancellation_token.cancel();
             self.ai_status = AiStatus::Ready;
             self.ai_pending_prompt = None;
             self.ai_generation_ticks = 0;
             self.status_message = "AI response stopped".to_string();
+        }
+    }
+
+    pub fn cancel_ai_terminal_command(&mut self, cmd_id: &str) {
+        if let Some(pos) = self.ai_terminal_commands.iter().position(|c| c.id == cmd_id) {
+            let cmd_text = self.ai_terminal_commands[pos].command.clone();
+            let output_text = self.ai_terminal_commands[pos].output.clone();
+
+            // Try extracting PID from output e.g. "(PID 12345)"
+            let mut killed = false;
+            if let Some(pid_idx) = output_text.find("PID ") {
+                let rest = &output_text[pid_idx + 4..];
+                let pid_str: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();
+                if let Ok(pid) = pid_str.parse::<u32>() {
+                    let _ = std::process::Command::new("kill")
+                        .arg("-9")
+                        .arg(pid.to_string())
+                        .output();
+                    killed = true;
+                }
+            }
+
+            if !killed {
+                let first_word = cmd_text.split_whitespace().next().unwrap_or("");
+                if !first_word.is_empty() && (first_word == "vite" || first_word == "bun" || first_word == "node" || first_word == "cargo" || first_word == "python") {
+                    let _ = std::process::Command::new("pkill")
+                        .arg("-f")
+                        .arg(&cmd_text)
+                        .output();
+                }
+            }
+
+            self.ai_terminal_commands.remove(pos);
+            if self.ai_terminal_commands.is_empty() && self.active_input_drawer == AiInputDrawer::Terminals {
+                self.active_input_drawer = AiInputDrawer::None;
+            }
+            self.status_message = format!("Terminated active command `{}`", cmd_text);
         }
     }
 
@@ -3129,6 +2967,7 @@ fn copy_dir_all(src: &Path, dst: &Path) -> std::io::Result<()> {
     Ok(())
 }
 
+#[allow(dead_code)]
 pub fn detect_target_folders_from_response(
     content: &str,
     prompt: &str,
@@ -3205,6 +3044,7 @@ pub fn detect_target_folders_from_response(
     folders
 }
 
+#[allow(dead_code)]
 pub fn detect_target_file_from_response(
     content: &str,
     prompt: &str,
@@ -3270,7 +3110,7 @@ pub fn detect_target_file_from_response(
     None
 }
 
-
+#[allow(dead_code)]
 pub fn extract_code_from_markdown(content: &str) -> Option<String> {
     let mut in_block = false;
     let mut code_lines = Vec::new();

@@ -29,23 +29,18 @@ pub struct ProjectContextSummary {
 
 /// Extracts meaningful search keywords, symbol names, and identifiers from user prompt
 pub fn extract_prompt_keywords(prompt: &str) -> Vec<String> {
-    let stopwords: HashSet<&str> = [
+    // Only filter grammatical noise particles; preserve ALL potential identifiers, verbs, and filenames
+    let grammatical_noise: HashSet<&str> = [
         "the", "a", "an", "and", "or", "in", "on", "at", "to", "for", "with",
-        "about", "is", "are", "was", "were", "be", "been", "being", "have", "has",
-        "had", "do", "does", "did", "can", "could", "will", "would", "should",
-        "please", "help", "me", "how", "what", "where", "why", "who", "which",
-        "this", "that", "these", "those", "from", "into", "out", "code", "file",
-        "files", "project", "folder", "directory", "show", "tell", "explain",
-        "modify", "change", "update", "add", "remove", "delete", "fix", "write",
-        "need", "want", "like", "make", "create", "also", "now", "here", "there",
-        "you", "your", "it", "its"
+        "about", "is", "are", "was", "were", "be", "been", "being",
+        "of", "by", "as", "from", "into"
     ].iter().cloned().collect();
 
     let mut keywords = Vec::new();
     let mut seen = HashSet::new();
 
     let cleaned: String = prompt.chars().map(|c| {
-        if c.is_alphanumeric() || c == '_' || c == '-' || c == '.' {
+        if c.is_alphanumeric() || c == '_' || c == '-' || c == '.' || c == '/' {
             c
         } else {
             ' '
@@ -55,7 +50,7 @@ pub fn extract_prompt_keywords(prompt: &str) -> Vec<String> {
     for token in cleaned.split_whitespace() {
         let trimmed = token.trim_matches('.').trim_matches('-').trim();
         let lower = trimmed.to_lowercase();
-        if trimmed.len() >= 2 && !stopwords.contains(lower.as_str()) {
+        if trimmed.len() >= 2 && !grammatical_noise.contains(lower.as_str()) {
             if seen.insert(lower.clone()) {
                 keywords.push(lower);
             }

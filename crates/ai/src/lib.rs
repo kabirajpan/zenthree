@@ -20,6 +20,7 @@ pub use agents::{
 
 pub use orchestrator::{
     AgentMission, AgentTask, TaskStatus, create_mission_for_prompt,
+    AgentLoop, AgentLoopContext,
 };
 
 pub use tools::{

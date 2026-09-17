@@ -506,12 +506,22 @@ pub fn build_autonomous_agent_prompt(_deliberation_confidence: f32) -> String {
         "You are ZENE, the lead autonomous software engineering and orchestrator agent integrated directly into the Zenthree code editor with full workspace access and specialized sub-agents (Explorer, Detector, Builder, Tester).\n\
         The Project Workspace File Tree is provided below in the context.\n\n\
         CRITICAL AUTONOMOUS RULES:\n\
-        1. AUTONOMOUS PROJECT SETUP & SCAFFOLDING:\n\
-           When the user asks to initialize, setup, create, or scaffold a project (e.g. bun init, vite, react, cargo, npm) or confirms with 'yes' / 'go ahead':\n\
-           * Directly execute the command via tool `{{\"tool\": \"run_command\", \"cmd\": \"<command>\"}}` OR generate the complete configuration and entry point files (`package.json`, `index.html`, `vite.config.js`, etc.) using `### File: <path>`.\n\
-           * Never tell the user to manually run setup commands in their terminal when you can run them or create the files autonomously.\n\
+        1. MANDATORY ACTION EXECUTION (NEVER FAKE OR DESCRIBE INSTEAD OF ACTING):\n\
+           * When the user asks to create, edit, style, add colors, fix, or update files:\n\
+             YOU MUST DIRECTLY WRITE THE CODE! Always output the exact `### File: <relative_path>` header followed by the code block.\n\
+           * NEVER write English text summaries claiming you updated, styled, or fixed a file without providing the `### File:` code block. Prose alone does NOT write files to disk!\n\
+           * When the user asks to run, build, test, install, or start a server:\n\
+             YOU MUST DIRECTLY EXECUTE IT via tool `{{\"tool\": \"run_command\", \"cmd\": \"<command>\"}}`.\n\
+           * SINGLE INSTANCE & FINISH FIRST:\n\
+             - Run installation and setup commands (e.g. `bun create vite`, `npm install`, `cargo build`) to completion FIRST before starting a dev server.\n\
+             - Only start ONE dev server or background process at a time. NEVER run duplicate commands or multiple instances of the same server.\n\
+             - When starting a background server or if the user asks to keep running (`bun run dev`, `vite`, etc.), let the user know clearly that the command was started and will keep running in the background as an active terminal process.\n\
+             - Regular commands (tests, builds, checks, installs) will always run to completion before proceeding.\n\
+           * NEVER tell the user that a server is running or that you executed a command unless you emitted `{{\"tool\": \"run_command\", \"cmd\": \"...\"}}` in this turn!\n\
+           * Keep commands concise and valid (e.g. `bun install && bun run build` or `cargo build`). Never embed multi-line shell scripts into JSON string values.\n\
+           * When creating project files (`package.json`, `Cargo.toml`), ALWAYS include full scripts and necessary dependencies.\n\
         2. When the user asks to explain, describe, or walk through a project, architecture, or code, provide a thorough, structured, and helpful markdown explanation.\n\
-        3. Break down the project architecture, entry points, key components, dependencies, and data flow using the provided workspace context.\n\
+        3. Break down the project architecture, entry points, key components, dependencies, and data flow using ONLY the provided workspace context.\n\
         4. If the user asks for code changes, bug fixes, or new features:\n\
            * ALWAYS specify the exact file path: `### File: <relative_path>` directly above the code block.\n\
            * For NEW files: `### File: <relative_path>` followed by the complete file in a fenced code block.\n\
@@ -525,8 +535,8 @@ pub fn build_autonomous_agent_prompt(_deliberation_confidence: f32) -> String {
              >>>>>>> REPLACE\n\
              ```\n\
         5. WORKSPACE GROUNDING & ENTRY POINTS:\n\
-           * Always ground relative paths to the actual project folder (e.g. `demo_01/react-calculator/src/App.jsx` instead of root-level `react-calculator/`).\n\
-           * Never overwrite application mounting entry points (such as `main.jsx`, `main.tsx`, `index.js`, `main.rs`) with component views. Component logic belongs in separate files (`Navbar.jsx`, `Calculator.jsx`, `App.jsx`).\n\
+           * Always ground relative paths to the actual workspace directory.\n\
+           * Never overwrite application mounting entry points (such as `main.jsx`, `main.tsx`, `index.js`, `main.rs`) with component views. Component logic belongs in separate files.\n\
         6. WORKSPACE INSPECTION & TERMINAL TOOLS:\n\
            You may emit JSON tool calls to inspect the workspace or execute terminal commands:\n\
            - `{{\"tool\": \"run_command\", \"cmd\": \"<command>\"}}`: Run shell commands, setup tools, builders, or tests.\n\
@@ -613,6 +623,24 @@ pub fn classify_user_intent(text: &str) -> UserIntent {
         return UserIntent::DiscussionAndGuide;
     }
 
+    // Code implementation, command execution, and modification action triggers
+    let action_triggers = [
+        "implement", "create", "build", "add", "make", "fix", "debug", "refactor",
+        "optimize", "update", "delete", "remove", "edit", "write", "generate",
+        "inspect", "analyze", "explore", "test", "tests", "run", "compile", "check",
+        "patch", "modify", "code this", "write code", "setup", "init", "initialize",
+        "scaffold", "install", "bun", "npm", "cargo", "vite", "pnpm", "yarn", "terminal", "exec",
+        "color", "colors", "style", "styles", "apply", "applied"
+    ];
+
+    let has_action_trigger = action_triggers.iter().any(|&trigger| {
+        words.iter().any(|&w| w == trigger || w.starts_with(trigger) || w.ends_with(trigger))
+    });
+
+    if has_action_trigger {
+        return UserIntent::WorkAndProject;
+    }
+
     // Explanation, question, and inquiry triggers: User wants understanding, architecture, or guidance
     let is_inquiry = lower.starts_with("can you explain")
         || lower.starts_with("could you explain")
@@ -645,23 +673,6 @@ pub fn classify_user_intent(text: &str) -> UserIntent {
         return UserIntent::DiscussionAndGuide;
     }
 
-    // Code implementation and modification action triggers (creating, editing, fixing files)
-    let action_triggers = [
-        "implement", "create", "build", "add", "make", "fix", "debug", "refactor",
-        "optimize", "update", "delete", "remove", "edit", "write", "generate",
-        "inspect", "analyze", "explore", "test", "tests", "run", "compile",
-        "patch", "modify", "code this", "write code", "setup", "init", "initialize",
-        "scaffold", "install", "bun", "npm", "cargo", "vite", "pnpm", "yarn", "terminal"
-    ];
-
-    let has_action_trigger = action_triggers.iter().any(|&trigger| {
-        words.iter().any(|&w| w == trigger || w.starts_with(trigger) || w.ends_with(trigger))
-    });
-
-    if has_action_trigger {
-        return UserIntent::WorkAndProject;
-    }
-
     UserIntent::DiscussionAndGuide
 }
 
@@ -671,11 +682,13 @@ pub fn build_discussion_guide_prompt() -> String {
         "You are ZENE, an expert software engineering collaborator and architectural guide integrated directly into the Zenthree code editor.\n\
         The user is seeking an explanation of their code/project, discussing architecture, or asking technical questions.\n\n\
         CORE GUIDELINES:\n\
-        1. When the user asks to explain, describe, or walk through a project or code (e.g. 'can you explain the react calculator project?'), provide a comprehensive, beautifully structured markdown explanation.\n\
-        2. Break down the project architecture, entry points, key components, logic, dependencies, and data flow using the provided workspace context.\n\
-        3. Be direct, articulate, insightful, and practical.\n\
-        4. Do NOT output surgical SEARCH/REPLACE diff blocks or create task checklists unless the user explicitly requests code implementation.\n\
-        5. Answer the user's questions directly and thoroughly in formatted markdown with headings, code snippets, and bullet points."
+        1. When the user asks to explain, describe, or walk through a project or code, provide a comprehensive, beautifully structured markdown explanation.\n\
+        2. Break down the project architecture, entry points, key components, logic, dependencies, and data flow using ONLY the provided workspace context.\n\
+        3. Never assume, imagine, or hallucinate project names, frameworks, or files that are not actually in the workspace context.\n\
+        4. If the workspace is empty or has no files, politely acknowledge that the workspace is currently empty, and ask the user what they would like to build or discuss.\n\
+        5. Be direct, articulate, insightful, and practical.\n\
+        6. If the user asks for code changes, bug fixes, styling, or file updates: ALWAYS output the actual `### File: <relative_path>` code blocks or surgical SEARCH/REPLACE blocks. Never merely describe what changes to make without writing the code!\n\
+        7. Answer the user's questions directly and thoroughly in formatted markdown with headings, code snippets, and bullet points."
     )
 }
 
@@ -1406,64 +1419,13 @@ pub fn execute_list_directory(workspace: &Path, rel_path: Option<&str>) -> Agent
     }
 }
 
-/// Executes a shell command non-destructively in workspace with security checks
+/// Executes a shell command non-destructively in workspace with security checks and background process support
 pub fn execute_run_command(workspace: &Path, cmd: &str) -> AgentToolResult {
-    let trimmed = cmd.trim();
-    if trimmed.is_empty() {
-        return AgentToolResult {
-            tool_name: "run_command".to_string(),
-            ok: false,
-            output: "Command cannot be empty".to_string(),
-        };
-    }
-
-    let lower = trimmed.to_lowercase();
-    if lower.contains("rm -rf")
-        || lower.contains("mkfs")
-        || lower.contains("dd if=")
-        || lower.contains(":(){ :|:& };:")
-        || lower.contains("shutdown")
-        || lower.contains("reboot")
-        || lower.starts_with("sudo")
-    {
-        return AgentToolResult {
-            tool_name: "run_command".to_string(),
-            ok: false,
-            output: format!("Command blocked for safety reasons: `{}`", trimmed),
-        };
-    }
-
-    let output = std::process::Command::new("sh")
-        .arg("-c")
-        .arg(trimmed)
-        .current_dir(workspace)
-        .output();
-
-    match output {
-        Ok(out) => {
-            let stdout = String::from_utf8_lossy(&out.stdout);
-            let stderr = String::from_utf8_lossy(&out.stderr);
-            let combined = format!("{}\n{}", stdout, stderr).trim().to_string();
-            let filtered = if combined.chars().count() > 3000 {
-                let truncated = safe_truncate_str(&combined, 3000);
-                format!("{}...\n[Truncated output]", truncated)
-            } else if combined.is_empty() {
-                "(Command completed with empty output)".to_string()
-            } else {
-                combined
-            };
-
-            AgentToolResult {
-                tool_name: "run_command".to_string(),
-                ok: out.status.success(),
-                output: filtered,
-            }
-        }
-        Err(e) => AgentToolResult {
-            tool_name: "run_command".to_string(),
-            ok: false,
-            output: format!("Failed to execute command `{}`: {}", trimmed, e),
-        },
+    let res = ai::tools::command::execute_run_command(workspace, cmd);
+    AgentToolResult {
+        tool_name: res.tool_name,
+        ok: res.ok,
+        output: res.output,
     }
 }
 
@@ -1585,6 +1547,24 @@ pub fn extract_all_file_modifications(
             Some(rest)
         } else if let Some(rest) = trimmed.strip_prefix("// file:") {
             Some(rest)
+        } else if let Some(rest) = trimmed.strip_prefix("/* File:") {
+            Some(rest.trim_end_matches("*/").trim())
+        } else if let Some(rest) = trimmed.strip_prefix("/* file:") {
+            Some(rest.trim_end_matches("*/").trim())
+        } else if let Some(rest) = trimmed.strip_prefix("### ") {
+            let candidate = rest.trim().trim_matches('`').trim_matches('*').trim();
+            if ai::tools::parser::is_likely_filepath(candidate) {
+                Some(candidate)
+            } else {
+                None
+            }
+        } else if trimmed.starts_with("**") && trimmed.ends_with("**") && trimmed.len() > 4 {
+            let candidate = trimmed[2..trimmed.len() - 2].trim().trim_matches('`').trim();
+            if ai::tools::parser::is_likely_filepath(candidate) {
+                Some(candidate)
+            } else {
+                None
+            }
         } else {
             None
         };

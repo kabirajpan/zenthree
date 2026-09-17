@@ -388,7 +388,7 @@ pub fn render_markdown_preview(
     colors: &ThemeColors,
     theme: ThemeMode,
     copy_action: &mut Option<String>,
-    collapsed_blocks: &mut std::collections::HashSet<u64>,
+    expanded_blocks: &mut std::collections::HashSet<u64>,
 ) {
     let blocks = get_or_prepare_markdown(content);
 
@@ -465,7 +465,8 @@ pub fn render_markdown_preview(
             }
 
             PreparedBlock::CodeBlock { lang, code, block_id, line_count } => {
-                let is_collapsed = collapsed_blocks.contains(block_id);
+                // Collapsed by default: only expanded if user explicitly clicked to expand
+                let is_collapsed = !expanded_blocks.contains(block_id);
                 let is_scrollable = *line_count > 10;
                 let display_lang = if lang.trim().is_empty() { "code" } else { lang.trim() };
                 let block_card_w = (max_w - 4.0).max(60.0);
@@ -522,9 +523,9 @@ pub fn render_markdown_preview(
 
                                 if toggle_btn.clicked {
                                     if is_collapsed {
-                                        collapsed_blocks.remove(block_id);
+                                        expanded_blocks.insert(*block_id);
                                     } else {
-                                        collapsed_blocks.insert(*block_id);
+                                        expanded_blocks.remove(block_id);
                                     }
                                     ui.needs_redraw = true;
                                 }
