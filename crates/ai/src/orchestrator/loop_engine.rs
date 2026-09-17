@@ -189,6 +189,8 @@ impl AgentLoop {
                             file_name: rel_name,
                             lines_added,
                             lines_removed,
+                            original_code: Some(original_code),
+                            proposed_code: Some(new_code),
                         });
                     }
                 }

@@ -107,19 +107,7 @@ pub struct TerminalLine {
     pub is_error: bool,
 }
 
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct ExploredItem {
-    pub file_name: String,
-    pub line_range: Option<String>,
-    pub action_type: String,
-}
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct EditedFileSummary {
-    pub file_name: String,
-    pub lines_added: usize,
-    pub lines_removed: usize,
-}
+pub use ai::{ExploredItem, EditedFileSummary};
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct AiMessage {
@@ -417,6 +405,7 @@ pub struct ZenthreeState {
     pub ai_pending_prompt: Option<String>,
     pub ai_generation_ticks: usize,
     pub ai_context_snapshot: String,
+    pub ai_backend: crate::agent::AgentBackend,
 }
 
 impl ZenthreeState {
@@ -570,6 +559,7 @@ impl ZenthreeState {
             ai_pending_prompt: None,
             ai_generation_ticks: 0,
             ai_context_snapshot: String::new(),
+            ai_backend: crate::agent::AgentBackend::Native,
         };
 
         // Restore previous session preferences (theme, accent, extensions, etc.)
@@ -881,47 +871,48 @@ impl ZenthreeState {
                             self.current_dir.join(&s.file_name)
                         };
 
-                        let is_new_file = s.lines_removed == 0 && s.lines_added > 0;
                         let disk_content = std::fs::read_to_string(&target_file).unwrap_or_default();
+                        let original_text = s.original_code.as_deref().unwrap_or(&disk_content);
+                        let proposed_text = s.proposed_code.as_deref().unwrap_or(&disk_content);
+                        let is_new_file = s.lines_removed == 0 && (s.lines_added > 0 || original_text.is_empty());
 
-                        if let Some(tab) = self.tabs.iter_mut().find(|t| t.path.as_deref() == Some(&target_file)) {
-                            let (diff_lines, preview_text) = compute_line_diff(&tab.saved_text, &disk_content);
+                        let (diff_lines, preview_text) = compute_line_diff(original_text, proposed_text);
+
+                        let pm = PendingModification {
+                            file_path: target_file.clone(),
+                            original_code: original_text.to_string(),
+                            proposed_code: proposed_text.to_string(),
+                            diff_lines,
+                        };
+
+                        self.pending_modifications.retain(|p| p.file_path != target_file);
+                        self.pending_modifications.push(pm.clone());
+                        if self.pending_modification.is_none() {
+                            self.pending_modification = Some(pm);
+                        }
+
+                        // Open or update tab so diff is immediately visible in buffer
+                        let target_name = target_file.file_name().and_then(|n| n.to_str()).unwrap_or("file");
+                        if let Some(tab) = self.tabs.iter_mut().find(|t| {
+                            t.path.as_deref() == Some(&target_file)
+                                || t.name == target_name
+                        }) {
+                            tab.path = Some(target_file.clone());
                             tab.editor.replace_all(&preview_text);
                             tab.is_dirty = true;
-                            let pm = PendingModification {
-                                file_path: target_file.clone(),
-                                original_code: tab.saved_text.clone(),
-                                proposed_code: disk_content.clone(),
-                                diff_lines,
-                            };
-                            self.pending_modifications.push(pm.clone());
-                            if self.pending_modification.is_none() {
-                                self.pending_modification = Some(pm);
-                            }
-                        } else if is_new_file && self.tabs.len() < 10 {
-                            let name = target_file.file_name().and_then(|n| n.to_str()).unwrap_or("New File").to_string();
-                            let (diff_lines, preview_text) = compute_line_diff("", &disk_content);
+                            tab.saved_text = original_text.to_string();
+                        } else if self.tabs.len() < 10 {
                             self.tabs.push(EditorTab {
-                                name,
+                                name: target_name.to_string(),
                                 path: Some(target_file.clone()),
                                 editor: Editor::new(Buffer::from_text(&preview_text)),
                                 is_dirty: true,
                                 scroll_y: 0.0,
                                 shaping_cache: std::collections::HashMap::new(),
                                 version: 0,
-                                saved_text: String::new(),
+                                saved_text: original_text.to_string(),
                             });
                             self.active_tab = Some(self.tabs.len() - 1);
-                            let pm = PendingModification {
-                                file_path: target_file.clone(),
-                                original_code: String::new(),
-                                proposed_code: disk_content.clone(),
-                                diff_lines,
-                            };
-                            self.pending_modifications.push(pm.clone());
-                            if self.pending_modification.is_none() {
-                                self.pending_modification = Some(pm);
-                            }
                         }
 
                         if let Some(existing) = self.session_modified_files.iter_mut().find(|f| f.file_name == s.file_name) {
@@ -944,6 +935,8 @@ impl ZenthreeState {
                         file_name: s.file_name.clone(),
                         lines_added: s.lines_added,
                         lines_removed: s.lines_removed,
+                        original_code: s.original_code.clone(),
+                        proposed_code: s.proposed_code.clone(),
                     }).collect();
 
                     if let Some(msg) = self.ai_messages.get_mut(idx) {
@@ -1058,6 +1051,8 @@ impl ZenthreeState {
                 file_name,
                 lines_added: added,
                 lines_removed: removed,
+                original_code: None,
+                proposed_code: None,
             });
         }
 
@@ -1132,6 +1127,99 @@ impl ZenthreeState {
     #[allow(dead_code)]
     pub fn reject_pending_modification(&mut self) {
         self.reject_all_modifications();
+    }
+
+    #[allow(dead_code)]
+    pub fn accept_single_modification(&mut self, path: &std::path::Path) {
+        let pending = if let Some(pos) = self.pending_modifications.iter().position(|p| p.file_path == path) {
+            Some(self.pending_modifications.remove(pos))
+        } else if self.pending_modification.as_ref().map(|p| &p.file_path) == Some(&path.to_path_buf()) {
+            self.pending_modification.take()
+        } else {
+            None
+        };
+
+        if let Some(pending) = pending {
+            if let Some(parent) = pending.file_path.parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+            let _ = std::fs::write(&pending.file_path, &pending.proposed_code);
+            for tab in &mut self.tabs {
+                if tab.path.as_deref() == Some(&pending.file_path) {
+                    tab.editor.replace_all(&pending.proposed_code);
+                    tab.is_dirty = false;
+                    tab.saved_text = pending.proposed_code.clone();
+                }
+            }
+
+            let file_name = pending.file_path.file_name().and_then(|n| n.to_str()).unwrap_or("file").to_string();
+            let added = pending.diff_lines.iter().filter(|(_, s)| *s == DiffLineState::Added).count();
+            let removed = pending.diff_lines.iter().filter(|(_, s)| *s == DiffLineState::Removed).count();
+            let summary = EditedFileSummary {
+                file_name: file_name.clone(),
+                lines_added: added,
+                lines_removed: removed,
+                original_code: None,
+                proposed_code: None,
+            };
+            self.current_session.update_walkthrough_file(
+                &self.last_ai_prompt,
+                &[summary],
+                true,
+            );
+
+            if self.pending_modifications.is_empty() && self.pending_modification.is_none() {
+                self.active_input_drawer = AiInputDrawer::None;
+            } else if self.pending_modification.is_none() && !self.pending_modifications.is_empty() {
+                self.pending_modification = self.pending_modifications.first().cloned();
+            }
+
+            self.rebuild_tree();
+            self.status_message = format!("✓ Accepted and saved {}", file_name);
+        }
+    }
+
+    pub fn reject_single_modification(&mut self, path: &std::path::Path) {
+        let pending = if let Some(pos) = self.pending_modifications.iter().position(|p| p.file_path == path) {
+            Some(self.pending_modifications.remove(pos))
+        } else if self.pending_modification.as_ref().map(|p| &p.file_path) == Some(&path.to_path_buf()) {
+            self.pending_modification.take()
+        } else {
+            None
+        };
+
+        if let Some(pending) = pending {
+            if pending.original_code.is_empty() {
+                let _ = std::fs::remove_file(&pending.file_path);
+                if let Some(pos) = self.tabs.iter().position(|t| t.path.as_deref() == Some(&pending.file_path)) {
+                    self.tabs.remove(pos);
+                    if let Some(act) = self.active_tab {
+                        if act >= self.tabs.len() {
+                            self.active_tab = if self.tabs.is_empty() { None } else { Some(self.tabs.len() - 1) };
+                        }
+                    }
+                }
+            } else {
+                let _ = std::fs::write(&pending.file_path, &pending.original_code);
+                for tab in &mut self.tabs {
+                    if tab.path.as_deref() == Some(&pending.file_path) {
+                        tab.editor.replace_all(&pending.original_code);
+                        tab.is_dirty = false;
+                        tab.saved_text = pending.original_code.clone();
+                    }
+                }
+            }
+
+            if self.pending_modifications.is_empty() && self.pending_modification.is_none() {
+                self.active_input_drawer = AiInputDrawer::None;
+            } else if self.pending_modification.is_none() && !self.pending_modifications.is_empty() {
+                self.pending_modification = self.pending_modifications.first().cloned();
+            }
+
+            self.rebuild_tree();
+            let file_name = pending.file_path.file_name().and_then(|n| n.to_str()).unwrap_or("file");
+            self.status_message = format!("✕ Rejected changes to {}", file_name);
+        }
     }
 
     pub fn toggle_explored_accordion(&mut self, msg_idx: usize) {
@@ -1807,53 +1895,76 @@ impl ZenthreeState {
 
     pub fn open_file(&mut self, path: &Path) {
         self.selected_sidebar_path = Some(path.to_path_buf());
-        if let Ok(content) = std::fs::read_to_string(path) {
-            let name = path.file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("Untitled")
-                .to_string();
+        let pending = self.pending_modifications.iter().find(|p| {
+            p.file_path == path
+                || p.file_path.file_name() == path.file_name()
+                || p.file_path.ends_with(path)
+                || path.ends_with(&p.file_path)
+        }).cloned();
 
-            // Track recent files
-            self.recent_files.retain(|p| p != path);
-            self.recent_files.insert(0, path.to_path_buf());
-            if self.recent_files.len() > 10 {
-                self.recent_files.truncate(10);
-            }
-
-            // Check if already open
-            for (idx, tab) in self.tabs.iter_mut().enumerate() {
-                if tab.path.as_ref() == Some(&path.to_path_buf()) {
-                    self.active_tab = Some(idx);
-                    if !tab.is_dirty && tab.saved_text != content {
-                        tab.editor.replace_all(&content);
-                        tab.saved_text = content.clone();
-                    }
-                    self.status_message = format!("Switched to {}", name);
-                    self.check_language_support_prompt(path);
-                    self.save_persistent_state();
-                    return;
-                }
-            }
-
-            self.tabs.push(EditorTab {
-                name,
-                path: Some(path.to_path_buf()),
-                editor: Editor::new(Buffer::from_text(&content)),
-                is_dirty: false,
-                scroll_y: 0.0,
-                shaping_cache: std::collections::HashMap::new(),
-                version: 0,
-                saved_text: content.clone(),
-            });
-            self.active_tab = Some(self.tabs.len() - 1);
-            self.status_message = format!("Opened file: {}", path.display());
-            let ws_root = if self.has_workspace { Some(self.current_dir.as_path()) } else { None };
-            self.lsp_manager.on_document_open(path, &content, ws_root);
-            self.check_language_support_prompt(path);
-            self.save_persistent_state();
+        let disk_content = std::fs::read_to_string(path).ok();
+        let content = if let Some(ref p) = pending {
+            p.diff_lines.iter().map(|(l, _)| l.as_str()).collect::<Vec<_>>().join("\n")
+        } else if let Some(c) = disk_content {
+            c
         } else {
             self.status_message = format!("Failed to open file: {}", path.display());
+            return;
+        };
+
+        let name = path.file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("Untitled")
+            .to_string();
+
+        // Track recent files
+        self.recent_files.retain(|p| p != path);
+        self.recent_files.insert(0, path.to_path_buf());
+        if self.recent_files.len() > 10 {
+            self.recent_files.truncate(10);
         }
+
+        // Check if already open
+        for (idx, tab) in self.tabs.iter_mut().enumerate() {
+            if tab.path.as_ref() == Some(&path.to_path_buf()) || tab.name == name {
+                self.active_tab = Some(idx);
+                tab.path = Some(path.to_path_buf());
+                if pending.is_some() {
+                    tab.editor.replace_all(&content);
+                    tab.is_dirty = true;
+                    if let Some(ref p) = pending {
+                        tab.saved_text = p.original_code.clone();
+                    }
+                } else if !tab.is_dirty && tab.saved_text != content {
+                    tab.editor.replace_all(&content);
+                    tab.saved_text = content.clone();
+                }
+                self.status_message = format!("Switched to {}", name);
+                self.check_language_support_prompt(path);
+                self.save_persistent_state();
+                return;
+            }
+        }
+
+        let is_dirty = pending.is_some();
+        let saved_text = if let Some(ref p) = pending { p.original_code.clone() } else { content.clone() };
+
+        self.tabs.push(EditorTab {
+            name,
+            path: Some(path.to_path_buf()),
+            editor: Editor::new(Buffer::from_text(&content)),
+            is_dirty,
+            scroll_y: 0.0,
+            shaping_cache: std::collections::HashMap::new(),
+            version: 0,
+            saved_text,
+        });
+        self.active_tab = Some(self.tabs.len() - 1);
+        self.status_message = format!("Opened file: {}", path.display());
+        let ws_root = if self.has_workspace { Some(self.current_dir.as_path()) } else { None };
+        self.lsp_manager.on_document_open(path, &content, ws_root);
+        self.check_language_support_prompt(path);
+        self.save_persistent_state();
     }
 
     pub fn check_language_support_prompt(&mut self, path: &Path) {
@@ -2390,7 +2501,7 @@ impl ZenthreeState {
         let is_refactor = lower.contains("refactor") || lower.contains("optimize");
         let is_explain = lower.contains("explain");
         let is_test = lower.contains("test");
-        let is_project_query = intent == UserIntent::WorkAndProject
+        let is_project_query = intent.is_work()
             || lower.contains("project")
             || lower.contains("workspace")
             || lower.contains("feature")
@@ -2399,7 +2510,7 @@ impl ZenthreeState {
             || lower.contains("code");
 
         // Formulate dual-channel evidence streams (Option A: Primary target action vs Option B: Conservative fallback)
-        let (ev_a, ev_b) = if intent == UserIntent::DiscussionAndGuide {
+        let (ev_a, ev_b) = if intent.is_discussion() {
             (0.70, 0.40)
         } else if is_refactor {
             (0.86, 0.24)
@@ -2457,7 +2568,7 @@ impl ZenthreeState {
         };
 
         // Autonomous mission and subagents are only initiated for work/project intents that are not pure explanations
-        let sub_agent = if intent == UserIntent::WorkAndProject && self.has_workspace && !is_explain {
+        let sub_agent = if intent.is_work() && self.has_workspace && !is_explain {
             let env = DetectorAgent::detect(&self.current_dir);
             self.detected_environment = Some(env.clone());
             let mut mission = create_mission_for_prompt(trimmed, &explored_items);
@@ -2485,10 +2596,10 @@ impl ZenthreeState {
             None
         };
 
-        // If Gemini or Groq API key is configured, query LLM asynchronously with Connectome deliberation attached
-        if self.gemini_api_key.is_some() || self.groq_api_key.is_some() {
+        // If Gemini or Groq API key is configured, or Goose ACP is selected, query agent asynchronously
+        if self.gemini_api_key.is_some() || self.groq_api_key.is_some() || self.ai_backend == crate::agent::AgentBackend::GooseAcp {
             let msg_idx = self.ai_messages.len();
-            let thoughts = if intent == UserIntent::DiscussionAndGuide {
+            let thoughts = if intent.is_discussion() {
                 format!(
                     "Deliberation: {} dt ({:.0}% conf) | Discussion & Technical Guide",
                     deliberation.reaction_time_dt, deliberation.confidence * 100.0
@@ -2538,7 +2649,7 @@ impl ZenthreeState {
 
             self.last_ai_prompt = trimmed.to_string();
 
-            let system_prompt = if intent == UserIntent::DiscussionAndGuide {
+            let system_prompt = if intent.is_discussion() {
                 build_discussion_guide_prompt()
             } else if self.has_workspace {
                 build_autonomous_agent_prompt(deliberation.confidence * 100.0)
@@ -2609,14 +2720,44 @@ impl ZenthreeState {
                 }
             }
 
+            let backend = self.ai_backend;
+            let current_dir = self.current_dir.clone();
+            let cancel_token = self.ai_cancellation_token.clone();
+
             std::thread::spawn(move || {
-                let mut agent_loop = ai::AgentLoop::new(
-                    loop_ctx,
-                    Box::new(move |event| {
-                        let _ = sender.send((msg_idx, event));
-                    }),
-                );
-                let _ = agent_loop.run(&query);
+                if backend == crate::agent::AgentBackend::GooseAcp {
+                    let supervisor = ai::GooseSupervisor::new();
+                    match supervisor.spawn_acp_client(&current_dir) {
+                        Ok(mut client) => {
+                            let (event_tx, event_rx) = std::sync::mpsc::channel();
+                            let s_clone = sender.clone();
+                            let forwarder = std::thread::spawn(move || {
+                                while let Ok(event) = event_rx.recv() {
+                                    let _ = s_clone.send((msg_idx, event));
+                                }
+                            });
+                            let _ = client.send_prompt(&query, vec![], &event_tx, &cancel_token);
+                            drop(event_tx);
+                            let _ = forwarder.join();
+                        }
+                        Err(err) => {
+                            let _ = sender.send((
+                                msg_idx,
+                                ai::AgentEvent::Error {
+                                    error: format!("Goose ACP: {}", err),
+                                },
+                            ));
+                        }
+                    }
+                } else {
+                    let mut agent_loop = ai::AgentLoop::new(
+                        loop_ctx,
+                        Box::new(move |event| {
+                            let _ = sender.send((msg_idx, event));
+                        }),
+                    );
+                    let _ = agent_loop.run(&query);
+                }
             });
             return;
         }
@@ -2660,7 +2801,7 @@ impl ZenthreeState {
             out.push_str("- **Refactor**: Suggest zero-allocation idiomatic improvements\n");
             out.push_str("- **Generate Tests**: Write automated unit test suites");
             out
-        } else if intent == UserIntent::DiscussionAndGuide {
+        } else if intent.is_discussion() {
             format!(
                 "### Discussion & Technical Guide\n\nHello! I'm ZENE, your engineering collaborator and architectural guide.\n\nI'm here to:\n- Discuss system architecture, tradeoffs, and design patterns\n- Help brainstorm and plan upcoming features\n- Guide you through workflows and answer technical questions\n\nWhenever you're ready to inspect code, analyze files, or implement changes in your workspace, just let me know what you'd like to work on!"
             )
@@ -2695,7 +2836,7 @@ impl ZenthreeState {
                 "### Unit Test Suite for `{}`\n\n```rust\n#[cfg(test)]\nmod tests {{\n    use super::*;\n\n    #[test]\n    fn test_core_flow() {{\n        assert!(true);\n    }}\n}}\n```",
                 active_file
             )
-        } else if is_project_query || intent == UserIntent::WorkAndProject {
+        } else if is_project_query || intent.is_work() {
             format!(
                 "### No Folder Opened\n\nYou currently do not have a folder or workspace open in Zenthree.\n\nTo open a project:\n- Click **Open Folder** in the Explorer sidebar on the left.\n- Or use `Ctrl+O`.\n\nOnce opened, I can analyze your codebase and project architecture!"
             )
@@ -2706,7 +2847,7 @@ impl ZenthreeState {
             )
         };
 
-        let thoughts = if intent == UserIntent::DiscussionAndGuide {
+        let thoughts = if intent.is_discussion() {
             format!(
                 "Deliberation: {} dt ({:.0}% conf) | Discussion & Technical Guide",
                 deliberation.reaction_time_dt, deliberation.confidence * 100.0
@@ -3133,66 +3274,202 @@ pub fn extract_code_from_markdown(content: &str) -> Option<String> {
     None
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum RawDiffOp<'a> {
+    Equal(&'a str),
+    Delete(&'a str),
+    Insert(&'a str),
+}
+
 pub fn compute_line_diff(original: &str, proposed: &str) -> (Vec<(String, DiffLineState)>, String) {
+    if original.is_empty() && proposed.is_empty() {
+        return (Vec::new(), String::new());
+    }
+    if original.is_empty() {
+        let diff: Vec<(String, DiffLineState)> = proposed
+            .lines()
+            .map(|l| (l.to_string(), DiffLineState::Added))
+            .collect();
+        let preview = diff.iter().map(|(l, _)| l.as_str()).collect::<Vec<_>>().join("\n");
+        return (diff, preview);
+    }
+    if proposed.is_empty() {
+        let diff: Vec<(String, DiffLineState)> = original
+            .lines()
+            .map(|l| (l.to_string(), DiffLineState::Removed))
+            .collect();
+        let preview = diff.iter().map(|(l, _)| l.as_str()).collect::<Vec<_>>().join("\n");
+        return (diff, preview);
+    }
+
     let orig_lines: Vec<&str> = original.lines().collect();
     let prop_lines: Vec<&str> = proposed.lines().collect();
 
-    let mut diff = Vec::new();
-    let mut preview = Vec::new();
+    // 1. Trim common prefix
+    let mut prefix_len = 0;
+    while prefix_len < orig_lines.len()
+        && prefix_len < prop_lines.len()
+        && orig_lines[prefix_len] == prop_lines[prefix_len]
+    {
+        prefix_len += 1;
+    }
 
-    let mut i = 0;
-    let mut j = 0;
+    // 2. Trim common suffix
+    let mut orig_end = orig_lines.len();
+    let mut prop_end = prop_lines.len();
+    while orig_end > prefix_len
+        && prop_end > prefix_len
+        && orig_lines[orig_end - 1] == prop_lines[prop_end - 1]
+    {
+        orig_end -= 1;
+        prop_end -= 1;
+    }
 
-    while i < orig_lines.len() || j < prop_lines.len() {
-        if i < orig_lines.len() && j < prop_lines.len() && orig_lines[i] == prop_lines[j] {
-            diff.push((orig_lines[i].to_string(), DiffLineState::Unchanged));
-            preview.push(orig_lines[i].to_string());
-            i += 1;
-            j += 1;
-        } else {
-            let mut match_found = false;
-            for look_j in (j + 1)..=(j + 6).min(prop_lines.len()) {
-                if i < orig_lines.len() && orig_lines[i] == prop_lines[look_j - 1] {
-                    while j < look_j - 1 {
-                        diff.push((prop_lines[j].to_string(), DiffLineState::Added));
-                        preview.push(prop_lines[j].to_string());
-                        j += 1;
-                    }
-                    match_found = true;
+    let orig_mid = &orig_lines[prefix_len..orig_end];
+    let prop_mid = &prop_lines[prefix_len..prop_end];
+
+    let n = orig_mid.len();
+    let m = prop_mid.len();
+
+    let mut raw_ops = Vec::new();
+
+    if n == 0 && m == 0 {
+        // Only identical lines exist
+    } else if n == 0 {
+        for s in prop_mid {
+            raw_ops.push(RawDiffOp::Insert(*s));
+        }
+    } else if m == 0 {
+        for s in orig_mid {
+            raw_ops.push(RawDiffOp::Delete(*s));
+        }
+    } else {
+        // Myers diff algorithm with maximum search cap
+        let max = n + m;
+        let max_d = max.min(2000);
+        let offset = max_d as isize;
+        let mut v = vec![0isize; 2 * max_d + 1];
+        let mut trace: Vec<Vec<isize>> = Vec::new();
+        let mut found = false;
+
+        for d in 0..=max_d {
+            trace.push(v.clone());
+            let d_isize = d as isize;
+            for k in (-d_isize..=d_isize).step_by(2) {
+                let k_idx = (k + offset) as usize;
+                let mut x = if k == -d_isize || (k != d_isize && v[k_idx - 1] < v[k_idx + 1]) {
+                    v[k_idx + 1]
+                } else {
+                    v[k_idx - 1] + 1
+                };
+                let mut y = x - k;
+                while x < n as isize && y < m as isize && orig_mid[x as usize] == prop_mid[y as usize] {
+                    x += 1;
+                    y += 1;
+                }
+                v[k_idx] = x;
+                if x >= n as isize && y >= m as isize {
+                    found = true;
                     break;
                 }
             }
+            if found {
+                break;
+            }
+        }
 
-            if !match_found {
-                for look_i in (i + 1)..=(i + 6).min(orig_lines.len()) {
-                    if j < prop_lines.len() && orig_lines[look_i - 1] == prop_lines[j] {
-                        while i < look_i - 1 {
-                            diff.push((orig_lines[i].to_string(), DiffLineState::Removed));
-                            preview.push(orig_lines[i].to_string());
-                            i += 1;
-                        }
-                        match_found = true;
-                        break;
-                    }
+        if !found {
+            // Fallback for massive divergent replacements: all removed, then all added
+            for s in orig_mid {
+                raw_ops.push(RawDiffOp::Delete(*s));
+            }
+            for s in prop_mid {
+                raw_ops.push(RawDiffOp::Insert(*s));
+            }
+        } else {
+            let mut x = n as isize;
+            let mut y = m as isize;
+
+            for d in (1..trace.len()).rev() {
+                let v_prev = &trace[d];
+                let k = x - y;
+                let d_isize = d as isize;
+                let prev_k = if k == -d_isize || (k != d_isize && v_prev[(k - 1 + offset) as usize] < v_prev[(k + 1 + offset) as usize]) {
+                    k + 1
+                } else {
+                    k - 1
+                };
+                let prev_x = v_prev[(prev_k + offset) as usize];
+                let prev_y = prev_x - prev_k;
+
+                while x > prev_x && y > prev_y {
+                    x -= 1;
+                    y -= 1;
+                    raw_ops.push(RawDiffOp::Equal(orig_mid[x as usize]));
+                }
+                if x == prev_x {
+                    y -= 1;
+                    raw_ops.push(RawDiffOp::Insert(prop_mid[y as usize]));
+                } else {
+                    x -= 1;
+                    raw_ops.push(RawDiffOp::Delete(orig_mid[x as usize]));
                 }
             }
-
-            if !match_found {
-                if i < orig_lines.len() {
-                    diff.push((orig_lines[i].to_string(), DiffLineState::Removed));
-                    preview.push(orig_lines[i].to_string());
-                    i += 1;
-                }
-                if j < prop_lines.len() {
-                    diff.push((prop_lines[j].to_string(), DiffLineState::Added));
-                    preview.push(prop_lines[j].to_string());
-                    j += 1;
-                }
+            while x > 0 && y > 0 {
+                x -= 1;
+                y -= 1;
+                raw_ops.push(RawDiffOp::Equal(orig_mid[x as usize]));
             }
+            raw_ops.reverse();
         }
     }
 
-    let preview_text = preview.join("\n");
+    let mut diff = Vec::new();
+
+    // 1. Emit common prefix
+    for line in &orig_lines[..prefix_len] {
+        diff.push((line.to_string(), DiffLineState::Unchanged));
+    }
+
+    // 2. Emit middle changes grouped by hunk:
+    // Any sequence of deletions and insertions is grouped so that ALL deletions (-)
+    // appear first in red sequence, followed by ALL additions (+) in green sequence.
+    let mut hunk_removed = Vec::new();
+    let mut hunk_added = Vec::new();
+
+    let flush_hunk = |diff: &mut Vec<(String, DiffLineState)>,
+                      removed: &mut Vec<&str>,
+                      added: &mut Vec<&str>| {
+        for line in removed.drain(..) {
+            diff.push((line.to_string(), DiffLineState::Removed));
+        }
+        for line in added.drain(..) {
+            diff.push((line.to_string(), DiffLineState::Added));
+        }
+    };
+
+    for op in raw_ops {
+        match op {
+            RawDiffOp::Equal(line) => {
+                flush_hunk(&mut diff, &mut hunk_removed, &mut hunk_added);
+                diff.push((line.to_string(), DiffLineState::Unchanged));
+            }
+            RawDiffOp::Delete(line) => {
+                hunk_removed.push(line);
+            }
+            RawDiffOp::Insert(line) => {
+                hunk_added.push(line);
+            }
+        }
+    }
+    flush_hunk(&mut diff, &mut hunk_removed, &mut hunk_added);
+
+    // 3. Emit common suffix
+    for line in &orig_lines[orig_end..] {
+        diff.push((line.to_string(), DiffLineState::Unchanged));
+    }
+
+    let preview_text = diff.iter().map(|(l, _)| l.as_str()).collect::<Vec<_>>().join("\n");
     (diff, preview_text)
 }
 
@@ -3811,6 +4088,56 @@ mod tests {
         assert!(!temp_dir.join(".zenthree").exists());
 
         let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_compute_line_diff_groups_consecutive_removals_before_additions() {
+        // Test 3 lines replaced in sequence: must show all 3 removed lines together,
+        // followed by all 3 added lines together (NOT alternating one by one).
+        let original = "fn test() {\n    let a = 1;\n    let b = 2;\n    let c = 3;\n    println!(\"done\");\n}";
+        let proposed = "fn test() {\n    let x = 10;\n    let y = 20;\n    let z = 30;\n    println!(\"done\");\n}";
+
+        let (diff, preview) = compute_line_diff(original, proposed);
+
+        // Header: Unchanged "fn test() {"
+        assert_eq!(diff[0], ("fn test() {".to_string(), DiffLineState::Unchanged));
+
+        // 3 consecutive removed lines in sequence (red)
+        assert_eq!(diff[1], ("    let a = 1;".to_string(), DiffLineState::Removed));
+        assert_eq!(diff[2], ("    let b = 2;".to_string(), DiffLineState::Removed));
+        assert_eq!(diff[3], ("    let c = 3;".to_string(), DiffLineState::Removed));
+
+        // 3 consecutive added lines in sequence (green)
+        assert_eq!(diff[4], ("    let x = 10;".to_string(), DiffLineState::Added));
+        assert_eq!(diff[5], ("    let y = 20;".to_string(), DiffLineState::Added));
+        assert_eq!(diff[6], ("    let z = 30;".to_string(), DiffLineState::Added));
+
+        // Footer: Unchanged
+        assert_eq!(diff[7], ("    println!(\"done\");".to_string(), DiffLineState::Unchanged));
+        assert_eq!(diff[8], ("}".to_string(), DiffLineState::Unchanged));
+
+        // Preview text line count matches diff line count
+        assert_eq!(preview.lines().count(), diff.len());
+    }
+
+    #[test]
+    fn test_compute_line_diff_pure_addition_and_removal() {
+        let original = "line 1\nline 2";
+        let proposed = "line 1\ninserted\nline 2";
+        let (diff, _) = compute_line_diff(original, proposed);
+        assert_eq!(diff.len(), 3);
+        assert_eq!(diff[0].1, DiffLineState::Unchanged);
+        assert_eq!(diff[1], ("inserted".to_string(), DiffLineState::Added));
+        assert_eq!(diff[2].1, DiffLineState::Unchanged);
+
+        let original_del = "line 1\ndeleted 1\ndeleted 2\nline 2";
+        let proposed_del = "line 1\nline 2";
+        let (diff_del, _) = compute_line_diff(original_del, proposed_del);
+        assert_eq!(diff_del.len(), 4);
+        assert_eq!(diff_del[0].1, DiffLineState::Unchanged);
+        assert_eq!(diff_del[1], ("deleted 1".to_string(), DiffLineState::Removed));
+        assert_eq!(diff_del[2], ("deleted 2".to_string(), DiffLineState::Removed));
+        assert_eq!(diff_del[3].1, DiffLineState::Unchanged);
     }
 }
 

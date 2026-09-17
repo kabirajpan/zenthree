@@ -20,7 +20,7 @@ This document details the complete production architecture, internal subsystems,
 
 ## 2. Modular Crate Structure (`crates/ai`)
 
-All AI capabilities, sub-agents, tool registries, providers, and session persistence are decoupled from the UI into an independent, modular crate: `crates/ai` (workspace package `ai`).
+All AI capabilities, sub-agents, tool registries, ACP/Goose protocol adapters, providers, and session persistence are decoupled from the UI into an independent, modular crate: `crates/ai` (workspace package `ai`).
 
 ```
 crates/ai/
@@ -28,33 +28,31 @@ crates/ai/
 ├── src/
 │   ├── lib.rs                       # Crate root, high-level Zene facade & public re-exports
 │   │
-│   ├── agents/                      # 🤖 ZENE & THE 4 SPECIALIZED SUB-AGENTS
-│   │   ├── mod.rs                   # SubAgentRole enum & SubAgent trait
-│   │   ├── zene.rs                  # ZENE: Lead orchestrator, user dialogue & prompt coordinator
-│   │   ├── planner.rs               # 📋 Planner: Architectural breakdown & task dependency mapping
-│   │   ├── explorer.rs              # 🔍 Explorer: Reconnaissance, AST symbol tracing & surgical reading
-│   │   ├── builder.rs               # ⚡ Builder: Code generation, surgical patches & file synthesis
-│   │   └── tester.rs                # 🛡️ Tester: Verification gate, compiler checks & self-healing loop
+│   ├── acp/                         # 🔌 AGENT CLIENT PROTOCOL (ACP) SUBSYSTEM
+│   │   ├── mod.rs                   # ACP client adapter, process supervisor & connection lifecycle
+│   │   ├── protocol.rs              # Typed JSON-RPC ACP schemas (SessionUpdate, Notifications, Prompts)
+│   │   ├── transport.rs             # Stdio transport, async JSON-RPC framing & stream parsing
+│   │   └── adapter.rs               # Event adapter converting ACP notifications into AgentEvents
 │   │
-│   ├── orchestrator/                # 🔄 DUAL-LOOP CONTROL SYSTEM & STATE MACHINE
-│   │   ├── mod.rs                   # Orchestrator struct & event-driven loop driver
-│   │   ├── mission.rs               # AgentMission, AgentTask, TaskStatus, non-halting task queue
-│   │   ├── state_machine.rs         # Pending -> Planning -> Executing -> Verifying -> Done/Failed
-│   │   ├── factory.rs               # Mission decomposition (Plan -> Explore -> Build -> Test)
-│   │   └── cancellation.rs          # Atomic cancellation token (Arc<AtomicBool>) for instant stop
+│   ├── goose/                       # 🪿 GOOSE CLI INTEGRATION SUBSYSTEM
+│   │   ├── mod.rs                   # Goose backend manager & runner
+│   │   ├── config.rs                # Goose configuration parser, extensions & profiles
+│   │   └── supervisor.rs            # Child process lifecycle, health check & IPC supervisor
+│   │
+│   ├── orchestrator/                # 🔄 DUAL-LOOP CONTROL SYSTEM & AGENT BACKENDS
+│   │   ├── mod.rs                   # Orchestrator orchestration facade & backend selector
+│   │   ├── backend.rs               # AgentBackend enum: Native vs GooseAcp vs Custom
+│   │   └── loop_engine.rs           # Native autonomous ReAct loop driver with surgical diff capture
 │   │
 │   ├── tools/                       # 🛠️ TYPED TOOL REGISTRY & SURGICAL DIFF ENGINE
-│   │   ├── mod.rs                   # AgentToolCall enum, AgentToolResult & ToolRegistry trait
-│   │   ├── matcher.rs               # 3-Tier Matcher: exact, CRLF normalization, indentation delta
+│   │   ├── mod.rs                   # AgentToolCall enum, AgentToolResult & execute_agent_tool router
 │   │   ├── patch.rs                 # SearchReplaceBlock, FileEditAction, TargetFileModification
-│   │   ├── sandbox.rs               # Safe execution sandbox (security guards blocking rm -rf/sudo)
+│   │   ├── command.rs               # run_command (sandboxed shell runner with background support)
+│   │   ├── environment.rs           # detect_environment (heuristics + manifest analysis)
 │   │   ├── read.rs                  # read_file (surgical line-bounded reading)
 │   │   ├── search.rs                # search_code (fast ripgrep across project tree)
-│   │   ├── symbol.rs                # find_symbol (Tree-Sitter AST symbol lookup)
 │   │   ├── list.rs                  # list_directory (bounded depth directory walk)
-│   │   ├── command.rs               # run_command (sandboxed shell runner with timeouts)
 │   │   ├── git.rs                   # git_status, git_diff (repository awareness & rollback)
-│   │   ├── environment.rs           # detect_environment (heuristics + manifest analysis)
 │   │   └── parser.rs                # parse_agent_tool_calls, parse_search_replace_blocks
 │   │
 │   ├── providers/                   # 🧠 MODEL PROVIDERS & RESILIENT FALLBACK CHAIN
@@ -69,27 +67,13 @@ crates/ai/
 │   │
 │   ├── context/                     # 📚 3-TIER CONTEXT ENGINE & TOKEN BUDGETING
 │   │   ├── mod.rs                   # ContextEngine: unifies Working Memory, Session, and AST
-│   │   ├── working_memory.rs        # Tier 1: RAM-based sliding message window & tool observations
-│   │   ├── project_index.rs         # Tier 3: SymbolLocation, FileMatch, prompt keyword extraction
 │   │   ├── prompts.rs               # Base system prompts, ZENE identity, autonomous coding rules
 │   │   ├── truncation.rs            # Output truncation guards (caps tool outputs to prevent context blowup)
 │   │   └── self_healing.rs          # filter_compiler_errors & build_self_healing_prompt
 │   │
-│   ├── deliberation/                # 🧬 CONNECTOME DELIBERATION BRIDGE
-│   │   ├── mod.rs                   # DeliberationEngine interface to crates/connectome
-│   │   └── bridge.rs                # Evidence vector calculation, confidence scoring & latency metrics
-│   │
-│   ├── session/                     # 💾 TIER 2 STATE STORE & PERSISTENCE
-│   │   ├── mod.rs
-│   │   ├── session.rs               # AgentSession (lazy in-memory creation, per-project directory)
-│   │   ├── store.rs                 # Disk serializer (.zenthree/sessions/<id>/)
-│   │   ├── artifacts.rs             # Markdown generators (mission.md, plan.md, walkthrough.md)
-│   │   ├── summary.rs               # SessionSummary, relative time formatting, byte formatters
-│   │   └── pruning.rs               # Automatic empty session and ghost folder cleanup
-│   │
 │   └── types/                       # 📦 SHARED CORE TYPES & UI STREAMING EVENTS
 │       ├── mod.rs
-│       ├── message.rs               # ChatMessage, Role, UserIntent, classify_user_intent
+│       ├── message.rs               # ChatMessage, Role, EditedFileSummary (original/proposed code)
 │       ├── env.rs                   # ProjectLanguage, ProjectEnvironment, WorkspaceDetectionContext
 │       └── events.rs                # AgentEvent stream for 120 FPS non-blocking UI rendering
 ```
@@ -308,28 +292,60 @@ Z.E.N.E. integrates with the spiking neural network engine in `crates/connectome
   ```
 - Ensures the Zenthree editor UI remains fluid at **120 FPS** while tools execute.
 
-### 3. Visual Diff Staging & Rollback Engine
-- Builder diffs are staged in an `AiInputDrawer::PendingModifications` drawer.
-- Shows live line diffs (`+green added`, `-red removed`) inside the editor buffer.
-- Provides **Accept All** and **Reject All** buttons; rejection rolls back the in-memory editor buffer cleanly with zero filesystem residue.
+### 3. Visual Diff Staging, Legible Buffer Highlighting & Drawer Rollback Engine
+- **Editor Buffer Inline Diffs**:
+  - Live diff lines are loaded directly into the active editor buffer via `compute_line_diff(original, proposed)`:
+    - **Added Lines (`+`)**: Highlighted with a green gutter bar, green background tint, and `+` indicator.
+    - **Removed Lines (`-`)**: Highlighted with a red gutter bar, red background tint, and `-` indicator.
+    - **High Legibility**: Strikethrough cut lines across deleted text are intentionally avoided so removed code remains completely legible.
+- **In-Chat Edited File Cards**:
+  - Displays clean file name with `+added` and `-removed` line counts.
+  - Features an individual **Reject** (`✕`) button to immediately revert a single file's modifications.
+- **Floating Input Drawers (`AiInputDrawer`) with Deep Drop Shadows**:
+  - Positioned directly above the prompt inbox with elevated drop shadows (`.shadow(Color::rgba(0.0, 0.0, 0.0, 0.5), 0.0, -4.0, 14.0)`).
+  - **Modified Files List**: Shows file name, relative project path, +/- line count badges, per-file **Reject** (`✕`) button, and a bottom action bar with **Reject all** and **Accept all**.
+  - **Running Terminals List**: Real-time display of running background AI commands with cancel (`✕`) buttons.
+  - **Artifacts List**: Quick clickable navigation to AI generated artifacts (`plan.md`, `walkthrough.md`).
 
 ---
 
-## 11. File Map & Code Locations
+## 11. Dual Backend Execution Engine: Native & ACP/Goose
 
-| Subsystem | New Modular File Path | Responsibilities |
+Z.E.N.E. supports swappable execution backends via `AgentBackend`:
+
+```rust
+pub enum AgentBackend {
+    Native,
+    GooseAcp,
+}
+```
+
+### 1. Native Execution Loop (`crates/ai/src/orchestrator/loop_engine.rs`)
+- In-process ReAct agent loop powered directly by configured model providers (Gemini, Groq, Claude, OpenAI).
+- Executes typed tool calls (`edit_file`, `read_file`, `run_command`, `search_code`, `list_directory`, `detect_environment`, `git_status`, `git_diff`).
+- Extracts search-and-replace blocks and code file updates, captures `original_code` and `proposed_code`, and dispatches `AgentEvent::PendingModifications`.
+
+### 2. Agent Client Protocol (ACP) & Goose CLI (`crates/ai/src/acp/`, `crates/ai/src/goose/`)
+- Integrates external autonomous agents conforming to the Agent Client Protocol (ACP) standard over JSON-RPC stdio.
+- Bridges Goose CLI supervisor processes with real-time session streaming, converting notifications into native `AgentEvent`s (`ToolStarted`, `ToolFinished`, `PendingModifications`, `TaskUpdated`, `Completed`).
+
+---
+
+## 12. File Map & Code Locations
+
+| Subsystem | File Path | Responsibilities |
 |---|---|---|
 | **Crate Root** | `crates/ai/src/lib.rs` | Public facade, crate exports, and convenience constructors. |
-| **ZENE Lead Agent** | `crates/ai/src/agents/zene.rs` | Main conversational agent, user dialogue, and prompt coordination. |
-| **Planner Agent** | `crates/ai/src/agents/planner.rs` | Task planning, architecture evaluation, and dependency mapping. |
-| **Explorer Agent** | `crates/ai/src/agents/explorer.rs` | Symbol search, ripgrep code queries, and surgical line reading. |
-| **Builder Agent** | `crates/ai/src/agents/builder.rs` | Surgical SEARCH/REPLACE diff formulation and file creation. |
-| **Tester Agent** | `crates/ai/src/agents/tester.rs` | Non-destructive compiler checks, test runner, and self-healing loop. |
-| **Orchestrator** | `crates/ai/src/orchestrator/mission.rs` | Non-halting task queue, state machine, and runnable task scheduler. |
-| **Tool Registry** | `crates/ai/src/tools/mod.rs` | Typed `AgentToolCall` definitions, tool routing, and validation. |
-| **3-Tier Matcher** | `crates/ai/src/tools/matcher.rs` | Exact match, CRLF normalization, and indentation tolerance. |
-| **Sandbox Guards** | `crates/ai/src/tools/sandbox.rs` | Sandboxed command execution, blocklist filters (`rm -rf`, `sudo`). |
+| **ACP Protocol** | `crates/ai/src/acp/protocol.rs` | Typed JSON-RPC 2.0 ACP notification schemas and request models. |
+| **ACP Transport** | `crates/ai/src/acp/transport.rs` | Stdio transport, async JSON-RPC framing, and line parsing. |
+| **ACP Adapter** | `crates/ai/src/acp/adapter.rs` | Bridges ACP session updates into internal `AgentEvent` streaming. |
+| **Goose Supervisor**| `crates/ai/src/goose/supervisor.rs` | Goose CLI child process spawning, health monitoring, and IPC. |
+| **Agent Backend** | `crates/ai/src/orchestrator/backend.rs` | Swappable backend dispatcher (`Native` vs `GooseAcp`). |
+| **Loop Engine** | `crates/ai/src/orchestrator/loop_engine.rs` | Autonomous ReAct inner loop with observation feedback & patch capture. |
+| **Tool Registry** | `crates/ai/src/tools/mod.rs` | Typed `AgentToolCall` execution and tool routing. |
+| **Surgical Patch** | `crates/ai/src/tools/patch.rs` | `SearchReplaceBlock` formulation and non-destructive code splicing. |
 | **Provider Chain** | `crates/ai/src/providers/chain.rs` | Multi-model fallback, retry backoff, and error classification. |
-| **Session Store** | `crates/ai/src/session/store.rs` | Per-project lazy session persistence and markdown artifact generation. |
-| **Connectome Bridge**| `crates/ai/src/deliberation/bridge.rs`| Interface to `crates/connectome` biological simulation engine. |
 | **UI Streaming** | `crates/ai/src/types/events.rs` | Real-time `AgentEvent` definitions for 120 FPS UI feedback. |
+| **Buffer Diffing** | `crates/zenthree/src/ui_layout/main_buffer.rs` | Inline `+`/`-` line diff rendering with legible text & gutter bars. |
+| **AI Panel UI** | `crates/zenthree/src/ui_layout/ai_panel.rs` | Clean chat bubbles, shadowed drawers, and per-file reject actions. |
+

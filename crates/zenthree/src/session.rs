@@ -596,6 +596,8 @@ mod tests {
                 file_name: "auth.rs".to_string(),
                 lines_added: 45,
                 lines_removed: 5,
+                original_code: None,
+                proposed_code: None,
             },
         ];
         session.update_walkthrough_file("Build authentication flow", &edits, true);

@@ -195,6 +195,10 @@ pub fn execute_run_command(workspace: &Path, cmd: &str) -> AgentToolResult {
         augmented = format!("{}:{}", local_bin, augmented);
     }
     cmd_builder.env("PATH", augmented);
+    cmd_builder.env("CI", "true");
+    cmd_builder.env("TERM", "dumb");
+    cmd_builder.env("DEBIAN_FRONTEND", "noninteractive");
+    cmd_builder.stdin(std::process::Stdio::null());
 
     match cmd_builder
         .stdout(std::process::Stdio::piped())
@@ -202,11 +206,50 @@ pub fn execute_run_command(workspace: &Path, cmd: &str) -> AgentToolResult {
         .spawn()
     {
         Ok(mut child) => {
+            let stdout = child.stdout.take();
+            let stderr = child.stderr.take();
+
+            let output_buffer = std::sync::Arc::new(std::sync::Mutex::new(String::new()));
+            let out_clone1 = std::sync::Arc::clone(&output_buffer);
+            let out_clone2 = std::sync::Arc::clone(&output_buffer);
+
+            // Read stdout concurrently to prevent pipe buffer deadlocks
+            let h_out = std::thread::spawn(move || {
+                if let Some(mut r) = stdout {
+                    let mut buf = [0u8; 4096];
+                    while let Ok(n) = r.read(&mut buf) {
+                        if n == 0 { break; }
+                        let text = String::from_utf8_lossy(&buf[..n]);
+                        if let Ok(mut lock) = out_clone1.lock() {
+                            if lock.len() < 30_000 {
+                                lock.push_str(&text);
+                            }
+                        }
+                    }
+                }
+            });
+
+            // Read stderr concurrently
+            let h_err = std::thread::spawn(move || {
+                if let Some(mut r) = stderr {
+                    let mut buf = [0u8; 4096];
+                    while let Ok(n) = r.read(&mut buf) {
+                        if n == 0 { break; }
+                        let text = String::from_utf8_lossy(&buf[..n]);
+                        if let Ok(mut lock) = out_clone2.lock() {
+                            if lock.len() < 30_000 {
+                                lock.push_str(&text);
+                            }
+                        }
+                    }
+                }
+            });
+
             let start = std::time::Instant::now();
             let timeout = if is_dev_server {
-                std::time::Duration::from_secs(4)
+                std::time::Duration::from_secs(3)
             } else {
-                std::time::Duration::from_secs(120)
+                std::time::Duration::from_secs(45)
             };
 
             let mut exited_status = None;
@@ -224,42 +267,29 @@ pub fn execute_run_command(workspace: &Path, cmd: &str) -> AgentToolResult {
             }
 
             if let Some(status) = exited_status {
-                let mut stdout_str = String::new();
-                let mut stderr_str = String::new();
-                if let Some(mut out) = child.stdout.take() {
-                    let _ = out.read_to_string(&mut stdout_str);
-                }
-                if let Some(mut err) = child.stderr.take() {
-                    let _ = err.read_to_string(&mut stderr_str);
-                }
+                let _ = h_out.join();
+                let _ = h_err.join();
 
-                let mut combined = String::new();
-                if !stdout_str.trim().is_empty() {
-                    combined.push_str(&stdout_str);
-                }
-                if !stderr_str.trim().is_empty() {
-                    if !combined.is_empty() {
-                        combined.push('\n');
-                    }
-                    combined.push_str(&stderr_str);
-                }
-
-                if combined.is_empty() {
-                    combined = if status.success() {
+                let combined = output_buffer.lock().map(|l| l.clone()).unwrap_or_default();
+                let final_output = if combined.trim().is_empty() {
+                    if status.success() {
                         "Command exited successfully with code 0 (no output)".to_string()
                     } else {
                         format!("Command exited with status {}", status)
-                    };
-                }
+                    }
+                } else {
+                    combined
+                };
 
                 AgentToolResult {
                     tool_name: "run_command".to_string(),
                     ok: status.success(),
-                    output: combined.trim_end().to_string(),
+                    output: final_output.trim_end().to_string(),
                 }
             } else if is_dev_server {
                 // Continuous dev server still running as expected
                 let pid = child.id();
+                let accumulated = output_buffer.lock().map(|l| l.clone()).unwrap_or_default();
                 if let Ok(mut procs) = ACTIVE_PROCESSES.lock() {
                     procs.push(ActiveAiProcess {
                         command: trimmed.to_string(),
@@ -268,18 +298,30 @@ pub fn execute_run_command(workspace: &Path, cmd: &str) -> AgentToolResult {
                     });
                 }
 
+                let out_msg = if accumulated.trim().is_empty() {
+                    format!("Command `{}` started successfully and is running in the background (PID {}).", trimmed, pid)
+                } else {
+                    format!("Command `{}` started in background (PID {}).\nInitial terminal output:\n{}", trimmed, pid, accumulated.trim())
+                };
+
                 AgentToolResult {
                     tool_name: "run_command".to_string(),
                     ok: true,
-                    output: format!("Command `{}` started successfully and is running in the background (PID {}).", trimmed, pid),
+                    output: out_msg,
                 }
             } else {
-                // Non-server command timed out after 120s - terminate it so it does not hang
+                // Non-server command timed out - terminate it so it does not hang
                 let _ = child.kill();
+                let accumulated = output_buffer.lock().map(|l| l.clone()).unwrap_or_default();
+                let out_msg = if accumulated.trim().is_empty() {
+                    format!("Command `{}` timed out after 45 seconds and was terminated.", trimmed)
+                } else {
+                    format!("Command `{}` timed out after 45 seconds. Terminal output captured:\n{}", trimmed, accumulated.trim())
+                };
                 AgentToolResult {
                     tool_name: "run_command".to_string(),
                     ok: false,
-                    output: format!("Command `{}` timed out after 120 seconds and was terminated.", trimmed),
+                    output: out_msg,
                 }
             }
         }

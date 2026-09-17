@@ -21,7 +21,7 @@ pub use git::{execute_git_status, execute_git_diff};
 pub use environment::{DetectorAgent, execute_detect_environment};
 pub use parser::{
     parse_search_replace_blocks, parse_agent_tool_calls, parse_single_tool_call_value,
-    extract_all_file_modifications, extract_json_tool_modifications,
+    extract_all_file_modifications, extract_json_tool_modifications, ground_workspace_path,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

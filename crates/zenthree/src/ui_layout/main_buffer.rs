@@ -898,6 +898,13 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                                 let active_pending_diff = state.pending_modifications.iter().find(|p| {
                                     tab.path.as_ref() == Some(&p.file_path)
                                         || tab.name == p.file_path.file_name().and_then(|n| n.to_str()).unwrap_or("")
+                                        || tab.path.as_ref().map(|tp| tp.ends_with(&p.file_path) || p.file_path.ends_with(tp)).unwrap_or(false)
+                                }).or_else(|| {
+                                    state.pending_modification.as_ref().filter(|p| {
+                                        tab.path.as_ref() == Some(&p.file_path)
+                                            || tab.name == p.file_path.file_name().and_then(|n| n.to_str()).unwrap_or("")
+                                            || tab.path.as_ref().map(|tp| tp.ends_with(&p.file_path) || p.file_path.ends_with(tp)).unwrap_or(false)
+                                    })
                                 });
 
                                 for i in visible_start..visible_end {

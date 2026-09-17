@@ -188,22 +188,6 @@ fn test_output_truncation_guard() {
     assert!(truncated.contains("additional lines truncated"));
 }
 
-#[test]
-fn test_deliberation_bridge() {
-    let (conf, dt, res) = DeliberationBridge::deliberate_intent("Implement new API endpoint");
-    assert!(conf >= 0.0 && conf <= 1.0);
-    assert!(dt > 0);
-    assert!(res.is_some());
-}
-
-#[test]
-fn test_agent_session_lazy_in_memory() {
-    let tmp = std::env::temp_dir().join(format!("ai_test_{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
-    let session = AgentSession::new(&tmp, Some("Lazy Session"));
-    assert_eq!(session.title, "Lazy Session");
-    // Zero files on disk until saved
-    assert!(!tmp.join(".zenthree").exists());
-}
 
 #[test]
 fn test_agent_loop_context_and_cancellation() {

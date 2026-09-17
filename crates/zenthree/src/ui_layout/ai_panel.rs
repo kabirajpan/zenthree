@@ -1,5 +1,5 @@
-use crate::state::{ZenthreeState, DiffLineState, EditedFileSummary, TaskStatus, PendingModification, AiInputDrawer};
-use crate::session::{format_relative_time, format_bytes};
+use crate::state::{ZenthreeState, DiffLineState, EditedFileSummary, TaskStatus, AiInputDrawer};
+use crate::session::format_relative_time;
 use zenthra::{Color, Ui, Align, FontWeight, Id, CursorIcon};
 
 pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height: f32) {
@@ -122,217 +122,87 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                 .halign(Align::SpaceBetween)
                 .no_wrap()
                 .show(|ui| {
-                    // Child 1: Left Icon, Title & Model Badge
+                    // Left side: Left arrow + text heading "AI Assistant" (no emoji or icon)
                     ui.container()
                         .row()
                         .valign(Align::Center)
-                        .gap(5.0)
+                        .gap(8.0)
                         .show(|ui| {
-                            // Left arrow to return to session list (only if saved sessions exist)
-                            if !state.ai_showing_session_list && !state.session_list.is_empty() {
-                                let back_btn = ui.container()
-                                    .padding(2.0, 4.0, 2.0, 4.0)
-                                    .radius_all(3.0)
-                                    .hover_bg(colors.highlight)
-                                    .row()
-                                    .valign(Align::Center)
-                                    .show(|ui| {
-                                        ui.text("\u{f053}")
-                                            .size(9.5)
-                                            .weight(FontWeight::Bold)
-                                            .color(colors.text_primary)
-                                            .show();
-                                    });
-                                if back_btn.clicked {
+                            let back_btn = ui.container()
+                                .width(20.0)
+                                .height(20.0)
+                                .radius_all(3.0)
+                                .hover_bg(colors.highlight)
+                                .halign(Align::Center)
+                                .valign(Align::Center)
+                                .show(|ui| {
+                                    ui.text("\u{f053}")
+                                        .size(10.0)
+                                        .weight(FontWeight::Bold)
+                                        .color(if state.ai_showing_session_list { colors.accent } else { colors.text_muted })
+                                        .show();
+                                });
+                            if back_btn.clicked {
+                                if !state.ai_showing_session_list {
                                     state.session_list = crate::session::list_saved_sessions(&state.current_dir);
                                     state.ai_showing_session_list = true;
-                                    ui.needs_redraw = true;
+                                } else {
+                                    state.ai_showing_session_list = false;
                                 }
+                                ui.needs_redraw = true;
                             }
 
-                            // Sparkle glyph
-                            ui.text("\u{f005}")
-                                .size(11.5)
-                                .color(colors.accent)
-                                .show();
-
-                            if ai_panel_w >= 320.0 {
-                                ui.text("AI Assistant")
-                                    .size(11.5)
-                                    .weight(FontWeight::Bold)
-                                    .color(colors.text_primary)
-                                    .show();
-                            } else if ai_panel_w >= 240.0 {
-                                ui.text("Assistant")
-                                    .size(11.0)
-                                    .weight(FontWeight::Bold)
-                                    .color(colors.text_primary)
-                                    .show();
-                            } else {
-                                ui.text("AI")
-                                    .size(11.0)
-                                    .weight(FontWeight::Bold)
-                                    .color(colors.text_primary)
-                                    .show();
-                            }
-
-                            let (provider_label, provider_color) = if state.gemini_api_key.is_some() {
-                                ("Gemini Flash", Color::rgb(0.28, 0.58, 0.98))
-                            } else if state.groq_api_key.is_some() {
-                                ("Groq", Color::rgb(184.0 / 255.0, 187.0 / 255.0, 38.0 / 255.0))
-                            } else {
-                                ("Offline", colors.text_muted)
+                            let agent_name = match state.ai_backend {
+                                crate::agent::AgentBackend::Native => "ZENE",
+                                crate::agent::AgentBackend::GooseAcp => "Goose",
                             };
 
-                            // Responsive model badge
-                            if ai_panel_w >= 340.0 {
-                                ui.container()
-                                    .padding(1.0, 5.0, 1.0, 5.0)
-                                    .bg(colors.bg_base)
-                                    .border(colors.border, 1.0)
-                                    .radius_all(3.0)
-                                    .row()
-                                    .valign(Align::Center)
-                                    .gap(4.0)
-                                    .show(|ui| {
-                                        ui.container()
-                                            .width(5.0)
-                                            .height(5.0)
-                                            .radius_all(2.5)
-                                            .bg(provider_color)
-                                            .show(|_| {});
-
-                                        ui.text(provider_label)
-                                            .size(9.0)
-                                            .color(colors.text_muted)
-                                            .show();
-                                    });
-                            } else if ai_panel_w >= 270.0 {
-                                ui.container()
-                                    .padding(1.0, 4.0, 1.0, 4.0)
-                                    .bg(colors.bg_base)
-                                    .border(colors.border, 1.0)
-                                    .radius_all(3.0)
-                                    .row()
-                                    .valign(Align::Center)
-                                    .gap(3.0)
-                                    .show(|ui| {
-                                        ui.container()
-                                            .width(5.0)
-                                            .height(5.0)
-                                            .radius_all(2.5)
-                                            .bg(provider_color)
-                                            .show(|_| {});
-
-                                        let short_label = if state.gemini_api_key.is_some() { "Gemini" } else { provider_label };
-                                        ui.text(short_label)
-                                            .size(9.0)
-                                            .color(colors.text_muted)
-                                            .show();
-                                    });
-                            }
+                            ui.text(agent_name)
+                                .size(12.0)
+                                .weight(FontWeight::Bold)
+                                .color(colors.text_primary)
+                                .show();
                         });
 
-                    // Child 2: Right action icons (Cockpit + Reset + Close) securely pinned to right edge
+                    // Right side: + icon and cross icon to close
                     ui.container()
                         .row()
                         .valign(Align::Center)
                         .gap(4.0)
                         .show(|ui| {
-                            // + New Agent Session Button
+                            // + icon to start new session
                             let new_session_btn = ui.container()
-                                .height(18.0)
-                                .padding(1.0, 5.0, 1.0, 5.0)
-                                .radius_all(3.0)
-                                .bg(colors.bg_base)
-                                .border(colors.border, 1.0)
-                                .hover_bg(colors.highlight)
-                                .row()
-                                .gap(2.0)
-                                .valign(Align::Center)
-                                .show(|ui| {
-                                    ui.text("+")
-                                        .size(10.0)
-                                        .weight(FontWeight::Bold)
-                                        .color(colors.accent)
-                                        .show();
-                                    if ai_panel_w >= 310.0 {
-                                        ui.text("New")
-                                            .size(8.5)
-                                            .weight(FontWeight::SemiBold)
-                                            .color(colors.text_muted)
-                                            .show();
-                                    }
-                                });
-
-                            if new_session_btn.clicked {
-                                state.start_new_session();
-                                ui.needs_redraw = true;
-                            }
-
-                            // In Silico Connectome Cockpit Toggle Button
-                            let cockpit_active = state.connectome_cockpit_open;
-                            let cockpit_btn = ui.container()
-                                .height(18.0)
-                                .padding(1.0, 5.0, 1.0, 5.0)
-                                .radius_all(3.0)
-                                .bg(if cockpit_active { colors.accent.with_alpha(0.18) } else { colors.bg_base })
-                                .border(if cockpit_active { colors.accent } else { colors.border }, 1.0)
-                                .hover_bg(colors.highlight)
-                                .row()
-                                .gap(3.0)
-                                .valign(Align::Center)
-                                .show(|ui| {
-                                    ui.text("\u{f0e7}")
-                                        .size(9.0)
-                                        .color(if cockpit_active { colors.accent } else { colors.text_muted })
-                                        .show();
-                                    if ai_panel_w >= 290.0 {
-                                        ui.text("Brain")
-                                            .size(8.5)
-                                            .weight(FontWeight::Bold)
-                                            .color(if cockpit_active { colors.accent } else { colors.text_muted })
-                                            .show();
-                                    }
-                                });
-
-                            if cockpit_btn.clicked {
-                                state.connectome_cockpit_open = !state.connectome_cockpit_open;
-                                ui.needs_redraw = true;
-                            }
-
-                            // Reset conversation button
-                            let reset_btn = ui.container()
-                                .width(18.0)
-                                .height(18.0)
+                                .width(20.0)
+                                .height(20.0)
                                 .radius_all(3.0)
                                 .hover_bg(colors.highlight)
                                 .halign(Align::Center)
                                 .valign(Align::Center)
                                 .show(|ui| {
-                                    ui.text("\u{f01e}")
-                                        .size(9.5)
+                                    ui.text("+")
+                                        .size(12.0)
+                                        .weight(FontWeight::Bold)
                                         .color(colors.text_muted)
                                         .show();
                                 });
 
-                            if reset_btn.clicked {
-                                state.ai_messages.clear();
-                                state.save_current_session_messages();
+                            if new_session_btn.clicked {
+                                state.start_new_session();
+                                state.ai_showing_session_list = false;
                                 ui.needs_redraw = true;
                             }
 
-                            // Close panel button
+                            // Cross icon to close AI panel
                             let close_btn = ui.container()
-                                .width(18.0)
-                                .height(18.0)
+                                .width(20.0)
+                                .height(20.0)
                                 .radius_all(3.0)
-                                .hover_bg(colors.highlight)
+                                .hover_bg(Color::rgba(0.9, 0.2, 0.2, 0.15))
                                 .halign(Align::Center)
                                 .valign(Align::Center)
                                 .show(|ui| {
-                                    ui.text("\u{f00d}")
-                                        .size(9.5)
+                                    ui.text("✕")
+                                        .size(10.5)
                                         .color(colors.text_muted)
                                         .show();
                                 });
@@ -599,74 +469,7 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                 return;
             }
 
-            // ─── Active Context Banner (Responsive & SpaceBetween) ──
-            let active_filename = state.active_tab
-                .and_then(|idx| state.tabs.get(idx))
-                .map(|t| t.name.clone())
-                .unwrap_or_else(|| "No active file".to_string());
-
-            let context_label = format!("Context: {}", active_filename);
-
-            ui.container()
-                .width(ai_panel_w)
-                .padding(5.0, 8.0, 5.0, 8.0)
-                .bg(colors.bg_base)
-                .border(colors.border, 1.0)
-                .row()
-                .valign(Align::Center)
-                .halign(Align::SpaceBetween)
-                .no_wrap()
-                .show(|ui| {
-                    // Child 1: Left Context Info
-                    ui.container()
-                        .row()
-                        .valign(Align::Center)
-                        .gap(5.0)
-                        .show(|ui| {
-                            ui.text("\u{f15c}")
-                                .size(10.0)
-                                .color(colors.accent)
-                                .show();
-
-                            ui.text(&context_label)
-                                .size(10.0)
-                                .weight(FontWeight::Medium)
-                                .color(colors.text_primary)
-                                .show();
-                        });
-
-                    // Child 2: Right Status Info
-                    if ai_panel_w >= 330.0 {
-                        ui.text("AST Synced")
-                            .size(9.0)
-                            .color(colors.text_muted)
-                            .show();
-                    } else if ai_panel_w >= 250.0 {
-                        ui.container()
-                            .row()
-                            .valign(Align::Center)
-                            .gap(3.0)
-                            .show(|ui| {
-                                ui.container()
-                                    .width(4.0)
-                                    .height(4.0)
-                                    .radius_all(2.0)
-                                    .bg(Color::rgb(184.0 / 255.0, 187.0 / 255.0, 38.0 / 255.0))
-                                    .show(|_| {});
-                                ui.text("Sync")
-                                    .size(8.5)
-                                    .color(colors.text_muted)
-                                    .show();
-                            });
-                    } else {
-                        ui.container()
-                            .width(5.0)
-                            .height(5.0)
-                            .radius_all(2.5)
-                            .bg(Color::rgb(184.0 / 255.0, 187.0 / 255.0, 38.0 / 255.0))
-                            .show(|_| {});
-                    }
-                });
+            // (Context & AST Synced banner removed)
 
             // ─── In Silico Connectome Cockpit & Biological Lab ───────────
             let cockpit_drawer_h = if state.connectome_cockpit_open {
@@ -852,38 +655,36 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
             let ai_input_id = ui.id_from("ai_prompt_text_area");
             let is_input_focused = ui.focused_id == Some(ai_input_id);
 
-            const CONTEXT_BANNER_H: f32 = 28.0;
+            const CONTEXT_BANNER_H: f32 = 0.0;
             const TOOLBAR_H: f32 = 28.0;
 
             let drawer_h = match state.active_input_drawer {
                 AiInputDrawer::None => 0.0,
-                AiInputDrawer::PendingModifications => {
-                    let count = state.pending_modifications.len().max(if state.pending_modification.is_some() { 1 } else { 0 });
+                AiInputDrawer::PendingModifications | AiInputDrawer::SessionChanges => {
+                    let count = state.pending_modifications.len()
+                        .max(if state.pending_modification.is_some() { 1 } else { 0 })
+                        .max(state.session_modified_files.len());
                     if count > 0 {
-                        let file_list_h = (count as f32 * 26.0 + 8.0).min(130.0);
-                        file_list_h + 1.0 + 34.0
+                        let file_list_h = (count as f32 * 28.0 + 8.0).min(130.0);
+                        file_list_h + 32.0
                     } else {
-                        38.0
+                        0.0
                     }
                 }
                 AiInputDrawer::Terminals => {
                     let running_count = state.ai_terminal_commands.iter().filter(|c| c.status == crate::state::AiCommandStatus::Running).count();
                     if running_count > 0 {
-                        (running_count as f32 * 30.0 + 38.0).clamp(44.0, 140.0)
+                        (running_count as f32 * 26.0 + 8.0).clamp(34.0, 130.0)
                     } else {
                         0.0
                     }
                 }
                 AiInputDrawer::Artifacts => {
                     let arts = state.current_session.list_artifacts();
-                    (arts.len() as f32 * 26.0 + 38.0).clamp(44.0, 150.0)
-                }
-                AiInputDrawer::SessionChanges => {
-                    let count = state.session_modified_files.len();
-                    if count > 0 {
-                        (count as f32 * 26.0 + 38.0).clamp(44.0, 160.0)
+                    if !arts.is_empty() {
+                        (arts.len() as f32 * 26.0 + 8.0).clamp(34.0, 130.0)
                     } else {
-                        44.0
+                        0.0
                     }
                 }
             };
@@ -1127,6 +928,7 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                                             _ => "...",
                                                         };
                                                         let action_label = match msg.sub_agent {
+                                                            Some(crate::agent::SubAgentRole::Planner) => "Planning architecture",
                                                             Some(crate::agent::SubAgentRole::Explorer) => "Exploring workspace",
                                                             Some(crate::agent::SubAgentRole::Detector) => "Detecting files & env",
                                                             Some(crate::agent::SubAgentRole::Builder) => "Building solution",
@@ -1159,7 +961,7 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                         }
                                     }
 
-                                    // 2. "Edited 🦀 <filename> +<added> -<removed>"
+                                    // 2. "Edited 🦀 <filename> <rel_path> +<added> -<removed> [✕] [✓]"
                                     let mut files_to_show = msg.edited_files.clone();
                                     if is_last_msg {
                                         if let Some(ref pending) = state.pending_modification {
@@ -1171,17 +973,34 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                                     file_name: fname,
                                                     lines_added: added,
                                                     lines_removed: removed,
+                                                    original_code: None,
+                                                    proposed_code: None,
                                                 });
                                             }
                                         }
                                     }
 
+                                    let mut chat_reject_single = None;
+
                                     for edited in files_to_show {
                                         let glyph = get_file_glyph(&edited.file_name);
                                         let target_name = edited.file_name.clone();
 
+                                        let p = std::path::Path::new(&edited.file_name);
+                                        let file_name = p.file_name().and_then(|n| n.to_str()).unwrap_or(&edited.file_name).to_string();
+
+                                        let pending_match = state.pending_modifications.iter().find(|p| {
+                                            p.file_path.ends_with(&edited.file_name)
+                                                || p.file_path.file_name().and_then(|n| n.to_str()) == Some(&edited.file_name)
+                                        }).or_else(|| {
+                                            state.pending_modification.as_ref().filter(|p| {
+                                                p.file_path.ends_with(&edited.file_name)
+                                                    || p.file_path.file_name().and_then(|n| n.to_str()) == Some(&edited.file_name)
+                                            })
+                                        });
+
                                         let edit_btn = ui.container()
-                                            .padding(2.0, 4.0, 2.0, 4.0)
+                                            .padding(2.0, 6.0, 2.0, 6.0)
                                             .hover_bg(Color::rgba(1.0, 1.0, 1.0, 0.04))
                                             .radius_all(3.0)
                                             .row()
@@ -1189,41 +1008,59 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                             .gap(6.0)
                                             .show(|ui| {
                                                 ui.text("Edited")
-                                                    .size(11.0)
+                                                    .size(10.5)
                                                     .color(colors.text_muted)
                                                     .show();
                                                 ui.text(glyph)
-                                                    .size(11.0)
+                                                    .size(10.5)
                                                     .color(colors.accent)
                                                     .show();
-                                                ui.text(&edited.file_name)
+                                                ui.text(&file_name)
                                                     .size(11.0)
                                                     .weight(FontWeight::SemiBold)
                                                     .color(colors.text_primary)
                                                     .show();
+
                                                 if edited.lines_added > 0 {
                                                     ui.text(&format!("+{}", edited.lines_added))
-                                                        .size(10.5)
+                                                        .size(10.0)
                                                         .weight(FontWeight::Bold)
                                                         .color(Color::rgb(0.35, 0.85, 0.45))
                                                         .show();
                                                 }
-                                                if edited.lines_removed > 0 || edited.lines_added == 0 {
+                                                if edited.lines_removed > 0 {
                                                     ui.text(&format!("-{}", edited.lines_removed))
-                                                        .size(10.5)
+                                                        .size(10.0)
                                                         .weight(FontWeight::Bold)
-                                                        .color(if edited.lines_removed > 0 {
-                                                            Color::rgb(0.97, 0.45, 0.45)
-                                                        } else {
-                                                            colors.text_dim
-                                                        })
+                                                        .color(Color::rgb(0.97, 0.45, 0.45))
                                                         .show();
+                                                }
+
+                                                if let Some(pending) = pending_match {
+                                                    let rej_btn = ui.container()
+                                                        .padding(1.0, 4.0, 1.0, 4.0)
+                                                        .radius_all(2.0)
+                                                        .hover_bg(Color::rgba(0.9, 0.2, 0.2, 0.15))
+                                                        .show(|ui| {
+                                                            ui.text("✕")
+                                                                .size(9.5)
+                                                                .color(Color::rgb(239.0 / 255.0, 68.0 / 255.0, 68.0 / 255.0))
+                                                                .show();
+                                                        });
+                                                    if rej_btn.clicked {
+                                                        chat_reject_single = Some(pending.file_path.clone());
+                                                    }
                                                 }
                                             });
 
-                                        if edit_btn.clicked {
+                                        if edit_btn.clicked && chat_reject_single.is_none() {
                                             open_file_target = Some(target_name);
                                         }
+                                    }
+
+                                    if let Some(path) = chat_reject_single {
+                                        state.reject_single_modification(&path);
+                                        ui.needs_redraw = true;
                                     }
 
                                     // 3. Markdown formatted response content
@@ -1580,25 +1417,75 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
             let mut file_to_open = None;
 
             match state.active_input_drawer {
-                AiInputDrawer::PendingModifications => {
-                    let pending_list: Vec<&PendingModification> = if !state.pending_modifications.is_empty() {
-                        state.pending_modifications.iter().collect()
-                    } else if let Some(ref pending) = state.pending_modification {
-                        vec![pending]
-                    } else {
-                        Vec::new()
-                    };
+                AiInputDrawer::PendingModifications | AiInputDrawer::SessionChanges => {
+                    struct DrawerFileItem {
+                        file_path: std::path::PathBuf,
+                        file_name: String,
+                        rel_path: String,
+                        lines_added: usize,
+                        lines_removed: usize,
+                    }
 
-                    if !pending_list.is_empty() {
-                        let total_files = pending_list.len();
-                        let file_list_h = (total_files as f32 * 26.0 + 8.0).min(130.0);
-                        let mut accept_pressed = false;
-                        let mut reject_pressed = false;
+                    let mut file_items: Vec<DrawerFileItem> = Vec::new();
+
+                    for p in &state.pending_modifications {
+                        let added = p.diff_lines.iter().filter(|(_, s)| *s == DiffLineState::Added).count();
+                        let removed = p.diff_lines.iter().filter(|(_, s)| *s == DiffLineState::Removed).count();
+                        let file_name = p.file_path.file_name().and_then(|n| n.to_str()).unwrap_or("file").to_string();
+                        let rel_path = p.file_path.strip_prefix(&state.current_dir).unwrap_or(&p.file_path).to_string_lossy().to_string();
+                        file_items.push(DrawerFileItem {
+                            file_path: p.file_path.clone(),
+                            file_name,
+                            rel_path,
+                            lines_added: added,
+                            lines_removed: removed,
+                        });
+                    }
+
+                    if file_items.is_empty() {
+                        if let Some(ref p) = state.pending_modification {
+                            let added = p.diff_lines.iter().filter(|(_, s)| *s == DiffLineState::Added).count();
+                            let removed = p.diff_lines.iter().filter(|(_, s)| *s == DiffLineState::Removed).count();
+                            let file_name = p.file_path.file_name().and_then(|n| n.to_str()).unwrap_or("file").to_string();
+                            let rel_path = p.file_path.strip_prefix(&state.current_dir).unwrap_or(&p.file_path).to_string_lossy().to_string();
+                            file_items.push(DrawerFileItem {
+                                file_path: p.file_path.clone(),
+                                file_name,
+                                rel_path,
+                                lines_added: added,
+                                lines_removed: removed,
+                            });
+                        }
+                    }
+
+                    for s in &state.session_modified_files {
+                        if !file_items.iter().any(|f| f.file_path == s.file_path) {
+                            let file_name = s.file_path.file_name().and_then(|n| n.to_str()).unwrap_or(&s.file_name).to_string();
+                            let rel_path = s.file_path.strip_prefix(&state.current_dir).unwrap_or(&s.file_path).to_string_lossy().to_string();
+                            file_items.push(DrawerFileItem {
+                                file_path: s.file_path.clone(),
+                                file_name,
+                                rel_path,
+                                lines_added: s.lines_added,
+                                lines_removed: s.lines_removed,
+                            });
+                        }
+                    }
+
+                    if file_items.is_empty() {
+                        state.active_input_drawer = AiInputDrawer::None;
+                    } else {
+                        let total_files = file_items.len();
+                        let file_list_h = (total_files as f32 * 28.0 + 8.0).min(130.0);
+                        let mut accept_all_pressed = false;
+                        let mut reject_all_pressed = false;
+                        let mut reject_single = None;
 
                         ui.container()
                             .width(ai_panel_w)
                             .bg(colors.bg_sidebar)
                             .border(colors.border, 1.0)
+                            .shadow(Color::rgba(0.0, 0.0, 0.0, 0.5), 0.0, -4.0, 14.0)
                             .radius(4.0, 4.0, 0.0, 0.0)
                             .column()
                             .show(|ui| {
@@ -1611,131 +1498,96 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                     .gap(2.0)
                                     .scroll_y(true)
                                     .show(|ui| {
-                                        for item in &pending_list {
-                                            let added = item.diff_lines.iter().filter(|(_, s)| *s == DiffLineState::Added).count();
-                                            let removed = item.diff_lines.iter().filter(|(_, s)| *s == DiffLineState::Removed).count();
-                                            let is_new = item.original_code.trim().is_empty() || (removed == 0 && added > 0);
-
-                                            let file_name = item.file_path.file_name()
-                                                .and_then(|n| n.to_str())
-                                                .unwrap_or("file")
-                                                .to_string();
-
-                                            let rel_path = item.file_path.strip_prefix(&state.current_dir)
-                                                .unwrap_or(&item.file_path)
-                                                .to_string_lossy()
-                                                .to_string();
-
+                                        for item in &file_items {
                                             let file_row = ui.container()
                                                 .width(ai_panel_w - 18.0)
-                                                .height(24.0)
-                                                .padding(2.0, 4.0, 2.0, 4.0)
+                                                .height(26.0)
+                                                .padding(2.0, 8.0, 2.0, 6.0)
                                                 .radius_all(3.0)
                                                 .hover_bg(colors.highlight)
                                                 .row()
                                                 .valign(Align::Center)
-                                                .gap(8.0)
+                                                .halign(Align::SpaceBetween)
                                                 .show(|ui| {
-                                                    if is_new {
-                                                        ui.container()
-                                                            .width(16.0)
-                                                            .height(16.0)
-                                                            .border(Color::rgb(34.0 / 255.0, 197.0 / 255.0, 94.0 / 255.0), 1.0)
-                                                            .bg(Color::rgb(34.0 / 255.0, 197.0 / 255.0, 94.0 / 255.0).with_alpha(0.12))
-                                                            .radius_all(3.0)
-                                                            .valign(Align::Center)
-                                                            .halign(Align::Center)
-                                                            .show(|ui| {
-                                                                ui.text("+")
-                                                                    .size(11.0)
-                                                                    .weight(FontWeight::Bold)
-                                                                    .color(Color::rgb(34.0 / 255.0, 197.0 / 255.0, 94.0 / 255.0))
-                                                                    .show();
-                                                            });
-                                                    } else {
-                                                        ui.container()
-                                                            .width(16.0)
-                                                            .height(16.0)
-                                                            .border(Color::rgb(249.0 / 255.0, 115.0 / 255.0, 22.0 / 255.0), 1.0)
-                                                            .bg(Color::rgb(249.0 / 255.0, 115.0 / 255.0, 22.0 / 255.0).with_alpha(0.12))
-                                                            .radius_all(3.0)
-                                                            .valign(Align::Center)
-                                                            .halign(Align::Center)
-                                                            .show(|ui| {
-                                                                ui.text("•")
-                                                                    .size(11.0)
-                                                                    .weight(FontWeight::Bold)
-                                                                    .color(Color::rgb(249.0 / 255.0, 115.0 / 255.0, 22.0 / 255.0))
-                                                                    .show();
-                                                            });
-                                                    }
-
+                                                    // Left: File name + relative path
                                                     ui.container()
                                                         .row()
-                                                        .gap(4.0)
+                                                        .gap(6.0)
                                                         .valign(Align::Center)
                                                         .show(|ui| {
-                                                            ui.text(&format!("+{}", added))
-                                                                .size(10.0)
-                                                                .weight(FontWeight::Medium)
-                                                                .color(Color::rgb(34.0 / 255.0, 197.0 / 255.0, 94.0 / 255.0))
+                                                            ui.text(&item.file_name)
+                                                                .size(11.0)
+                                                                .weight(FontWeight::SemiBold)
+                                                                .color(colors.text_primary)
                                                                 .show();
-                                                            ui.text(&format!("-{}", removed))
-                                                                .size(10.0)
-                                                                .weight(FontWeight::Medium)
-                                                                .color(if removed > 0 { Color::rgb(239.0 / 255.0, 68.0 / 255.0, 68.0 / 255.0) } else { colors.text_dim })
+
+                                                            ui.text(&item.rel_path)
+                                                                .size(9.5)
+                                                                .weight(FontWeight::Regular)
+                                                                .color(colors.text_muted)
                                                                 .show();
                                                         });
 
-                                                    ui.text(&file_name)
-                                                        .size(10.5)
-                                                        .weight(FontWeight::SemiBold)
-                                                        .color(colors.text_primary)
-                                                        .show();
+                                                    // Right: +added -removed + Reject single button
+                                                    ui.container()
+                                                        .row()
+                                                        .gap(6.0)
+                                                        .valign(Align::Center)
+                                                        .show(|ui| {
+                                                            if item.lines_added > 0 || item.lines_removed == 0 {
+                                                                ui.text(&format!("+{}", item.lines_added))
+                                                                    .size(10.0)
+                                                                    .weight(FontWeight::Medium)
+                                                                    .color(Color::rgb(34.0 / 255.0, 197.0 / 255.0, 94.0 / 255.0))
+                                                                    .show();
+                                                            }
+                                                            if item.lines_removed > 0 {
+                                                                ui.text(&format!("-{}", item.lines_removed))
+                                                                    .size(10.0)
+                                                                    .weight(FontWeight::Medium)
+                                                                    .color(Color::rgb(239.0 / 255.0, 68.0 / 255.0, 68.0 / 255.0))
+                                                                    .show();
+                                                            }
 
-                                                    ui.text(&rel_path)
-                                                        .size(9.5)
-                                                        .weight(FontWeight::Regular)
-                                                        .color(colors.text_muted)
-                                                        .show();
+                                                            // Single reject button ✕
+                                                            let rej_btn = ui.container()
+                                                                .padding(1.0, 4.0, 1.0, 4.0)
+                                                                .radius_all(2.0)
+                                                                .hover_bg(Color::rgba(0.9, 0.2, 0.2, 0.15))
+                                                                .show(|ui| {
+                                                                    ui.text("✕")
+                                                                        .size(9.5)
+                                                                        .color(Color::rgb(239.0 / 255.0, 68.0 / 255.0, 68.0 / 255.0))
+                                                                        .show();
+                                                                });
+                                                            if rej_btn.clicked {
+                                                                reject_single = Some(item.file_path.clone());
+                                                            }
+                                                        });
                                                 });
 
-                                            if file_row.clicked {
+                                            if file_row.clicked && reject_single.is_none() {
                                                 file_to_open = Some(item.file_path.clone());
                                             }
                                         }
                                     });
 
+                                // Clean bottom action bar with Reject all & Accept all
                                 ui.container()
                                     .width(ai_panel_w - 2.0)
-                                    .height(1.0)
-                                    .bg(colors.border)
-                                    .show(|_| {});
-
-                                ui.container()
-                                    .width(ai_panel_w - 2.0)
-                                    .height(32.0)
+                                    .height(30.0)
                                     .padding(0.0, 8.0, 0.0, 8.0)
+                                    .border(colors.border, 1.0)
                                     .row()
                                     .valign(Align::Center)
                                     .halign(Align::SpaceBetween)
                                     .show(|ui| {
-                                        ui.container()
-                                            .row()
-                                            .gap(6.0)
-                                            .valign(Align::Center)
-                                            .show(|ui| {
-                                                ui.text("\u{ea7f}")
-                                                    .size(12.0)
-                                                    .color(colors.text_muted)
-                                                    .show();
-                                                let label = format!("{} File{} With Changes", total_files, if total_files == 1 { "" } else { "s" });
-                                                ui.text(&label)
-                                                    .size(10.0)
-                                                    .weight(FontWeight::Medium)
-                                                    .color(colors.text_primary)
-                                                    .show();
-                                            });
+                                        let count_label = format!("{} modified file{}", total_files, if total_files == 1 { "" } else { "s" });
+                                        ui.text(&count_label)
+                                            .size(9.5)
+                                            .weight(FontWeight::Medium)
+                                            .color(colors.text_muted)
+                                            .show();
 
                                         ui.container()
                                             .row()
@@ -1750,13 +1602,13 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                                     .radius_all(3.0)
                                                     .show(|ui| {
                                                         ui.text("Reject all")
-                                                            .size(10.0)
+                                                            .size(9.5)
                                                             .weight(FontWeight::Medium)
                                                             .color(colors.text_muted)
                                                             .show();
                                                     });
                                                 if reject_btn.clicked {
-                                                    reject_pressed = true;
+                                                    reject_all_pressed = true;
                                                 }
 
                                                 let accept_btn = ui.container()
@@ -1764,49 +1616,38 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                                     .bg(colors.accent)
                                                     .hover_bg(colors.accent.with_alpha(0.85))
                                                     .radius_all(3.0)
-                                                    .row()
-                                                    .gap(3.0)
-                                                    .valign(Align::Center)
                                                     .show(|ui| {
                                                         ui.text("Accept all")
-                                                            .size(10.0)
+                                                            .size(9.5)
                                                             .weight(FontWeight::SemiBold)
-                                                            .color(Color::WHITE)
-                                                            .show();
-                                                        ui.text("\u{f078}")
-                                                            .size(7.5)
                                                             .color(Color::WHITE)
                                                             .show();
                                                     });
                                                 if accept_btn.clicked {
-                                                    accept_pressed = true;
+                                                    accept_all_pressed = true;
                                                 }
                                             });
                                     });
                             });
 
-                        if accept_pressed {
+                        if accept_all_pressed {
                             state.accept_all_modifications();
+                            state.session_modified_files.clear();
+                            state.active_input_drawer = AiInputDrawer::None;
                             ui.needs_redraw = true;
-                        } else if reject_pressed {
+                        } else if reject_all_pressed {
                             state.reject_all_modifications();
+                            state.session_modified_files.clear();
+                            state.active_input_drawer = AiInputDrawer::None;
+                            ui.needs_redraw = true;
+                        } else if let Some(path) = reject_single {
+                            state.reject_single_modification(&path);
+                            state.session_modified_files.retain(|f| f.file_path != path);
+                            if file_items.len() <= 1 {
+                                state.active_input_drawer = AiInputDrawer::None;
+                            }
                             ui.needs_redraw = true;
                         }
-                    } else {
-                        ui.container()
-                            .width(ai_panel_w)
-                            .height(38.0)
-                            .bg(colors.bg_sidebar)
-                            .border(colors.border, 1.0)
-                            .padding_left(12.0)
-                            .row()
-                            .valign(Align::Center)
-                            .show(|ui| {
-                                ui.text("No pending modifications to review")
-                                    .size(10.5)
-                                    .color(colors.text_muted)
-                                    .show();
-                            });
                     }
                 }
                 AiInputDrawer::Terminals => {
@@ -1819,113 +1660,52 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                         state.active_input_drawer = AiInputDrawer::None;
                     } else {
                         let mut cancel_requested_id = None;
-                        let mut close_drawer = false;
-                        let drawer_h = (running_cmds.len() as f32 * 30.0 + 38.0).clamp(44.0, 140.0);
+                        let drawer_h = (running_cmds.len() as f32 * 26.0 + 8.0).clamp(34.0, 130.0);
 
                         ui.container()
                             .width(ai_panel_w)
                             .height(drawer_h)
                             .bg(colors.bg_sidebar)
                             .border(colors.border, 1.0)
+                            .shadow(Color::rgba(0.0, 0.0, 0.0, 0.5), 0.0, -4.0, 14.0)
                             .radius(4.0, 4.0, 0.0, 0.0)
                             .padding(4.0, 8.0, 4.0, 8.0)
                             .column()
-                            .gap(4.0)
+                            .gap(2.0)
+                            .scroll_y(true)
                             .show(|ui| {
-                                ui.container()
-                                    .row()
-                                    .valign(Align::Center)
-                                    .halign(Align::SpaceBetween)
-                                    .show(|ui| {
-                                        ui.container()
-                                            .row()
-                                            .gap(6.0)
-                                            .valign(Align::Center)
-                                            .show(|ui| {
-                                                ui.text("\u{ea85}")
-                                                    .size(12.0)
-                                                    .color(Color::rgb(34.0 / 255.0, 197.0 / 255.0, 94.0 / 255.0))
-                                                    .show();
-                                                ui.text("Active Terminal")
-                                                    .size(10.5)
-                                                    .weight(FontWeight::Bold)
-                                                    .color(colors.text_primary)
-                                                    .show();
-                                            });
-
-                                        ui.container()
-                                            .row()
-                                            .gap(8.0)
-                                            .valign(Align::Center)
-                                            .show(|ui| {
-                                                ui.text(&format!("● {} running", running_cmds.len()))
-                                                    .size(9.0)
-                                                    .weight(FontWeight::Medium)
-                                                    .color(Color::rgb(34.0 / 255.0, 197.0 / 255.0, 94.0 / 255.0))
-                                                    .show();
-
-                                                let close_btn = ui.container()
-                                                    .padding(1.0, 4.0, 1.0, 4.0)
-                                                    .hover_bg(colors.highlight)
-                                                    .radius_all(2.0)
-                                                    .show(|ui| {
-                                                        ui.text("✕")
-                                                            .size(9.5)
-                                                            .color(colors.text_muted)
-                                                            .show();
-                                                    });
-                                                if close_btn.clicked {
-                                                    close_drawer = true;
-                                                }
-                                            });
-                                    });
-
                                 for cmd in &running_cmds {
+                                    let display_cmd = if cmd.command.chars().count() > 38 {
+                                        format!("{}...", cmd.command.chars().take(38).collect::<String>())
+                                    } else {
+                                        cmd.command.clone()
+                                    };
+
                                     ui.container()
-                                        .width(ai_panel_w - 20.0)
-                                        .height(26.0)
-                                        .bg(colors.bg_base)
-                                        .border(colors.border, 1.0)
-                                        .padding(2.0, 6.0, 2.0, 6.0)
+                                        .width(ai_panel_w - 18.0)
+                                        .height(24.0)
+                                        .padding(2.0, 8.0, 2.0, 6.0)
                                         .radius_all(3.0)
+                                        .hover_bg(colors.highlight)
                                         .row()
                                         .valign(Align::Center)
                                         .halign(Align::SpaceBetween)
                                         .show(|ui| {
-                                            ui.container()
-                                                .row()
-                                                .gap(6.0)
-                                                .valign(Align::Center)
-                                                .show(|ui| {
-                                                    ui.text("●")
-                                                        .size(7.0)
-                                                        .color(Color::rgb(34.0 / 255.0, 197.0 / 255.0, 94.0 / 255.0))
-                                                        .show();
+                                            ui.text(&display_cmd)
+                                                .size(11.0)
+                                                .weight(FontWeight::Medium)
+                                                .color(colors.text_primary)
+                                                .show();
 
-                                                    let display_cmd = if cmd.command.chars().count() > 34 {
-                                                        format!("{}...", cmd.command.chars().take(34).collect::<String>())
-                                                    } else {
-                                                        cmd.command.clone()
-                                                    };
-                                                    ui.text(&display_cmd)
-                                                        .size(10.0)
-                                                        .weight(FontWeight::Medium)
-                                                        .color(colors.text_primary)
-                                                        .show();
-                                                });
-
-                                            // Cross icon button (✕) to cancel/kill active command
+                                            // Cross icon (✕) to cancel/kill active command
                                             let cross_btn = ui.container()
-                                                .padding(1.0, 5.0, 1.0, 5.0)
-                                                .bg(colors.bg_sidebar)
-                                                .border(colors.border, 1.0)
-                                                .radius_all(3.0)
-                                                .hover_bg(Color::rgb(239.0 / 255.0, 68.0 / 255.0, 68.0 / 255.0).with_alpha(0.2))
+                                                .padding(1.0, 4.0, 1.0, 4.0)
+                                                .radius_all(2.0)
+                                                .hover_bg(Color::rgba(0.9, 0.2, 0.2, 0.15))
                                                 .show(|ui| {
                                                     ui.text("✕")
                                                         .size(10.0)
-                                                        .weight(FontWeight::Bold)
-                                                        .color(Color::rgb(239.0 / 255.0, 68.0 / 255.0, 68.0 / 255.0))
+                                                        .color(colors.text_muted)
                                                         .show();
                                                 });
                                             if cross_btn.clicked {
@@ -1937,219 +1717,55 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
 
                         if let Some(cmd_id) = cancel_requested_id {
                             state.cancel_ai_terminal_command(&cmd_id);
-                            ui.needs_redraw = true;
-                        }
-                        if close_drawer {
-                            state.active_input_drawer = AiInputDrawer::None;
+                            if state.ai_terminal_commands.iter().filter(|c| c.status == crate::state::AiCommandStatus::Running).count() == 0 {
+                                state.active_input_drawer = AiInputDrawer::None;
+                            }
                             ui.needs_redraw = true;
                         }
                     }
                 }
                 AiInputDrawer::Artifacts => {
                     let arts = state.current_session.list_artifacts();
-                    let arts_h = (arts.len() as f32 * 26.0 + 38.0).clamp(44.0, 150.0);
+                    if arts.is_empty() {
+                        state.active_input_drawer = AiInputDrawer::None;
+                    } else {
+                        let arts_h = (arts.len() as f32 * 26.0 + 8.0).clamp(34.0, 130.0);
 
-                    ui.container()
-                        .width(ai_panel_w)
-                        .height(arts_h)
-                        .bg(colors.bg_sidebar)
-                        .border(colors.border, 1.0)
-                        .radius(4.0, 4.0, 0.0, 0.0)
-                        .padding(6.0, 10.0, 6.0, 10.0)
-                        .column()
-                        .gap(3.0)
-                        .show(|ui| {
-                            ui.container()
-                                .row()
-                                .valign(Align::Center)
-                                .halign(Align::SpaceBetween)
-                                .show(|ui| {
-                                    ui.container()
-                                        .row()
-                                        .gap(6.0)
-                                        .valign(Align::Center)
-                                        .show(|ui| {
-                                            ui.text("\u{ea84}")
-                                                .size(12.0)
-                                                .color(colors.accent)
-                                                .show();
-                                            ui.text("Session Artifacts")
-                                                .size(10.5)
-                                                .weight(FontWeight::Bold)
-                                                .color(colors.text_primary)
-                                                .show();
-                                        });
-                                    ui.text("Updated-wise")
-                                        .size(9.0)
-                                        .color(colors.text_dim)
-                                        .show();
-                                });
-
-                            for art in &arts {
-                                let art_row = ui.container()
-                                    .width(ai_panel_w - 22.0)
-                                    .height(24.0)
-                                    .padding(2.0, 4.0, 2.0, 4.0)
-                                    .radius_all(3.0)
-                                    .hover_bg(colors.highlight)
-                                    .row()
-                                    .valign(Align::Center)
-                                    .halign(Align::SpaceBetween)
-                                    .show(|ui| {
-                                        ui.container()
-                                            .row()
-                                            .gap(6.0)
-                                            .valign(Align::Center)
-                                            .show(|ui| {
-                                                ui.text("\u{ea7f}")
-                                                    .size(11.0)
-                                                    .color(colors.accent)
-                                                    .show();
-                                                ui.text(&art.name)
-                                                    .size(10.0)
-                                                    .weight(FontWeight::Medium)
-                                                    .color(colors.text_primary)
-                                                    .show();
-                                            });
-
-                                        ui.container()
-                                            .row()
-                                            .gap(6.0)
-                                            .valign(Align::Center)
-                                            .show(|ui| {
-                                                ui.text(&format_relative_time(art.updated_at))
-                                                    .size(9.0)
-                                                    .color(colors.text_dim)
-                                                    .show();
-                                                ui.text(&format_bytes(art.size_bytes))
-                                                    .size(9.0)
-                                                    .color(colors.text_muted)
-                                                    .show();
-                                            });
-                                    });
-
-                                if art_row.clicked {
-                                    file_to_open = Some(art.path.clone());
-                                }
-                            }
-                        });
-                }
-                AiInputDrawer::SessionChanges => {
-                    let total = state.session_modified_files.len();
-                    let rows_h = (total as f32 * 26.0 + 38.0).clamp(44.0, 160.0);
-
-                    ui.container()
-                        .width(ai_panel_w)
-                        .height(rows_h)
-                        .bg(colors.bg_sidebar)
-                        .border(colors.border, 1.0)
-                        .radius(4.0, 4.0, 0.0, 0.0)
-                        .padding(6.0, 10.0, 6.0, 10.0)
-                        .column()
-                        .gap(3.0)
-                        .show(|ui| {
-                            ui.container()
-                                .row()
-                                .valign(Align::Center)
-                                .halign(Align::SpaceBetween)
-                                .show(|ui| {
-                                    ui.container()
-                                        .row()
-                                        .gap(6.0)
-                                        .valign(Align::Center)
-                                        .show(|ui| {
-                                            ui.text("\u{ea71}")
-                                                .size(12.0)
-                                                .color(colors.accent)
-                                                .show();
-                                            ui.text("Whole Session Code Review")
-                                                .size(10.5)
-                                                .weight(FontWeight::Bold)
-                                                .color(colors.text_primary)
-                                                .show();
-                                        });
-                                    ui.text(&format!("{} modified file{}", total, if total == 1 { "" } else { "s" }))
-                                        .size(9.0)
-                                        .color(colors.text_dim)
-                                        .show();
-                                });
-
-                            if state.session_modified_files.is_empty() {
-                                ui.text("No files modified in this session yet")
-                                    .size(10.0)
-                                    .color(colors.text_muted)
-                                    .show();
-                            } else {
-                                for item in &state.session_modified_files {
-                                    let rel_path = item.file_path.strip_prefix(&state.current_dir)
-                                        .unwrap_or(&item.file_path)
-                                        .to_string_lossy()
-                                        .to_string();
-
-                                    let row = ui.container()
-                                        .width(ai_panel_w - 22.0)
+                        ui.container()
+                            .width(ai_panel_w)
+                            .height(arts_h)
+                            .bg(colors.bg_sidebar)
+                            .border(colors.border, 1.0)
+                            .shadow(Color::rgba(0.0, 0.0, 0.0, 0.5), 0.0, -4.0, 14.0)
+                            .radius(4.0, 4.0, 0.0, 0.0)
+                            .padding(4.0, 8.0, 4.0, 8.0)
+                            .column()
+                            .gap(2.0)
+                            .scroll_y(true)
+                            .show(|ui| {
+                                for art in &arts {
+                                    let art_row = ui.container()
+                                        .width(ai_panel_w - 18.0)
                                         .height(24.0)
-                                        .padding(2.0, 4.0, 2.0, 4.0)
+                                        .padding(2.0, 8.0, 2.0, 8.0)
                                         .radius_all(3.0)
                                         .hover_bg(colors.highlight)
                                         .row()
                                         .valign(Align::Center)
-                                        .halign(Align::SpaceBetween)
                                         .show(|ui| {
-                                            ui.container()
-                                                .row()
-                                                .gap(6.0)
-                                                .valign(Align::Center)
-                                                .show(|ui| {
-                                                    if item.is_new_file {
-                                                        ui.text("[+]")
-                                                            .size(10.0)
-                                                            .weight(FontWeight::Bold)
-                                                            .color(Color::rgb(34.0 / 255.0, 197.0 / 255.0, 94.0 / 255.0))
-                                                            .show();
-                                                    } else {
-                                                        ui.text("[•]")
-                                                            .size(10.0)
-                                                            .weight(FontWeight::Bold)
-                                                            .color(Color::rgb(249.0 / 255.0, 115.0 / 255.0, 22.0 / 255.0))
-                                                            .show();
-                                                    }
-
-                                                    ui.text(&format!("+{}", item.lines_added))
-                                                        .size(9.5)
-                                                        .weight(FontWeight::Medium)
-                                                        .color(Color::rgb(34.0 / 255.0, 197.0 / 255.0, 94.0 / 255.0))
-                                                        .show();
-                                                    ui.text(&format!("-{}", item.lines_removed))
-                                                        .size(9.5)
-                                                        .weight(FontWeight::Medium)
-                                                        .color(if item.lines_removed > 0 { Color::rgb(239.0 / 255.0, 68.0 / 255.0, 68.0 / 255.0) } else { colors.text_dim })
-                                                        .show();
-
-                                                    ui.text(&item.file_name)
-                                                        .size(10.0)
-                                                        .weight(FontWeight::SemiBold)
-                                                        .color(colors.text_primary)
-                                                        .show();
-
-                                                    ui.text(&rel_path)
-                                                        .size(9.0)
-                                                        .color(colors.text_muted)
-                                                        .show();
-                                                });
-
-                                            ui.text(&format_relative_time(item.timestamp))
-                                                .size(9.0)
-                                                .color(colors.text_dim)
+                                            ui.text(&art.name)
+                                                .size(11.0)
+                                                .weight(FontWeight::Medium)
+                                                .color(colors.text_primary)
                                                 .show();
                                         });
 
-                                    if row.clicked {
-                                        file_to_open = Some(item.file_path.clone());
+                                    if art_row.clicked {
+                                        file_to_open = Some(art.path.clone());
                                     }
                                 }
-                            }
-                        });
+                            });
+                    }
                 }
                 AiInputDrawer::None => {}
             }
@@ -2160,9 +1776,13 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
             }
 
             // ─── Top of Input Prompt Area: Toolbar (Unified Framework Badges) ───
-            let has_pending = !state.pending_modifications.is_empty() || state.pending_modification.is_some();
+            let has_pending = !state.pending_modifications.is_empty()
+                || state.pending_modification.is_some()
+                || !state.session_modified_files.is_empty();
             let has_running_term = state.ai_terminal_commands.iter().any(|c| c.status == crate::state::AiCommandStatus::Running);
             let has_artifacts = state.current_session.has_plan || state.current_session.has_mission || state.current_session.has_walkthrough;
+            let is_pending_open = state.active_input_drawer == AiInputDrawer::PendingModifications
+                || state.active_input_drawer == AiInputDrawer::SessionChanges;
 
             ui.container()
                 .width(ai_panel_w)
@@ -2181,7 +1801,6 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                         .valign(Align::Center)
                         .show(|ui| {
                             // 1. Modified Files Badge
-                            let is_pending_open = state.active_input_drawer == AiInputDrawer::PendingModifications;
                             let mod_files_btn = ui.container()
                                 .padding(2.0, 6.0, 2.0, 6.0)
                                 .bg(if is_pending_open { colors.highlight } else { colors.bg_base })
@@ -2266,11 +1885,10 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                         });
 
                     // Right toolbar: [ \u{ea71} Review Changes ] Badge
-                    let is_rev_open = state.active_input_drawer == AiInputDrawer::SessionChanges;
                     let review_btn = ui.container()
                         .padding(2.0, 6.0, 2.0, 6.0)
-                        .bg(if is_rev_open { colors.highlight } else { colors.bg_base })
-                        .border(if is_rev_open { colors.accent } else { colors.border }, 1.0)
+                        .bg(if is_pending_open { colors.highlight } else { colors.bg_base })
+                        .border(if is_pending_open { colors.accent } else { colors.border }, 1.0)
                         .hover_bg(colors.highlight)
                         .radius_all(3.0)
                         .row()
@@ -2279,16 +1897,16 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                         .show(|ui| {
                             ui.text("\u{ea71}")
                                 .size(12.0)
-                                .color(if is_rev_open { colors.text_primary } else { colors.text_muted })
+                                .color(if is_pending_open { colors.text_primary } else { colors.text_muted })
                                 .show();
                             ui.text("Review Changes")
                                 .size(9.0)
                                 .weight(FontWeight::Medium)
-                                .color(if is_rev_open { colors.text_primary } else { colors.text_muted })
+                                .color(if is_pending_open { colors.text_primary } else { colors.text_muted })
                                 .show();
                         });
                     if review_btn.clicked {
-                        state.active_input_drawer = if is_rev_open { AiInputDrawer::None } else { AiInputDrawer::SessionChanges };
+                        state.active_input_drawer = if is_pending_open { AiInputDrawer::None } else { AiInputDrawer::PendingModifications };
                         ui.needs_redraw = true;
                     }
                 });

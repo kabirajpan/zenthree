@@ -288,6 +288,50 @@ impl DetectorAgent {
             };
         }
 
+        // 7. Fallback: Check dominant file extensions if no explicit build manifest is found
+        let ctx = Self::inspect_workspace_context(workspace_root);
+        if let Some((top_ext, _)) = ctx.file_extensions.first() {
+            match top_ext.as_str() {
+                "py" => {
+                    return ProjectEnvironment {
+                        language: ProjectLanguage::Python,
+                        build_system: "Python".to_string(),
+                        compiler_check_cmd: Some(vec!["python3".to_string(), "-m".to_string(), "py_compile".to_string()]),
+                        test_cmd: Some(vec!["pytest".to_string()]),
+                        details: "Standalone Python project detected via .py files".to_string(),
+                    };
+                }
+                "rs" => {
+                    return ProjectEnvironment {
+                        language: ProjectLanguage::Rust,
+                        build_system: "Cargo".to_string(),
+                        compiler_check_cmd: Some(vec!["cargo".to_string(), "check".to_string()]),
+                        test_cmd: Some(vec!["cargo".to_string(), "test".to_string()]),
+                        details: "Standalone Rust files detected".to_string(),
+                    };
+                }
+                "ts" => {
+                    return ProjectEnvironment {
+                        language: ProjectLanguage::TypeScript,
+                        build_system: "TypeScript".to_string(),
+                        compiler_check_cmd: None,
+                        test_cmd: None,
+                        details: "Standalone TypeScript files detected".to_string(),
+                    };
+                }
+                "js" => {
+                    return ProjectEnvironment {
+                        language: ProjectLanguage::JavaScript,
+                        build_system: "Node".to_string(),
+                        compiler_check_cmd: None,
+                        test_cmd: None,
+                        details: "Standalone JavaScript files detected".to_string(),
+                    };
+                }
+                _ => {}
+            }
+        }
+
         // Default unknown
         ProjectEnvironment {
             language: ProjectLanguage::Other("Unknown".to_string()),

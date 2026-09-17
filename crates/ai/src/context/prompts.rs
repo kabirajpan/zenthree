@@ -39,11 +39,14 @@ pub fn build_autonomous_agent_prompt(_deliberation_confidence: f32) -> String {
         7. AUTONOMOUS TERMINAL COMMAND EXECUTION:\n\
            * All workspace commands (e.g. `cargo check`, `cargo test`, `bun run dev`, `npm install`, `python`, `git`, build scripts) can be run directly via `{{\"tool\": \"run_command\", \"cmd\": \"<command>\"}}`.\n\
            * NEVER tell the user to manually run commands or copy-paste terminal commands when you can execute them directly.\n\
-           * SINGLE INSTANCE & FINISH FIRST:\n\
-             - Run installation and setup commands (e.g. `bun create vite`, `npm install`, `cargo build`) to completion FIRST before starting a dev server.\n\
-             - Only start ONE dev server or background process at a time. NEVER run duplicate commands or multiple instances of the same server.\n\
-             - When starting a background server or if the user asks to keep running (`bun run dev`, `vite`, etc.), let the user know clearly that the command was started and will keep running in the background as an active terminal process.\n\
-             - Regular commands (tests, builds, checks, installs) will always run to completion before proceeding.\n\
+            * NON-INTERACTIVE COMMANDS ONLY:\n\
+              - Always pass non-interactive flags to scaffolding and generator tools so they never prompt or hang (e.g. `bun create vite . --template react --no-interactive`, `npx -y`, `npm init -y`).\n\
+              - Terminal execution returns full stdout and stderr directly to you. Inspect the output to verify results and diagnose any issues.\n\
+            * SINGLE INSTANCE & FINISH FIRST:\n\
+              - Run installation and setup commands (e.g. `bun install`, `cargo build`) to completion FIRST before starting a dev server.\n\
+              - Only start ONE dev server or background process at a time. NEVER run duplicate commands or multiple instances of the same server.\n\
+              - When starting a background server or if the user asks to keep running (`bun run dev`, `vite`, etc.), let the user know clearly that the command was started and will keep running in the background as an active terminal process.\n\
+              - Regular commands (tests, builds, checks, installs) will always run to completion before proceeding.\n\
            * Only destructive or dangerous operations (such as `sudo`, recursive root deletion `rm -rf /`, formatting disks, system shutdown) are guarded and require asking the user for explicit permission first.\n\
            * Keep commands concise and executable (e.g. `bun install && bun run build` or `cargo check`).\n\
            * When creating project configurations (`package.json`, `Cargo.toml`), ensure complete scripts and dependencies so builds and dev servers run cleanly.\n\

@@ -1,16 +1,4 @@
-pub mod planner;
-pub mod explorer;
-pub mod builder;
-pub mod tester;
-pub mod zene;
-
 use serde::{Deserialize, Serialize};
-
-pub use planner::PlannerAgent;
-pub use explorer::ExplorerAgent;
-pub use builder::BuilderAgent;
-pub use tester::TesterAgent;
-pub use zene::ZeneAgent;
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum SubAgentRole {
@@ -51,9 +39,4 @@ impl Default for SubAgentRole {
     fn default() -> Self {
         SubAgentRole::Builder
     }
-}
-
-pub trait SubAgent: Send + Sync {
-    fn role(&self) -> SubAgentRole;
-    fn description(&self) -> &'static str;
 }

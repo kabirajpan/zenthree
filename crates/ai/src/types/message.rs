@@ -13,6 +13,10 @@ pub struct EditedFileSummary {
     pub file_name: String,
     pub lines_added: usize,
     pub lines_removed: usize,
+    #[serde(default)]
+    pub original_code: Option<String>,
+    #[serde(default)]
+    pub proposed_code: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -78,12 +82,31 @@ impl ChatMessage {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub enum UserIntent {
+    DiscussionAndGuide,
+    WorkAndProject,
     CodeGeneration,
     CodeExplanation,
     Refactoring,
     BugFix,
     ArchitecturePlanning,
     GeneralChat,
+}
+
+impl UserIntent {
+    pub fn is_discussion(&self) -> bool {
+        matches!(self, Self::DiscussionAndGuide | Self::CodeExplanation | Self::GeneralChat)
+    }
+
+    pub fn is_work(&self) -> bool {
+        matches!(
+            self,
+            Self::WorkAndProject
+                | Self::CodeGeneration
+                | Self::Refactoring
+                | Self::BugFix
+                | Self::ArchitecturePlanning
+        )
+    }
 }
 
 pub fn classify_user_intent(text: &str) -> UserIntent {
