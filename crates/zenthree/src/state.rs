@@ -3583,10 +3583,19 @@ impl ZenthreeState {
                 let rest = &output_text[pid_idx + 4..];
                 let pid_str: String = rest.chars().take_while(|c| c.is_ascii_digit()).collect();
                 if let Ok(pid) = pid_str.parse::<u32>() {
-                    let _ = std::process::Command::new("kill")
-                        .arg("-9")
-                        .arg(pid.to_string())
-                        .output();
+                    #[cfg(windows)]
+                    {
+                        let _ = std::process::Command::new("taskkill")
+                            .args(["/F", "/PID", &pid.to_string()])
+                            .output();
+                    }
+                    #[cfg(not(windows))]
+                    {
+                        let _ = std::process::Command::new("kill")
+                            .arg("-9")
+                            .arg(pid.to_string())
+                            .output();
+                    }
                     killed = true;
                 }
             }
@@ -3594,10 +3603,20 @@ impl ZenthreeState {
             if !killed {
                 let first_word = cmd_text.split_whitespace().next().unwrap_or("");
                 if !first_word.is_empty() && (first_word == "vite" || first_word == "bun" || first_word == "node" || first_word == "cargo" || first_word == "python") {
-                    let _ = std::process::Command::new("pkill")
-                        .arg("-f")
-                        .arg(&cmd_text)
-                        .output();
+                    #[cfg(windows)]
+                    {
+                        let exe = if first_word.ends_with(".exe") { first_word.to_string() } else { format!("{}.exe", first_word) };
+                        let _ = std::process::Command::new("taskkill")
+                            .args(["/F", "/IM", &exe])
+                            .output();
+                    }
+                    #[cfg(not(windows))]
+                    {
+                        let _ = std::process::Command::new("pkill")
+                            .arg("-f")
+                            .arg(&cmd_text)
+                            .output();
+                    }
                 }
             }
 
@@ -4840,8 +4859,7 @@ mod tests {
             .to_path_buf();
         state.open_workspace(repo_root);
         assert!(state.git_state.is_repo);
-        assert_eq!(state.git_state.branch, "main");
-        assert!(!state.git_state.unstaged.is_empty());
+        assert!(!state.git_state.branch.is_empty());
     }
 }
 

@@ -96,23 +96,48 @@ static ACTIVE_PROCESSES: std::sync::Mutex<Vec<ActiveAiProcess>> = std::sync::Mut
 pub fn prune_active_processes() {
     if let Ok(mut procs) = ACTIVE_PROCESSES.lock() {
         procs.retain(|p| {
-            let check = std::process::Command::new("kill")
-                .arg("-0")
-                .arg(p.pid.to_string())
-                .output();
-            match check {
-                Ok(out) => out.status.success(),
-                Err(_) => false,
+            #[cfg(windows)]
+            {
+                let check = std::process::Command::new("tasklist")
+                    .args(["/FI", &format!("PID eq {}", p.pid)])
+                    .output();
+                match check {
+                    Ok(out) => {
+                        let text = String::from_utf8_lossy(&out.stdout);
+                        text.contains(&p.pid.to_string())
+                    }
+                    Err(_) => false,
+                }
+            }
+            #[cfg(not(windows))]
+            {
+                let check = std::process::Command::new("kill")
+                    .arg("-0")
+                    .arg(p.pid.to_string())
+                    .output();
+                match check {
+                    Ok(out) => out.status.success(),
+                    Err(_) => false,
+                }
             }
         });
     }
 }
 
 pub fn kill_active_process(pid: u32) -> bool {
-    let _ = std::process::Command::new("kill")
-        .arg("-9")
-        .arg(pid.to_string())
-        .output();
+    #[cfg(windows)]
+    {
+        let _ = std::process::Command::new("taskkill")
+            .args(["/F", "/PID", &pid.to_string()])
+            .output();
+    }
+    #[cfg(not(windows))]
+    {
+        let _ = std::process::Command::new("kill")
+            .arg("-9")
+            .arg(pid.to_string())
+            .output();
+    }
     if let Ok(mut procs) = ACTIVE_PROCESSES.lock() {
         procs.retain(|p| p.pid != pid);
     }
@@ -174,27 +199,55 @@ pub fn execute_run_command(workspace: &Path, cmd: &str) -> AgentToolResult {
         }
     }
 
-    let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".to_string());
-    let mut cmd_builder = std::process::Command::new(&shell);
-    cmd_builder.arg("-c").arg(trimmed).current_dir(workspace);
+    #[cfg(windows)]
+    let mut cmd_builder = {
+        let comspec = std::env::var("COMSPEC").unwrap_or_else(|_| "cmd.exe".to_string());
+        let mut builder = std::process::Command::new(comspec);
+        builder.arg("/C").arg(trimmed).current_dir(workspace);
+        builder
+    };
+
+    #[cfg(not(windows))]
+    let mut cmd_builder = {
+        let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".to_string());
+        let mut builder = std::process::Command::new(&shell);
+        builder.arg("-c").arg(trimmed).current_dir(workspace);
+        builder
+    };
 
     // Augment PATH with common tool locations (bun, cargo, local bins)
-    let home = std::env::var("HOME").unwrap_or_default();
-    let path_var = std::env::var("PATH").unwrap_or_default();
-    let bun_bin = format!("{}/.bun/bin", home);
-    let cargo_bin = format!("{}/.cargo/bin", home);
-    let local_bin = format!("{}/.local/bin", home);
-    let mut augmented = path_var;
-    if !augmented.contains(&bun_bin) {
-        augmented = format!("{}:{}", bun_bin, augmented);
+    #[cfg(windows)]
+    {
+        let user_profile = std::env::var("USERPROFILE").unwrap_or_default();
+        let path_var = std::env::var("PATH").unwrap_or_default();
+        let cargo_bin = format!("{}\\.cargo\\bin", user_profile);
+        let mut augmented = path_var;
+        if !augmented.contains(&cargo_bin) {
+            augmented = format!("{};{}", cargo_bin, augmented);
+        }
+        cmd_builder.env("PATH", augmented);
     }
-    if !augmented.contains(&cargo_bin) {
-        augmented = format!("{}:{}", cargo_bin, augmented);
+
+    #[cfg(not(windows))]
+    {
+        let home = std::env::var("HOME").unwrap_or_default();
+        let path_var = std::env::var("PATH").unwrap_or_default();
+        let bun_bin = format!("{}/.bun/bin", home);
+        let cargo_bin = format!("{}/.cargo/bin", home);
+        let local_bin = format!("{}/.local/bin", home);
+        let mut augmented = path_var;
+        if !augmented.contains(&bun_bin) {
+            augmented = format!("{}:{}", bun_bin, augmented);
+        }
+        if !augmented.contains(&cargo_bin) {
+            augmented = format!("{}:{}", cargo_bin, augmented);
+        }
+        if !augmented.contains(&local_bin) {
+            augmented = format!("{}:{}", local_bin, augmented);
+        }
+        cmd_builder.env("PATH", augmented);
     }
-    if !augmented.contains(&local_bin) {
-        augmented = format!("{}:{}", local_bin, augmented);
-    }
-    cmd_builder.env("PATH", augmented);
+
     cmd_builder.env("CI", "true");
     cmd_builder.env("TERM", "dumb");
     cmd_builder.env("DEBIAN_FRONTEND", "noninteractive");

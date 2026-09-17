@@ -73,7 +73,15 @@ impl NativeTerminalSession {
             pixel_height: 0,
         }).ok()?;
 
+        #[cfg(windows)]
+        let shell = if let Ok(s) = std::env::var("SHELL") {
+            s
+        } else {
+            "powershell.exe".to_string()
+        };
+        #[cfg(not(windows))]
         let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".to_string());
+
         let mut cmd = CommandBuilder::new(&shell);
         cmd.cwd(cwd);
         cmd.env("TERM", "xterm-256color");

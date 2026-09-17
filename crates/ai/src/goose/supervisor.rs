@@ -45,10 +45,11 @@ impl GooseSupervisor {
             }
         }
 
-        // Try standard `which goose` check
-        if let Ok(output) = Command::new("which").arg("goose").output() {
+        // Try standard `which goose` or `where goose` check
+        let which_cmd = if cfg!(windows) { "where" } else { "which" };
+        if let Ok(output) = Command::new(which_cmd).arg("goose").output() {
             if output.status.success() {
-                let p_str = String::from_utf8_lossy(&output.stdout).trim().to_string();
+                let p_str = String::from_utf8_lossy(&output.stdout).trim().lines().next().unwrap_or("").to_string();
                 let path = PathBuf::from(p_str);
                 if path.exists() {
                     return Some(path);
