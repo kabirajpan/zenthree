@@ -451,14 +451,14 @@ pub fn create_mission_for_prompt(prompt: &str, explored_items: &[ExploredItem]) 
 
     // Task 3: Code Execution / Generation (Builder)
     let exec_title = if lower.contains("create") || lower.contains("make") || lower.contains("add") {
-        let desc = if trimmed.len() > 30 { &trimmed[..30] } else { trimmed };
+        let desc = safe_truncate_str(trimmed, 30);
         format!("Generate file & directory updates for `{}`", desc)
     } else if is_refactor {
         "Apply architectural refactoring".to_string()
     } else if is_explain {
         "Formulate comprehensive code analysis".to_string()
     } else {
-        let desc = if trimmed.len() > 30 { &trimmed[..30] } else { trimmed };
+        let desc = safe_truncate_str(trimmed, 30);
         format!("Implement changes for `{}`", desc)
     };
     tasks.push(AgentTask {
@@ -492,17 +492,30 @@ pub fn create_mission_for_prompt(prompt: &str, explored_items: &[ExploredItem]) 
     }
 }
 
+/// Truncates a string to at most `max_chars` characters, safely aligning to UTF-8 character boundaries.
+pub fn safe_truncate_str(s: &str, max_chars: usize) -> &str {
+    match s.char_indices().nth(max_chars) {
+        Some((idx, _)) => &s[..idx],
+        None => s,
+    }
+}
+
 /// System prompt instructing the autonomous agent to plan and deduce file tree architecture
 pub fn build_autonomous_agent_prompt(_deliberation_confidence: f32) -> String {
     format!(
         "You are ZENE, the lead autonomous software engineering and orchestrator agent integrated directly into the Zenthree code editor with full workspace access and specialized sub-agents (Explorer, Detector, Builder, Tester).\n\
         The Project Workspace File Tree is provided below in the context.\n\n\
         CRITICAL AUTONOMOUS RULES:\n\
-        1. When the user asks to explain, describe, or walk through a project, architecture, or code (e.g. 'can you explain the react calculator project?'), provide a thorough, structured, and helpful markdown explanation.\n\
-        2. Break down the project architecture, entry points, key components, dependencies, and data flow using the provided workspace context.\n\
-        3. If the user asks for code changes, bug fixes, or new features:\n\
-           * For NEW files: `### File: <relative_path>` followed by the full file in a fenced code block.\n\
-           * For EXISTING files: Use surgical SEARCH/REPLACE diff blocks so modifications are precise:\n\
+        1. AUTONOMOUS PROJECT SETUP & SCAFFOLDING:\n\
+           When the user asks to initialize, setup, create, or scaffold a project (e.g. bun init, vite, react, cargo, npm) or confirms with 'yes' / 'go ahead':\n\
+           * Directly execute the command via tool `{{\"tool\": \"run_command\", \"cmd\": \"<command>\"}}` OR generate the complete configuration and entry point files (`package.json`, `index.html`, `vite.config.js`, etc.) using `### File: <path>`.\n\
+           * Never tell the user to manually run setup commands in their terminal when you can run them or create the files autonomously.\n\
+        2. When the user asks to explain, describe, or walk through a project, architecture, or code, provide a thorough, structured, and helpful markdown explanation.\n\
+        3. Break down the project architecture, entry points, key components, dependencies, and data flow using the provided workspace context.\n\
+        4. If the user asks for code changes, bug fixes, or new features:\n\
+           * ALWAYS specify the exact file path: `### File: <relative_path>` directly above the code block.\n\
+           * For NEW files: `### File: <relative_path>` followed by the complete file in a fenced code block.\n\
+           * For EXISTING files: Use surgical SEARCH/REPLACE diff blocks so modifications are precise and non-destructive:\n\
              `### File: <relative_path>`\n\
              ```\n\
              <<<<<<< SEARCH\n\
@@ -511,15 +524,46 @@ pub fn build_autonomous_agent_prompt(_deliberation_confidence: f32) -> String {
              // new replacement snippet\n\
              >>>>>>> REPLACE\n\
              ```\n\
-        4. WORKSPACE INSPECTION TOOLS (When you need to discover symbols, read files, or check codebase):\n\
-           You may emit JSON tool calls to inspect the workspace before writing code:\n\
+        5. WORKSPACE GROUNDING & ENTRY POINTS:\n\
+           * Always ground relative paths to the actual project folder (e.g. `demo_01/react-calculator/src/App.jsx` instead of root-level `react-calculator/`).\n\
+           * Never overwrite application mounting entry points (such as `main.jsx`, `main.tsx`, `index.js`, `main.rs`) with component views. Component logic belongs in separate files (`Navbar.jsx`, `Calculator.jsx`, `App.jsx`).\n\
+        6. WORKSPACE INSPECTION & TERMINAL TOOLS:\n\
+           You may emit JSON tool calls to inspect the workspace or execute terminal commands:\n\
+           - `{{\"tool\": \"run_command\", \"cmd\": \"<command>\"}}`: Run shell commands, setup tools, builders, or tests.\n\
            - `{{\"tool\": \"search_code\", \"query\": \"<pattern>\"}}`: Grep code & symbols across workspace files.\n\
            - `{{\"tool\": \"read_file\", \"path\": \"<relative_path>\", \"start_line\": 1, \"end_line\": 50}}`: Read file with line numbers.\n\
            - `{{\"tool\": \"list_directory\", \"path\": \"<optional_path>\"}}`: List files and subdirectories.\n\
-           - `{{\"tool\": \"run_command\", \"cmd\": \"<command>\"}}`: Run verification or test command.\n\
-        5. Never output placeholders, ellipses (`// ...`), or unfinished functions inside REPLACE blocks. Provide full, working implementations.\n\
-        6. NEVER return an empty response. Always provide a clear, comprehensive explanation to the user."
+        7. Never output placeholders, ellipses (`// ...`), or unfinished functions inside REPLACE blocks. Provide full, working implementations.\n\
+        8. NEVER return an empty response. Always provide a clear, comprehensive explanation to the user."
     )
+}
+
+pub fn ground_workspace_path(workspace_root: &Path, cleaned: &str) -> PathBuf {
+    if Path::new(cleaned).is_absolute() {
+        return PathBuf::from(cleaned);
+    }
+    let direct = workspace_root.join(cleaned);
+    if direct.exists() {
+        return direct;
+    }
+    if let Some(parent) = direct.parent() {
+        if parent.exists() {
+            return direct;
+        }
+    }
+    // Search subfolders in workspace_root for matching subproject or file
+    if let Ok(entries) = std::fs::read_dir(workspace_root) {
+        for entry in entries.flatten() {
+            let p = entry.path();
+            if p.is_dir() {
+                let candidate = p.join(cleaned);
+                if candidate.exists() || candidate.parent().map(|par| par.exists()).unwrap_or(false) {
+                    return candidate;
+                }
+            }
+        }
+    }
+    direct
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -537,6 +581,21 @@ pub fn classify_user_intent(text: &str) -> UserIntent {
 
     if words.is_empty() {
         return UserIntent::DiscussionAndGuide;
+    }
+
+    // Direct affirmative confirmations to proceed with project execution, setup, or scaffolding
+    let is_affirmative = matches!(
+        lower.as_str(),
+        "yes" | "yep" | "yeah" | "sure" | "ok" | "okay" | "proceed" | "go ahead" | "do it"
+            | "continue" | "start" | "run" | "run it" | "setup" | "set it up" | "scaffold"
+    ) || lower.starts_with("yes ")
+      || lower.starts_with("sure ")
+      || lower.starts_with("go ahead")
+      || lower.starts_with("please proceed")
+      || lower.starts_with("do it");
+
+    if is_affirmative {
+        return UserIntent::WorkAndProject;
     }
 
     // Pure greetings & conversational small talk
@@ -591,7 +650,8 @@ pub fn classify_user_intent(text: &str) -> UserIntent {
         "implement", "create", "build", "add", "make", "fix", "debug", "refactor",
         "optimize", "update", "delete", "remove", "edit", "write", "generate",
         "inspect", "analyze", "explore", "test", "tests", "run", "compile",
-        "patch", "modify", "code this", "write code"
+        "patch", "modify", "code this", "write code", "setup", "init", "initialize",
+        "scaffold", "install", "bun", "npm", "cargo", "vite", "pnpm", "yarn", "terminal"
     ];
 
     let has_action_trigger = action_triggers.iter().any(|&trigger| {
@@ -1154,8 +1214,8 @@ pub fn execute_search_code(workspace: &Path, query: &str) -> AgentToolResult {
                     for (line_idx, line) in content.lines().enumerate() {
                         if line.to_lowercase().contains(lower_query) {
                             let clean_line = line.trim();
-                            let truncated_line = if clean_line.len() > 140 {
-                                format!("{}...", &clean_line[..140])
+                            let truncated_line = if clean_line.chars().count() > 140 {
+                                format!("{}...", safe_truncate_str(clean_line, 140))
                             } else {
                                 clean_line.to_string()
                             };
@@ -1384,8 +1444,9 @@ pub fn execute_run_command(workspace: &Path, cmd: &str) -> AgentToolResult {
             let stdout = String::from_utf8_lossy(&out.stdout);
             let stderr = String::from_utf8_lossy(&out.stderr);
             let combined = format!("{}\n{}", stdout, stderr).trim().to_string();
-            let filtered = if combined.len() > 3000 {
-                format!("{}...\n[Truncated {} bytes]", &combined[..3000], combined.len() - 3000)
+            let filtered = if combined.chars().count() > 3000 {
+                let truncated = safe_truncate_str(&combined, 3000);
+                format!("{}...\n[Truncated output]", truncated)
             } else if combined.is_empty() {
                 "(Command completed with empty output)".to_string()
             } else {
@@ -1533,11 +1594,7 @@ pub fn extract_all_file_modifications(
 
             let cleaned = candidate.trim().trim_matches('`').trim_matches('*').trim();
             if !cleaned.is_empty() {
-                let path = if Path::new(cleaned).is_absolute() {
-                    PathBuf::from(cleaned)
-                } else {
-                    workspace_root.join(cleaned)
-                };
+                let path = ground_workspace_path(workspace_root, cleaned);
                 current_target = Some(path);
             }
             continue;
@@ -1549,9 +1606,21 @@ pub fn extract_all_file_modifications(
             if in_block {
                 if !code_lines.is_empty() {
                     let code = code_lines.join("\n");
-                    let target = current_target.take().or_else(|| active_path.map(|p| p.to_path_buf()));
-                    if let Some(target_file) = target {
-                        let patch_blocks = parse_search_replace_blocks(&code);
+                    let patch_blocks = parse_search_replace_blocks(&code);
+
+                    // A code block ONLY targets a file if:
+                    // 1. current_target was explicitly declared (e.g. ### File: <path>), OR
+                    // 2. It contains explicit surgical SEARCH/REPLACE blocks AND active_path exists.
+                    // Plain code blocks without an explicit file header must NEVER overwrite active_path!
+                    let target_file = if let Some(t) = current_target.take() {
+                        Some(t)
+                    } else if !patch_blocks.is_empty() {
+                        active_path.map(|p| p.to_path_buf())
+                    } else {
+                        None
+                    };
+
+                    if let Some(target_file) = target_file {
                         let modif = if !patch_blocks.is_empty() {
                             TargetFileModification::new_patch(target_file.clone(), patch_blocks)
                         } else {
@@ -2561,6 +2630,40 @@ let y = 20;
     }
 
     #[test]
+    fn test_plain_code_block_does_not_overwrite_active_path() {
+        let chat_text = r#"
+Here is an example of how to make a button:
+```jsx
+function Button() {
+    return <button>Click me</button>;
+}
+```
+You can use this in your component.
+"#;
+        let root = PathBuf::from("/test/project");
+        let active = PathBuf::from("/test/project/src/main.jsx");
+        let mods = extract_all_file_modifications(chat_text, &root, Some(&active));
+        assert!(mods.is_empty(), "Plain code blocks in chat must not overwrite active editor tab");
+    }
+
+    #[test]
+    fn test_explicit_file_header_targets_file() {
+        let chat_text = r#"
+### File: src/components/Button.jsx
+```jsx
+export function Button() {
+    return <button>Click me</button>;
+}
+```
+"#;
+        let root = PathBuf::from("/test/project");
+        let active = PathBuf::from("/test/project/src/main.jsx");
+        let mods = extract_all_file_modifications(chat_text, &root, Some(&active));
+        assert_eq!(mods.len(), 1);
+        assert_eq!(mods[0].file_path, root.join("src/components/Button.jsx"));
+    }
+
+    #[test]
     fn test_parse_agent_tool_calls_json() {
         let content = r#"
 ```json
@@ -2878,6 +2981,32 @@ let y = 20;
         assert!(ctx.readme_sample.as_ref().map(|r| r.contains("Zig App")).unwrap_or(false));
 
         let _ = std::fs::remove_dir_all(&temp_dir);
+    }
+
+    #[test]
+    fn test_safe_truncate_str_with_multibyte_emojis() {
+        // Reproduces the exact user crash: '🔍' (bytes 96..100) sliced at byte 98
+        let text = format!("{}🔍 exploring files", "a".repeat(96));
+        // Slicing at char 97 should safely include or cleanly stop at char boundary, NEVER panic
+        let truncated = safe_truncate_str(&text, 97);
+        assert_eq!(truncated.chars().count(), 97);
+        assert!(truncated.ends_with('🔍'));
+
+        // Truncating before emoji
+        let truncated_before = safe_truncate_str(&text, 96);
+        assert_eq!(truncated_before.chars().count(), 96);
+        assert!(!truncated_before.ends_with('🔍'));
+    }
+
+    #[test]
+    fn test_classify_user_intent_affirmative_and_setup() {
+        assert_eq!(classify_user_intent("yes"), UserIntent::WorkAndProject);
+        assert_eq!(classify_user_intent("yes give accecc properly terminal"), UserIntent::WorkAndProject);
+        assert_eq!(classify_user_intent("go ahead"), UserIntent::WorkAndProject);
+        assert_eq!(classify_user_intent("setup react project"), UserIntent::WorkAndProject);
+        assert_eq!(classify_user_intent("bun init"), UserIntent::WorkAndProject);
+        assert_eq!(classify_user_intent("do it"), UserIntent::WorkAndProject);
+        assert_eq!(classify_user_intent("can you explain this project?"), UserIntent::DiscussionAndGuide);
     }
 }
 

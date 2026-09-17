@@ -276,6 +276,110 @@ pub fn tokenize_inlines(inlines: &[InlineItem]) -> Vec<WordToken> {
     tokens
 }
 
+#[derive(Debug, Clone, PartialEq)]
+pub enum PreparedBlock {
+    Heading {
+        level: u32,
+        tokens: Vec<WordToken>,
+    },
+    Paragraph {
+        tokens: Vec<WordToken>,
+    },
+    CodeBlock {
+        lang: String,
+        code: String,
+        block_id: u64,
+        line_count: usize,
+    },
+    List {
+        ordered: bool,
+        items: Vec<Vec<WordToken>>,
+    },
+    BlockQuote {
+        tokens: Vec<WordToken>,
+    },
+    Rule,
+}
+
+fn get_prepared_markdown_cache() -> &'static std::sync::Mutex<std::collections::HashMap<u64, std::sync::Arc<Vec<PreparedBlock>>>> {
+    static CACHE: std::sync::OnceLock<std::sync::Mutex<std::collections::HashMap<u64, std::sync::Arc<Vec<PreparedBlock>>>>> = std::sync::OnceLock::new();
+    CACHE.get_or_init(|| std::sync::Mutex::new(std::collections::HashMap::with_capacity(128)))
+}
+
+/// Retrieves or parses and tokenizes markdown content with thread-safe memoization.
+/// Subsequent calls with the same content execute in O(1) time with ZERO allocations.
+pub fn get_or_prepare_markdown(content: &str) -> std::sync::Arc<Vec<PreparedBlock>> {
+    use std::hash::{Hash, Hasher};
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    content.len().hash(&mut hasher);
+    content.hash(&mut hasher);
+    let key = hasher.finish();
+
+    let cache = get_prepared_markdown_cache();
+    if let Ok(guard) = cache.lock() {
+        if let Some(blocks) = guard.get(&key) {
+            return std::sync::Arc::clone(blocks);
+        }
+    }
+
+    let raw_blocks = parse_markdown(content);
+    let mut prepared = Vec::with_capacity(raw_blocks.len());
+
+    for block in raw_blocks {
+        match block {
+            MarkdownBlock::Heading { level, inlines } => {
+                let tokens = tokenize_inlines(&inlines);
+                prepared.push(PreparedBlock::Heading { level, tokens });
+            }
+            MarkdownBlock::Paragraph { inlines } => {
+                let tokens = tokenize_inlines(&inlines);
+                prepared.push(PreparedBlock::Paragraph { tokens });
+            }
+            MarkdownBlock::CodeBlock { lang, code } => {
+                let mut hasher = std::collections::hash_map::DefaultHasher::new();
+                code.hash(&mut hasher);
+                lang.hash(&mut hasher);
+                let block_id = hasher.finish();
+                let line_count = code.lines().count();
+                prepared.push(PreparedBlock::CodeBlock {
+                    lang,
+                    code,
+                    block_id,
+                    line_count,
+                });
+            }
+            MarkdownBlock::List { ordered, items } => {
+                let prepared_items = items
+                    .into_iter()
+                    .map(|item_inlines| tokenize_inlines(&item_inlines))
+                    .collect();
+                prepared.push(PreparedBlock::List {
+                    ordered,
+                    items: prepared_items,
+                });
+            }
+            MarkdownBlock::BlockQuote { inlines } => {
+                let tokens = tokenize_inlines(&inlines);
+                prepared.push(PreparedBlock::BlockQuote { tokens });
+            }
+            MarkdownBlock::Rule => {
+                prepared.push(PreparedBlock::Rule);
+            }
+        }
+    }
+
+    let arc_blocks = std::sync::Arc::new(prepared);
+
+    if let Ok(mut guard) = cache.lock() {
+        if guard.len() >= 500 {
+            guard.clear();
+        }
+        guard.insert(key, std::sync::Arc::clone(&arc_blocks));
+    }
+
+    arc_blocks
+}
+
 /// Renders parsed markdown blocks as clean, rich preview widgets
 pub fn render_markdown_preview(
     ui: &mut Ui,
@@ -286,7 +390,7 @@ pub fn render_markdown_preview(
     copy_action: &mut Option<String>,
     collapsed_blocks: &mut std::collections::HashSet<u64>,
 ) {
-    let blocks = parse_markdown(content);
+    let blocks = get_or_prepare_markdown(content);
 
     let code_badge_bg = match theme {
         ThemeMode::Dark => Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, 0.08),
@@ -298,10 +402,9 @@ pub fn render_markdown_preview(
         ThemeMode::Light => Color::rgb(240.0 / 255.0, 243.0 / 255.0, 246.0 / 255.0),
     };
 
-    for block in blocks {
+    for block in blocks.iter() {
         match block {
-            MarkdownBlock::Heading { level, inlines } => {
-                let tokens = tokenize_inlines(&inlines);
+            PreparedBlock::Heading { level, tokens } => {
                 let (font_size, font_weight, text_color, pad_top) = match level {
                     1 => (13.5f32, FontWeight::Bold, colors.accent, 6.0f32),
                     2 => (12.0f32, FontWeight::Bold, colors.text_primary, 5.0f32),
@@ -342,8 +445,7 @@ pub fn render_markdown_preview(
                     });
             }
 
-            MarkdownBlock::Paragraph { inlines } => {
-                let tokens = tokenize_inlines(&inlines);
+            PreparedBlock::Paragraph { tokens } => {
                 if tokens.is_empty() {
                     continue;
                 }
@@ -357,21 +459,14 @@ pub fn render_markdown_preview(
                     .valign(Align::Center)
                     .show(|ui| {
                         for token in tokens {
-                            render_token_widget(ui, &token, colors, code_badge_bg);
+                            render_token_widget(ui, token, colors, code_badge_bg);
                         }
                     });
             }
 
-            MarkdownBlock::CodeBlock { lang, code } => {
-                use std::hash::{Hash, Hasher};
-                let mut hasher = std::collections::hash_map::DefaultHasher::new();
-                code.hash(&mut hasher);
-                lang.hash(&mut hasher);
-                let block_id = hasher.finish();
-
-                let is_collapsed = collapsed_blocks.contains(&block_id);
-                let line_count = code.lines().count();
-                let is_scrollable = line_count > 10;
+            PreparedBlock::CodeBlock { lang, code, block_id, line_count } => {
+                let is_collapsed = collapsed_blocks.contains(block_id);
+                let is_scrollable = *line_count > 10;
                 let display_lang = if lang.trim().is_empty() { "code" } else { lang.trim() };
                 let block_card_w = (max_w - 4.0).max(60.0);
 
@@ -392,7 +487,6 @@ pub fn render_markdown_preview(
                             .valign(Align::Center)
                             .halign(Align::SpaceBetween)
                             .show(|ui| {
-                                // Left: Collapse toggle arrow + Language + Line count
                                 let arrow_icon = if is_collapsed { "\u{f054}" } else { "\u{f078}" };
                                 let toggle_btn = ui.container()
                                     .padding(2.0, 4.0, 2.0, 4.0)
@@ -420,7 +514,7 @@ pub fn render_markdown_preview(
                                             .color(colors.text_primary)
                                             .show();
 
-                                        ui.text(&format!("({} line{})", line_count, if line_count == 1 { "" } else { "s" }))
+                                        ui.text(&format!("({} line{})", line_count, if *line_count == 1 { "" } else { "s" }))
                                             .size(8.0)
                                             .color(colors.text_muted)
                                             .show();
@@ -428,9 +522,9 @@ pub fn render_markdown_preview(
 
                                 if toggle_btn.clicked {
                                     if is_collapsed {
-                                        collapsed_blocks.remove(&block_id);
+                                        collapsed_blocks.remove(block_id);
                                     } else {
-                                        collapsed_blocks.insert(block_id);
+                                        collapsed_blocks.insert(*block_id);
                                     }
                                     ui.needs_redraw = true;
                                 }
@@ -454,9 +548,9 @@ pub fn render_markdown_preview(
                                 }
                             });
 
-                        // Monospace code display: capped at 10 lines (~155px), scroll_y when >10 lines, clip to prevent overflow
+                        // Monospace code display
                         if !is_collapsed {
-                            let scroll_id = zenthra_core::Id::from_u64(block_id ^ 0xC0DE_5C80_11);
+                            let scroll_id = zenthra_core::Id::from_u64(*block_id ^ 0xC0DE_5C80_11);
                             let mut code_box = ui.container()
                                 .id(scroll_id)
                                 .full_width()
@@ -473,7 +567,7 @@ pub fn render_markdown_preview(
                             }
 
                             code_box.show(|ui| {
-                                ui.text(&code)
+                                ui.text(code)
                                     .size(10.0)
                                     .line_height(1.35)
                                     .monospace()
@@ -486,15 +580,14 @@ pub fn render_markdown_preview(
                     });
             }
 
-            MarkdownBlock::List { ordered, items } => {
+            PreparedBlock::List { ordered, items } => {
                 ui.container()
                     .full_width()
                     .padding(1.0, 0.0, 2.0, 0.0)
                     .column()
                     .gap(2.5)
                     .show(|ui| {
-                        for (idx, item_inlines) in items.iter().enumerate() {
-                            let tokens = tokenize_inlines(item_inlines);
+                        for (idx, tokens) in items.iter().enumerate() {
                             ui.container()
                                 .full_width()
                                 .row()
@@ -502,7 +595,7 @@ pub fn render_markdown_preview(
                                 .gap(6.0)
                                 .valign(Align::Top)
                                 .show(|ui| {
-                                    if ordered {
+                                    if *ordered {
                                         ui.text(&format!("{}.", idx + 1))
                                             .size(10.0)
                                             .weight(FontWeight::Bold)
@@ -523,7 +616,7 @@ pub fn render_markdown_preview(
                                         .valign(Align::Center)
                                         .show(|ui| {
                                             for token in tokens {
-                                                render_token_widget(ui, &token, colors, code_badge_bg);
+                                                render_token_widget(ui, token, colors, code_badge_bg);
                                             }
                                         });
                                 });
@@ -531,8 +624,7 @@ pub fn render_markdown_preview(
                     });
             }
 
-            MarkdownBlock::BlockQuote { inlines } => {
-                let tokens = tokenize_inlines(&inlines);
+            PreparedBlock::BlockQuote { tokens } => {
                 ui.container()
                     .full_width()
                     .padding(3.0, 0.0, 3.0, 0.0)
@@ -565,7 +657,7 @@ pub fn render_markdown_preview(
                     });
             }
 
-            MarkdownBlock::Rule => {
+            PreparedBlock::Rule => {
                 ui.container()
                     .full_width()
                     .padding(4.0, 0.0, 4.0, 0.0)
@@ -683,5 +775,16 @@ mod tests {
         assert_eq!(tokens[1].style, SpanStyle::Normal);
         assert_eq!(tokens[4].text, "zenthree");
         assert_eq!(tokens[4].style, SpanStyle::Code);
+    }
+
+    #[test]
+    fn test_get_or_prepare_markdown_caching() {
+        let text = "# Hello World\n\nThis is a paragraph with `code`.\n\n```python\nprint('hello')\n```";
+        let first = get_or_prepare_markdown(text);
+        let second = get_or_prepare_markdown(text);
+        assert_eq!(first.len(), 3);
+        assert_eq!(second.len(), 3);
+        // Verify both point to identical cached Arc allocation
+        assert!(std::sync::Arc::ptr_eq(&first, &second));
     }
 }

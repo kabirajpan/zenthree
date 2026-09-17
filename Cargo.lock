@@ -47,6 +47,18 @@ dependencies = [
 ]
 
 [[package]]
+name = "ai"
+version = "0.1.0"
+dependencies = [
+ "connectome",
+ "dirs",
+ "log",
+ "serde",
+ "serde_json",
+ "ureq",
+]
+
+[[package]]
 name = "allocator-api2"
 version = "0.2.21"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -5056,6 +5068,7 @@ dependencies = [
 name = "zenthree"
 version = "0.1.0"
 dependencies = [
+ "ai",
  "arboard",
  "connectome",
  "dirs",

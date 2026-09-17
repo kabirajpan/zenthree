@@ -5,6 +5,7 @@ members = [
     "crates/syntax",
     "crates/formatter",
     "crates/connectome",
+    "crates/ai",
 ]
 resolver = "2"
 

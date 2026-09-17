@@ -331,6 +331,8 @@ pub struct ZenthreeState {
     pub terminal_input: String,
     pub terminal_history: Vec<String>,
     pub terminal_history_idx: Option<usize>,
+    pub terminal_scroll_offset: usize,
+    pub terminal_last_activity: std::time::Instant,
     pub ai_panel_visible: bool,
     pub ai_panel_width: f32,
     pub active_resize_ai_panel: bool,
@@ -473,6 +475,8 @@ impl ZenthreeState {
             terminal_input: String::new(),
             terminal_history: Vec::new(),
             terminal_history_idx: None,
+            terminal_scroll_offset: 0,
+            terminal_last_activity: std::time::Instant::now(),
             ai_panel_visible: false,
             ai_panel_width: 340.0,
             active_resize_ai_panel: false,
@@ -2409,6 +2413,14 @@ impl ZenthreeState {
         self.active_resize_sidebar || self.active_resize_terminal || self.active_resize_ai_panel
     }
 
+    pub fn poll_terminal(&mut self) -> bool {
+        if let Some(ref sess) = self.terminal_session {
+            sess.poll_output()
+        } else {
+            false
+        }
+    }
+
     pub fn send_terminal_input(&mut self, text: &str) {
         self.ensure_terminal_session();
 
@@ -2463,10 +2475,14 @@ impl ZenthreeState {
             if let Ok(mut l) = sess.lines.lock() {
                 l.clear();
             }
+            if let Ok(mut p) = sess.pending_line.lock() {
+                p.clear();
+            }
         }
         self.terminal_lines.clear();
         self.terminal_input.clear();
         self.terminal_history_idx = None;
+        self.terminal_scroll_offset = 0;
     }
 
     pub fn terminal_history_prev(&mut self) {
@@ -3193,7 +3209,7 @@ pub fn detect_target_file_from_response(
     content: &str,
     prompt: &str,
     workspace_root: &Path,
-    active_path: Option<&Path>,
+    _active_path: Option<&Path>,
 ) -> Option<PathBuf> {
     // 1. Look for explicit file markers in the response (including create / new file directives)
     for line in content.lines() {
@@ -3221,12 +3237,7 @@ pub fn detect_target_file_from_response(
         if let Some(path_candidate) = stripped {
             let cleaned = path_candidate.trim().trim_matches('`').trim_matches('*').trim();
             if !cleaned.is_empty() {
-                let candidate = if Path::new(cleaned).is_absolute() {
-                    PathBuf::from(cleaned)
-                } else {
-                    workspace_root.join(cleaned)
-                };
-                return Some(candidate);
+                return Some(crate::agent::ground_workspace_path(workspace_root, cleaned));
             }
         }
     }
@@ -3239,18 +3250,13 @@ pub fn detect_target_file_from_response(
             if let Some(first_token) = after.split_whitespace().next() {
                 let clean = first_token.trim_matches(|c: char| !c.is_alphanumeric() && c != '.' && c != '/' && c != '_' && c != '-');
                 if clean.contains('.') && !clean.starts_with('.') && clean.len() >= 3 {
-                    let direct = if Path::new(clean).is_absolute() {
-                        PathBuf::from(clean)
-                    } else {
-                        workspace_root.join(clean)
-                    };
-                    return Some(direct);
+                    return Some(crate::agent::ground_workspace_path(workspace_root, clean));
                 }
             }
         }
     }
 
-    // 3. Check if user prompt mentions a known file path with extension in workspace
+    // 3. Check if user prompt explicitly mentions a known file path with extension in workspace
     for token in prompt.split_whitespace() {
         let clean = token.trim_matches(|c: char| !c.is_alphanumeric() && c != '.' && c != '/' && c != '_' && c != '-');
         if clean.contains('.') && !clean.starts_with('.') {
@@ -3258,21 +3264,6 @@ pub fn detect_target_file_from_response(
             if direct.exists() && direct.is_file() {
                 return Some(direct);
             }
-        }
-    }
-
-    // 4. Fallback to active editor buffer file if open and valid
-    if let Some(act) = active_path {
-        if act.exists() {
-            return Some(act.to_path_buf());
-        }
-    }
-
-    // 5. Fallback to top keyword-matched file in workspace
-    let summary = crate::project_index::search_project_context(workspace_root, prompt, 1);
-    if let Some(first_match) = summary.matched_files.first() {
-        if first_match.path.exists() {
-            return Some(first_match.path.clone());
         }
     }
 

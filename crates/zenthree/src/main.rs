@@ -83,6 +83,11 @@ fn main() {
                 ui.request_redraw_after(std::time::Duration::from_millis(33));
             }
 
+            // Poll background native terminal PTY output
+            if state.poll_terminal() {
+                ui.request_redraw();
+            }
+
 
             // Expose the active theme flag to interaction_state so widgets can read it
             let theme_val = if state.theme == ThemeMode::Light { 1.0 } else { 0.0 };

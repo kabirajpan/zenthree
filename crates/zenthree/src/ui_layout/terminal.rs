@@ -86,9 +86,34 @@ pub fn draw_terminal_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, h
         }));
     }
 
+    let is_panel_hovered = ui.mouse_in_rect(splitter_x, splitter_y, width, height);
+
+    // Mouse wheel scrolling over terminal panel
+    if is_panel_hovered {
+        for event in &ui.input_events {
+            if let zenthra_platform::event::PlatformEvent::MouseWheel { delta_y, .. } = event {
+                if *delta_y > 0.0 {
+                    state.terminal_scroll_offset = state.terminal_scroll_offset.saturating_add(3);
+                    ui.needs_redraw = true;
+                } else if *delta_y < 0.0 {
+                    state.terminal_scroll_offset = state.terminal_scroll_offset.saturating_sub(3);
+                    ui.needs_redraw = true;
+                }
+            }
+        }
+    }
+
+/// Truncates a string to at most `max_chars` characters, safely aligning to UTF-8 character boundaries.
+pub fn safe_truncate_str(s: &str, max_chars: usize) -> &str {
+    match s.char_indices().nth(max_chars) {
+        Some((idx, _)) => &s[..idx],
+        None => s,
+    }
+}
+
     // ─── Input Event Processing directly inside Terminal ─────────
     if is_focused {
-        ui.request_redraw_after(std::time::Duration::from_millis(250));
+        ui.request_redraw_after(std::time::Duration::from_millis(16));
         let events = std::mem::take(&mut ui.input_events);
 
         for event in &events {
@@ -96,6 +121,8 @@ pub fn draw_terminal_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, h
                 zenthra_platform::event::PlatformEvent::CharTyped(c) => {
                     if !state.ctrl_pressed && !state.alt_pressed && *c != '\r' && *c != '\n' && *c != '\t' && !c.is_control() {
                         state.terminal_input.push(*c);
+                        state.terminal_scroll_offset = 0;
+                        state.terminal_last_activity = std::time::Instant::now();
                         ui.needs_redraw = true;
                     }
                 }
@@ -103,33 +130,50 @@ pub fn draw_terminal_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, h
                     match key {
                         winit::keyboard::KeyCode::KeyC if state.ctrl_pressed => {
                             state.send_terminal_sigint();
+                            state.terminal_scroll_offset = 0;
+                            state.terminal_last_activity = std::time::Instant::now();
                             ui.needs_redraw = true;
                         }
                         winit::keyboard::KeyCode::KeyL if state.ctrl_pressed => {
                             state.clear_terminal();
+                            state.terminal_last_activity = std::time::Instant::now();
                             ui.needs_redraw = true;
+                        }
+                        winit::keyboard::KeyCode::KeyV if state.ctrl_pressed => {
+                            if let Some(text) = state.get_clipboard() {
+                                state.terminal_input.push_str(&text);
+                                state.terminal_scroll_offset = 0;
+                                state.terminal_last_activity = std::time::Instant::now();
+                                ui.needs_redraw = true;
+                            }
                         }
                         winit::keyboard::KeyCode::ArrowUp => {
                             state.terminal_history_prev();
+                            state.terminal_last_activity = std::time::Instant::now();
                             ui.needs_redraw = true;
                         }
                         winit::keyboard::KeyCode::ArrowDown => {
                             state.terminal_history_next();
+                            state.terminal_last_activity = std::time::Instant::now();
                             ui.needs_redraw = true;
                         }
                         winit::keyboard::KeyCode::Backspace => {
                             state.terminal_input.pop();
+                            state.terminal_last_activity = std::time::Instant::now();
                             ui.needs_redraw = true;
                         }
                         winit::keyboard::KeyCode::Enter => {
                             let cmd = state.terminal_input.clone();
                             state.send_terminal_input(&cmd);
+                            state.terminal_scroll_offset = 0;
+                            state.terminal_last_activity = std::time::Instant::now();
                             ui.needs_redraw = true;
                         }
                         winit::keyboard::KeyCode::Tab => {
                             if let Some(ref mut sess) = state.terminal_session {
                                 sess.write_raw(b"\t");
                             }
+                            state.terminal_last_activity = std::time::Instant::now();
                             ui.needs_redraw = true;
                         }
                         winit::keyboard::KeyCode::Escape => {
@@ -373,30 +417,28 @@ pub fn draw_terminal_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, h
                 .padding(6.0, 10.0, 6.0, 10.0)
                 .column()
                 .gap(2.0)
-                .scroll_y(true)
                 .show(|ui| {
-                    let lines: Vec<String> = if let Some(ref sess) = state.terminal_session {
-                        if let Ok(l) = sess.lines.lock() {
-                            l.clone()
+                    let line_h = 17.0;
+                    let max_visible = ((body_h - 24.0) / line_h).floor().max(1.0) as usize;
+
+                    let (visible_lines, pending) = if let Some(ref sess) = state.terminal_session {
+                        sess.get_visible_lines(max_visible, state.terminal_scroll_offset)
+                    } else {
+                        let total = state.terminal_lines.len();
+                        let effective_end = total.saturating_sub(state.terminal_scroll_offset);
+                        let start = effective_end.saturating_sub(max_visible);
+                        let slice = if start < effective_end && effective_end <= total {
+                            state.terminal_lines[start..effective_end].iter().map(|l| l.text.clone()).collect()
                         } else {
                             Vec::new()
-                        }
-                    } else {
-                        state.terminal_lines.iter().map(|l| l.text.clone()).collect()
-                    };
-
-                    let line_h = 17.0;
-                    let max_visible = ((body_h - 22.0) / line_h).floor() as usize;
-                    let skip = if lines.len() > max_visible {
-                        lines.len() - max_visible
-                    } else {
-                        0
+                        };
+                        (slice, String::new())
                     };
 
                     let max_chars = ((width - 24.0) / 7.2).max(10.0) as usize;
 
                     // 1. Output Lines
-                    for line in lines.iter().skip(skip) {
+                    for line in &visible_lines {
                         let text_color = if line.starts_with('$') || line.starts_with('❯') {
                             colors.accent
                         } else if line.contains("error:") || line.contains("Error:") || line.contains("fatal:") {
@@ -409,11 +451,7 @@ pub fn draw_terminal_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, h
                             colors.text_primary
                         };
 
-                        let display_line = if line.len() > max_chars {
-                            &line[..max_chars]
-                        } else {
-                            line.as_str()
-                        };
+                        let display_line = safe_truncate_str(line, max_chars);
 
                         ui.text(display_line)
                             .size(11.0)
@@ -421,7 +459,17 @@ pub fn draw_terminal_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, h
                             .show();
                     }
 
-                    // 2. Active Inline Command Line (Prompt + User Typed Text + Blinking Cursor)
+                    // 2. Active Streaming / Pending Output Line (if at bottom)
+                    if state.terminal_scroll_offset == 0 && !pending.is_empty() {
+                        let display_pending = safe_truncate_str(&pending, max_chars);
+
+                        ui.text(display_pending)
+                            .size(11.0)
+                            .color(colors.text_muted)
+                            .show();
+                    }
+
+                    // 3. Active Inline Command Line (Prompt + User Typed Text + Blinking Cursor)
                     ui.container()
                         .full_width()
                         .row()
@@ -434,18 +482,40 @@ pub fn draw_terminal_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, h
                                 .color(colors.accent)
                                 .show();
 
+                            let is_typing_active = state.terminal_last_activity.elapsed() < std::time::Duration::from_millis(500);
                             let blink = if is_focused {
-                                (ui.elapsed_time * 2.2).fract() < 0.65
+                                if is_typing_active {
+                                    true // Solid cursor while actively typing: zero flicker
+                                } else {
+                                    (ui.elapsed_time * 2.5).fract() < 0.6
+                                }
                             } else {
                                 false
                             };
-                            let cursor_char = if is_focused && blink { "█" } else if is_focused { " " } else { " " };
-                            let prompt_display = format!("{}{}", state.terminal_input, cursor_char);
+                            let cursor_char = if is_focused && blink { "█" } else { " " };
+
+                            let input_str = &state.terminal_input;
+                            let total_chars = input_str.chars().count();
+                            let display_input = if total_chars > max_chars.saturating_sub(2) {
+                                let skip = total_chars.saturating_sub(max_chars.saturating_sub(2));
+                                let start_idx = input_str.char_indices().nth(skip).map(|(i, _)| i).unwrap_or(0);
+                                &input_str[start_idx..]
+                            } else {
+                                input_str.as_str()
+                            };
+                            let prompt_display = format!("{}{}", display_input, cursor_char);
 
                             ui.text(&prompt_display)
                                 .size(11.0)
                                 .color(colors.text_primary)
                                 .show();
+
+                            if state.terminal_scroll_offset > 0 {
+                                ui.text(&format!("(history +{} lines)", state.terminal_scroll_offset))
+                                    .size(9.5)
+                                    .color(colors.text_muted)
+                                    .show();
+                            }
                         });
                 });
 
