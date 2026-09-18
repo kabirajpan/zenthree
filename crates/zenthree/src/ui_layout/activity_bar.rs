@@ -4,7 +4,7 @@ use zenthra::{Color, Ui, Align, Id};
 pub const ACTIVITY_BAR_WIDTH: f32 = 44.0;
 
 pub fn draw_activity_bar(ui: &mut Ui, state: &mut ZenthreeState, height: f32) {
-    let colors = state.colors();
+    let colors = zenthra::use_context::<crate::theme::ThemeColors>().map(|c| *c).unwrap_or_else(|| state.colors());
 
     ui.container()
         .width(ACTIVITY_BAR_WIDTH)
@@ -78,12 +78,11 @@ pub fn draw_activity_bar(ui: &mut Ui, state: &mut ZenthreeState, height: f32) {
 
                     if exp_btn.clicked {
                         if state.sidebar_visible && state.sidebar_view == SidebarView::Explorer {
-                            state.sidebar_visible = false;
+                            state.set_sidebar_visible(false);
                         } else {
-                            state.sidebar_visible = true;
-                            state.sidebar_view = SidebarView::Explorer;
+                            state.set_sidebar_view(SidebarView::Explorer);
+                            state.set_sidebar_visible(true);
                         }
-                        state.save_persistent_state();
                         ui.request_redraw();
                     }
 
@@ -179,13 +178,12 @@ pub fn draw_activity_bar(ui: &mut Ui, state: &mut ZenthreeState, height: f32) {
 
                     if git_btn.clicked {
                         if state.sidebar_visible && state.sidebar_view == SidebarView::SourceControl {
-                            state.sidebar_visible = false;
+                            state.set_sidebar_visible(false);
                         } else {
-                            state.sidebar_visible = true;
-                            state.sidebar_view = SidebarView::SourceControl;
+                            state.set_sidebar_view(SidebarView::SourceControl);
+                            state.set_sidebar_visible(true);
                             state.refresh_git_status();
                         }
-                        state.save_persistent_state();
                         ui.request_redraw();
                     }
 
@@ -245,12 +243,11 @@ pub fn draw_activity_bar(ui: &mut Ui, state: &mut ZenthreeState, height: f32) {
 
                     if ext_btn.clicked {
                         if state.sidebar_visible && state.sidebar_view == SidebarView::Extensions {
-                            state.sidebar_visible = false;
+                            state.set_sidebar_visible(false);
                         } else {
-                            state.sidebar_visible = true;
-                            state.sidebar_view = SidebarView::Extensions;
+                            state.set_sidebar_view(SidebarView::Extensions);
+                            state.set_sidebar_visible(true);
                         }
-                        state.save_persistent_state();
                         ui.request_redraw();
                     }
                 });

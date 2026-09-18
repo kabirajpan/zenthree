@@ -6,7 +6,7 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
     if state.poll_ai_responses() {
         ui.request_redraw();
     }
-    let colors = state.colors();
+    let colors = zenthra::use_context::<crate::theme::ThemeColors>().map(|c| *c).unwrap_or_else(|| state.colors());
     let ai_panel_w = width;
     let ai_id = Id::from_u64(999999801);
     let ai_input_id = ui.id_from("ai_prompt_text_area");

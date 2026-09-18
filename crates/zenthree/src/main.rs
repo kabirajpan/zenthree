@@ -59,35 +59,26 @@ fn main() {
                         }
                         // Universal font & UI zoom controller
                         winit::keyboard::KeyCode::Equal | winit::keyboard::KeyCode::NumpadAdd if state.ctrl_pressed => {
-                            state.zoom_level = ((state.zoom_level + 0.1) * 10.0).round() / 10.0;
-                            state.zoom_level = state.zoom_level.min(2.5);
-                            state.status_message = format!("Zoom: {:.0}%", state.zoom_level * 100.0);
-                            state.save_persistent_state();
+                            state.zoom_in();
                             should_redraw = true;
                         }
                         winit::keyboard::KeyCode::Minus | winit::keyboard::KeyCode::NumpadSubtract if state.ctrl_pressed => {
-                            state.zoom_level = ((state.zoom_level - 0.1) * 10.0).round() / 10.0;
-                            state.zoom_level = state.zoom_level.max(0.5);
-                            state.status_message = format!("Zoom: {:.0}%", state.zoom_level * 100.0);
-                            state.save_persistent_state();
+                            state.zoom_out();
                             should_redraw = true;
                         }
                         winit::keyboard::KeyCode::Digit0 | winit::keyboard::KeyCode::Numpad0 if state.ctrl_pressed => {
-                            state.zoom_level = 1.0;
-                            state.status_message = "Zoom: 100%".to_string();
-                            state.save_persistent_state();
+                            state.reset_zoom();
                             should_redraw = true;
                         }
                         // Toggle/Open Source Control (Ctrl+Shift+G)
                         winit::keyboard::KeyCode::KeyG if state.ctrl_pressed && state.shift_pressed => {
                             if state.sidebar_visible && state.sidebar_view == state::SidebarView::SourceControl {
-                                state.sidebar_visible = false;
+                                state.set_sidebar_visible(false);
                             } else {
-                                state.sidebar_visible = true;
-                                state.sidebar_view = state::SidebarView::SourceControl;
+                                state.set_sidebar_view(state::SidebarView::SourceControl);
+                                state.set_sidebar_visible(true);
                                 state.refresh_git_status();
                             }
-                            state.save_persistent_state();
                             should_redraw = true;
                         }
                         // Go to Definition (F12)
@@ -168,10 +159,41 @@ fn main() {
             let theme_val = if state.theme == ThemeMode::Light { 1.0 } else { 0.0 };
             ui.interaction_state.insert(Id::from_u64(999999999), theme_val);
 
+            state.sync_reactive_domains();
+
             let colors = state.colors();
 
-            // Provide reactive ThemeColors to the UI tree via Context API
+            // Feed colors to interaction_state so popup menus and framework widgets reflect active accent/theme
+            ui.interaction_state.insert(Id::from_u64(999999980), colors.accent.r);
+            ui.interaction_state.insert(Id::from_u64(999999981), colors.accent.g);
+            ui.interaction_state.insert(Id::from_u64(999999982), colors.accent.b);
+            ui.interaction_state.insert(Id::from_u64(999999983), colors.accent.a);
+
+            ui.interaction_state.insert(Id::from_u64(999999970), colors.highlight.r);
+            ui.interaction_state.insert(Id::from_u64(999999971), colors.highlight.g);
+            ui.interaction_state.insert(Id::from_u64(999999972), colors.highlight.b);
+            ui.interaction_state.insert(Id::from_u64(999999973), colors.highlight.a);
+
+            ui.interaction_state.insert(Id::from_u64(999999960), colors.text_primary.r);
+            ui.interaction_state.insert(Id::from_u64(999999961), colors.text_primary.g);
+            ui.interaction_state.insert(Id::from_u64(999999962), colors.text_primary.b);
+            ui.interaction_state.insert(Id::from_u64(999999963), colors.text_primary.a);
+
+            ui.interaction_state.insert(Id::from_u64(999999940), colors.bg_sidebar.r);
+            ui.interaction_state.insert(Id::from_u64(999999941), colors.bg_sidebar.g);
+            ui.interaction_state.insert(Id::from_u64(999999942), colors.bg_sidebar.b);
+            ui.interaction_state.insert(Id::from_u64(999999943), colors.bg_sidebar.a);
+
+            ui.interaction_state.insert(Id::from_u64(999999930), colors.border.r);
+            ui.interaction_state.insert(Id::from_u64(999999931), colors.border.g);
+            ui.interaction_state.insert(Id::from_u64(999999932), colors.border.b);
+            ui.interaction_state.insert(Id::from_u64(999999933), colors.border.a);
+
+            // Provide reactive ThemeColors and Domain States to the UI tree via Context API
             provide_context(colors);
+            provide_context(state.theme_state.clone());
+            provide_context(state.ui_layout.clone());
+            provide_context(state.workspace.clone());
 
             // Main Background Container: vertical layout
             ui.container()

@@ -2,7 +2,7 @@ use crate::state::ZenthreeState;
 use zenthra::{Color, Ui, Align, FontWeight, Id, CursorIcon};
 
 pub fn draw_terminal_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height: f32) {
-    let colors = state.colors();
+    let colors = zenthra::use_context::<crate::theme::ThemeColors>().map(|c| *c).unwrap_or_else(|| state.colors());
     state.ensure_terminal_session();
 
     let term_id = Id::from_u64(999999800);

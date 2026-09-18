@@ -3,7 +3,9 @@ use zenthra::{Color, Ui, Align, FontWeight, Id, CursorIcon};
 use std::path::PathBuf;
 
 pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
-    let colors = state.colors();
+    let colors = zenthra::use_context::<crate::theme::ThemeColors>().map(|c| *c).unwrap_or_else(|| state.colors());
+    let ws_ctx = zenthra::use_context::<crate::state::WorkspaceDomainState>();
+    let preset = ws_ctx.as_ref().map(|w| w.explorer_preset).unwrap_or(state.explorer_preset);
     let sidebar_w = state.sidebar_width;
 
     // 1. Keyboard event handling for inline file/folder input or tree shortcuts
@@ -106,7 +108,7 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
                 let total_count = state.sidebar_items.len();
                 let count_str = format!("{}/{}", total_count, total_count);
 
-                match state.explorer_preset {
+                match preset {
                 crate::state::ExplorerPreset::NeovimSnacks => {
                     let mut do_new_file = false;
                     let mut do_new_folder = false;
@@ -968,7 +970,7 @@ fn draw_inline_create_row(
     pad_h: f32,
     pad_v: f32,
 ) {
-    let colors = state.colors();
+    let colors = zenthra::use_context::<crate::theme::ThemeColors>().map(|c| *c).unwrap_or_else(|| state.colors());
 
     let is_folder_mode = matches!(
         state.inline_tree_input.as_ref().map(|i| &i.mode),
@@ -1145,7 +1147,7 @@ fn draw_menu_item(
 }
 
 fn draw_no_folder_view(ui: &mut Ui, state: &mut ZenthreeState, sidebar_w: f32) {
-    let colors = state.colors();
+    let colors = zenthra::use_context::<crate::theme::ThemeColors>().map(|c| *c).unwrap_or_else(|| state.colors());
     let inner_w = (sidebar_w - 24.0).max(120.0);
 
     // Section header

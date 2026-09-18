@@ -28,7 +28,7 @@ pub fn draw_about_dialog(ui: &mut Ui, state: &mut ZenthreeState) {
         return;
     }
 
-    let colors = state.colors();
+    let colors = zenthra::use_context::<crate::theme::ThemeColors>().map(|c| *c).unwrap_or_else(|| state.colors());
     let win_w = 400.0;
     let win_h = 240.0;
 

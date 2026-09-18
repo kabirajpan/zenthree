@@ -31,7 +31,7 @@ fn get_graph_color(lane: usize) -> Color {
 }
 
 pub fn draw_source_control_panel(ui: &mut Ui, state: &mut ZenthreeState, panel_w: f32) {
-    let colors = state.colors();
+    let colors = zenthra::use_context::<crate::theme::ThemeColors>().map(|c| *c).unwrap_or_else(|| state.colors());
 
     ui.container()
         .width(panel_w)
@@ -1068,7 +1068,7 @@ pub fn draw_source_control_panel(ui: &mut Ui, state: &mut ZenthreeState, panel_w
 }
 
 fn draw_empty_no_workspace(ui: &mut Ui, state: &mut ZenthreeState) {
-    let colors = state.colors();
+    let colors = zenthra::use_context::<crate::theme::ThemeColors>().map(|c| *c).unwrap_or_else(|| state.colors());
 
     ui.container()
         .full_width()
@@ -1114,7 +1114,7 @@ fn draw_empty_no_workspace(ui: &mut Ui, state: &mut ZenthreeState) {
 }
 
 fn draw_empty_not_a_repo(ui: &mut Ui, state: &mut ZenthreeState) {
-    let colors = state.colors();
+    let colors = zenthra::use_context::<crate::theme::ThemeColors>().map(|c| *c).unwrap_or_else(|| state.colors());
 
     ui.container()
         .full_width()

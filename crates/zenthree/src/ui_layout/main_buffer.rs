@@ -9,7 +9,7 @@ use editor::buffer::Point;
 use editor::selection::Selection;
 
 pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height: f32) {
-    let colors = state.colors();
+    let colors = zenthra::use_context::<crate::theme::ThemeColors>().map(|c| *c).unwrap_or_else(|| state.colors());
 
     // Drain any fresh completions delivered by LSP
     if let Some(items) = state.lsp_manager.latest_completions.take() {

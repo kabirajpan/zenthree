@@ -2,7 +2,7 @@ use crate::state::ZenthreeState;
 use zenthra::{Ui, Align, Color};
 
 pub fn draw_status_bar(ui: &mut Ui, state: &mut ZenthreeState) {
-    let colors = state.colors();
+    let colors = zenthra::use_context::<crate::theme::ThemeColors>().map(|c| *c).unwrap_or_else(|| state.colors());
     let avail_w = ui.available_width;
 
     ui.container()
@@ -159,6 +159,30 @@ pub fn draw_status_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                         state.sidebar_view = crate::state::SidebarView::Extensions;
                         state.sidebar_visible = true;
                         ui.request_redraw();
+                    }
+
+                    // Active AI Background Status Badge (ArcSignal streaming)
+                    if let Some(ai_status) = state.ai_active_status.with(|s| s.clone()) {
+                        ui.container()
+                            .height(18.0)
+                            .bg(colors.accent.with_alpha(0.18))
+                            .border(colors.accent.with_alpha(0.6), 1.0)
+                            .radius_all(3.0)
+                            .padding_left(6.0)
+                            .padding_right(6.0)
+                            .row()
+                            .valign(Align::Center)
+                            .gap(4.0)
+                            .show(|ui| {
+                                ui.text("⚡")
+                                    .size(9.0)
+                                    .color(colors.accent)
+                                    .show();
+                                ui.text(&format!("AI: {}", ai_status))
+                                    .size(10.0)
+                                    .color(colors.accent)
+                                    .show();
+                            });
                     }
 
                     // Encoding visible if window >= 500px

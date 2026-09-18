@@ -26,13 +26,13 @@ impl EditorTab {
     }
 }
 
-#[derive(Debug, Clone, PartialEq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum GitStatus {
     Modified,
     Untracked,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FileTreeNode {
     pub path: PathBuf,
     pub name: String,
@@ -372,6 +372,105 @@ pub struct BreadcrumbPopup {
     pub expanded_dirs: std::collections::HashSet<PathBuf>,
 }
 
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct ThemeState {
+    pub mode: ThemeMode,
+    pub accent_color: String,
+    pub icon_theme: String,
+}
+
+impl Default for ThemeState {
+    fn default() -> Self {
+        Self {
+            mode: ThemeMode::Dark,
+            accent_color: "blue".to_string(),
+            icon_theme: "neovim_mini".to_string(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct UiLayoutState {
+    pub sidebar_visible: bool,
+    pub sidebar_width: f32,
+    pub active_resize_sidebar: bool,
+    pub sidebar_view: SidebarView,
+    pub terminal_visible: bool,
+    pub terminal_height: f32,
+    pub active_resize_terminal: bool,
+    pub ai_panel_visible: bool,
+    pub ai_panel_width: f32,
+    pub active_resize_ai_panel: bool,
+    pub status_bar_visible: bool,
+    pub line_numbers_visible: bool,
+    pub zoom_level: f32,
+    pub about_open: bool,
+    pub user_profile_open: bool,
+    pub find_in_buffer_open: bool,
+    pub find_query: String,
+    pub find_match_index: usize,
+    pub find_matches: Vec<(usize, usize, usize)>,
+}
+
+impl Default for UiLayoutState {
+    fn default() -> Self {
+        Self {
+            sidebar_visible: true,
+            sidebar_width: 250.0,
+            active_resize_sidebar: false,
+            sidebar_view: SidebarView::Explorer,
+            terminal_visible: false,
+            terminal_height: 200.0,
+            active_resize_terminal: false,
+            ai_panel_visible: false,
+            ai_panel_width: 340.0,
+            active_resize_ai_panel: false,
+            status_bar_visible: true,
+            line_numbers_visible: true,
+            zoom_level: 1.0,
+            about_open: false,
+            user_profile_open: false,
+            find_in_buffer_open: false,
+            find_query: String::new(),
+            find_match_index: 0,
+            find_matches: Vec::new(),
+        }
+    }
+}
+
+#[derive(Clone, Debug, PartialEq)]
+pub struct WorkspaceDomainState {
+    pub current_dir: PathBuf,
+    pub has_workspace: bool,
+    pub recent_files: Vec<PathBuf>,
+    pub sidebar_items: Vec<FileTreeNode>,
+    pub expanded_dirs: std::collections::HashSet<PathBuf>,
+    pub selected_sidebar_path: Option<PathBuf>,
+    pub explorer_preset: ExplorerPreset,
+    pub explorer_tree_guides: bool,
+    pub explorer_git_status: bool,
+    pub explorer_show_hidden: bool,
+    pub workspace_tree_overview: String,
+}
+
+impl Default for WorkspaceDomainState {
+    fn default() -> Self {
+        Self {
+            current_dir: PathBuf::from("."),
+            has_workspace: false,
+            recent_files: Vec::new(),
+            sidebar_items: Vec::new(),
+            expanded_dirs: std::collections::HashSet::new(),
+            selected_sidebar_path: None,
+            explorer_preset: ExplorerPreset::ModernMinimalist,
+            explorer_tree_guides: false,
+            explorer_git_status: true,
+            explorer_show_hidden: false,
+            workspace_tree_overview: String::new(),
+        }
+    }
+}
+
 pub struct ZenthreeState {
     pub theme: ThemeMode,
     pub accent_color: String,
@@ -425,6 +524,7 @@ pub struct ZenthreeState {
     pub ai_input: String,
     pub ai_active_status: zenthra_state::ArcSignal<Option<String>>,
     pub ai_active_file: zenthra_state::ArcSignal<Option<String>>,
+    pub ai_event_signal: zenthra_state::ArcSignal<usize>,
     pub user_profile_open: bool,
     pub terminal_session: Option<crate::native_terminal::NativeTerminalSession>,
     pub sidebar_view: SidebarView,
@@ -498,6 +598,16 @@ pub struct ZenthreeState {
     pub ai_generation_ticks: usize,
     pub ai_context_snapshot: String,
     pub ai_backend: crate::agent::AgentBackend,
+    pub theme_state: ThemeState,
+    pub theme_signal: zenthra_state::Signal<ThemeState>,
+    pub colors_signal: zenthra_state::Signal<ThemeColors>,
+    pub ui_layout: UiLayoutState,
+    pub layout_signal: zenthra_state::Signal<UiLayoutState>,
+    pub workspace: WorkspaceDomainState,
+    pub workspace_signal: zenthra_state::Signal<WorkspaceDomainState>,
+    pub sidebar_visible_sig: zenthra_state::Signal<bool>,
+    pub ai_panel_visible_sig: zenthra_state::Signal<bool>,
+    pub terminal_visible_sig: zenthra_state::Signal<bool>,
 }
 
 impl ZenthreeState {
@@ -528,6 +638,20 @@ impl ZenthreeState {
         let formatter = formatter::Formatter::new();
         let indent_calc = syntax::IndentCalculator::new();
         let (ai_sender, ai_receiver) = std::sync::mpsc::channel();
+
+        let initial_workspace = WorkspaceDomainState {
+            current_dir: current_dir.clone(),
+            has_workspace,
+            recent_files: Vec::new(),
+            sidebar_items: Vec::new(),
+            expanded_dirs: std::collections::HashSet::new(),
+            selected_sidebar_path: None,
+            explorer_preset: ExplorerPreset::ModernMinimalist,
+            explorer_tree_guides: false,
+            explorer_git_status: true,
+            explorer_show_hidden: false,
+            workspace_tree_overview: String::new(),
+        };
 
         let mut state = Self {
             theme: ThemeMode::Dark,
@@ -585,6 +709,7 @@ impl ZenthreeState {
             ai_input: String::new(),
             ai_active_status: zenthra_state::ArcSignal::new(None),
             ai_active_file: zenthra_state::ArcSignal::new(None),
+            ai_event_signal: zenthra_state::ArcSignal::new(0),
             user_profile_open: false,
             terminal_session: None,
             cursor_blink: true,
@@ -671,11 +796,22 @@ impl ZenthreeState {
             } else {
                 crate::agent::AgentBackend::Native
             },
+            theme_state: ThemeState::default(),
+            theme_signal: zenthra_state::Signal::new(ThemeState::default()),
+            colors_signal: zenthra_state::Signal::new(ThemeColors::get_custom(ThemeMode::Dark, "blue")),
+            ui_layout: UiLayoutState::default(),
+            layout_signal: zenthra_state::Signal::new(UiLayoutState::default()),
+            workspace: initial_workspace.clone(),
+            workspace_signal: zenthra_state::Signal::new(initial_workspace),
+            sidebar_visible_sig: zenthra_state::Signal::new(true),
+            ai_panel_visible_sig: zenthra_state::Signal::new(false),
+            terminal_visible_sig: zenthra_state::Signal::new(false),
         };
 
         // Restore previous session preferences (theme, accent, extensions, etc.)
         #[cfg(not(test))]
         state.load_persistent_state();
+        state.sync_reactive_domains();
 
         // If CLI argument was explicitly provided, open specified file or workspace
         #[allow(unused_mut)]
@@ -715,6 +851,251 @@ impl ZenthreeState {
             state.refresh_git_status();
         }
         state
+    }
+
+    pub fn set_sidebar_visible(&mut self, visible: bool) {
+        if self.sidebar_visible != visible {
+            self.sidebar_visible = visible;
+            self.ui_layout.sidebar_visible = visible;
+            self.sidebar_visible_sig.set(visible);
+            self.layout_signal.set(self.ui_layout.clone());
+            self.save_persistent_state();
+        }
+    }
+
+    pub fn toggle_sidebar(&mut self) {
+        self.set_sidebar_visible(!self.sidebar_visible);
+    }
+
+    pub fn set_terminal_visible(&mut self, visible: bool) {
+        if self.terminal_visible != visible {
+            self.terminal_visible = visible;
+            self.ui_layout.terminal_visible = visible;
+            self.terminal_visible_sig.set(visible);
+            self.layout_signal.set(self.ui_layout.clone());
+            self.save_persistent_state();
+        }
+    }
+
+    pub fn toggle_terminal(&mut self) {
+        self.set_terminal_visible(!self.terminal_visible);
+    }
+
+    pub fn set_ai_panel_visible(&mut self, visible: bool) {
+        if self.ai_panel_visible != visible {
+            self.ai_panel_visible = visible;
+            self.ui_layout.ai_panel_visible = visible;
+            self.ai_panel_visible_sig.set(visible);
+            self.layout_signal.set(self.ui_layout.clone());
+            self.save_persistent_state();
+        }
+    }
+
+    pub fn toggle_ai_panel(&mut self) {
+        self.set_ai_panel_visible(!self.ai_panel_visible);
+    }
+
+    pub fn set_status_bar_visible(&mut self, visible: bool) {
+        if self.status_bar_visible != visible {
+            self.status_bar_visible = visible;
+            self.ui_layout.status_bar_visible = visible;
+            self.layout_signal.set(self.ui_layout.clone());
+            self.save_persistent_state();
+        }
+    }
+
+    pub fn toggle_status_bar(&mut self) {
+        self.set_status_bar_visible(!self.status_bar_visible);
+    }
+
+    pub fn set_line_numbers_visible(&mut self, visible: bool) {
+        if self.line_numbers_visible != visible {
+            self.line_numbers_visible = visible;
+            self.ui_layout.line_numbers_visible = visible;
+            self.layout_signal.set(self.ui_layout.clone());
+            self.save_persistent_state();
+        }
+    }
+
+    pub fn toggle_line_numbers(&mut self) {
+        self.set_line_numbers_visible(!self.line_numbers_visible);
+    }
+
+    pub fn set_zoom_level(&mut self, zoom: f32) {
+        let clamped = ((zoom.clamp(0.5, 2.5)) * 10.0).round() / 10.0;
+        if (self.zoom_level - clamped).abs() > 0.001 {
+            self.zoom_level = clamped;
+            self.ui_layout.zoom_level = clamped;
+            self.status_message = format!("Zoom: {:.0}%", clamped * 100.0);
+            self.layout_signal.set(self.ui_layout.clone());
+            self.save_persistent_state();
+        }
+    }
+
+    pub fn zoom_in(&mut self) {
+        self.set_zoom_level(self.zoom_level + 0.1);
+    }
+
+    pub fn zoom_out(&mut self) {
+        self.set_zoom_level(self.zoom_level - 0.1);
+    }
+
+    pub fn reset_zoom(&mut self) {
+        self.set_zoom_level(1.0);
+    }
+
+    pub fn set_sidebar_view(&mut self, view: SidebarView) {
+        if self.sidebar_view != view {
+            self.sidebar_view = view;
+            self.ui_layout.sidebar_view = view;
+            self.layout_signal.set(self.ui_layout.clone());
+            self.save_persistent_state();
+        }
+    }
+
+    pub fn set_theme(&mut self, mode: ThemeMode) {
+        if self.theme != mode {
+            self.theme = mode;
+            self.theme_state.mode = mode;
+            self.theme_signal.set(self.theme_state.clone());
+            let colors = ThemeColors::get_custom(self.theme, &self.accent_color);
+            self.colors_signal.set(colors);
+            self.highlighter = match mode {
+                ThemeMode::Dark => syntax::SyntaxHighlighter::new(syntax::SyntaxTheme::dark()),
+                ThemeMode::Light => syntax::SyntaxHighlighter::new(syntax::SyntaxTheme::light()),
+            };
+            for tab in &mut self.tabs {
+                tab.shaping_cache.clear();
+            }
+            self.save_persistent_state();
+        }
+    }
+
+    pub fn set_accent_color(&mut self, accent: &str) {
+        if self.accent_color != accent {
+            self.accent_color = accent.to_string();
+            self.theme_state.accent_color = self.accent_color.clone();
+            self.theme_signal.set(self.theme_state.clone());
+            let colors = ThemeColors::get_custom(self.theme, &self.accent_color);
+            self.colors_signal.set(colors);
+            for tab in &mut self.tabs {
+                tab.shaping_cache.clear();
+            }
+            self.save_persistent_state();
+        }
+    }
+
+    pub fn set_icon_theme(&mut self, icon_theme: &str) {
+        if self.icon_theme != icon_theme {
+            self.icon_theme = icon_theme.to_string();
+            self.theme_state.icon_theme = self.icon_theme.clone();
+            self.theme_signal.set(self.theme_state.clone());
+            self.save_persistent_state();
+        }
+    }
+
+    #[allow(dead_code)]
+    pub fn toggle_theme(&mut self) {
+        let new_mode = match self.theme {
+            ThemeMode::Dark => ThemeMode::Light,
+            ThemeMode::Light => ThemeMode::Dark,
+        };
+        self.set_theme(new_mode);
+    }
+
+    pub fn sync_reactive_domains(&mut self) {
+        self.ui_layout.sidebar_visible = self.sidebar_visible;
+        self.ui_layout.sidebar_width = self.sidebar_width;
+        self.ui_layout.active_resize_sidebar = self.active_resize_sidebar;
+        self.ui_layout.sidebar_view = self.sidebar_view;
+        self.ui_layout.terminal_visible = self.terminal_visible;
+        self.ui_layout.terminal_height = self.terminal_height;
+        self.ui_layout.active_resize_terminal = self.active_resize_terminal;
+        self.ui_layout.ai_panel_visible = self.ai_panel_visible;
+        self.ui_layout.ai_panel_width = self.ai_panel_width;
+        self.ui_layout.active_resize_ai_panel = self.active_resize_ai_panel;
+        self.ui_layout.status_bar_visible = self.status_bar_visible;
+        self.ui_layout.line_numbers_visible = self.line_numbers_visible;
+        self.ui_layout.zoom_level = self.zoom_level;
+        self.ui_layout.about_open = self.about_open;
+        self.ui_layout.user_profile_open = self.user_profile_open;
+        self.ui_layout.find_in_buffer_open = self.find_in_buffer_open;
+        self.ui_layout.find_query = self.find_query.clone();
+        self.ui_layout.find_match_index = self.find_match_index;
+        self.ui_layout.find_matches = self.find_matches.clone();
+        self.sidebar_visible_sig.set(self.sidebar_visible);
+        self.terminal_visible_sig.set(self.terminal_visible);
+        self.ai_panel_visible_sig.set(self.ai_panel_visible);
+        self.layout_signal.set(self.ui_layout.clone());
+
+        self.theme_state.mode = self.theme;
+        self.theme_state.accent_color = self.accent_color.clone();
+        self.theme_state.icon_theme = self.icon_theme.clone();
+        self.theme_signal.set(self.theme_state.clone());
+        let current_colors = ThemeColors::get_custom(self.theme, &self.accent_color);
+        self.colors_signal.set(current_colors);
+
+        self.workspace.current_dir = self.current_dir.clone();
+        self.workspace.has_workspace = self.has_workspace;
+        self.workspace.recent_files = self.recent_files.clone();
+        self.workspace.sidebar_items = self.sidebar_items.clone();
+        self.workspace.expanded_dirs = self.expanded_dirs.clone();
+        self.workspace.selected_sidebar_path = self.selected_sidebar_path.clone();
+        self.workspace.explorer_preset = self.explorer_preset;
+        self.workspace.explorer_tree_guides = self.explorer_tree_guides;
+        self.workspace.explorer_git_status = self.explorer_git_status;
+        self.workspace.explorer_show_hidden = self.explorer_show_hidden;
+        self.workspace.workspace_tree_overview = self.workspace_tree_overview.clone();
+        self.workspace_signal.set(self.workspace.clone());
+    }
+
+    pub fn set_explorer_preset(&mut self, preset: ExplorerPreset) {
+        if self.explorer_preset != preset {
+            self.explorer_preset = preset;
+            self.workspace.explorer_preset = preset;
+            self.workspace_signal.set(self.workspace.clone());
+            self.save_persistent_state();
+        }
+    }
+
+    pub fn toggle_explorer_tree_guides(&mut self) {
+        self.explorer_tree_guides = !self.explorer_tree_guides;
+        self.workspace.explorer_tree_guides = self.explorer_tree_guides;
+        self.workspace_signal.set(self.workspace.clone());
+        self.save_persistent_state();
+    }
+
+    pub fn toggle_explorer_git_status(&mut self) {
+        self.explorer_git_status = !self.explorer_git_status;
+        self.workspace.explorer_git_status = self.explorer_git_status;
+        self.rebuild_tree();
+        self.workspace.sidebar_items = self.sidebar_items.clone();
+        self.workspace_signal.set(self.workspace.clone());
+        self.save_persistent_state();
+    }
+
+    pub fn toggle_explorer_show_hidden(&mut self) {
+        self.explorer_show_hidden = !self.explorer_show_hidden;
+        self.workspace.explorer_show_hidden = self.explorer_show_hidden;
+        self.rebuild_tree();
+        self.workspace.sidebar_items = self.sidebar_items.clone();
+        self.workspace_signal.set(self.workspace.clone());
+        self.save_persistent_state();
+    }
+
+    pub fn sync_workspace_signal(&mut self) {
+        self.workspace.current_dir = self.current_dir.clone();
+        self.workspace.has_workspace = self.has_workspace;
+        self.workspace.recent_files = self.recent_files.clone();
+        self.workspace.sidebar_items = self.sidebar_items.clone();
+        self.workspace.expanded_dirs = self.expanded_dirs.clone();
+        self.workspace.selected_sidebar_path = self.selected_sidebar_path.clone();
+        self.workspace.explorer_preset = self.explorer_preset;
+        self.workspace.explorer_tree_guides = self.explorer_tree_guides;
+        self.workspace.explorer_git_status = self.explorer_git_status;
+        self.workspace.explorer_show_hidden = self.explorer_show_hidden;
+        self.workspace.workspace_tree_overview = self.workspace_tree_overview.clone();
+        self.workspace_signal.set(self.workspace.clone());
     }
 
     pub fn save_persistent_state(&self) {
@@ -1604,7 +1985,7 @@ impl ZenthreeState {
     }
 
     pub fn colors(&self) -> ThemeColors {
-        ThemeColors::get_custom(self.theme, &self.accent_color)
+        self.colors_signal.get()
     }
 
     pub fn rebuild_tree(&mut self) {
@@ -1754,6 +2135,7 @@ impl ZenthreeState {
         self.rebuild_tree();
         self.refresh_git_status();
         self.status_message = format!("Opened workspace: {}", self.current_dir.display());
+        self.sync_workspace_signal();
         self.save_persistent_state();
     }
 
@@ -1766,6 +2148,7 @@ impl ZenthreeState {
         self.git_state = GitRepoState::default();
         self.init_workspace_session();
         self.status_message = "Workspace closed".to_string();
+        self.sync_workspace_signal();
         self.save_persistent_state();
     }
 
@@ -2255,6 +2638,7 @@ impl ZenthreeState {
     pub fn collapse_all_folders(&mut self) {
         self.expanded_dirs.clear();
         self.rebuild_tree();
+        self.sync_workspace_signal();
         self.save_persistent_state();
     }
 
@@ -2280,6 +2664,7 @@ impl ZenthreeState {
         }
         collect_dirs(&self.current_dir, &mut self.expanded_dirs, self.explorer_show_hidden);
         self.rebuild_tree();
+        self.sync_workspace_signal();
         self.save_persistent_state();
     }
 
@@ -3515,6 +3900,7 @@ impl ZenthreeState {
             let backend = self.ai_backend;
             let current_dir = self.current_dir.clone();
             let cancel_token = self.ai_cancellation_token.clone();
+            let event_signal = self.ai_event_signal.clone();
 
             std::thread::spawn(move || {
                 if backend == crate::agent::AgentBackend::GooseAcp {
@@ -3523,9 +3909,11 @@ impl ZenthreeState {
                         Ok(mut client) => {
                             let (event_tx, event_rx) = std::sync::mpsc::channel();
                             let s_clone = sender.clone();
+                            let sig_clone = event_signal.clone();
                             let forwarder = std::thread::spawn(move || {
                                 while let Ok(event) = event_rx.recv() {
                                     let _ = s_clone.send((msg_idx, event));
+                                    sig_clone.with_mut(|c| *c = c.wrapping_add(1));
                                 }
                             });
                             let _ = client.send_prompt(&query, vec![], &event_tx, &cancel_token);
@@ -3539,13 +3927,16 @@ impl ZenthreeState {
                                     error: format!("Goose ACP: {}", err),
                                 },
                             ));
+                            event_signal.with_mut(|c| *c = c.wrapping_add(1));
                         }
                     }
                 } else {
+                    let sig_loop = event_signal.clone();
                     let mut agent_loop = ai::AgentLoop::new(
                         loop_ctx,
                         Box::new(move |event| {
                             let _ = sender.send((msg_idx, event));
+                            sig_loop.with_mut(|c| *c = c.wrapping_add(1));
                         }),
                     );
                     let _ = agent_loop.run(&query);

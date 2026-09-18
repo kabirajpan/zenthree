@@ -1,5 +1,5 @@
 use crate::state::ZenthreeState;
-use crate::theme::{ThemeMode, ACCENT_COLOR_OPTIONS, ICON_THEME_OPTIONS};
+use crate::theme::{ThemeMode, ThemeColors, ACCENT_COLOR_OPTIONS, ICON_THEME_OPTIONS};
 use zenthra::{Color, Ui, FontWeight, Align, Id};
 
 fn get_animated_app_title() -> (&'static str, std::time::Duration, bool) {
@@ -43,7 +43,7 @@ fn get_animated_app_title() -> (&'static str, std::time::Duration, bool) {
 }
 
 pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
-    let colors = state.colors();
+    let colors = zenthra::use_context::<ThemeColors>().map(|c| *c).unwrap_or_else(|| state.colors());
 
     // Reset hover flag for menus in title bar since we do not use menu_bar wrapper
     let hover_flag_key = Id::from_u64(999999902);
@@ -287,20 +287,17 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                         ui.sub_menu("Appearance").show(|ui| {
                             let sb_mark = if state.sidebar_visible { "● " } else { "  " };
                             if ui.menu_item(&format!("{}Sidebar", sb_mark)).shortcut("Ctrl+B").show().clicked {
-                                state.sidebar_visible = !state.sidebar_visible;
-                                state.save_persistent_state();
+                                state.toggle_sidebar();
                                 ui.request_redraw();
                             }
                             let st_mark = if state.status_bar_visible { "● " } else { "  " };
                             if ui.menu_item(&format!("{}Status Bar", st_mark)).show().clicked {
-                                state.status_bar_visible = !state.status_bar_visible;
-                                state.save_persistent_state();
+                                state.toggle_status_bar();
                                 ui.request_redraw();
                             }
                             let ln_mark = if state.line_numbers_visible { "● " } else { "  " };
                             if ui.menu_item(&format!("{}Line Numbers", ln_mark)).show().clicked {
-                                state.line_numbers_visible = !state.line_numbers_visible;
-                                state.save_persistent_state();
+                                state.toggle_line_numbers();
                                 ui.request_redraw();
                             }
                         });
@@ -310,20 +307,17 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                             // Presets
                             let p_modern = if state.explorer_preset == crate::state::ExplorerPreset::ModernMinimalist { "● " } else { "  " };
                             if ui.menu_item(&format!("{}Minimal", p_modern)).show().clicked {
-                                state.explorer_preset = crate::state::ExplorerPreset::ModernMinimalist;
-                                state.save_persistent_state();
+                                state.set_explorer_preset(crate::state::ExplorerPreset::ModernMinimalist);
                                 ui.request_redraw();
                             }
                             let p_snacks = if state.explorer_preset == crate::state::ExplorerPreset::NeovimSnacks { "● " } else { "  " };
                             if ui.menu_item(&format!("{}Framed Box", p_snacks)).show().clicked {
-                                state.explorer_preset = crate::state::ExplorerPreset::NeovimSnacks;
-                                state.save_persistent_state();
+                                state.set_explorer_preset(crate::state::ExplorerPreset::NeovimSnacks);
                                 ui.request_redraw();
                             }
                             let p_classic = if state.explorer_preset == crate::state::ExplorerPreset::ClassicTree { "● " } else { "  " };
                             if ui.menu_item(&format!("{}Indented Tree", p_classic)).show().clicked {
-                                state.explorer_preset = crate::state::ExplorerPreset::ClassicTree;
-                                state.save_persistent_state();
+                                state.set_explorer_preset(crate::state::ExplorerPreset::ClassicTree);
                                 ui.request_redraw();
                             }
 
@@ -331,22 +325,17 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
 
                             let guide_mark = if state.explorer_tree_guides { "● " } else { "  " };
                             if ui.menu_item(&format!("{}Indent Guides", guide_mark)).show().clicked {
-                                state.explorer_tree_guides = !state.explorer_tree_guides;
-                                state.save_persistent_state();
+                                state.toggle_explorer_tree_guides();
                                 ui.request_redraw();
                             }
                             let git_mark = if state.explorer_git_status { "● " } else { "  " };
                             if ui.menu_item(&format!("{}Git Badges", git_mark)).show().clicked {
-                                state.explorer_git_status = !state.explorer_git_status;
-                                state.rebuild_tree();
-                                state.save_persistent_state();
+                                state.toggle_explorer_git_status();
                                 ui.request_redraw();
                             }
                             let hidden_mark = if state.explorer_show_hidden { "● " } else { "  " };
                             if ui.menu_item(&format!("{}Hidden Files", hidden_mark)).show().clicked {
-                                state.explorer_show_hidden = !state.explorer_show_hidden;
-                                state.rebuild_tree();
-                                state.save_persistent_state();
+                                state.toggle_explorer_show_hidden();
                                 ui.request_redraw();
                             }
 
@@ -402,16 +391,14 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                         ui.sub_menu("Color Mode").show(|ui| {
                             let dark_mark = if state.theme == ThemeMode::Dark { "● " } else { "  " };
                             if ui.menu_item(&format!("{}Dark Theme", dark_mark)).show().clicked {
-                                state.theme = ThemeMode::Dark;
+                                state.set_theme(ThemeMode::Dark);
                                 state.highlighter = syntax::SyntaxHighlighter::new(syntax::SyntaxTheme::dark());
-                                state.save_persistent_state();
                                 ui.request_redraw();
                             }
                             let light_mark = if state.theme == ThemeMode::Light { "● " } else { "  " };
                             if ui.menu_item(&format!("{}Light Theme", light_mark)).show().clicked {
-                                state.theme = ThemeMode::Light;
+                                state.set_theme(ThemeMode::Light);
                                 state.highlighter = syntax::SyntaxHighlighter::new(syntax::SyntaxTheme::light());
-                                state.save_persistent_state();
                                 ui.request_redraw();
                             }
                         });
@@ -426,8 +413,7 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                                     format!("  {}", color_name)
                                 };
                                 if ui.menu_item(&label).show().clicked {
-                                    state.accent_color = color_id.to_string();
-                                    state.save_persistent_state();
+                                    state.set_accent_color(color_id);
                                     ui.request_redraw();
                                 }
                             }
@@ -443,9 +429,8 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                                     format!("  {}", theme_name)
                                 };
                                 if ui.menu_item(&label).show().clicked {
-                                    state.icon_theme = theme_id.to_string();
+                                    state.set_icon_theme(theme_id);
                                     state.status_message = format!("Icon theme: {}", theme_name);
-                                    state.save_persistent_state();
                                     ui.request_redraw();
                                 }
                             }
@@ -532,8 +517,7 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                     let prev = ui.interaction_state.insert(left_key, if h { 1.0 } else { 0.0 });
                     if prev != Some(if h { 1.0 } else { 0.0 }) { ui.needs_redraw = true; }
                     if left_resp.clicked {
-                        state.sidebar_visible = !state.sidebar_visible;
-                        state.save_persistent_state();
+                        state.toggle_sidebar();
                         ui.request_redraw();
                     }
 
@@ -585,11 +569,10 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                     let prev = ui.interaction_state.insert(btm_key, if h { 1.0 } else { 0.0 });
                     if prev != Some(if h { 1.0 } else { 0.0 }) { ui.needs_redraw = true; }
                     if btm_resp.clicked {
-                        state.terminal_visible = !state.terminal_visible;
+                        state.toggle_terminal();
                         if state.terminal_visible {
                             state.ensure_terminal_session();
                         }
-                        state.save_persistent_state();
                         ui.request_redraw();
                     }
 
@@ -641,8 +624,7 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                     let prev = ui.interaction_state.insert(right_key, if h { 1.0 } else { 0.0 });
                     if prev != Some(if h { 1.0 } else { 0.0 }) { ui.needs_redraw = true; }
                     if right_resp.clicked {
-                        state.ai_panel_visible = !state.ai_panel_visible;
-                        state.save_persistent_state();
+                        state.toggle_ai_panel();
                         ui.request_redraw();
                     }
 

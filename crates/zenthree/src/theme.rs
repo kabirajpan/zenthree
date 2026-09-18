@@ -6,7 +6,7 @@ pub enum ThemeMode {
     Light,
 }
 
-#[derive(Clone, Copy)]
+#[derive(Debug, Clone, Copy, PartialEq)]
 pub struct ThemeColors {
     pub bg_base: Color,
     pub bg_sidebar: Color,
@@ -21,6 +21,12 @@ pub struct ThemeColors {
     pub accent: Color,
     pub highlight: Color,
     pub cursor: Color,
+}
+
+/// Retrieve the active theme colors from framework context if provided.
+#[allow(dead_code)]
+pub fn active_theme_colors() -> Option<ThemeColors> {
+    zenthra::use_context::<ThemeColors>().map(|c| *c)
 }
 
 pub const ACCENT_COLOR_OPTIONS: &[(&str, &str)] = &[
