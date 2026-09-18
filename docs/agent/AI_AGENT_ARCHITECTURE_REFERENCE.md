@@ -233,4 +233,44 @@ apps/zenthree/crates/
 
 ---
 
+## 6. Commercial Feasibility, Licensing & Clean-Room Strategy
+
+A frequent question when architecting a modern IDE is whether studying and adopting architectural patterns from existing open-source editors (like Zed and VS Code) is legally viable for a **commercial, proprietary product**.
+
+### 6.1 Architectural Patterns vs. Copyright
+Under global intellectual property and copyright law:
+* **Non-Copyrightable**: Architectural concepts, mechanism designs, data flows, interaction workflows, and communication protocols (e.g. multi-turn tool loops, SEARCH/REPLACE chunk diffing, floating inline inputs, ghost text overlays).
+* **Copyrightable**: The **literal source code** (the exact text, variable names, and function implementations).
+
+This distinction is how competitive commercial products across the industry (such as Cursor, Windsurf, Trae, and JetBrains AI) operate: they analyze established architectures and engineer clean, proprietary implementations tailored to their own frameworks.
+
+### 6.2 License Analysis of Reference Codebases
+
+| Component | Source License | Commercial Implications |
+| :--- | :--- | :--- |
+| **Zed Editor Core** (`references/zed/crates/`) | **GPL-3.0 / AGPL-3.0** (Copyleft) | **CRITICAL**: Do **NOT** copy-paste literal source code files or functions into Zenthree. Under GPL copyleft, embedding GPL code into a proprietary product legally compels the entire product to be open-sourced under GPL. |
+| **Zed GPUI Toolkit** | **Apache-2.0** (Permissive) | Permissive for commercial use with attribution. |
+| **VS Code Core** (`references/vscode/`) | **MIT** (Permissive) | Highly permissive. Commercial and proprietary redistribution is allowed provided the original copyright notice is retained for any directly reused files. |
+| **Model Context Protocol (MCP)** | **MIT** (Open Standard by Anthropic) | 100% open for commercial integration and client/server development. |
+| **Language Server Protocol (LSP)** | **MIT** (Open Standard by Microsoft) | 100% open for commercial client/server development. |
+| **Tree-sitter Grammars** | **MIT / Apache-2.0** | Fully permissive for commercial syntax parsing. |
+
+### 6.3 Clean-Room Implementation Rules for Zenthree
+
+To ensure Zenthree remains **100% legally clean, defensible, and proprietary**:
+
+1. **Reference as Specification Only**:
+   * Use `references/zed` and `references/vscode` exclusively as functional blueprints to answer *"how is the problem framed and solved?"* (e.g. how chunk matching handles whitespace ambiguities, or how agent permissions are gated).
+2. **Write Original Rust Code**:
+   * Implement all data structures, traits, and algorithms natively against Zenthree's own types (e.g. Zenthra GPU UI widgets, Tokio async channels, and your custom editor buffers).
+3. **Keep Reference Folders Excluded from Version Control**:
+   * The `references/` directory is explicitly kept in [.gitignore](file:///home/kabir/Desktop/projects/personal/framworks/zenthra-v2/apps/zenthree/.gitignore). This guarantees that your Git commit log contains strictly original, unencumbered Zenthree code.
+4. **Standardize on Open Protocols**:
+   * Use open specifications (MCP, LSP, standard JSON Schema tool calling) rather than proprietary closed APIs.
+
+Following this standard engineering practice gives Zenthree world-class agentic capabilities while maintaining uncompromised commercial ownership and IP protection.
+
+---
+
 *This document serves as the architectural foundation for Zenthree's AI and Agent implementations, referencing the complete source archives stored in `references/zed/` and `references/vscode/`.*
+
