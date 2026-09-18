@@ -5089,6 +5089,7 @@ dependencies = [
  "zenthra-core",
  "zenthra-platform",
  "zenthra-render",
+ "zenthra-state",
  "zenthra-text",
  "zenthra-widgets",
 ]

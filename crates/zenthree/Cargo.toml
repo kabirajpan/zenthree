@@ -10,6 +10,7 @@ zenthra-widgets = { path = "../../../../crates/zenthra-widgets" }
 zenthra-platform = { path = "../../../../crates/zenthra-platform" }
 zenthra-text = { path = "../../../../crates/zenthra-text" }
 zenthra-render = { path = "../../../../crates/zenthra-render" }
+zenthra-state = { path = "../../../../crates/zenthra-state" }
 editor = { path = "../editor" }
 syntax = { path = "../syntax" }
 formatter = { path = "../formatter" }

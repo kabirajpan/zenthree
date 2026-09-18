@@ -1319,11 +1319,14 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                                             _ => "...",
                                                         };
 
-                                                        let base_status = match msg.status_text.as_deref() {
+                                                        let signal_status = state.ai_active_status.with(|s| s.clone());
+                                                        let active_status_str = signal_status.as_deref().or(msg.status_text.as_deref());
+                                                        let base_status = match active_status_str {
                                                             Some("Searching") => "Searching",
                                                             Some("Compacting") => "Compacting",
                                                             Some("Reading") => "Reading",
                                                             Some("Exploring") => "Exploring",
+                                                            Some("Editing") => "Editing",
                                                             Some(s) => s,
                                                             None => "Working",
                                                         };

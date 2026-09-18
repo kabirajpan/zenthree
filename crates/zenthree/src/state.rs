@@ -423,6 +423,8 @@ pub struct ZenthreeState {
     pub active_resize_ai_panel: bool,
     pub ai_messages: Vec<AiMessage>,
     pub ai_input: String,
+    pub ai_active_status: zenthra_state::ArcSignal<Option<String>>,
+    pub ai_active_file: zenthra_state::ArcSignal<Option<String>>,
     pub user_profile_open: bool,
     pub terminal_session: Option<crate::native_terminal::NativeTerminalSession>,
     pub sidebar_view: SidebarView,
@@ -581,6 +583,8 @@ impl ZenthreeState {
             active_resize_ai_panel: false,
             ai_messages: Vec::new(),
             ai_input: String::new(),
+            ai_active_status: zenthra_state::ArcSignal::new(None),
+            ai_active_file: zenthra_state::ArcSignal::new(None),
             user_profile_open: false,
             terminal_session: None,
             cursor_blink: true,
@@ -881,6 +885,7 @@ impl ZenthreeState {
         for (idx, event) in received {
             match event {
                 ai::AgentEvent::Thinking { delta } => {
+                    self.ai_active_status.set(Some("Thinking".to_string()));
                     if let Some(msg) = self.ai_messages.get_mut(idx) {
                         msg.is_working = true;
                         msg.thoughts = Some(delta.clone());
@@ -889,16 +894,20 @@ impl ZenthreeState {
                     updated = true;
                 }
                 ai::AgentEvent::ToolStarted { tool, summary } => {
+                    let clean_tool = tool.trim();
+                    let status_str = if clean_tool.starts_with("search") {
+                        "Searching".to_string()
+                    } else if clean_tool.starts_with("read") {
+                        "Reading".to_string()
+                    } else if clean_tool.starts_with("edit") {
+                        "Editing".to_string()
+                    } else {
+                        "Working".to_string()
+                    };
+                    self.ai_active_status.set(Some(status_str.clone()));
                     if let Some(msg) = self.ai_messages.get_mut(idx) {
                         msg.is_working = true;
-                        let clean_tool = tool.trim();
-                        if clean_tool.starts_with("search") {
-                            msg.status_text = Some("Searching".to_string());
-                        } else if clean_tool.starts_with("read") {
-                            msg.status_text = Some("Reading".to_string());
-                        } else {
-                            msg.status_text = Some("Working".to_string());
-                        }
+                        msg.status_text = Some(status_str);
                         msg.content = format!("⚡ *Executing:* `{}`...", tool);
                         if clean_tool.starts_with("read ") || clean_tool.starts_with("read_file") {
                             let path = clean_tool.trim_start_matches("read ").trim_start_matches("read_file").trim().trim_matches('`').trim_start_matches("./");
@@ -1215,6 +1224,8 @@ impl ZenthreeState {
                     self.ai_pending_requests = self.ai_pending_requests.saturating_sub(1);
                     if self.ai_pending_requests == 0 {
                         self.ai_status = AiStatus::Ready;
+                        self.ai_active_status.set(None);
+                        self.ai_active_file.set(None);
                     }
                     if let Some(ref mut mission) = self.current_mission {
                         for task in &mut mission.tasks {
@@ -1230,6 +1241,7 @@ impl ZenthreeState {
                     updated = true;
                 }
                 ai::AgentEvent::StatusChanged { status } => {
+                    self.ai_active_status.set(Some(status.clone()));
                     if let Some(msg) = self.ai_messages.get_mut(idx) {
                         msg.is_working = true;
                         msg.status_text = Some(status);
@@ -1237,6 +1249,8 @@ impl ZenthreeState {
                     updated = true;
                 }
                 ai::AgentEvent::Error { error } => {
+                    self.ai_active_status.set(None);
+                    self.ai_active_file.set(None);
                     if let Some(msg) = self.ai_messages.get_mut(idx) {
                         msg.content = format!("⚠️ {}", error);
                         msg.is_working = false;
