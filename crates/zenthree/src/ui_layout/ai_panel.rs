@@ -703,7 +703,6 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
 
                                     // Top-level Cognitive Work / Exploration Accordion
                                     let has_work_activity = msg.is_working
-                                        || msg.elapsed_secs.is_some()
                                         || !msg.explored_items.is_empty()
                                         || !files_to_show.is_empty()
                                         || msg.thoughts.is_some();
@@ -2196,11 +2195,18 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
             let active_notice = state.last_provider_notice.clone();
             let mut dismiss_notice = false;
 
+            let mut switch_to_groq = false;
+
             if let Some(ref notice) = active_notice {
+                let is_quota = notice.contains("429")
+                    || notice.contains("quota")
+                    || notice.contains("Quota")
+                    || notice.contains("RESOURCE_EXHAUSTED");
+
                 ui.container()
                     .width(quota_banner_w)
-                    .bg(Color::rgba(0.95, 0.45, 0.2, 0.12))
-                    .border(Color::rgba(0.95, 0.45, 0.2, 0.35), 1.0)
+                    .bg(Color::rgba(0.95, 0.45, 0.2, 0.14))
+                    .border(Color::rgba(0.95, 0.45, 0.2, 0.45), 1.0)
                     .padding(3.0, 8.0, 3.0, 8.0)
                     .row()
                     .gap(6.0)
@@ -2215,28 +2221,69 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                 ui.text("⚠️")
                                     .size(10.0)
                                     .show();
-                                ui.text(notice)
+                                let display_msg = if is_quota {
+                                    "Gemini Quota Exceeded (429) · Switch to Groq (Free & Fast)"
+                                } else {
+                                    let cleaned = notice.strip_prefix("AI Notice: ").unwrap_or(notice);
+                                    if cleaned.len() > 55 {
+                                        &cleaned[..52]
+                                    } else {
+                                        cleaned
+                                    }
+                                };
+                                ui.text(display_msg)
                                     .size(9.0)
                                     .weight(FontWeight::Medium)
-                                    .color(Color::rgb(0.95, 0.65, 0.3))
+                                    .color(Color::rgb(0.98, 0.70, 0.35))
                                     .show();
                             });
-                        let dismiss = ui.container()
-                            .padding(1.0, 4.0, 1.0, 4.0)
-                            .hover_bg(colors.highlight)
-                            .radius_all(2.0)
+
+                        ui.container()
+                            .row()
+                            .gap(4.0)
+                            .valign(Align::Center)
                             .show(|ui| {
-                                ui.text("✕")
-                                    .size(8.5)
-                                    .color(colors.text_muted)
-                                    .show();
+                                if is_quota || state.selected_model.contains("gemini") {
+                                    let groq_btn = ui.container()
+                                        .padding(2.0, 6.0, 2.0, 6.0)
+                                        .bg(Color::rgba(0.95, 0.55, 0.2, 0.25))
+                                        .hover_bg(Color::rgba(0.95, 0.55, 0.2, 0.50))
+                                        .radius_all(3.0)
+                                        .show(|ui| {
+                                            ui.text("Switch to Groq")
+                                                .size(8.5)
+                                                .weight(FontWeight::SemiBold)
+                                                .color(Color::rgb(1.0, 0.92, 0.75))
+                                                .show();
+                                        });
+                                    if groq_btn.clicked {
+                                        switch_to_groq = true;
+                                    }
+                                }
+
+                                let dismiss = ui.container()
+                                    .padding(1.0, 4.0, 1.0, 4.0)
+                                    .hover_bg(colors.highlight)
+                                    .radius_all(2.0)
+                                    .show(|ui| {
+                                        ui.text("✕")
+                                            .size(8.5)
+                                            .color(colors.text_muted)
+                                            .show();
+                                    });
+                                if dismiss.clicked {
+                                    dismiss_notice = true;
+                                }
                             });
-                        if dismiss.clicked {
-                            dismiss_notice = true;
-                        }
                     });
 
-                if dismiss_notice {
+                if switch_to_groq {
+                    state.selected_model = "qwen/qwen3.8-27b".to_string();
+                    state.model_auto_mode = false;
+                    state.last_provider_notice = None;
+                    state.status_message = "Switched AI model to Qwen 3.8 27B (Groq)".to_string();
+                    ui.needs_redraw = true;
+                } else if dismiss_notice {
                     state.last_provider_notice = None;
                     ui.needs_redraw = true;
                 }
@@ -2257,15 +2304,20 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                             .gap(4.0)
                             .valign(Align::Center)
                             .show(|ui| {
-                                ui.text("⚡")
-                                    .size(8.5)
-                                    .color(Color::rgb(0.35, 0.85, 0.45))
+                                let (engine_dot, engine_label) = if state.model_auto_mode {
+                                    (Color::rgb(0.35, 0.85, 0.45), "Auto-Failover Active · Groq & Gemini")
+                                } else if state.selected_model.contains("qwen") || state.selected_model.contains("gpt") {
+                                    (Color::rgb(0.35, 0.85, 0.45), "Groq Cloud Active · Fast & Free")
+                                } else if state.selected_model.contains("gemini") {
+                                    (Color::rgb(0.95, 0.75, 0.35), "Google Gemini Active")
+                                } else {
+                                    (Color::rgb(0.45, 0.65, 0.95), "AI Engine Active")
+                                };
+                                ui.text("●")
+                                    .size(7.0)
+                                    .color(engine_dot)
                                     .show();
-                                ui.text("AI Engine:")
-                                    .size(8.5)
-                                    .color(colors.text_dim)
-                                    .show();
-                                ui.text("Auto-Failover Active · Groq & Gemini")
+                                ui.text(engine_label)
                                     .size(8.5)
                                     .weight(FontWeight::Medium)
                                     .color(colors.text_muted)
@@ -2276,10 +2328,19 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                             .gap(4.0)
                             .valign(Align::Center)
                             .show(|ui| {
-                                ui.text("Quota: Ready")
+                                let (status_dot, status_label) = if is_input_focused || state.is_agent_working() {
+                                    (Color::rgb(0.35, 0.70, 0.95), "Working")
+                                } else {
+                                    (Color::rgb(0.35, 0.85, 0.45), "Ready")
+                                };
+                                ui.text("●")
+                                    .size(6.0)
+                                    .color(status_dot)
+                                    .show();
+                                ui.text(status_label)
                                     .size(8.5)
                                     .weight(FontWeight::SemiBold)
-                                    .color(Color::rgb(0.35, 0.85, 0.45))
+                                    .color(status_dot)
                                     .show();
                             });
                     });
@@ -2420,12 +2481,21 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                 .gap(8.0)
                                 .valign(Align::Center)
                                 .show(|ui| {
+                                    let is_working = state.is_agent_working();
                                     let model_display = if state.model_auto_mode {
                                         "Auto"
                                     } else if !state.selected_model.is_empty() {
                                         friendly_model_name(&state.selected_model)
                                     } else {
                                         "Select a Model"
+                                    };
+
+                                    let (status_dot_color, status_dot_char) = if state.last_provider_notice.is_some() {
+                                        (Color::rgb(0.95, 0.55, 0.20), "●")
+                                    } else if is_working {
+                                        (Color::rgb(0.35, 0.70, 0.95), "●")
+                                    } else {
+                                        (Color::rgb(0.35, 0.85, 0.45), "●")
                                     };
 
                                     let model_btn = ui.container()
@@ -2436,9 +2506,13 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                         .bg(if state.ai_model_menu_open { Color::rgba(1.0, 1.0, 1.0, 0.14) } else { Color::TRANSPARENT })
                                         .hover_bg(Color::rgba(1.0, 1.0, 1.0, 0.12))
                                         .row()
-                                        .gap(3.0)
+                                        .gap(4.0)
                                         .valign(Align::Center)
                                         .show(|ui| {
+                                            ui.text(status_dot_char)
+                                                .size(6.5)
+                                                .color(status_dot_color)
+                                                .show();
                                             ui.text(model_display)
                                                 .size(10.5)
                                                 .color(colors.text_muted)
@@ -2456,7 +2530,6 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                     }
 
                                     // Send & submit button with Lucide ArrowRight and Lucide Pause
-                                    let is_working = state.is_agent_working();
                                     let is_paused = state.current_mission.as_ref().map(|m| m.is_paused).unwrap_or(false);
                                     let (icon, icon_color, icon_size, btn_bg, btn_hover, btn_border) = if is_working {
                                         (
@@ -2852,11 +2925,11 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                         });
 
                     let models: &[(&str, &str, &str)] = &[
-                        ("gemini-3.5-flash", "Gemini 3.5 Flash", "Google"),
-                        ("gemini-3.1-flash-lite", "Gemini Flash Lite", "Google"),
+                        ("qwen/qwen3.8-27b", "Qwen 3.8 27B", "Groq (Fast)"),
                         ("openai/gpt-oss-120b", "GPT-OSS 120B", "Groq"),
-                        ("qwen/qwen3.8-27b", "Qwen 3.8 27B", "Groq"),
-                        ("gemini-3.7-flash", "Gemini 3.7 Flash", "Google"),
+                        ("openai/gpt-oss-20b", "GPT-OSS 20B", "Groq"),
+                        ("gemini-3.6-flash", "Gemini 3.6 Flash", "Google"),
+                        ("gemini-2.5-pro", "Gemini 2.5 Pro", "Google"),
                         ("claude-3-7-sonnet", "Claude 3.7 Sonnet", "Anthropic"),
                         ("deepseek-r1", "DeepSeek R1", "Reasoning"),
                     ];
@@ -3101,14 +3174,13 @@ fn get_file_glyph_and_color(name: &str, colors: &crate::theme::ThemeColors) -> (
 
 fn friendly_model_name(id: &str) -> &str {
     match id {
-        "gemini-3.5-flash" => "Gemini 3.5 Flash",
-        "gemini-3.1-flash-lite" => "Gemini Flash Lite",
-        "gemini-flash-lite-latest" => "Gemini Flash Lite",
-        "gemini-2.5-flash" => "Gemini 3.5 Flash",
+        "gemini-3.6-flash" => "Gemini 3.6 Flash",
+        "gemini-2.5-pro" => "Gemini 2.5 Pro",
+        "gemini-3.5-flash" | "gemini-3.7-flash" | "gemini-2.5-flash" => "Gemini 3.6 Flash",
+        "gemini-3.1-flash-lite" | "gemini-flash-lite-latest" => "Gemini Flash Lite",
         "openai/gpt-oss-120b" => "GPT-OSS 120B",
         "openai/gpt-oss-20b" => "GPT-OSS 20B",
         "qwen/qwen3.8-27b" => "Qwen 3.8 27B",
-        "gemini-3.7-flash" => "Gemini 3.7 Flash",
         "claude-3-7-sonnet" => "Claude 3.7 Sonnet",
         "deepseek-r1" => "DeepSeek R1",
         other => other,

@@ -206,8 +206,16 @@ impl AgentLoop {
             // If neither tool calls nor file modifications were produced, the agent has finished its goal!
             if tool_calls.is_empty() && file_mods.is_empty() {
                 let clean_summary = sanitize_summary_tool_blocks(&response);
-                let final_summary = if clean_summary.is_empty() {
-                    "I completed the requested tasks.".to_string()
+                let final_summary = if clean_summary.trim().is_empty() {
+                    if let Some(thought) = extract_thought_content(&response) {
+                        thought
+                    } else if response.contains("<tool_call") || response.contains("{\"tool\":") {
+                        "I attempted to execute an action, but the tool invocation could not be processed. Please check the command or rephrase.".to_string()
+                    } else if response.trim().is_empty() {
+                        "No response received from the model. Please check the model status indicator or switch models.".to_string()
+                    } else {
+                        response.trim().to_string()
+                    }
                 } else {
                     clean_summary
                 };
@@ -376,8 +384,14 @@ impl AgentLoop {
         }
 
         let clean_summary = sanitize_summary_tool_blocks(&last_response);
-        let final_summary = if clean_summary.is_empty() {
-            "I completed the workspace tasks and applied the requested changes.".to_string()
+        let final_summary = if clean_summary.trim().is_empty() {
+            if let Some(thought) = extract_thought_content(&last_response) {
+                thought
+            } else if !last_response.trim().is_empty() {
+                last_response.trim().to_string()
+            } else {
+                "I completed the workspace tasks and applied the requested changes.".to_string()
+            }
         } else {
             clean_summary
         };

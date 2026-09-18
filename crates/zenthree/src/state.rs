@@ -1169,7 +1169,12 @@ impl ZenthreeState {
                 if !saved.ignored_language_prompts.is_empty() {
                     self.ignored_language_prompts = saved.ignored_language_prompts.into_iter().collect();
                 }
-                if let Some(m) = saved.selected_model { self.selected_model = m; }
+                if let Some(m) = saved.selected_model {
+                    self.selected_model = match m.as_str() {
+                        "gemini-3.7-flash" | "gemini-3.5-flash" | "gemini-2.5-flash" => "gemini-3.6-flash".to_string(),
+                        other => other.to_string(),
+                    };
+                }
                 if let Some(a) = saved.model_auto_mode { self.model_auto_mode = a; }
                 if !saved.custom_models.is_empty() { self.custom_models = saved.custom_models; }
                 if let Some(gh) = saved.git_graph_height { self.git_state.graph_height = gh; }

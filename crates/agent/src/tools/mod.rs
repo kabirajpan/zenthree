@@ -40,7 +40,7 @@ pub use fs::{
 pub use terminal::{
     execute_terminal, terminal_schema, TerminalInput, TerminalOutput,
 };
-pub use schema::{all_tool_schemas, all_tool_schemas_with_mcp, format_few_shot_tool_examples};
+pub use schema::{all_tool_schemas, all_tool_schemas_with_mcp, format_few_shot_tool_examples, format_tool_definitions_prompt};
 pub use mcp_bridge::{McpToolBridge, RegisteredMcpTool};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

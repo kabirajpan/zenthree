@@ -80,20 +80,28 @@ pub fn call_gemini_api_with_model(
     history: &[crate::groq::ChatMessage],
     preferred_model: Option<&str>,
 ) -> Result<String, String> {
+    // Normalize deprecated or non-existent model names:
+    let normalized_pref = preferred_model.map(|m| {
+        let trimmed = m.trim();
+        match trimmed {
+            "gemini-2.5-flash" | "gemini-3.5-flash" | "gemini-3.7-flash" => "gemini-3.6-flash",
+            other => other,
+        }
+    });
+
     // Model preference: Google Gemini models verified live for this API key:
     let mut models = vec![
-        "gemini-2.5-flash",
+        "gemini-3.6-flash",
         "gemini-2.5-pro",
         "gemma-4-26b-a4b-it",
     ];
-    if let Some(pref) = preferred_model {
-        let trimmed = pref.trim();
-        if !trimmed.is_empty() {
-            if let Some(pos) = models.iter().position(|m| *m == trimmed) {
+    if let Some(pref) = normalized_pref {
+        if !pref.is_empty() {
+            if let Some(pos) = models.iter().position(|m| *m == pref) {
                 let m = models.remove(pos);
                 models.insert(0, m);
             } else {
-                models.insert(0, trimmed);
+                models.insert(0, pref);
             }
         }
     }
@@ -180,8 +188,10 @@ pub fn call_gemini_api_with_model(
             }
             Err(ureq::Error::Status(code, resp)) => {
                 let body = resp.into_string().unwrap_or_default();
-                if code == 429 || body.contains("429") || body.contains("quota") || body.contains("RESOURCE_EXHAUSTED") {
-                    last_error = format!("Gemini quota limit (429) on {}: {}", model, body);
+                if code == 404 {
+                    last_error = format!("Gemini model `{}` not found (404).", model);
+                } else if code == 429 || body.contains("429") || body.contains("quota") || body.contains("RESOURCE_EXHAUSTED") {
+                    last_error = format!("Google Gemini quota limit reached (429) on {}. Free-tier limit exceeded. Switch model to Groq (Qwen 3.8 / GPT-OSS).", model);
                 } else if code == 503 || body.contains("503") || body.contains("UNAVAILABLE") || body.contains("No capacity") {
                     last_error = format!("Gemini server unavailable / no capacity (503) on {}: {}", model, body);
                 } else {

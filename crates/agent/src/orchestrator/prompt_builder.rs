@@ -4,7 +4,7 @@ use crate::rules::render_rules_prompt;
 use crate::rules::scanner::RuleScanner;
 use crate::skills::catalog::SkillCatalog;
 use crate::skills::discovery::SkillDiscovery;
-use crate::tools::format_few_shot_tool_examples;
+use crate::tools::{format_few_shot_tool_examples, format_tool_definitions_prompt};
 
 /// Master system persona instructions for the autonomous coding agent.
 pub const BASE_AGENT_INSTRUCTIONS: &str = "\
@@ -100,7 +100,11 @@ impl SystemPromptBuilder {
             prompt.push_str("\n\n");
         }
 
-        // 5. External MCP Tools (Phase 8)
+        // 5. Tool Definitions & Formats
+        prompt.push_str(&format_tool_definitions_prompt());
+        prompt.push_str("\n\n");
+
+        // 6. External MCP Tools (Phase 8)
         if let Some(ref mcp_block) = self.mcp_prompt_block {
             if !mcp_block.trim().is_empty() {
                 prompt.push_str(mcp_block);
@@ -108,11 +112,11 @@ impl SystemPromptBuilder {
             }
         }
 
-        // 6. Few-Shot Tool Usage Examples (Phase 4)
+        // 7. Few-Shot Tool Usage Examples (Phase 4)
         prompt.push_str(&format_few_shot_tool_examples());
         prompt.push_str("\n\n");
 
-        // 6. Active Open Files & Working Buffers
+        // 8. Active Open Files & Working Buffers
         if !self.active_files.is_empty() {
             prompt.push_str("## Active Working Buffers\n");
             prompt.push_str("The user currently has the following files open in their editor:\n\n");
@@ -154,6 +158,11 @@ mod tests {
 
         // Host environment check
         assert!(prompt.contains("## System Environment"));
+
+        // Available tools check
+        assert!(prompt.contains("## Available Engineering Tools & Calling Formats"));
+        assert!(prompt.contains("write_file"));
+        assert!(prompt.contains("terminal"));
 
         // Few shot examples check
         assert!(prompt.contains("<tool_call_examples>"));
