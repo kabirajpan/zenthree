@@ -193,35 +193,6 @@ impl AgentLoop {
 
             // If neither tool calls nor file modifications were produced, the agent has finished its goal!
             if tool_calls.is_empty() && file_mods.is_empty() {
-                let non_thought = strip_thought_tags(&response);
-                let trimmed = non_thought.trim();
-
-                // 1. Check if the LLM output was purely <thought> with NO response and NO tool call
-                if trimmed.is_empty() && iteration < max_steps - 1 {
-                    current_user_prompt = "You provided reasoning inside <thought>, but did not execute a tool call or answer the user. Use tools (e.g. {\"tool\": \"list_directory\", \"path\": \".\"}, {\"tool\": \"search_code\", ...}, or {\"tool\": \"read_file\", ...}) to explore the files down to leaf code, or provide your complete final response.".to_string();
-                    continue;
-                }
-
-                // 2. Protect against premature truncated fragments like "Let's list the"
-                let is_accidental_fragment = trimmed.len() < 35
-                    && (trimmed.starts_with("Let's") || trimmed.starts_with("I will") || trimmed.starts_with("Next,") || trimmed.ends_with("the"));
-
-                if is_accidental_fragment && iteration < max_steps - 1 {
-                    current_user_prompt = "Please output your next tool call as a JSON object (e.g. {\"tool\": \"list_directory\", \"path\": \"...\"}) or provide your complete final response.".to_string();
-                    continue;
-                }
-
-                // 3. For exploratory or architectural user queries on the very first turn:
-                // If the user asks to explain the project/code or how a component works, do not allow lazy answers without inspecting code!
-                let is_codebase_query = {
-                    let q = goal.to_lowercase();
-                    q.contains("explain") || q.contains("how ") || q.contains("architecture") || q.contains("structure") || q.contains("where ") || q.contains("what is this")
-                };
-                if iteration == 0 && is_codebase_query && max_steps > 1 {
-                    current_user_prompt = "To provide an accurate and in-depth explanation, you must inspect the actual codebase files first. Follow BFS: begin by listing the workspace root directory ({\"tool\": \"list_directory\", \"path\": \".\"}) or searching code for relevant symbols.".to_string();
-                    continue;
-                }
-
                 (self.event_sender)(AgentEvent::Completed {
                     summary: response.clone(),
                 });
@@ -342,53 +313,19 @@ impl AgentLoop {
 
             current_user_prompt = format!(
                 "Observation Feedback:\n{}\n\n\
-                Next Step Instructions (BFS Codebase Exploration):\n\
-                - Follow Breadth-First Search (BFS) to inspect the files before concluding:\n\
-                  * If you discovered relevant directories or modules, inspect them next with `{{\"tool\": \"list_directory\", \"path\": \"<dir>\"}}`.\n\
-                  * When you identify key source files, descend to the leaf files and READ them with `{{\"tool\": \"read_file\", \"path\": \"<file>\", \"start_line\": 1, \"end_line\": 60}}`.\n\
-                - Only once you have inspected the real leaf code files, provide your comprehensive, accurate final Markdown explanation.",
+                Next Step Instructions:\n\
+                - If you discovered modular containers or subdirectories (e.g. `crates/`, `src/`, `packages/`) that have not been explored yet, DO NOT summarize prematurely! Execute `{{\"tool\": \"list_directory\", \"path\": \"<container>\"}}` and descend into child crates/folders to inspect leaf files.\n\
+                - Once all required changes, DFS tree traversal to leaf files, and verification steps are complete, provide your final summary to the user.\n\
+                - Otherwise, proceed directly with the next tool call or file block.",
                 observation
             );
         }
 
-        // If the loop finished and the last response was a tool call rather than a final summary,
-        // request a final synthesis so the user always gets a clean, comprehensive answer.
-        let final_summary = if !parse_agent_tool_calls(&last_response).is_empty() {
-            let synthesis_prompt = "You have completed your workspace exploration. Please provide your comprehensive final response, explanation, or summary to the user now based on all the information gathered above.";
-            match chain.complete(&system_prompt, synthesis_prompt, &history) {
-                Ok(res) => res,
-                Err(_) => last_response,
-            }
-        } else {
-            last_response
-        };
-
         (self.event_sender)(AgentEvent::Completed {
-            summary: final_summary.clone(),
+            summary: last_response.clone(),
         });
-        Ok(final_summary)
+        Ok(last_response)
     }
-}
-
-fn strip_thought_tags(text: &str) -> String {
-    let mut clean = text.to_string();
-    while let Some(start) = clean.find("<thought>") {
-        if let Some(end) = clean[start..].find("</thought>") {
-            clean.replace_range(start..start + end + 10, "");
-        } else {
-            clean.truncate(start);
-            break;
-        }
-    }
-    while let Some(start) = clean.find("<thinking>") {
-        if let Some(end) = clean[start..].find("</thinking>") {
-            clean.replace_range(start..start + end + 11, "");
-        } else {
-            clean.truncate(start);
-            break;
-        }
-    }
-    clean
 }
 
 fn extract_thought_content(text: &str) -> Option<String> {

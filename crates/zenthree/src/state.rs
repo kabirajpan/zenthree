@@ -1578,7 +1578,6 @@ impl ZenthreeState {
                         if let Some(end) = clean_summary[start..].find("</thought>") {
                             clean_summary.replace_range(start..start + end + 10, "");
                         } else {
-                            clean_summary.truncate(start);
                             break;
                         }
                     }
@@ -1586,19 +1585,15 @@ impl ZenthreeState {
                         if let Some(end) = clean_summary[start..].find("</thinking>") {
                             clean_summary.replace_range(start..start + end + 11, "");
                         } else {
-                            clean_summary.truncate(start);
                             break;
                         }
                     }
-                    let mut trimmed_content = clean_summary.trim();
-                    if trimmed_content.starts_with("{\"tool\":") || trimmed_content.starts_with("```json\n{\"tool\":") {
-                        trimmed_content = "";
-                    }
+                    let trimmed_content = clean_summary.trim();
                     if let Some(msg) = self.ai_messages.get_mut(idx) {
                         msg.elapsed_secs = Some(duration.max(1));
                         if trimmed_content.is_empty() {
                             msg.content = format!(
-                                "I completed the workspace analysis for `{}`. Let me know if you would like any specific details or changes!",
+                                "I completed the workspace tasks for `{}`. Let me know if you would like any further changes or testing!",
                                 self.last_ai_prompt
                             );
                         } else {
