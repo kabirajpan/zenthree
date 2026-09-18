@@ -1,8 +1,0 @@
-[package]
-name = "connectome"
-version = "0.1.0"
-edition = "2021"
-description = "Native Drosophila connectome neural decision engine for Zenthree"
-
-[dependencies]
-serde = { version = "1.0", features = ["derive"] }

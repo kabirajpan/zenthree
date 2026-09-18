@@ -4,8 +4,7 @@ members = [
     "crates/editor",
     "crates/syntax",
     "crates/formatter",
-    "crates/connectome",
-    "crates/ai",
+    "crates/agent",
 ]
 resolver = "2"
 

@@ -492,188 +492,6 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                 return;
             }
 
-            // (Context & AST Synced banner removed)
-
-            // ─── In Silico Connectome Cockpit & Biological Lab ───────────
-            let cockpit_drawer_h = if state.connectome_cockpit_open {
-                if state.connectome_ablation_enabled { 108.0 } else { 58.0 }
-            } else {
-                0.0
-            };
-
-            if state.connectome_cockpit_open {
-                ui.container()
-                    .full_width()
-                    .padding(6.0, 8.0, 6.0, 8.0)
-                    .bg(match state.theme {
-                        crate::theme::ThemeMode::Dark => Color::rgb(18.0 / 255.0, 21.0 / 255.0, 26.0 / 255.0),
-                        crate::theme::ThemeMode::Light => Color::rgb(238.0 / 255.0, 242.0 / 255.0, 246.0 / 255.0),
-                    })
-                    .border(colors.accent.with_alpha(0.3), 1.0)
-                    .column()
-                    .gap(4.0)
-                    .show(|ui| {
-                        // Title row
-                        ui.container()
-                            .full_width()
-                            .row()
-                            .valign(Align::Center)
-                            .halign(Align::SpaceBetween)
-                            .show(|ui| {
-                                ui.container()
-                                    .row()
-                                    .gap(5.0)
-                                    .valign(Align::Center)
-                                    .show(|ui| {
-                                        ui.text("\u{f0e7}")
-                                            .size(9.0)
-                                            .color(colors.accent)
-                                            .show();
-                                        ui.text("Connectome Cockpit")
-                                            .size(9.0)
-                                            .weight(FontWeight::Bold)
-                                            .color(colors.accent)
-                                            .show();
-                                    });
-
-                                ui.text("500 neurons • 5,399 synapses")
-                                    .size(8.0)
-                                    .color(colors.text_muted)
-                                    .show();
-                            });
-
-                        // Lesion toggle switch
-                        ui.container()
-                            .full_width()
-                            .row()
-                            .valign(Align::Center)
-                            .halign(Align::SpaceBetween)
-                            .show(|ui| {
-                                ui.text("In Silico Lesion:")
-                                    .size(8.5)
-                                    .weight(FontWeight::Medium)
-                                    .color(colors.text_primary)
-                                    .show();
-
-                                let is_on = state.connectome_ablation_enabled;
-                                let toggle_btn = ui.container()
-                                    .padding(2.0, 6.0, 2.0, 6.0)
-                                    .radius_all(3.0)
-                                    .bg(if is_on {
-                                        Color::rgb(180.0 / 255.0, 50.0 / 255.0, 40.0 / 255.0).with_alpha(0.25)
-                                    } else {
-                                        colors.bg_base
-                                    })
-                                    .border(if is_on {
-                                        Color::rgb(220.0 / 255.0, 70.0 / 255.0, 50.0 / 255.0)
-                                    } else {
-                                        colors.border
-                                    }, 1.0)
-                                    .hover_bg(colors.highlight)
-                                    .show(|ui| {
-                                        ui.text(if is_on { "\u{f0e7} ABLATION ON" } else { "DISABLED (INTACT)" })
-                                            .size(8.0)
-                                            .weight(FontWeight::Bold)
-                                            .color(if is_on {
-                                                Color::rgb(240.0 / 255.0, 100.0 / 255.0, 80.0 / 255.0)
-                                            } else {
-                                                colors.text_muted
-                                            })
-                                            .show();
-                                    });
-
-                                if toggle_btn.clicked {
-                                    state.connectome_ablation_enabled = !state.connectome_ablation_enabled;
-                                    ui.needs_redraw = true;
-                                }
-                            });
-
-                        // Ablation mode & fraction controls if ablation enabled
-                        if state.connectome_ablation_enabled {
-                            // Mode pills
-                            ui.container()
-                                .full_width()
-                                .row()
-                                .gap(4.0)
-                                .valign(Align::Center)
-                                .show(|ui| {
-                                    let modes = [
-                                        (connectome::AblationMode::TargetedHubs, "Hubs"),
-                                        (connectome::AblationMode::Random, "Random"),
-                                        (connectome::AblationMode::InhibitoryOnly, "GABA-"),
-                                        (connectome::AblationMode::ExcitatoryOnly, "ACh+"),
-                                    ];
-
-                                    for (mode, label) in modes {
-                                        let selected = state.connectome_ablation_mode == mode;
-                                        let pill = ui.container()
-                                            .padding(1.5, 5.0, 1.5, 5.0)
-                                            .radius_all(2.5)
-                                            .bg(if selected { colors.accent.with_alpha(0.25) } else { colors.bg_base })
-                                            .border(if selected { colors.accent } else { colors.border }, 1.0)
-                                            .hover_bg(colors.highlight)
-                                            .show(|ui| {
-                                                ui.text(label)
-                                                    .size(8.0)
-                                                    .weight(if selected { FontWeight::Bold } else { FontWeight::Regular })
-                                                    .color(if selected { colors.accent } else { colors.text_muted })
-                                                    .show();
-                                            });
-
-                                        if pill.clicked {
-                                            state.connectome_ablation_mode = mode;
-                                            ui.needs_redraw = true;
-                                        }
-                                    }
-                                });
-
-                            // Fraction selector
-                            ui.container()
-                                .full_width()
-                                .row()
-                                .gap(4.0)
-                                .valign(Align::Center)
-                                .halign(Align::SpaceBetween)
-                                .show(|ui| {
-                                    ui.container()
-                                        .row()
-                                        .gap(3.0)
-                                        .valign(Align::Center)
-                                        .show(|ui| {
-                                            let fractions = [0.10f32, 0.20f32, 0.30f32, 0.50f32];
-                                            for frac in fractions {
-                                                let selected = (state.connectome_ablation_pct - frac).abs() < 0.01;
-                                                let frac_btn = ui.container()
-                                                    .padding(1.0, 4.0, 1.0, 4.0)
-                                                    .radius_all(2.5)
-                                                    .bg(if selected { colors.accent.with_alpha(0.2) } else { colors.bg_base })
-                                                    .border(if selected { colors.accent } else { colors.border }, 1.0)
-                                                    .hover_bg(colors.highlight)
-                                                    .show(|ui| {
-                                                        ui.text(&format!("{:.0}%", frac * 100.0))
-                                                            .size(8.0)
-                                                            .weight(if selected { FontWeight::Bold } else { FontWeight::Regular })
-                                                            .color(if selected { colors.accent } else { colors.text_muted })
-                                                            .show();
-                                                    });
-
-                                                if frac_btn.clicked {
-                                                    state.connectome_ablation_pct = frac;
-                                                    ui.needs_redraw = true;
-                                                }
-                                            }
-                                        });
-
-                                    let silenced_est = (state.connectome_ablation_pct * 460.0).round() as usize;
-                                    ui.text(&format!("~{} silenced", silenced_est))
-                                        .size(8.0)
-                                        .color(Color::rgb(220.0 / 255.0, 100.0 / 255.0, 80.0 / 255.0))
-                                        .show();
-                                });
-                        }
-                    });
-            }
-
             // ─── Bottom Prompt Input Height & Messages Scroll Area ─────
             let ai_input_id = ui.id_from("ai_prompt_text_area");
             let is_input_focused = ui.focused_id == Some(ai_input_id);
@@ -713,7 +531,7 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
             };
 
             let quota_banner_h = if state.last_provider_notice.is_some() { 26.0 } else { 20.0 };
-            let msgs_h = (height - HEADER_H - CONTEXT_BANNER_H - bottom_input_total_h - cockpit_drawer_h - TOOLBAR_H - quota_banner_h - drawer_h - 12.0).max(60.0);
+            let msgs_h = (height - HEADER_H - CONTEXT_BANNER_H - bottom_input_total_h - TOOLBAR_H - quota_banner_h - drawer_h - 12.0).max(60.0);
             let max_content_w = (ai_panel_w - 24.0).max(80.0);
 
             let msgs_scroll_id = Id::from_u64(999999802);
@@ -3585,10 +3403,10 @@ mod tests {
             action_type: "Analyzed".to_string(),
             thought_content: None,
             duration_secs: None,
-            children: vec!["ai/".to_string(), "connectome/".to_string()],
+            children: vec!["ai/".to_string(), "editor/".to_string()],
         };
-        let connectome_lib = ExploredItem {
-            file_name: "crates/connectome/src/lib.rs".to_string(),
+        let editor_lib = ExploredItem {
+            file_name: "crates/editor/src/lib.rs".to_string(),
             line_range: Some("#L1-50".to_string()),
             action_type: "Analyzed".to_string(),
             thought_content: None,
@@ -3596,7 +3414,7 @@ mod tests {
             children: Vec::new(),
         };
 
-        let items = vec![&root_dir, &cargo_toml, &crates_dir, &connectome_lib];
+        let items = vec![&root_dir, &cargo_toml, &crates_dir, &editor_lib];
         let tree = build_explored_tree(&items);
 
         // Verify top-level: crates/ (folder first), Cargo.toml, README.md
@@ -3605,10 +3423,10 @@ mod tests {
 
         // Find crates node and its children
         let crates_node = &tree[0];
-        let connectome_node = crates_node.children.iter().find(|c| c.name == "connectome").expect("connectome node");
-        assert!(connectome_node.is_dir);
+        let editor_node = crates_node.children.iter().find(|c| c.name == "editor").expect("editor node");
+        assert!(editor_node.is_dir);
 
-        let src_node = connectome_node.children.iter().find(|c| c.name == "src").expect("src node");
+        let src_node = editor_node.children.iter().find(|c| c.name == "src").expect("src node");
         assert!(src_node.is_dir);
 
         let lib_node = src_node.children.iter().find(|c| c.name == "lib.rs").expect("lib.rs node");
@@ -3617,7 +3435,7 @@ mod tests {
 
         let (files, folders) = count_tree_nodes(&tree);
         assert!(files >= 2);
-        assert!(folders >= 4); // crates, ai, connectome, src
+        assert!(folders >= 4); // crates, ai, editor, src
     }
 }
 

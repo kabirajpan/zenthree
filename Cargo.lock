@@ -25,6 +25,19 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "320119579fcad9c21884f5c4861d16174d0e06250625266f50fe6898340abefa"
 
 [[package]]
+name = "agent"
+version = "0.1.0"
+dependencies = [
+ "dirs",
+ "log",
+ "regex",
+ "serde",
+ "serde_json",
+ "tempfile",
+ "ureq",
+]
+
+[[package]]
 name = "ahash"
 version = "0.8.12"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -44,18 +57,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "ddd31a130427c27518df266943a5308ed92d4b226cc639f5a8f1002816174301"
 dependencies = [
  "memchr",
-]
-
-[[package]]
-name = "ai"
-version = "0.1.0"
-dependencies = [
- "connectome",
- "dirs",
- "log",
- "serde",
- "serde_json",
- "ureq",
 ]
 
 [[package]]
@@ -616,13 +617,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "4ca0197aee26d1ae37445ee532fefce43251d24cc7c166799f4d46817f1d3973"
 dependencies = [
  "crossbeam-utils",
-]
-
-[[package]]
-name = "connectome"
-version = "0.1.0"
-dependencies = [
- "serde",
 ]
 
 [[package]]
@@ -5068,9 +5062,8 @@ dependencies = [
 name = "zenthree"
 version = "0.1.0"
 dependencies = [
- "ai",
+ "agent",
  "arboard",
- "connectome",
  "dirs",
  "editor",
  "env_logger",

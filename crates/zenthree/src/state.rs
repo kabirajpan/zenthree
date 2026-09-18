@@ -178,47 +178,7 @@ pub struct TerminalLine {
     pub is_error: bool,
 }
 
-pub use ai::{ExploredItem, EditedFileSummary};
-
-#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
-pub struct AiMessage {
-    pub is_user: bool,
-    pub content: String,
-    pub code_snippet: Option<String>,
-    pub thoughts: Option<String>,
-    #[serde(default)]
-    pub deliberation: Option<connectome::DecisionResult>,
-    #[serde(default)]
-    pub explored_items: Vec<ExploredItem>,
-    #[serde(default)]
-    pub edited_files: Vec<EditedFileSummary>,
-    #[serde(default)]
-    pub is_working: bool,
-    #[serde(default)]
-    pub status_text: Option<String>,
-    #[serde(default)]
-    pub sub_agent: Option<crate::agent::SubAgentRole>,
-    #[serde(default)]
-    pub elapsed_secs: Option<u64>,
-}
-
-impl Default for AiMessage {
-    fn default() -> Self {
-        Self {
-            is_user: false,
-            content: String::new(),
-            code_snippet: None,
-            thoughts: None,
-            deliberation: None,
-            explored_items: Vec::new(),
-            edited_files: Vec::new(),
-            is_working: false,
-            status_text: None,
-            sub_agent: None,
-            elapsed_secs: None,
-        }
-    }
-}
+pub use agent::{AiMessage, ExploredItem, EditedFileSummary};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum DiffLineState {
@@ -557,16 +517,11 @@ pub struct ZenthreeState {
     pub tree_clipboard: Option<TreeClipboardAction>,
     pub groq_api_key: Option<String>,
     pub gemini_api_key: Option<String>,
-    pub ai_receiver: Option<std::sync::mpsc::Receiver<(usize, ai::AgentEvent)>>,
-    pub ai_sender: std::sync::mpsc::Sender<(usize, ai::AgentEvent)>,
-    pub ai_cancellation_token: ai::CancellationToken,
+    pub ai_receiver: Option<std::sync::mpsc::Receiver<(usize, agent::AgentEvent)>>,
+    pub ai_sender: std::sync::mpsc::Sender<(usize, agent::AgentEvent)>,
+    pub ai_cancellation_token: agent::CancellationToken,
     pub ai_pending_requests: usize,
     pub cursor_blink: bool,
-    pub connectome: connectome::ConnectomeRNN,
-    pub connectome_cockpit_open: bool,
-    pub connectome_ablation_enabled: bool,
-    pub connectome_ablation_pct: f32,
-    pub connectome_ablation_mode: connectome::AblationMode,
     pub pending_modification: Option<PendingModification>,
     pub pending_modifications: Vec<PendingModification>,
     pub last_ai_prompt: String,
@@ -724,11 +679,6 @@ impl ZenthreeState {
             user_profile_open: false,
             terminal_session: None,
             cursor_blink: true,
-            connectome: connectome::ConnectomeRNN::load_default(),
-            connectome_cockpit_open: false,
-            connectome_ablation_enabled: false,
-            connectome_ablation_pct: 0.20,
-            connectome_ablation_mode: connectome::AblationMode::TargetedHubs,
             selected_sidebar_path: None,
             sidebar_view: SidebarView::Explorer,
             git_state: GitRepoState::default(),
@@ -759,7 +709,7 @@ impl ZenthreeState {
             gemini_api_key: crate::gemini::load_gemini_api_key(),
             ai_receiver: Some(ai_receiver),
             ai_sender,
-            ai_cancellation_token: ai::CancellationToken::new(),
+            ai_cancellation_token: agent::CancellationToken::new(),
             ai_pending_requests: 0,
             pending_modification: None,
             pending_modifications: Vec::new(),
@@ -802,7 +752,7 @@ impl ZenthreeState {
             #[cfg(test)]
             ai_backend: crate::agent::AgentBackend::Native,
             #[cfg(not(test))]
-            ai_backend: if ai::GooseSupervisor::new().find_binary().is_some() {
+            ai_backend: if agent::GooseSupervisor::new().find_binary().is_some() {
                 crate::agent::AgentBackend::GooseAcp
             } else {
                 crate::agent::AgentBackend::Native
@@ -1285,7 +1235,7 @@ impl ZenthreeState {
         let mut updated = false;
         for (idx, event) in received {
             match event {
-                ai::AgentEvent::Thinking { delta } => {
+                agent::AgentEvent::Thinking { delta } => {
                     self.ai_active_status.set(Some("Thinking".to_string()));
                     if let Some(msg) = self.ai_messages.get_mut(idx) {
                         msg.is_working = true;
@@ -1294,7 +1244,7 @@ impl ZenthreeState {
                     self.status_message = delta;
                     updated = true;
                 }
-                ai::AgentEvent::ToolStarted { tool, summary } => {
+                agent::AgentEvent::ToolStarted { tool, summary } => {
                     let clean_tool = tool.trim();
                     let status_str = if clean_tool.starts_with("search") {
                         "Searching".to_string()
@@ -1383,7 +1333,7 @@ impl ZenthreeState {
                     self.status_message = format!("⚡ {}", summary);
                     updated = true;
                 }
-                ai::AgentEvent::ToolFinished { tool, ok, output_snippet, duration_ms } => {
+                agent::AgentEvent::ToolFinished { tool, ok, output_snippet, duration_ms } => {
                     if let Some(msg) = self.ai_messages.get_mut(idx) {
                         msg.is_working = true;
                         msg.status_text = Some("Working".to_string());
@@ -1447,7 +1397,7 @@ impl ZenthreeState {
                     self.rebuild_tree();
                     updated = true;
                 }
-                ai::AgentEvent::PendingModifications { summaries } => {
+                agent::AgentEvent::PendingModifications { summaries } => {
                     let now_ts = std::time::SystemTime::now()
                         .duration_since(std::time::UNIX_EPOCH)
                         .map(|d| d.as_secs())
@@ -1542,7 +1492,7 @@ impl ZenthreeState {
                     self.status_message = format!("✓ Updated {} file(s) - Review changes in editor", summaries.len());
                     updated = true;
                 }
-                ai::AgentEvent::FileAnalyzed { file_path, start_line, end_line } => {
+                agent::AgentEvent::FileAnalyzed { file_path, start_line, end_line } => {
                     if let Some(msg) = self.ai_messages.get_mut(idx) {
                         let clean_path = file_path.trim_start_matches("./").to_string();
                         let p = std::path::Path::new(&clean_path);
@@ -1563,7 +1513,7 @@ impl ZenthreeState {
                     }
                     updated = true;
                 }
-                ai::AgentEvent::SearchExecuted { query, result_count } => {
+                agent::AgentEvent::SearchExecuted { query, result_count } => {
                     if let Some(msg) = self.ai_messages.get_mut(idx) {
                         msg.explored_items.push(ExploredItem {
                             file_name: query.clone(),
@@ -1576,7 +1526,7 @@ impl ZenthreeState {
                     }
                     updated = true;
                 }
-                ai::AgentEvent::ThoughtBlock { content, duration_secs } => {
+                agent::AgentEvent::ThoughtBlock { content, duration_secs } => {
                     if let Some(msg) = self.ai_messages.get_mut(idx) {
                         msg.explored_items.push(ExploredItem {
                             file_name: String::new(),
@@ -1589,7 +1539,7 @@ impl ZenthreeState {
                     }
                     updated = true;
                 }
-                ai::AgentEvent::Completed { summary } => {
+                agent::AgentEvent::Completed { summary } => {
                     let duration = self.ai_request_start_times.remove(&idx)
                         .map(|t| t.elapsed().as_secs())
                         .unwrap_or(0);
@@ -1641,7 +1591,7 @@ impl ZenthreeState {
                     self.rebuild_tree();
                     updated = true;
                 }
-                ai::AgentEvent::StatusChanged { status } => {
+                agent::AgentEvent::StatusChanged { status } => {
                     self.ai_active_status.set(Some(status.clone()));
                     if let Some(msg) = self.ai_messages.get_mut(idx) {
                         msg.is_working = true;
@@ -1649,7 +1599,7 @@ impl ZenthreeState {
                     }
                     updated = true;
                 }
-                ai::AgentEvent::Error { error } => {
+                agent::AgentEvent::Error { error } => {
                     self.ai_active_status.set(None);
                     self.ai_active_file.set(None);
                     if let Some(msg) = self.ai_messages.get_mut(idx) {
@@ -3695,7 +3645,6 @@ impl ZenthreeState {
             content: trimmed.to_string(),
             code_snippet: None,
             thoughts: None,
-            deliberation: None,
             ..Default::default()
         });
         self.save_current_session_messages();
@@ -3726,7 +3675,7 @@ impl ZenthreeState {
             (None, "No active file".to_string())
         };
 
-        // 2. Biological Connectome Deliberation Gate:
+        // 2. Classify intent
         let lower = trimmed.to_lowercase();
         let intent = classify_user_intent(trimmed);
 
@@ -3740,28 +3689,6 @@ impl ZenthreeState {
             || lower.contains("folder")
             || lower.contains("tree")
             || lower.contains("code");
-
-        // Formulate dual-channel evidence streams (Option A: Primary target action vs Option B: Conservative fallback)
-        let (ev_a, ev_b) = if intent.is_discussion() {
-            (0.70, 0.40)
-        } else if is_refactor {
-            (0.86, 0.24)
-        } else if is_explain {
-            (0.89, 0.18)
-        } else if is_test {
-            (0.80, 0.30)
-        } else if is_project_query {
-            (0.88, 0.16)
-        } else {
-            (0.74, 0.36)
-        };
-
-        let deliberation = if self.connectome_ablation_enabled {
-            let mask = self.connectome.generate_ablation_mask(self.connectome_ablation_mode, self.connectome_ablation_pct);
-            self.connectome.deliberate_with_mask(ev_a, ev_b, 30, Some(&mask))
-        } else {
-            self.connectome.deliberate(ev_a, ev_b, 30)
-        };
 
         // Explored items starts empty and is populated strictly when real tools execute
         let explored_items = Vec::new();
@@ -3799,23 +3726,14 @@ impl ZenthreeState {
         if self.gemini_api_key.is_some() || self.groq_api_key.is_some() || self.ai_backend == crate::agent::AgentBackend::GooseAcp {
             let msg_idx = self.ai_messages.len();
             let thoughts = if intent.is_discussion() {
-                format!(
-                    "Deliberation: {} dt ({:.0}% conf) | Discussion & Technical Guide",
-                    deliberation.reaction_time_dt, deliberation.confidence * 100.0
-                )
+                "Discussion & Technical Guide".to_string()
             } else if let Some(ref ctx) = ast_context {
                 let target = ctx.function_name.as_deref()
                     .or(ctx.struct_name.as_deref())
                     .unwrap_or(&ctx.node_type);
-                format!(
-                    "Scope: {} | Target: `{}` | Connectome: {} dt ({:.0}% conf)",
-                    ctx.scope_path, target, deliberation.reaction_time_dt, deliberation.confidence * 100.0
-                )
+                format!("Scope: {} | Target: `{}`", ctx.scope_path, target)
             } else {
-                format!(
-                    "Biological deliberation: {} dt ({:.0}% conf, {})",
-                    deliberation.reaction_time_dt, deliberation.confidence * 100.0, deliberation.choice_label
-                )
+                "Autonomous Agent Active".to_string()
             };
 
             self.ai_messages.push(AiMessage {
@@ -3823,7 +3741,6 @@ impl ZenthreeState {
                 content: String::new(),
                 code_snippet: None,
                 thoughts: Some(thoughts),
-                deliberation: Some(deliberation.clone()),
                 explored_items,
                 edited_files: Vec::new(),
                 is_working: true,
@@ -3854,7 +3771,7 @@ impl ZenthreeState {
             let system_prompt = if intent.is_discussion() {
                 build_discussion_guide_prompt()
             } else if self.has_workspace {
-                build_autonomous_agent_prompt(deliberation.confidence * 100.0)
+                build_autonomous_agent_prompt()
             } else {
                 format!(
                     "You are ZENE, an autonomous software engineering assistant integrated directly into the Zenthree code editor.\n\
@@ -3870,7 +3787,7 @@ impl ZenthreeState {
                 None
             };
 
-            let mut loop_ctx = ai::AgentLoopContext::new(self.current_dir.clone());
+            let mut loop_ctx = agent::AgentLoopContext::new(self.current_dir.clone());
             loop_ctx.gemini_key = gemini_key;
             loop_ctx.groq_key = groq_key;
             loop_ctx.preferred_model = preferred_model;
@@ -3910,7 +3827,7 @@ impl ZenthreeState {
                         continue;
                     }
                     let role = if prev.is_user { "user" } else { "assistant" };
-                    loop_ctx.prior_history.push(ai::ChatMessage {
+                    loop_ctx.prior_history.push(agent::ChatMessage {
                         role: role.to_string(),
                         content: prev.content.clone(),
                     });
@@ -3924,7 +3841,7 @@ impl ZenthreeState {
 
             std::thread::spawn(move || {
                 if backend == crate::agent::AgentBackend::GooseAcp {
-                    let supervisor = ai::GooseSupervisor::new();
+                    let supervisor = agent::GooseSupervisor::new();
                     match supervisor.spawn_acp_client(&current_dir) {
                         Ok(mut client) => {
                             let (event_tx, event_rx) = std::sync::mpsc::channel();
@@ -3943,7 +3860,7 @@ impl ZenthreeState {
                         Err(err) => {
                             let _ = sender.send((
                                 msg_idx,
-                                ai::AgentEvent::Error {
+                                agent::AgentEvent::Error {
                                     error: format!("Goose ACP: {}", err),
                                 },
                             ));
@@ -3952,7 +3869,7 @@ impl ZenthreeState {
                     }
                 } else {
                     let sig_loop = event_signal.clone();
-                    let mut agent_loop = ai::AgentLoop::new(
+                    let mut agent_loop = agent::AgentLoop::new(
                         loop_ctx,
                         Box::new(move |event| {
                             let _ = sender.send((msg_idx, event));
@@ -3967,8 +3884,8 @@ impl ZenthreeState {
 
         let reply = if is_refactor {
             format!(
-                "### Suggested Optimization for `{}`\n\nBiological deliberation reached **{:.1}% confidence** across **{} dt**.\n\n```rust\n// Zero-allocation idiomatic implementation\npub fn optimize() -> Result<bool, Box<dyn std::error::Error>> {{\n    // In-place processing\n    Ok(true)\n}}\n```",
-                active_file, deliberation.confidence * 100.0, deliberation.reaction_time_dt
+                "### Suggested Optimization for `{}`\n\n```rust\n// Zero-allocation idiomatic implementation\npub fn optimize() -> Result<bool, Box<dyn std::error::Error>> {{\n    // In-place processing\n    Ok(true)\n}}\n```",
+                active_file
             )
         } else if is_project_query && self.has_workspace {
             let project_name = self.current_dir.file_name()
@@ -4045,29 +3962,20 @@ impl ZenthreeState {
             )
         } else {
             format!(
-                "Query: `{}`\n\nConnectome neural gate verified the prompt with **{:.1}% confidence** ({}) across **{} dt**.\n\n- Use **Explain Code** to break down syntax trees\n- Use **Refactor** for idiomatic optimizations\n- Use **Generate Tests** for test suites",
-                trimmed, deliberation.confidence * 100.0, deliberation.choice_label, deliberation.reaction_time_dt
+                "Query: `{}`\n\n- Use **Explain Code** to break down syntax trees\n- Use **Refactor** for idiomatic optimizations\n- Use **Generate Tests** for test suites",
+                trimmed
             )
         };
 
         let thoughts = if intent.is_discussion() {
-            format!(
-                "Deliberation: {} dt ({:.0}% conf) | Discussion & Technical Guide",
-                deliberation.reaction_time_dt, deliberation.confidence * 100.0
-            )
+            "Discussion & Technical Guide".to_string()
         } else if let Some(ref ctx) = ast_context {
             let target = ctx.function_name.as_deref()
                 .or(ctx.struct_name.as_deref())
                 .unwrap_or(&ctx.node_type);
-            format!(
-                "AST Scope: {} | Target: `{}` | Deliberation: {} dt ({:.1}% conf, {})",
-                ctx.scope_path, target, deliberation.reaction_time_dt, deliberation.confidence * 100.0, deliberation.choice_label
-            )
+            format!("AST Scope: {} | Target: `{}`", ctx.scope_path, target)
         } else {
-            format!(
-                "Context: {} | Deliberation: {} dt ({:.1}% conf, {})",
-                active_file, deliberation.reaction_time_dt, deliberation.confidence * 100.0, deliberation.choice_label
-            )
+            format!("Context: {}", active_file)
         };
 
         self.ai_messages.push(AiMessage {
@@ -4075,7 +3983,6 @@ impl ZenthreeState {
             content: reply,
             code_snippet: None,
             thoughts: Some(thoughts),
-            deliberation: Some(deliberation),
             explored_items,
             sub_agent,
             ..Default::default()
@@ -4914,34 +4821,25 @@ mod tests {
     }
 
     #[test]
-    fn test_connectome_ai_markdown_and_deliberation() {
-        let temp_dir = std::env::temp_dir().join(format!("zenthree_delib_{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+    fn test_offline_ai_markdown_response() {
+        let temp_dir = std::env::temp_dir().join(format!("zenthree_offline_{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
         let _ = std::fs::create_dir_all(&temp_dir);
 
         let mut state = ZenthreeState::new();
         state.open_workspace(temp_dir.clone());
-        state.groq_api_key = None; // Test offline connectome + local markdown path
+        state.groq_api_key = None;
         state.gemini_api_key = None;
 
-        // 1. Intact connectome test
+        // 1. Project query test
         state.send_ai_message("hi tell me about this project");
         let msg1 = state.ai_messages.iter().filter(|m| !m.is_user).last().expect("assistant msg");
         assert!(msg1.content.starts_with("## Project:"));
-        let delib1 = msg1.deliberation.as_ref().expect("deliberation");
-        assert_eq!(delib1.ablated_neurons, 0);
-        assert!(delib1.confidence > 0.5);
-        assert!(delib1.reaction_time_dt > 0);
 
-        // 2. In silico ablation connectome test
-        state.connectome_ablation_enabled = true;
-        state.connectome_ablation_pct = 0.25;
-        state.connectome_ablation_mode = connectome::AblationMode::TargetedHubs;
+        // 2. Refactor suggestion test
         state.send_ai_message("refactor this code");
         let msg2 = state.ai_messages.iter().filter(|m| !m.is_user).last().expect("assistant msg");
         assert!(msg2.content.contains("### Suggested Optimization"));
         assert!(msg2.content.contains("```rust"));
-        let delib2 = msg2.deliberation.as_ref().expect("deliberation under ablation");
-        assert!(delib2.ablated_neurons > 50, "Should have ablated neurons: {}", delib2.ablated_neurons);
 
         let _ = std::fs::remove_dir_all(&temp_dir);
     }
@@ -5377,7 +5275,6 @@ mod tests {
             content: "I'll create the project.".to_string(),
             code_snippet: None,
             thoughts: None,
-            deliberation: None,
             explored_items: Vec::new(),
             edited_files: Vec::new(),
             is_working: true,
@@ -5403,30 +5300,30 @@ mod tests {
         state.ai_request_start_times.insert(0, std::time::Instant::now());
 
         // FileAnalyzed
-        let analyzed_evt = ai::AgentEvent::FileAnalyzed {
+        let analyzed_evt = agent::AgentEvent::FileAnalyzed {
             file_path: "src/App.jsx".to_string(),
             start_line: 10,
             end_line: 45,
         };
         // SearchExecuted
-        let search_evt = ai::AgentEvent::SearchExecuted {
+        let search_evt = agent::AgentEvent::SearchExecuted {
             query: "calculator".to_string(),
             result_count: 3,
         };
         // ThoughtBlock
-        let thought_evt = ai::AgentEvent::ThoughtBlock {
+        let thought_evt = agent::AgentEvent::ThoughtBlock {
             content: "Planning layout structure and state bindings".to_string(),
             duration_secs: 2,
         };
         // Completed
-        let completed_evt = ai::AgentEvent::Completed {
+        let completed_evt = agent::AgentEvent::Completed {
             summary: "Finished scaffolding".to_string(),
         };
 
         // Simulate event poll handling
         if let Some(msg) = state.ai_messages.get_mut(0) {
             match analyzed_evt {
-                ai::AgentEvent::FileAnalyzed { file_path, start_line, end_line } => {
+                agent::AgentEvent::FileAnalyzed { file_path, start_line, end_line } => {
                     let range = format!("#L{}-{}", start_line, end_line);
                     msg.explored_items.push(ExploredItem {
                         file_name: file_path,
@@ -5440,7 +5337,7 @@ mod tests {
                 _ => {}
             }
             match search_evt {
-                ai::AgentEvent::SearchExecuted { query, result_count } => {
+                agent::AgentEvent::SearchExecuted { query, result_count } => {
                     msg.explored_items.push(ExploredItem {
                         file_name: query,
                         line_range: Some(format!("({} results)", result_count)),
@@ -5453,7 +5350,7 @@ mod tests {
                 _ => {}
             }
             match thought_evt {
-                ai::AgentEvent::ThoughtBlock { content, duration_secs } => {
+                agent::AgentEvent::ThoughtBlock { content, duration_secs } => {
                     msg.explored_items.push(ExploredItem {
                         file_name: String::new(),
                         line_range: None,
@@ -5466,7 +5363,7 @@ mod tests {
                 _ => {}
             }
             match completed_evt {
-                ai::AgentEvent::Completed { summary } => {
+                agent::AgentEvent::Completed { summary } => {
                     msg.content = summary;
                     msg.is_working = false;
                     msg.elapsed_secs = Some(19);

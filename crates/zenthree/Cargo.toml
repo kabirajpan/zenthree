@@ -14,8 +14,7 @@ zenthra-state = { path = "../../../../crates/zenthra-state" }
 editor = { path = "../editor" }
 syntax = { path = "../syntax" }
 formatter = { path = "../formatter" }
-connectome = { path = "../connectome" }
-ai = { path = "../ai" }
+agent = { path = "../agent" }
 winit = "0.30"
 log = "0.4"
 env_logger = "0.11"
