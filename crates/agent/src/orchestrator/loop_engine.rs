@@ -9,6 +9,7 @@ use crate::tools::{
 };
 use crate::providers::ProviderChain;
 use crate::context::build_autonomous_agent_prompt;
+use crate::permissions::{PermissionEngine, ToolPermissionDecision};
 
 #[derive(Debug, Clone)]
 pub struct AgentLoopContext {
@@ -56,11 +57,16 @@ pub type AgentEventHandler = Box<dyn Fn(AgentEvent) + Send + Sync>;
 pub struct AgentLoop {
     ctx: AgentLoopContext,
     event_sender: AgentEventHandler,
+    pub permissions: PermissionEngine,
 }
 
 impl AgentLoop {
     pub fn new(ctx: AgentLoopContext, event_sender: AgentEventHandler) -> Self {
-        Self { ctx, event_sender }
+        Self {
+            ctx,
+            event_sender,
+            permissions: PermissionEngine::default(),
+        }
     }
 
     pub fn with_channel(ctx: AgentLoopContext, sender: Sender<AgentEvent>) -> Self {
@@ -69,7 +75,13 @@ impl AgentLoop {
             event_sender: Box::new(move |evt| {
                 let _ = sender.send(evt);
             }),
+            permissions: PermissionEngine::default(),
         }
+    }
+
+    pub fn with_permissions(mut self, permissions: PermissionEngine) -> Self {
+        self.permissions = permissions;
+        self
     }
 
     /// Runs the autonomous ReAct loop until task completion or max iterations
@@ -193,10 +205,16 @@ impl AgentLoop {
 
             // If neither tool calls nor file modifications were produced, the agent has finished its goal!
             if tool_calls.is_empty() && file_mods.is_empty() {
+                let clean_summary = sanitize_summary_tool_blocks(&response);
+                let final_summary = if clean_summary.is_empty() {
+                    "I completed the requested tasks.".to_string()
+                } else {
+                    clean_summary
+                };
                 (self.event_sender)(AgentEvent::Completed {
-                    summary: response.clone(),
+                    summary: final_summary.clone(),
                 });
-                return Ok(response);
+                return Ok(final_summary);
             }
 
             // Execute all requested tools
@@ -209,10 +227,46 @@ impl AgentLoop {
                     AgentToolCall::ListDirectory { path } => (format!("list `{}`", path.as_deref().unwrap_or(".")), "Exploring"),
                     AgentToolCall::RunCommand { cmd } => (format!("run `{}`", cmd), "Working"),
                     AgentToolCall::EditFile { path, .. } => (format!("patch `{}`", path), "Working"),
+                    AgentToolCall::WriteFile { path, .. } => (format!("write `{}`", path), "Working"),
                     AgentToolCall::DetectEnvironment { .. } => ("detect environment".to_string(), "Working"),
                     AgentToolCall::GitStatus => ("git status".to_string(), "Working"),
                     AgentToolCall::GitDiff { .. } => ("git diff".to_string(), "Working"),
+                    AgentToolCall::Mcp { tool_name, .. } => (format!("mcp `{}`", tool_name), "Working"),
                 };
+
+                let input_str = match call {
+                    AgentToolCall::RunCommand { cmd } => cmd.clone(),
+                    AgentToolCall::ReadFile { path, .. } => path.clone(),
+                    AgentToolCall::EditFile { path, .. } => path.clone(),
+                    AgentToolCall::WriteFile { path, .. } => path.clone(),
+                    _ => call.to_json_args().to_string(),
+                };
+
+                let decision = self.permissions.evaluate(call.tool_name(), &input_str);
+                if let ToolPermissionDecision::Deny { reason } = decision {
+                    let output = format!("Blocked by security policy: {}", reason);
+                    (self.event_sender)(AgentEvent::ToolFinished {
+                        tool: tool_name.clone(),
+                        ok: false,
+                        output_snippet: output.clone(),
+                        duration_ms: 0,
+                    });
+                    tool_results.push(AgentToolResult {
+                        tool_name: call.tool_name().to_string(),
+                        ok: false,
+                        output,
+                    });
+                    continue;
+                }
+
+                if let ToolPermissionDecision::Confirm { reason, suggested_action } = decision {
+                    (self.event_sender)(AgentEvent::PermissionPrompt {
+                        call_id: format!("call_{}_{}", iteration, call.tool_name()),
+                        tool_name: call.tool_name().to_string(),
+                        reason,
+                        suggested_action: Some(suggested_action),
+                    });
+                }
 
                 (self.event_sender)(AgentEvent::StatusChanged {
                     status: tool_status.to_string(),
@@ -321,11 +375,45 @@ impl AgentLoop {
             );
         }
 
+        let clean_summary = sanitize_summary_tool_blocks(&last_response);
+        let final_summary = if clean_summary.is_empty() {
+            "I completed the workspace tasks and applied the requested changes.".to_string()
+        } else {
+            clean_summary
+        };
         (self.event_sender)(AgentEvent::Completed {
-            summary: last_response.clone(),
+            summary: final_summary.clone(),
         });
-        Ok(last_response)
+        Ok(final_summary)
     }
+}
+
+fn sanitize_summary_tool_blocks(text: &str) -> String {
+    let mut out = text.to_string();
+    while let Some(start) = out.find("{\"tool\":") {
+        let slice = &out[start..];
+        let mut depth = 0;
+        let mut close = None;
+        for (i, c) in slice.char_indices() {
+            if c == '{' {
+                depth += 1;
+            } else if c == '}' {
+                depth -= 1;
+                if depth == 0 {
+                    close = Some(i);
+                    break;
+                }
+            }
+        }
+        if let Some(end) = close {
+            out.replace_range(start..start + end + 1, "");
+        } else if let Some(simple_end) = slice.find('}') {
+            out.replace_range(start..start + simple_end + 1, "");
+        } else {
+            break;
+        }
+    }
+    out.trim().to_string()
 }
 
 fn extract_thought_content(text: &str) -> Option<String> {
@@ -363,4 +451,20 @@ fn extract_thought_content(text: &str) -> Option<String> {
         }
     }
     None
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_agent_loop_permissions_initialization() {
+        let ctx = AgentLoopContext::new(PathBuf::from("."));
+        let agent_loop = AgentLoop::new(ctx, Box::new(|_| {}));
+        let decision = agent_loop.permissions.evaluate("terminal", "rm -rf /");
+        assert!(decision.is_denied());
+
+        let allow_decision = agent_loop.permissions.evaluate("read_file", "src/lib.rs");
+        assert!(allow_decision.is_allowed());
+    }
 }

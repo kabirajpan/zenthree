@@ -111,6 +111,7 @@ impl PermissionEngine {
             UserPermissionResponse::AllowOnce => ToolPermissionDecision::Allow,
             UserPermissionResponse::AlwaysAllow => {
                 table.grant_session_allow(&grant_key);
+                table.grant_session_allow(tool_name);
                 ToolPermissionDecision::Allow
             }
             UserPermissionResponse::DenyOnce => ToolPermissionDecision::Deny {
@@ -118,6 +119,7 @@ impl PermissionEngine {
             },
             UserPermissionResponse::AlwaysDeny => {
                 table.grant_session_deny(&grant_key);
+                table.grant_session_deny(tool_name);
                 ToolPermissionDecision::Deny {
                     reason: "Denied by user for the rest of session".to_string(),
                 }

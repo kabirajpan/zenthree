@@ -440,6 +440,13 @@ pub struct AgentDomainState {
     pub pending_requests: usize,
 }
 
+#[derive(Debug, Clone)]
+pub enum PendingDialogAction {
+    OpenWorkspace(PathBuf),
+    OpenFile(PathBuf),
+    SaveFileAs(PathBuf),
+}
+
 pub struct ZenthreeState {
     pub theme: ThemeMode,
     pub accent_color: String,
@@ -521,6 +528,10 @@ pub struct ZenthreeState {
     pub ai_sender: std::sync::mpsc::Sender<(usize, agent::AgentEvent)>,
     pub ai_cancellation_token: agent::CancellationToken,
     pub ai_pending_requests: usize,
+    pub ai_pending_permissions: Vec<agent::PendingPermissionRequest>,
+    pub ai_permission_engine: agent::PermissionEngine,
+    #[allow(dead_code)]
+    pub ai_checkpoint_timeline: agent::CheckpointTimeline,
     pub cursor_blink: bool,
     pub pending_modification: Option<PendingModification>,
     pub pending_modifications: Vec<PendingModification>,
@@ -552,14 +563,11 @@ pub struct ZenthreeState {
     pub session_artifacts_collapsed: bool,
     pub last_provider_notice: Option<String>,
     pub ai_status: AiStatus,
-    pub ai_error: Option<String>,
     pub ai_include_selection: bool,
     pub ai_include_current_file: bool,
     pub ai_include_open_files: bool,
     pub ai_include_terminal: bool,
     pub ai_manual_permissions: bool,
-    pub ai_pending_prompt: Option<String>,
-    pub ai_generation_ticks: usize,
     pub ai_context_snapshot: String,
     pub ai_backend: crate::agent::AgentBackend,
     pub theme_state: ThemeState,
@@ -574,6 +582,8 @@ pub struct ZenthreeState {
     pub terminal_visible_sig: zenthra_state::Signal<bool>,
     pub agent_state: AgentDomainState,
     pub agent_signal: zenthra_state::Signal<AgentDomainState>,
+    pub dialog_tx: std::sync::mpsc::Sender<PendingDialogAction>,
+    pub dialog_rx: std::sync::mpsc::Receiver<PendingDialogAction>,
 }
 
 impl ZenthreeState {
@@ -604,6 +614,7 @@ impl ZenthreeState {
         let formatter = formatter::Formatter::new();
         let indent_calc = syntax::IndentCalculator::new();
         let (ai_sender, ai_receiver) = std::sync::mpsc::channel();
+        let (dialog_tx, dialog_rx) = std::sync::mpsc::channel();
 
         let initial_workspace = WorkspaceDomainState {
             current_dir: current_dir.clone(),
@@ -711,6 +722,9 @@ impl ZenthreeState {
             ai_sender,
             ai_cancellation_token: agent::CancellationToken::new(),
             ai_pending_requests: 0,
+            ai_pending_permissions: Vec::new(),
+            ai_permission_engine: agent::PermissionEngine::new(),
+            ai_checkpoint_timeline: agent::CheckpointTimeline::new(),
             pending_modification: None,
             pending_modifications: Vec::new(),
             last_ai_prompt: String::new(),
@@ -740,14 +754,11 @@ impl ZenthreeState {
             session_artifacts_collapsed: true,
             last_provider_notice: None,
             ai_status: AiStatus::Ready,
-            ai_error: None,
             ai_include_selection: false,
             ai_include_current_file: true,
             ai_include_open_files: false,
             ai_include_terminal: false,
             ai_manual_permissions: false,
-            ai_pending_prompt: None,
-            ai_generation_ticks: 0,
             ai_context_snapshot: String::new(),
             #[cfg(test)]
             ai_backend: crate::agent::AgentBackend::Native,
@@ -769,6 +780,8 @@ impl ZenthreeState {
             terminal_visible_sig: zenthra_state::Signal::new(false),
             agent_state: AgentDomainState::default(),
             agent_signal: zenthra_state::Signal::new(AgentDomainState::default()),
+            dialog_tx,
+            dialog_rx,
         };
 
         // Restore previous session preferences (theme, accent, extensions, etc.)
@@ -1394,6 +1407,37 @@ impl ZenthreeState {
                         }
                     }
 
+                    // Reload open editor tabs if a file was written or patched on disk
+                    let clean_tool = tool.trim();
+                    let touched_path_opt = if let Some(p) = clean_tool.strip_prefix("patch `").and_then(|s| s.strip_suffix('`')) {
+                        Some(p.trim().to_string())
+                    } else if let Some(p) = clean_tool.strip_prefix("write `").and_then(|s| s.strip_suffix('`')) {
+                        Some(p.trim().to_string())
+                    } else if let Some(p) = clean_tool.strip_prefix("patch ").or_else(|| clean_tool.strip_prefix("write ")) {
+                        Some(p.trim().trim_matches('`').to_string())
+                    } else {
+                        None
+                    };
+
+                    if let Some(touched) = touched_path_opt {
+                        let resolved = agent::ground_workspace_path(&self.current_dir, &touched);
+                        if resolved.exists() {
+                            if let Ok(content) = std::fs::read_to_string(&resolved) {
+                                let fname = resolved.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                                for tab in &mut self.tabs {
+                                    let matches_tab = tab.path.as_ref().map(|p| p == &resolved).unwrap_or(false)
+                                        || (!fname.is_empty() && tab.name == fname);
+                                    if matches_tab {
+                                        tab.path = Some(resolved.clone());
+                                        tab.editor.replace_all(&content);
+                                        tab.is_dirty = false;
+                                        tab.saved_text = content.clone();
+                                    }
+                                }
+                            }
+                        }
+                    }
+
                     self.rebuild_tree();
                     updated = true;
                 }
@@ -1407,7 +1451,7 @@ impl ZenthreeState {
                         let target_file = if Path::new(&s.file_name).is_absolute() {
                             PathBuf::from(&s.file_name)
                         } else {
-                            self.current_dir.join(&s.file_name)
+                            agent::ground_workspace_path(&self.current_dir, &s.file_name)
                         };
 
                         let disk_content = std::fs::read_to_string(&target_file).unwrap_or_default();
@@ -1619,6 +1663,27 @@ impl ZenthreeState {
                     self.last_provider_notice = Some(format!("AI Notice: {}", error));
                     updated = true;
                 }
+                agent::AgentEvent::PermissionPrompt { call_id, tool_name, reason, suggested_action } => {
+                    self.ai_pending_permissions.push(agent::PendingPermissionRequest {
+                        call_id,
+                        tool_name,
+                        reason,
+                        suggested_action,
+                    });
+                    self.status_message = "Tool permission requested".to_string();
+                    updated = true;
+                }
+                agent::AgentEvent::DiffHunk { .. } => {
+                    updated = true;
+                }
+                agent::AgentEvent::CheckpointCommitted { checkpoint_id, files } => {
+                    self.status_message = format!("Checkpoint {}: {} file(s)", checkpoint_id, files.len());
+                    updated = true;
+                }
+                agent::AgentEvent::CheckpointReverted { checkpoint_id } => {
+                    self.status_message = format!("Reverted checkpoint {}", checkpoint_id);
+                    updated = true;
+                }
                 _ => {}
             }
         }
@@ -1626,6 +1691,38 @@ impl ZenthreeState {
             self.save_current_session_messages();
         }
         updated
+    }
+
+    pub fn respond_to_permission(&mut self, call_id: &str, allow: bool, always: bool) {
+        let tool_req = self.ai_pending_permissions.iter().find(|p| p.call_id == call_id).cloned();
+        self.ai_pending_permissions.retain(|p| p.call_id != call_id);
+        if let Some(req) = tool_req {
+            if allow {
+                if always {
+                    self.ai_permission_engine.handle_user_response(
+                        &req.tool_name,
+                        "",
+                        agent::UserPermissionResponse::AlwaysAllow,
+                    );
+                    self.status_message = format!("Tool '{}' always allowed for this session", req.tool_name);
+                } else {
+                    self.status_message = format!("Tool '{}' allowed once", req.tool_name);
+                }
+            } else {
+                if always {
+                    self.ai_permission_engine.handle_user_response(
+                        &req.tool_name,
+                        "",
+                        agent::UserPermissionResponse::AlwaysDeny,
+                    );
+                    self.status_message = format!("Tool '{}' denied for this session", req.tool_name);
+                } else {
+                    self.status_message = format!("Tool '{}' denied", req.tool_name);
+                }
+            }
+        } else {
+            self.status_message = format!("Permission response recorded for '{}'", call_id);
+        }
     }
 
     pub fn accept_all_modifications(&mut self) {
@@ -1655,15 +1752,19 @@ impl ZenthreeState {
             let _ = std::fs::write(&pending.file_path, &pending.proposed_code);
 
             // Update any open editor tab matching this file
+            let fname = pending.file_path.file_name().and_then(|n| n.to_str()).unwrap_or("");
             for tab in &mut self.tabs {
-                if tab.path.as_deref() == Some(&pending.file_path) {
+                let matches_tab = tab.path.as_deref() == Some(&pending.file_path)
+                    || (!fname.is_empty() && tab.name == fname);
+                if matches_tab {
+                    tab.path = Some(pending.file_path.clone());
                     tab.editor.replace_all(&pending.proposed_code);
                     tab.is_dirty = false;
                     tab.saved_text = pending.proposed_code.clone();
                 }
             }
 
-            let file_name = pending.file_path.file_name().and_then(|n| n.to_str()).unwrap_or("file").to_string();
+            let file_name = if !fname.is_empty() { fname.to_string() } else { "file".to_string() };
             let added = pending.diff_lines.iter().filter(|(_, s)| *s == DiffLineState::Added).count();
             let removed = pending.diff_lines.iter().filter(|(_, s)| *s == DiffLineState::Removed).count();
             summaries.push(EditedFileSummary {
@@ -1728,8 +1829,11 @@ impl ZenthreeState {
                 // Restore original code to disk
                 let _ = std::fs::write(&pending.file_path, &pending.original_code);
                 // Restore original code in any open editor tab matching this file
+                let fname = pending.file_path.file_name().and_then(|n| n.to_str()).unwrap_or("");
                 for tab in &mut self.tabs {
-                    if tab.path.as_deref() == Some(&pending.file_path) {
+                    let matches_tab = tab.path.as_deref() == Some(&pending.file_path)
+                        || (!fname.is_empty() && tab.name == fname);
+                    if matches_tab {
                         tab.editor.replace_all(&pending.original_code);
                         tab.is_dirty = false;
                         tab.saved_text = pending.original_code.clone();
@@ -1763,15 +1867,19 @@ impl ZenthreeState {
                 let _ = std::fs::create_dir_all(parent);
             }
             let _ = std::fs::write(&pending.file_path, &pending.proposed_code);
+            let fname = pending.file_path.file_name().and_then(|n| n.to_str()).unwrap_or("");
             for tab in &mut self.tabs {
-                if tab.path.as_deref() == Some(&pending.file_path) {
+                let matches_tab = tab.path.as_deref() == Some(&pending.file_path)
+                    || (!fname.is_empty() && tab.name == fname);
+                if matches_tab {
+                    tab.path = Some(pending.file_path.clone());
                     tab.editor.replace_all(&pending.proposed_code);
                     tab.is_dirty = false;
                     tab.saved_text = pending.proposed_code.clone();
                 }
             }
 
-            let file_name = pending.file_path.file_name().and_then(|n| n.to_str()).unwrap_or("file").to_string();
+            let file_name = if !fname.is_empty() { fname.to_string() } else { "file".to_string() };
             let added = pending.diff_lines.iter().filter(|(_, s)| *s == DiffLineState::Added).count();
             let removed = pending.diff_lines.iter().filter(|(_, s)| *s == DiffLineState::Removed).count();
             let summary = EditedFileSummary {
@@ -1820,8 +1928,11 @@ impl ZenthreeState {
                 }
             } else {
                 let _ = std::fs::write(&pending.file_path, &pending.original_code);
+                let fname = pending.file_path.file_name().and_then(|n| n.to_str()).unwrap_or("");
                 for tab in &mut self.tabs {
-                    if tab.path.as_deref() == Some(&pending.file_path) {
+                    let matches_tab = tab.path.as_deref() == Some(&pending.file_path)
+                        || (!fname.is_empty() && tab.name == fname);
+                    if matches_tab {
                         tab.editor.replace_all(&pending.original_code);
                         tab.is_dirty = false;
                         tab.saved_text = pending.original_code.clone();
@@ -1977,6 +2088,7 @@ impl ZenthreeState {
         self.workspace_tree_overview = crate::project_index::generate_project_tree_overview(&root, 6);
     }
 
+    #[allow(dead_code)]
     pub fn get_or_update_workspace_tree(&mut self) -> &str {
         if self.has_workspace {
             self.workspace_tree_overview = crate::project_index::generate_project_tree_overview(&self.current_dir, 6);
@@ -2100,6 +2212,7 @@ impl ZenthreeState {
         self.save_current_session_messages();
         self.current_dir = path;
         self.has_workspace = true;
+        self.terminal_session = None;
         self.expanded_dirs.clear();
         self.init_workspace_session();
         self.rebuild_tree();
@@ -2112,6 +2225,7 @@ impl ZenthreeState {
     pub fn close_workspace(&mut self) {
         self.save_current_session_messages();
         self.has_workspace = false;
+        self.terminal_session = None;
         self.sidebar_items.clear();
         self.expanded_dirs.clear();
         self.workspace_tree_overview.clear();
@@ -3229,43 +3343,93 @@ impl ZenthreeState {
         }
     }
 
-    pub fn save_active_tab_as(&mut self) {
+    pub fn request_open_workspace_dialog(&self) {
+        let tx = self.dialog_tx.clone();
+        let starting_dir = self.current_dir.clone();
+        std::thread::spawn(move || {
+            if let Some(path) = rfd::FileDialog::new().set_directory(&starting_dir).pick_folder() {
+                let _ = tx.send(PendingDialogAction::OpenWorkspace(path));
+            }
+        });
+    }
+
+    pub fn request_open_file_dialog(&self) {
+        let tx = self.dialog_tx.clone();
+        let starting_dir = self.current_dir.clone();
+        std::thread::spawn(move || {
+            if let Some(path) = rfd::FileDialog::new().set_directory(&starting_dir).pick_file() {
+                let _ = tx.send(PendingDialogAction::OpenFile(path));
+            }
+        });
+    }
+
+    pub fn request_save_active_tab_as_dialog(&self) {
+        if let Some(idx) = self.active_tab {
+            if let Some(tab) = self.tabs.get(idx) {
+                let tx = self.dialog_tx.clone();
+                let initial_dir = tab.path.as_ref()
+                    .and_then(|p| p.parent())
+                    .unwrap_or(&self.current_dir)
+                    .to_path_buf();
+                let file_name = tab.name.clone();
+                std::thread::spawn(move || {
+                    let mut dialog = rfd::FileDialog::new().set_directory(&initial_dir);
+                    dialog = dialog.set_file_name(&file_name);
+                    if let Some(path) = dialog.save_file() {
+                        let _ = tx.send(PendingDialogAction::SaveFileAs(path));
+                    }
+                });
+            }
+        }
+    }
+
+    pub fn save_active_tab_to_path(&mut self, path: &Path) {
         if let Some(idx) = self.active_tab {
             if idx < self.tabs.len() {
-                let initial_dir = self.tabs[idx].path.as_ref()
-                    .and_then(|p| p.parent())
-                    .unwrap_or(&self.current_dir);
-                let mut dialog = rfd::FileDialog::new().set_directory(initial_dir);
-                if let Some(ref p) = self.tabs[idx].path {
-                    if let Some(file_name) = p.file_name().and_then(|n| n.to_str()) {
-                        dialog = dialog.set_file_name(file_name);
-                    }
-                } else {
-                    dialog = dialog.set_file_name(&self.tabs[idx].name);
-                }
-
-                if let Some(path) = dialog.save_file() {
-                    let tab = &mut self.tabs[idx];
-                    let content = tab.editor.buffer.to_string();
-                    if std::fs::write(&path, &content).is_ok() {
-                        tab.name = path.file_name().and_then(|n| n.to_str()).unwrap_or("Unknown").to_string();
-                        tab.path = Some(path.clone());
-                        tab.saved_text = content;
-                        tab.is_dirty = false;
-                        if !self.recent_files.contains(&path) {
-                            self.recent_files.insert(0, path);
-                            if self.recent_files.len() > 10 {
-                                self.recent_files.pop();
-                            }
+                let tab = &mut self.tabs[idx];
+                let content = tab.editor.buffer.to_string();
+                if std::fs::write(path, &content).is_ok() {
+                    tab.name = path.file_name().and_then(|n| n.to_str()).unwrap_or("Unknown").to_string();
+                    tab.path = Some(path.to_path_buf());
+                    tab.saved_text = content;
+                    tab.is_dirty = false;
+                    let pb = path.to_path_buf();
+                    if !self.recent_files.contains(&pb) {
+                        self.recent_files.insert(0, pb);
+                        if self.recent_files.len() > 10 {
+                            self.recent_files.pop();
                         }
-                        self.status_message = format!("Saved as: {}", tab.name);
-                        self.refresh_git_status();
-                    } else {
-                        self.status_message = format!("Failed to save file: {}", path.display());
                     }
+                    self.status_message = format!("Saved as: {}", tab.name);
+                    self.refresh_git_status();
+                } else {
+                    self.status_message = format!("Failed to save file: {}", path.display());
                 }
             }
         }
+    }
+
+    pub fn save_active_tab_as(&mut self) {
+        self.request_save_active_tab_as_dialog();
+    }
+
+    pub fn poll_pending_dialogs(&mut self) -> bool {
+        let mut handled = false;
+        while let Ok(action) = self.dialog_rx.try_recv() {
+            handled = true;
+            match action {
+                PendingDialogAction::OpenWorkspace(path) => {
+                    self.open_workspace(path);
+                }
+                PendingDialogAction::OpenFile(path) => {
+                    self.open_file(&path);
+                }
+                PendingDialogAction::SaveFileAs(path) => {
+                    self.save_active_tab_to_path(&path);
+                }
+            }
+        }
+        handled
     }
 
     pub fn set_clipboard(&mut self, text: String) {
@@ -3550,9 +3714,9 @@ impl ZenthreeState {
             });
             if !trimmed.is_empty() {
                 self.terminal_lines.push(TerminalLine {
-                    text: format!("Executed (simulated): {}", trimmed),
+                    text: format!("Terminal session unavailable: cannot execute '{}'", trimmed),
                     is_command: false,
-                    is_error: false,
+                    is_error: true,
                 });
             }
         }
@@ -3626,8 +3790,6 @@ impl ZenthreeState {
         }
 
         self.ai_status = AiStatus::Generating;
-        self.ai_pending_prompt = Some(trimmed.to_string());
-        self.ai_generation_ticks = 1;
         self.ai_context_snapshot = self.build_ai_context_snapshot();
 
         if self.current_session.title == "New Session" || self.current_session.title.is_empty() {
@@ -3651,12 +3813,12 @@ impl ZenthreeState {
         self.session_list = crate::session::list_saved_sessions(&self.current_dir);
 
         // 1. Extract AST context via tree-sitter
-        let (ast_context, active_file) = if let Some(idx) = self.active_tab {
+        let ast_context = if let Some(idx) = self.active_tab {
             if let Some(tab) = self.tabs.get(idx) {
                 let code = tab.editor.buffer.to_string();
                 let cur = tab.editor.cursor();
                 let byte_pos = tab.editor.buffer.point_to_offset(cur).value();
-                let ctx = if let Some(ref path) = tab.path {
+                if let Some(ref path) = tab.path {
                     let registry = syntax::languages::LanguageRegistry::new();
                     if let Some(config) = registry.detect_language(path) {
                         let mut parser = registry.create_parser(config);
@@ -3666,29 +3828,17 @@ impl ZenthreeState {
                     }
                 } else {
                     None
-                };
-                (ctx, tab.name.clone())
+                }
             } else {
-                (None, "No active file".to_string())
+                None
             }
         } else {
-            (None, "No active file".to_string())
+            None
         };
 
         // 2. Classify intent
-        let lower = trimmed.to_lowercase();
         let intent = classify_user_intent(trimmed);
-
-        let is_refactor = lower.contains("refactor") || lower.contains("optimize");
-        let is_explain = lower.contains("explain");
-        let is_test = lower.contains("test");
-        let is_project_query = intent.is_work()
-            || lower.contains("project")
-            || lower.contains("workspace")
-            || lower.contains("feature")
-            || lower.contains("folder")
-            || lower.contains("tree")
-            || lower.contains("code");
+        let is_explain = trimmed.to_lowercase().contains("explain");
 
         // Explored items starts empty and is populated strictly when real tools execute
         let explored_items = Vec::new();
@@ -3768,17 +3918,30 @@ impl ZenthreeState {
 
             self.last_ai_prompt = trimmed.to_string();
 
-            let system_prompt = if intent.is_discussion() {
-                build_discussion_guide_prompt()
-            } else if self.has_workspace {
-                build_autonomous_agent_prompt()
-            } else {
-                format!(
-                    "You are ZENE, an autonomous software engineering assistant integrated directly into the Zenthree code editor.\n\
-                    CRITICAL: Never introduce yourself or say 'I am ZENE' or greeting intros. Jump straight into the technical answer or code.\n\
-                    Note: The user currently has NO workspace or folder opened.\n\
-                    Help the user directly with their questions, code generation, algorithms, or explanations. Do not assume or reference files from any workspace unless provided by the user in the prompt or active editor buffer."
-                )
+            let system_prompt = {
+                let workspace_opt = if self.has_workspace {
+                    Some(self.current_dir.clone())
+                } else {
+                    None
+                };
+                let mut builder = agent::SystemPromptBuilder::new(workspace_opt);
+
+                if intent.is_discussion() {
+                    builder = builder.with_custom_instructions(
+                        "Discussion Mode: Answer questions concisely, explain concepts clearly, and guide the user without making unsolicited file modifications unless requested."
+                    );
+                } else if !self.has_workspace {
+                    builder = builder.with_custom_instructions(
+                        "Note: The user currently has NO workspace or folder opened. Help the user directly with their questions, code generation, algorithms, or explanations. Do not assume or reference files from any workspace unless provided by the user in the prompt or active editor buffer."
+                    );
+                }
+
+                if let Some(ref path) = self.active_tab.and_then(|idx| self.tabs.get(idx)).and_then(|t| t.path.clone()) {
+                    if !buffer_snippet.is_empty() {
+                        builder = builder.with_active_file(path.clone(), buffer_snippet.clone());
+                    }
+                }
+                builder.build()
             };
 
             let preferred_model = if !self.model_auto_mode && !self.selected_model.is_empty() && self.selected_model != "Auto" {
@@ -3838,6 +4001,8 @@ impl ZenthreeState {
             let current_dir = self.current_dir.clone();
             let cancel_token = self.ai_cancellation_token.clone();
             let event_signal = self.ai_event_signal.clone();
+            let perm_engine = self.ai_permission_engine.clone();
+            let manual_perm = self.ai_manual_permissions;
 
             std::thread::spawn(move || {
                 if backend == crate::agent::AgentBackend::GooseAcp {
@@ -3875,116 +4040,27 @@ impl ZenthreeState {
                             let _ = sender.send((msg_idx, event));
                             sig_loop.with_mut(|c| *c = c.wrapping_add(1));
                         }),
-                    );
+                    ).with_permissions(perm_engine);
+
+                    if !manual_perm {
+                        // In Auto-permission mode, automatically allow file mutations
+                        agent_loop.permissions.handle_user_response("write_file", "", agent::UserPermissionResponse::AlwaysAllow);
+                        agent_loop.permissions.handle_user_response("edit_file", "", agent::UserPermissionResponse::AlwaysAllow);
+                    }
+
                     let _ = agent_loop.run(&query);
                 }
             });
             return;
         }
 
-        let reply = if is_refactor {
-            format!(
-                "### Suggested Optimization for `{}`\n\n```rust\n// Zero-allocation idiomatic implementation\npub fn optimize() -> Result<bool, Box<dyn std::error::Error>> {{\n    // In-place processing\n    Ok(true)\n}}\n```",
-                active_file
-            )
-        } else if is_project_query && self.has_workspace {
-            let project_name = self.current_dir.file_name()
-                .map(|n| n.to_string_lossy().to_string())
-                .unwrap_or_else(|| "Workspace".to_string());
-
-            let tree = self.get_or_update_workspace_tree().to_string();
-
-            let ecosystem = if self.current_dir.join("Cargo.toml").exists() {
-                "Rust / Cargo Workspace"
-            } else if self.current_dir.join("package.json").exists() {
-                "Node.js / Web Application"
-            } else if self.current_dir.join("pyproject.toml").exists() || self.current_dir.join("requirements.txt").exists() {
-                "Python Ecosystem"
-            } else {
-                "Software Project"
-            };
-
-            let mut out = format!("## Project: `{}`\n\n", project_name);
-            out.push_str(&format!("- **Ecosystem**: {}\n", ecosystem));
-            out.push_str(&format!("- **Workspace Root**: `{}`\n", self.current_dir.display()));
-            out.push_str(&format!("- **Active Document**: `{}`\n\n", active_file));
-
-            if !tree.is_empty() {
-                out.push_str("### Project Workspace Tree Structure:\n```\n");
-                out.push_str(&tree);
-                out.push_str("\n```\n\n");
-            }
-
-            out.push_str("### What would you like to build or explore?\n");
-            out.push_str("- **Feature Implementation**: Describe any feature or component to generate code\n");
-            out.push_str("- **Explain Code**: Inspect syntax structures and AST symbol scopes\n");
-            out.push_str("- **Refactor**: Suggest zero-allocation idiomatic improvements\n");
-            out.push_str("- **Generate Tests**: Write automated unit test suites");
-            out
-        } else if intent.is_discussion() {
-            format!(
-                "### Discussion & Technical Guide\n\n- **Architecture & Tradeoffs**: Deep dive into system design, patterns, and component boundaries\n- **Feature Planning**: Brainstorming and technical planning\n- **Workflows & Code Inspection**: Guided walkthroughs and troubleshooting\n\nLet me know what you would like to work on or explore!"
-            )
-        } else if is_explain {
-            let is_empty_buffer = if let Some(idx) = self.active_tab {
-                self.tabs.get(idx).map(|t| t.editor.buffer.to_string().trim().is_empty()).unwrap_or(true)
-            } else {
-                true
-            };
-
-            if is_empty_buffer {
-                format!(
-                    "### Document: `{}` (Empty Buffer)\n\nThe active editor tab currently has no code.\n\nTo analyze code:\n- Open a source file from the **Explorer** sidebar on the left.\n- Or write / paste functions into this buffer and ask me again!",
-                    active_file
-                )
-            } else if let Some(ref ctx) = ast_context {
-                let target = ctx.function_name.as_deref()
-                    .or(ctx.struct_name.as_deref())
-                    .unwrap_or(&ctx.node_type);
-                format!(
-                    "### Analysis of `{}` in `{}`\n\n- **Symbol Target**: `{}`\n- **Scope Hierarchy**: `{}`\n- **Node Kind**: `{}`\n\nThe syntax tree confirms clean memory semantics with static lifetimes and zero-cost abstraction guarantees.",
-                    target, active_file, target, ctx.scope_path, ctx.node_type
-                )
-            } else {
-                format!(
-                    "### Analysis: `{}`\n\nParsed `{}`. The syntax adheres to clean, reactive architecture with safe data flow.",
-                    active_file, active_file
-                )
-            }
-        } else if is_test {
-            format!(
-                "### Unit Test Suite for `{}`\n\n```rust\n#[cfg(test)]\nmod tests {{\n    use super::*;\n\n    #[test]\n    fn test_core_flow() {{\n        assert!(true);\n    }}\n}}\n```",
-                active_file
-            )
-        } else if is_project_query || intent.is_work() {
-            format!(
-                "### No Folder Opened\n\nYou currently do not have a folder or workspace open in Zenthree.\n\nTo open a project:\n- Click **Open Folder** in the Explorer sidebar on the left.\n- Or use `Ctrl+O`.\n\nOnce opened, I can analyze your codebase and project architecture!"
-            )
-        } else {
-            format!(
-                "Query: `{}`\n\n- Use **Explain Code** to break down syntax trees\n- Use **Refactor** for idiomatic optimizations\n- Use **Generate Tests** for test suites",
-                trimmed
-            )
-        };
-
-        let thoughts = if intent.is_discussion() {
-            "Discussion & Technical Guide".to_string()
-        } else if let Some(ref ctx) = ast_context {
-            let target = ctx.function_name.as_deref()
-                .or(ctx.struct_name.as_deref())
-                .unwrap_or(&ctx.node_type);
-            format!("AST Scope: {} | Target: `{}`", ctx.scope_path, target)
-        } else {
-            format!("Context: {}", active_file)
-        };
-
         self.ai_messages.push(AiMessage {
             is_user: false,
-            content: reply,
+            content: "⚠️ No AI provider configured. Please set your `GROQ_API_KEY` or `GEMINI_API_KEY` in environment variables or configuration to use autonomous agent capabilities.".to_string(),
             code_snippet: None,
-            thoughts: Some(thoughts),
+            thoughts: Some("Configuration required".to_string()),
             explored_items,
-            sub_agent,
+            sub_agent: None,
             ..Default::default()
         });
         self.save_current_session_messages();
@@ -4051,66 +4127,8 @@ impl ZenthreeState {
     }
 
     #[allow(dead_code)]
-    pub fn advance_ai_generation(&mut self) -> bool {
-        if self.ai_status != AiStatus::Generating {
-            return false;
-        }
-
-        if self.ai_generation_ticks > 0 {
-            self.ai_generation_ticks -= 1;
-            return true;
-        }
-
-        let Some(prompt) = self.ai_pending_prompt.take() else {
-            self.set_ai_error("AI generation ended without a pending request");
-            return false;
-        };
-
-        let active_file = self.active_tab
-            .and_then(|idx| self.tabs.get(idx))
-            .map(|t| t.name.clone())
-            .unwrap_or_else(|| "No active file".to_string());
-        let language = Self::language_for_file(&active_file);
-
-        let reply = if prompt.to_lowercase().contains("explain") {
-            format!("I've analyzed `{}` as {} code. The structure and data flow are consistent with the file's current implementation.", active_file, language)
-        } else if prompt.to_lowercase().contains("refactor") || prompt.to_lowercase().contains("optimize") {
-            format!("Here is an optimized {} refactoring suggestion for `{}`:", language, active_file)
-        } else if prompt.to_lowercase().contains("test") {
-            format!("Tests for `{}` can be added using the standard {} testing conventions.", active_file, language)
-        } else {
-            format!("I understand you're asking about `{}` in `{}`. I can help analyze, refactor, test, or explain this file.", prompt, active_file)
-        };
-
-        let snippet = if prompt.to_lowercase().contains("refactor") || prompt.to_lowercase().contains("code") {
-            Some(Self::example_snippet(language))
-        } else {
-            None
-        };
-
-        self.ai_messages.push(AiMessage {
-            is_user: false,
-            content: reply,
-            code_snippet: snippet,
-            thoughts: Some(format!("Context loaded: {} | {} syntax context", active_file, language)),
-            ..Default::default()
-        });
-        self.ai_status = AiStatus::Ready;
-        true
-    }
-
-    #[allow(dead_code)]
-    pub fn set_ai_error(&mut self, error: &str) {
-        self.ai_error = Some(error.to_string());
-        self.ai_status = AiStatus::Error;
-    }
-
-    #[allow(dead_code)]
     pub fn retry_last_ai_message(&mut self) {
         if let Some(last_user_msg) = self.ai_messages.iter().rfind(|m| m.is_user).map(|m| m.content.clone()) {
-            self.ai_status = AiStatus::Generating;
-            self.ai_pending_prompt = Some(last_user_msg.clone());
-            self.ai_generation_ticks = 1;
             self.send_ai_message(&last_user_msg);
         }
     }
@@ -4119,17 +4137,12 @@ impl ZenthreeState {
     pub fn clear_ai_conversation(&mut self) {
         self.ai_messages.clear();
         self.ai_input.clear();
-        self.ai_error = None;
         self.ai_status = AiStatus::Ready;
-        self.ai_pending_prompt = None;
-        self.ai_generation_ticks = 0;
     }
 
     pub fn stop_ai_generation(&mut self) {
         self.ai_cancellation_token.cancel();
         self.ai_status = AiStatus::Ready;
-        self.ai_pending_prompt = None;
-        self.ai_generation_ticks = 0;
         self.ai_pending_requests = 0;
         for msg in &mut self.ai_messages {
             msg.is_working = false;
@@ -4198,36 +4211,6 @@ impl ZenthreeState {
             self.status_message = format!("Terminated active command `{}`", cmd_text);
         }
     }
-
-    pub(crate) fn language_for_file(file_name: &str) -> &'static str {
-        match Path::new(file_name).extension().and_then(|ext| ext.to_str()) {
-            Some("py") => "Python",
-            Some("js") | Some("jsx") => "JavaScript",
-            Some("ts") | Some("tsx") => "TypeScript",
-            Some("go") => "Go",
-            Some("cpp") | Some("cc") | Some("hpp") | Some("h") => "C++",
-            Some("c") => "C",
-            Some("java") => "Java",
-            Some("html") => "HTML",
-            Some("css") => "CSS",
-            Some("json") => "JSON",
-            Some("toml") => "TOML",
-            Some("md") => "Markdown",
-            Some("rs") => "Rust",
-            _ => "source",
-        }
-    }
-
-    pub(crate) fn example_snippet(language: &str) -> String {
-        match language {
-            "Python" => "def optimize(items):\n    return [item for item in items if item is not None]".to_string(),
-            "JavaScript" => "const optimize = (items) => items.filter(Boolean);".to_string(),
-            "TypeScript" => "const optimize = <T>(items: T[]) => items.filter(Boolean);".to_string(),
-            "Go" => "func optimize(items []Item) []Item {\n    return filtered\n}".to_string(),
-            "C++" => "std::vector<Item> optimize(const std::vector<Item>& items) {\n    return filtered;\n}".to_string(),
-            _ => "// Example suggested optimization\npub fn optimize() -> bool {\n    true\n}".to_string(),
-        }
-    }
 }
 
 fn copy_dir_all(src: &Path, dst: &Path) -> std::io::Result<()> {
@@ -4242,172 +4225,6 @@ fn copy_dir_all(src: &Path, dst: &Path) -> std::io::Result<()> {
         }
     }
     Ok(())
-}
-
-#[allow(dead_code)]
-pub fn detect_target_folders_from_response(
-    content: &str,
-    prompt: &str,
-    workspace_root: &Path,
-) -> Vec<PathBuf> {
-    let mut folders = Vec::new();
-
-    // 1. Explicit folder markers in AI response
-    for line in content.lines() {
-        let trimmed = line.trim();
-        let stripped = if let Some(rest) = trimmed.strip_prefix("### Folder:") {
-            Some(rest)
-        } else if let Some(rest) = trimmed.strip_prefix("### Directory:") {
-            Some(rest)
-        } else if let Some(rest) = trimmed.strip_prefix("### Create Folder:") {
-            Some(rest)
-        } else if let Some(rest) = trimmed.strip_prefix("### New Folder:") {
-            Some(rest)
-        } else if let Some(rest) = trimmed.strip_prefix("**Folder**:") {
-            Some(rest)
-        } else if let Some(rest) = trimmed.strip_prefix("Folder:") {
-            Some(rest)
-        } else if let Some(rest) = trimmed.strip_prefix("Directory:") {
-            Some(rest)
-        } else {
-            None
-        };
-
-        if let Some(path_candidate) = stripped {
-            let cleaned = path_candidate.trim().trim_matches('`').trim_matches('*').trim();
-            if !cleaned.is_empty() {
-                let dir = if Path::new(cleaned).is_absolute() {
-                    PathBuf::from(cleaned)
-                } else {
-                    workspace_root.join(cleaned)
-                };
-                if !folders.contains(&dir) {
-                    folders.push(dir);
-                }
-            }
-        }
-    }
-
-    // 2. User prompt commands like "create folder <path>", "mkdir <path>", "new folder <path>"
-    let prompt_lower = prompt.to_lowercase();
-    for kw in ["create folder", "new folder", "make folder", "mkdir", "add folder", "create directory", "new directory"] {
-        if let Some(idx) = prompt_lower.find(kw) {
-            let after = prompt[idx + kw.len()..].trim_start();
-            if let Some(first_token) = after.split_whitespace().next() {
-                let clean = first_token.trim_matches(|c: char| !c.is_alphanumeric() && c != '/' && c != '_' && c != '-');
-                let lower_clean = clean.to_lowercase();
-                if clean.len() >= 2
-                    && !clean.contains('.')
-                    && lower_clean != "named"
-                    && lower_clean != "called"
-                    && lower_clean != "for"
-                    && lower_clean != "here"
-                    && lower_clean != "folders"
-                    && lower_clean != "directories"
-                {
-                    let dir = if Path::new(clean).is_absolute() {
-                        PathBuf::from(clean)
-                    } else {
-                        workspace_root.join(clean)
-                    };
-                    if !folders.contains(&dir) {
-                        folders.push(dir);
-                    }
-                }
-            }
-        }
-    }
-
-    folders
-}
-
-#[allow(dead_code)]
-pub fn detect_target_file_from_response(
-    content: &str,
-    prompt: &str,
-    workspace_root: &Path,
-    _active_path: Option<&Path>,
-) -> Option<PathBuf> {
-    // 1. Look for explicit file markers in the response (including create / new file directives)
-    for line in content.lines() {
-        let trimmed = line.trim();
-        let stripped = if let Some(rest) = trimmed.strip_prefix("### File:") {
-            Some(rest)
-        } else if let Some(rest) = trimmed.strip_prefix("### file:") {
-            Some(rest)
-        } else if let Some(rest) = trimmed.strip_prefix("### Create File:") {
-            Some(rest)
-        } else if let Some(rest) = trimmed.strip_prefix("### New File:") {
-            Some(rest)
-        } else if let Some(rest) = trimmed.strip_prefix("**File**:") {
-            Some(rest)
-        } else if let Some(rest) = trimmed.strip_prefix("File:") {
-            Some(rest)
-        } else if let Some(rest) = trimmed.strip_prefix("// File:") {
-            Some(rest)
-        } else if let Some(rest) = trimmed.strip_prefix("// file:") {
-            Some(rest)
-        } else {
-            None
-        };
-
-        if let Some(path_candidate) = stripped {
-            let cleaned = path_candidate.trim().trim_matches('`').trim_matches('*').trim();
-            if !cleaned.is_empty() {
-                return Some(crate::agent::ground_workspace_path(workspace_root, cleaned));
-            }
-        }
-    }
-
-    // 2. Check if user prompt explicitly requested creating or targeting a file path
-    let prompt_lower = prompt.to_lowercase();
-    for kw in ["create file", "new file", "make file", "add file", "touch"] {
-        if let Some(idx) = prompt_lower.find(kw) {
-            let after = prompt[idx + kw.len()..].trim_start();
-            if let Some(first_token) = after.split_whitespace().next() {
-                let clean = first_token.trim_matches(|c: char| !c.is_alphanumeric() && c != '.' && c != '/' && c != '_' && c != '-');
-                if clean.contains('.') && !clean.starts_with('.') && clean.len() >= 3 {
-                    return Some(crate::agent::ground_workspace_path(workspace_root, clean));
-                }
-            }
-        }
-    }
-
-    // 3. Check if user prompt explicitly mentions a known file path with extension in workspace
-    for token in prompt.split_whitespace() {
-        let clean = token.trim_matches(|c: char| !c.is_alphanumeric() && c != '.' && c != '/' && c != '_' && c != '-');
-        if clean.contains('.') && !clean.starts_with('.') {
-            let direct = workspace_root.join(clean);
-            if direct.exists() && direct.is_file() {
-                return Some(direct);
-            }
-        }
-    }
-
-    None
-}
-
-#[allow(dead_code)]
-pub fn extract_code_from_markdown(content: &str) -> Option<String> {
-    let mut in_block = false;
-    let mut code_lines = Vec::new();
-
-    for line in content.lines() {
-        let trimmed = line.trim();
-        if trimmed.starts_with("```") {
-            if in_block {
-                if !code_lines.is_empty() {
-                    return Some(code_lines.join("\n"));
-                }
-                in_block = false;
-            } else {
-                in_block = true;
-            }
-        } else if in_block {
-            code_lines.push(line);
-        }
-    }
-    None
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -4700,17 +4517,8 @@ mod tests {
         state.clear_ai_conversation();
         assert!(state.ai_messages.is_empty());
         assert_eq!(state.ai_status, AiStatus::Ready);
-        assert!(state.ai_error.is_none());
 
         let _ = std::fs::remove_dir_all(&temp_dir);
-    }
-
-    #[test]
-    fn test_ai_language_context_uses_active_file_type() {
-        assert_eq!(ZenthreeState::language_for_file("Practice13.py"), "Python");
-        assert_eq!(ZenthreeState::language_for_file("main.rs"), "Rust");
-        assert!(ZenthreeState::example_snippet("Python").contains("def optimize"));
-        assert!(ZenthreeState::example_snippet("Rust").contains("pub fn optimize"));
     }
 
     #[test]
@@ -4830,43 +4638,19 @@ mod tests {
         state.groq_api_key = None;
         state.gemini_api_key = None;
 
-        // 1. Project query test
+        // 1. Project query test without API keys returns clear provider notice
         state.send_ai_message("hi tell me about this project");
         let msg1 = state.ai_messages.iter().filter(|m| !m.is_user).last().expect("assistant msg");
-        assert!(msg1.content.starts_with("## Project:"));
+        assert!(msg1.content.contains("No AI provider configured"));
 
-        // 2. Refactor suggestion test
+        // 2. Refactor suggestion test without API keys
         state.send_ai_message("refactor this code");
         let msg2 = state.ai_messages.iter().filter(|m| !m.is_user).last().expect("assistant msg");
-        assert!(msg2.content.contains("### Suggested Optimization"));
-        assert!(msg2.content.contains("```rust"));
+        assert!(msg2.content.contains("No AI provider configured"));
 
         let _ = std::fs::remove_dir_all(&temp_dir);
     }
 
-    #[test]
-    fn test_detect_target_file_and_folders_creation() {
-        let tmp_root = std::env::temp_dir().join("zenthree_create_test");
-        let _ = std::fs::create_dir_all(&tmp_root);
-
-        // 1. Detect folder creation
-        let ai_response_folder = "I will create the directories for you.\n\n### Folder: src/nested/components\n### Directory: assets/icons";
-        let folders = detect_target_folders_from_response(ai_response_folder, "make new folders", &tmp_root);
-        assert_eq!(folders.len(), 2);
-        assert_eq!(folders[0], tmp_root.join("src/nested/components"));
-        assert_eq!(folders[1], tmp_root.join("assets/icons"));
-
-        // 2. Detect new file creation anywhere (even deeply nested unopened files)
-        let ai_response_file = "Here is the new file:\n\n### File: src/components/button.rs\n```rust\npub fn button() {}\n```";
-        let file = detect_target_file_from_response(ai_response_file, "create file button.rs", &tmp_root, None);
-        assert_eq!(file, Some(tmp_root.join("src/components/button.rs")));
-
-        // 3. User prompt direct file creation
-        let prompt_file = detect_target_file_from_response("Here is the code", "please create file src/views/dashboard.rs with layout", &tmp_root, None);
-        assert_eq!(prompt_file, Some(tmp_root.join("src/views/dashboard.rs")));
-
-        let _ = std::fs::remove_dir_all(&tmp_root);
-    }
 
     #[test]
     fn test_agent_mission_and_checklist_lifecycle() {
@@ -5069,14 +4853,13 @@ mod tests {
         state.groq_api_key = None;
         state.gemini_api_key = None;
 
-        // Saying "hi" or greeting must act as discussion & guide without reading active buffer code
+        // Saying "hi" or greeting without API key alerts user to configure providers
         state.send_ai_message("hi");
 
         let reply = state.ai_messages.iter().filter(|m| !m.is_user).last().expect("assistant reply");
-        assert!(reply.content.contains("Discussion & Technical Guide"));
+        assert!(reply.content.contains("No AI provider configured"));
         assert!(!reply.content.contains("secret_algorithm"));
         assert!(reply.explored_items.is_empty());
-        assert!(state.current_mission.is_none());
 
         let _ = std::fs::remove_dir_all(&temp_dir);
     }
@@ -5096,14 +4879,6 @@ mod tests {
         let tree1 = state.get_or_update_workspace_tree().to_string();
         assert!(tree1.contains("main.rs"));
         assert!(!tree1.contains("auth_handler.rs"));
-
-        // Work query reads the tree structure
-        state.groq_api_key = None;
-        state.gemini_api_key = None;
-        state.send_ai_message("add new feature to project");
-        let reply1 = state.ai_messages.iter().filter(|m| !m.is_user).last().expect("assistant reply");
-        assert!(reply1.content.contains("main.rs"));
-        assert!(state.current_mission.is_some());
 
         // Add a new file in real time
         let new_file = src_dir.join("auth_handler.rs");

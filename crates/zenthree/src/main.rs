@@ -22,6 +22,11 @@ use zenthra::prelude::*;
 use zenthra::Id;
 
 fn main() {
+    #[cfg(unix)]
+    unsafe {
+        libc::signal(libc::SIGPIPE, libc::SIG_IGN);
+    }
+
     env_logger::init();
 
     // Initialize the modular state (loads persistent state from disk)
@@ -43,8 +48,10 @@ fn main() {
             // Apply universal UI font scaling
             ui.font_scale = state.zoom_level;
 
+            // Poll any completed background dialogs (e.g. Open Folder / Open File)
+            let mut should_redraw = state.poll_pending_dialogs();
+
             // Track global modifier key states and global shortcuts from input events
-            let mut should_redraw = false;
             for event in &ui.input_events {
                 match event {
                     zenthra_platform::event::PlatformEvent::KeyDown { key } => match key {

@@ -145,3 +145,149 @@ pub fn call_gemini_api_with_model(
 
     Err(last_error)
 }
+
+use super::types::{ModelRequest, ModelResponse, ModelToolCall, ProviderRole, StreamChunk, TokenUsage};
+use std::io::{BufRead, BufReader};
+
+pub struct GeminiProvider {
+    api_key: String,
+    preferred_model: String,
+}
+
+impl GeminiProvider {
+    pub fn new(api_key: impl Into<String>) -> Self {
+        Self {
+            api_key: api_key.into(),
+            preferred_model: "gemini-2.5-flash".to_string(),
+        }
+    }
+
+    pub fn with_model(mut self, model: impl Into<String>) -> Self {
+        self.preferred_model = model.into();
+        self
+    }
+
+    /// Converts unified ModelRequest into Gemini REST format.
+    pub fn build_payload(&self, req: &ModelRequest) -> serde_json::Value {
+        let mut contents = Vec::new();
+        for msg in &req.messages {
+            let role = match msg.role {
+                ProviderRole::Assistant => "model",
+                _ => "user",
+            };
+            contents.push(serde_json::json!({
+                "role": role,
+                "parts": [{ "text": msg.content }]
+            }));
+        }
+
+        let mut payload = serde_json::json!({
+            "contents": contents,
+            "generationConfig": {
+                "temperature": req.temperature.unwrap_or(0.3),
+                "maxOutputTokens": req.max_tokens.unwrap_or(8192)
+            }
+        });
+
+        if let Some(ref sys) = req.system {
+            payload["system_instruction"] = serde_json::json!({
+                "parts": [{ "text": sys }]
+            });
+        }
+
+        if !req.tools.is_empty() {
+            let mut function_declarations = Vec::new();
+            for t in &req.tools {
+                if let Some(f) = t.get("function") {
+                    function_declarations.push(f.clone());
+                } else {
+                    function_declarations.push(t.clone());
+                }
+            }
+            payload["tools"] = serde_json::json!([{
+                "function_declarations": function_declarations
+            }]);
+        }
+
+        payload
+    }
+
+    /// Streams completion using Google Gemini streamGenerateContent SSE endpoint.
+    pub fn stream_completion(
+        &self,
+        req: &ModelRequest,
+        mut on_chunk: impl FnMut(StreamChunk),
+    ) -> Result<ModelResponse, String> {
+        let model = if req.model.is_empty() { &self.preferred_model } else { &req.model };
+        let url = format!(
+            "https://generativelanguage.googleapis.com/v1beta/models/{}:streamGenerateContent?alt=sse&key={}",
+            model, self.api_key
+        );
+
+        let payload = self.build_payload(req);
+
+        let agent = ureq::builder()
+            .resolver(ipv4_resolver)
+            .timeout(std::time::Duration::from_secs(60))
+            .build();
+
+        let resp = agent.post(&url)
+            .set("Content-Type", "application/json")
+            .send_json(payload)
+            .map_err(|e| format!("Gemini streaming connection error: {}", e))?;
+
+        let reader = BufReader::new(resp.into_reader());
+        let mut final_content = String::new();
+        let mut tool_calls = Vec::new();
+
+        for line in reader.lines() {
+            let line = line.map_err(|e| format!("Error reading Gemini SSE line: {}", e))?;
+            let trimmed = line.trim();
+            if !trimmed.starts_with("data:") {
+                continue;
+            }
+            let data_str = trimmed["data:".len()..].trim();
+            if data_str.is_empty() || data_str == "[DONE]" {
+                continue;
+            }
+
+            if let Ok(val) = serde_json::from_str::<serde_json::Value>(data_str) {
+                if let Some(candidates) = val.get("candidates").and_then(|c| c.as_array()) {
+                    if let Some(candidate) = candidates.first() {
+                        if let Some(parts) = candidate.get("content").and_then(|c| c.get("parts")).and_then(|p| p.as_array()) {
+                            for part in parts {
+                                if let Some(text) = part.get("text").and_then(|t| t.as_str()) {
+                                    final_content.push_str(text);
+                                    on_chunk(StreamChunk::Text { delta: text.to_string() });
+                                }
+                                if let Some(func_call) = part.get("functionCall") {
+                                    let name = func_call["name"].as_str().unwrap_or("").to_string();
+                                    let args = func_call.get("args").cloned().unwrap_or(serde_json::Value::Null);
+                                    tool_calls.push(ModelToolCall {
+                                        id: format!("call_{}", name),
+                                        name: name.clone(),
+                                        arguments: args.clone(),
+                                    });
+                                    on_chunk(StreamChunk::ToolCallChunk {
+                                        id: format!("call_{}", name),
+                                        name,
+                                        arguments_delta: serde_json::to_string(&args).unwrap_or_default(),
+                                    });
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        on_chunk(StreamChunk::Done);
+
+        Ok(ModelResponse {
+            content: final_content,
+            thinking: None,
+            tool_calls,
+            usage: TokenUsage::default(),
+        })
+    }
+}

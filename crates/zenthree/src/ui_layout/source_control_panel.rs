@@ -1105,10 +1105,8 @@ fn draw_empty_no_workspace(ui: &mut Ui, state: &mut ZenthreeState) {
                 .show();
 
             if open_btn.clicked {
-                if let Some(path) = rfd::FileDialog::new().pick_folder() {
-                    state.open_workspace(path);
-                    ui.request_redraw();
-                }
+                state.request_open_workspace_dialog();
+                ui.request_redraw();
             }
         });
 }

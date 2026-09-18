@@ -27,8 +27,11 @@ pub use git::{execute_git_status, execute_git_diff};
 pub use environment::{DetectorAgent, execute_detect_environment};
 pub use parser::{
     parse_search_replace_blocks, parse_agent_tool_calls, parse_single_tool_call_value,
-    extract_all_file_modifications, extract_json_tool_modifications, ground_workspace_path,
+    parse_tool_call_values, extract_all_file_modifications, extract_json_tool_modifications,
+    ground_workspace_path,
 };
+pub mod mcp_bridge;
+
 pub use fs::{
     execute_write_file, execute_edit_file, write_file_schema, edit_file_schema,
     read_file_schema, ReadFileInput, ReadFileOutput, WriteFileInput, WriteFileOutput,
@@ -37,7 +40,8 @@ pub use fs::{
 pub use terminal::{
     execute_terminal, terminal_schema, TerminalInput, TerminalOutput,
 };
-pub use schema::{all_tool_schemas, format_few_shot_tool_examples};
+pub use schema::{all_tool_schemas, all_tool_schemas_with_mcp, format_few_shot_tool_examples};
+pub use mcp_bridge::{McpToolBridge, RegisteredMcpTool};
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub enum AgentToolCall {
@@ -63,6 +67,10 @@ pub enum AgentToolCall {
         search: String,
         replace: String,
     },
+    WriteFile {
+        path: String,
+        content: String,
+    },
     DetectEnvironment {
         #[serde(default)]
         subpath: Option<String>,
@@ -72,6 +80,32 @@ pub enum AgentToolCall {
         #[serde(default)]
         staged_only: bool,
     },
+    Mcp {
+        tool_name: String,
+        #[serde(default)]
+        arguments: serde_json::Value,
+    },
+}
+
+impl AgentToolCall {
+    pub fn tool_name(&self) -> &str {
+        match self {
+            AgentToolCall::ReadFile { .. } => "read_file",
+            AgentToolCall::SearchCode { .. } => "grep",
+            AgentToolCall::ListDirectory { .. } => "list_directory",
+            AgentToolCall::RunCommand { .. } => "terminal",
+            AgentToolCall::EditFile { .. } => "edit_file",
+            AgentToolCall::WriteFile { .. } => "write_file",
+            AgentToolCall::DetectEnvironment { .. } => "detect_environment",
+            AgentToolCall::GitStatus => "git_status",
+            AgentToolCall::GitDiff { .. } => "git_diff",
+            AgentToolCall::Mcp { tool_name, .. } => tool_name.as_str(),
+        }
+    }
+
+    pub fn to_json_args(&self) -> serde_json::Value {
+        serde_json::to_value(self).unwrap_or_else(|_| serde_json::json!({}))
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -96,11 +130,7 @@ pub fn execute_agent_tool(workspace: &Path, call: &AgentToolCall) -> AgentToolRe
             execute_run_command(workspace, cmd)
         }
         AgentToolCall::EditFile { path, search, replace } => {
-            let full_path = if Path::new(path).is_absolute() {
-                std::path::PathBuf::from(path)
-            } else {
-                workspace.join(path)
-            };
+            let full_path = ground_workspace_path(workspace, path);
             match std::fs::read_to_string(&full_path) {
                 Ok(content) => {
                     let blocks = vec![SearchReplaceBlock {
@@ -134,6 +164,24 @@ pub fn execute_agent_tool(workspace: &Path, call: &AgentToolCall) -> AgentToolRe
                 },
             }
         }
+        AgentToolCall::WriteFile { path, content } => {
+            let full_path = ground_workspace_path(workspace, path);
+            if let Some(parent) = full_path.parent() {
+                let _ = std::fs::create_dir_all(parent);
+            }
+            match std::fs::write(&full_path, content) {
+                Ok(_) => AgentToolResult {
+                    tool_name: "write_file".to_string(),
+                    ok: true,
+                    output: format!("Successfully wrote `{}`", path),
+                },
+                Err(e) => AgentToolResult {
+                    tool_name: "write_file".to_string(),
+                    ok: false,
+                    output: format!("Failed to write file `{}`: {}", path, e),
+                },
+            }
+        }
         AgentToolCall::DetectEnvironment { subpath } => {
             execute_detect_environment(workspace, subpath.as_deref())
         }
@@ -143,6 +191,34 @@ pub fn execute_agent_tool(workspace: &Path, call: &AgentToolCall) -> AgentToolRe
         AgentToolCall::GitDiff { staged_only } => {
             execute_git_diff(workspace, *staged_only)
         }
+        AgentToolCall::Mcp { tool_name, .. } => {
+            AgentToolResult {
+                tool_name: tool_name.clone(),
+                ok: false,
+                output: format!("External MCP tool '{}' requires an active McpToolBridge to execute", tool_name),
+            }
+        }
+    }
+}
+
+pub fn execute_agent_tool_with_bridge(
+    workspace: &Path,
+    call: &AgentToolCall,
+    bridge: Option<&McpToolBridge>,
+) -> AgentToolResult {
+    match call {
+        AgentToolCall::Mcp { tool_name, arguments } => {
+            if let Some(mcp) = bridge {
+                mcp.execute_mcp_tool(tool_name, Some(arguments.clone()), std::time::Duration::from_secs(30))
+            } else {
+                AgentToolResult {
+                    tool_name: tool_name.clone(),
+                    ok: false,
+                    output: format!("No MCP bridge available to execute external tool '{}'", tool_name),
+                }
+            }
+        }
+        other => execute_agent_tool(workspace, other),
     }
 }
 

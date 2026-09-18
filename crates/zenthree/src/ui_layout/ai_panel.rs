@@ -1584,6 +1584,115 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                     }
                 });
 
+            // ─── Interactive Permission Request Card ───────────────────────────
+            if let Some(perm) = state.ai_pending_permissions.first().cloned() {
+                let perm_card_w = ai_panel_w - 16.0;
+                let mut allow_once = false;
+                let mut allow_always = false;
+                let mut deny = false;
+
+                ui.container()
+                    .width(perm_card_w)
+                    .padding(8.0, 10.0, 8.0, 10.0)
+                    .bg(Color::rgba(245.0 / 255.0, 158.0 / 255.0, 11.0 / 255.0, 0.08))
+                    .border(Color::rgba(245.0 / 255.0, 158.0 / 255.0, 11.0 / 255.0, 0.4), 1.0)
+                    .radius_all(6.0)
+                    .column()
+                    .gap(6.0)
+                    .show(|ui| {
+                        ui.container()
+                            .row()
+                            .valign(Align::Center)
+                            .gap(6.0)
+                            .show(|ui| {
+                                ui.text("\u{f3ed}")
+                                    .size(11.0)
+                                    .color(Color::rgb(245.0 / 255.0, 158.0 / 255.0, 11.0 / 255.0))
+                                    .show();
+                                ui.text(&format!("Permission Request: {}", perm.tool_name))
+                                    .size(10.5)
+                                    .weight(FontWeight::SemiBold)
+                                    .color(colors.text_primary)
+                                    .show();
+                            });
+
+                        ui.text(&perm.reason)
+                            .size(9.5)
+                            .color(colors.text_muted)
+                            .show();
+
+                        if let Some(ref action) = perm.suggested_action {
+                            ui.text(&format!("Action: {}", action))
+                                .size(9.0)
+                                .color(colors.text_muted)
+                                .show();
+                        }
+
+                        ui.container()
+                            .row()
+                            .gap(6.0)
+                            .valign(Align::Center)
+                            .show(|ui| {
+                                let allow_btn = ui.container()
+                                    .padding(2.5, 8.0, 2.5, 8.0)
+                                    .bg(colors.accent)
+                                    .radius_all(3.0)
+                                    .show(|ui| {
+                                        ui.text("Allow Once")
+                                            .size(9.0)
+                                            .weight(FontWeight::SemiBold)
+                                            .color(Color::WHITE)
+                                            .show();
+                                    });
+                                if allow_btn.clicked {
+                                    allow_once = true;
+                                }
+
+                                let always_btn = ui.container()
+                                    .padding(2.5, 8.0, 2.5, 8.0)
+                                    .bg(colors.bg_base)
+                                    .border(colors.border, 1.0)
+                                    .radius_all(3.0)
+                                    .show(|ui| {
+                                        ui.text("Always Allow")
+                                            .size(9.0)
+                                            .color(colors.text_primary)
+                                            .show();
+                                    });
+                                if always_btn.clicked {
+                                    allow_always = true;
+                                }
+
+                                let deny_btn = ui.container()
+                                    .padding(2.5, 8.0, 2.5, 8.0)
+                                    .bg(Color::rgba(239.0 / 255.0, 68.0 / 255.0, 68.0 / 255.0, 0.15))
+                                    .border(Color::rgba(239.0 / 255.0, 68.0 / 255.0, 68.0 / 255.0, 0.4), 1.0)
+                                    .radius_all(3.0)
+                                    .show(|ui| {
+                                        ui.text("Deny")
+                                            .size(9.0)
+                                            .weight(FontWeight::Medium)
+                                            .color(Color::rgb(239.0 / 255.0, 68.0 / 255.0, 68.0 / 255.0))
+                                            .show();
+                                    });
+                                if deny_btn.clicked {
+                                    deny = true;
+                                }
+                            });
+                    });
+
+                if allow_once {
+                    state.respond_to_permission(&perm.call_id, true, false);
+                    ui.needs_redraw = true;
+                } else if allow_always {
+                    state.respond_to_permission(&perm.call_id, true, true);
+                    ui.needs_redraw = true;
+                } else if deny {
+                    state.respond_to_permission(&perm.call_id, false, false);
+                    ui.needs_redraw = true;
+                }
+            }
+
             // ─── Active Drawer: Popover above Toolbar ──────────────────────
             let mut file_to_open = None;
 

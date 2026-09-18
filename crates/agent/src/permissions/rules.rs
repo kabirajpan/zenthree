@@ -164,7 +164,10 @@ impl PermissionPolicyTable {
         let grant_key = format!("{}:{}", tool_name, input);
 
         // 2. Session denials (active AlwaysDeny)
-        if self.session_denials.contains(&grant_key) {
+        if self.session_denials.contains(&grant_key)
+            || self.session_denials.contains(tool_name)
+            || self.session_denials.contains(&format!("{}:", tool_name))
+        {
             return ToolPermissionDecision::Deny {
                 reason: "Denied by active session policy (AlwaysDeny)".to_string(),
             };
@@ -182,7 +185,10 @@ impl PermissionPolicyTable {
             }
 
             // 4. Session grants (active AlwaysAllow)
-            if self.session_grants.contains(&grant_key) {
+            if self.session_grants.contains(&grant_key)
+                || self.session_grants.contains(tool_name)
+                || self.session_grants.contains(&format!("{}:", tool_name))
+            {
                 return ToolPermissionDecision::Allow;
             }
 

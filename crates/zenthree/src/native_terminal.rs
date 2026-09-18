@@ -6,6 +6,7 @@ use std::path::Path;
 
 pub struct NativeTerminalSession {
     master: Box<dyn MasterPty + Send>,
+    _child: Box<dyn portable_pty::Child + Send + Sync>,
     writer: Arc<Mutex<Box<dyn Write + Send>>>,
     pub lines: Arc<Mutex<Vec<String>>>,
     pub pending_line: Arc<Mutex<String>>,
@@ -86,7 +87,7 @@ impl NativeTerminalSession {
         cmd.cwd(cwd);
         cmd.env("TERM", "xterm-256color");
 
-        let _child = pair.slave.spawn_command(cmd).ok()?;
+        let child = pair.slave.spawn_command(cmd).ok()?;
 
         let writer = Arc::new(Mutex::new(pair.master.take_writer().ok()?));
         let lines = Arc::new(Mutex::new(vec![
@@ -155,6 +156,7 @@ impl NativeTerminalSession {
 
         Some(Self {
             master: pair.master,
+            _child: child,
             writer,
             lines,
             pending_line,
@@ -192,7 +194,6 @@ impl NativeTerminalSession {
         }
     }
 
-    #[allow(dead_code)]
     pub fn write_raw(&mut self, bytes: &[u8]) {
         if let Ok(mut w) = self.writer.lock() {
             let _ = w.write_all(bytes);

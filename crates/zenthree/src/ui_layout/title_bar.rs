@@ -108,15 +108,11 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                             ui.request_redraw();
                         }
                         if ui.menu_item("Open File...").shortcut("Ctrl+O").show().clicked {
-                            if let Some(path) = rfd::FileDialog::new().pick_file() {
-                                state.open_file(&path);
-                            }
+                            state.request_open_file_dialog();
                             ui.request_redraw();
                         }
                         if ui.menu_item("Open Folder...").shortcut("Ctrl+Shift+O").show().clicked {
-                            if let Some(path) = rfd::FileDialog::new().pick_folder() {
-                                state.open_workspace(path);
-                            }
+                            state.request_open_workspace_dialog();
                             ui.request_redraw();
                         }
                         if state.has_workspace {

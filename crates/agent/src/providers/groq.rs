@@ -132,3 +132,42 @@ pub fn call_groq_api_with_model(
     messages.push(ChatMessage::user(user_prompt));
     call_groq_api_messages_with_model(api_key, &messages, preferred_model)
 }
+
+use super::openai::OpenAiProvider;
+use super::types::{ModelRequest, ModelResponse, StreamChunk};
+
+pub const GROQ_API_URL: &str = "https://api.groq.com/openai/v1/chat/completions";
+pub const DEFAULT_GROQ_MODEL: &str = "llama-3.3-70b-versatile";
+
+pub struct GroqProvider {
+    inner: OpenAiProvider,
+    default_model: String,
+}
+
+impl GroqProvider {
+    pub fn new(api_key: impl Into<String>) -> Self {
+        let inner = OpenAiProvider::new(api_key).with_custom_url(GROQ_API_URL);
+        Self {
+            inner,
+            default_model: DEFAULT_GROQ_MODEL.to_string(),
+        }
+    }
+
+    pub fn with_model(mut self, model: impl Into<String>) -> Self {
+        self.default_model = model.into();
+        self
+    }
+
+    /// Streams completion from Groq high-speed inference.
+    pub fn stream_completion(
+        &self,
+        req: &ModelRequest,
+        on_chunk: impl FnMut(StreamChunk),
+    ) -> Result<ModelResponse, String> {
+        let mut request = req.clone();
+        if request.model.is_empty() {
+            request.model = self.default_model.clone();
+        }
+        self.inner.stream_completion(&request, on_chunk)
+    }
+}

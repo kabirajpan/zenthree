@@ -15,6 +15,15 @@ pub fn all_tool_schemas() -> Vec<Value> {
     ]
 }
 
+/// Returns all tool JSON Schemas including dynamically registered external MCP tools.
+pub fn all_tool_schemas_with_mcp(bridge: Option<&super::mcp_bridge::McpToolBridge>) -> Vec<Value> {
+    let mut schemas = all_tool_schemas();
+    if let Some(mcp) = bridge {
+        schemas.extend(mcp.to_llm_tool_schemas());
+    }
+    schemas
+}
+
 /// Generates the few-shot `<tool_call_examples>` block proven to boost tool calling accuracy.
 pub fn format_few_shot_tool_examples() -> String {
     let mut out = String::new();

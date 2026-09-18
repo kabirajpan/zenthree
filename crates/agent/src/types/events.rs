@@ -50,7 +50,34 @@ pub enum AgentEvent {
     StatusChanged {
         status: String,
     },
+    PermissionPrompt {
+        call_id: String,
+        tool_name: String,
+        reason: String,
+        suggested_action: Option<String>,
+    },
+    DiffHunk {
+        file_path: String,
+        line: usize,
+        old: String,
+        new: String,
+    },
+    CheckpointCommitted {
+        checkpoint_id: String,
+        files: Vec<String>,
+    },
+    CheckpointReverted {
+        checkpoint_id: String,
+    },
     Error {
         error: String,
     },
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PendingPermissionRequest {
+    pub call_id: String,
+    pub tool_name: String,
+    pub reason: String,
+    pub suggested_action: Option<String>,
 }

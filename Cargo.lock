@@ -5068,6 +5068,7 @@ dependencies = [
  "editor",
  "env_logger",
  "formatter",
+ "libc",
  "log",
  "portable-pty",
  "pulldown-cmark",
