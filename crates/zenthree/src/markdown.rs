@@ -13,6 +13,12 @@ pub enum InlineItem {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct MarkdownListItem {
+    pub depth: usize,
+    pub inlines: Vec<InlineItem>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum MarkdownBlock {
     Heading {
         level: u32,
@@ -27,7 +33,7 @@ pub enum MarkdownBlock {
     },
     List {
         ordered: bool,
-        items: Vec<Vec<InlineItem>>,
+        items: Vec<MarkdownListItem>,
     },
     BlockQuote {
         inlines: Vec<InlineItem>,
@@ -60,9 +66,12 @@ pub fn parse_markdown(input: &str) -> Vec<MarkdownBlock> {
     let mut current_link_url: Option<String> = None;
     let mut in_code_block: Option<String> = None;
     let mut code_block_buf = String::new();
-    let mut in_list: Option<bool> = None;
-    let mut list_items: Vec<Vec<InlineItem>> = Vec::new();
-    let mut in_item = false;
+    struct ListFrame {
+        ordered: bool,
+        items: Vec<MarkdownListItem>,
+    }
+
+    let mut list_stack: Vec<ListFrame> = Vec::new();
     let mut heading_level: Option<u32> = None;
 
     for event in parser {
@@ -81,7 +90,7 @@ pub fn parse_markdown(input: &str) -> Vec<MarkdownBlock> {
                     current_inlines.clear();
                 }
                 Tag::Paragraph => {
-                    if !in_item {
+                    if list_stack.is_empty() {
                         current_inlines.clear();
                     }
                 }
@@ -94,11 +103,22 @@ pub fn parse_markdown(input: &str) -> Vec<MarkdownBlock> {
                     code_block_buf.clear();
                 }
                 Tag::List(start) => {
-                    in_list = Some(start.is_some());
-                    list_items.clear();
+                    // If already within a list item and collected inlines for it, commit them before nesting
+                    let depth = list_stack.len().saturating_sub(1);
+                    if let Some(parent_frame) = list_stack.last_mut() {
+                        if !current_inlines.is_empty() {
+                            parent_frame.items.push(MarkdownListItem {
+                                depth,
+                                inlines: std::mem::take(&mut current_inlines),
+                            });
+                        }
+                    }
+                    list_stack.push(ListFrame {
+                        ordered: start.is_some(),
+                        items: Vec::new(),
+                    });
                 }
                 Tag::Item => {
-                    in_item = true;
                     current_inlines.clear();
                 }
                 Tag::BlockQuote(_) => {
@@ -125,7 +145,7 @@ pub fn parse_markdown(input: &str) -> Vec<MarkdownBlock> {
                     }
                 }
                 TagEnd::Paragraph => {
-                    if !in_item && !current_inlines.is_empty() {
+                    if list_stack.is_empty() && !current_inlines.is_empty() {
                         blocks.push(MarkdownBlock::Paragraph {
                             inlines: std::mem::take(&mut current_inlines),
                         });
@@ -141,15 +161,28 @@ pub fn parse_markdown(input: &str) -> Vec<MarkdownBlock> {
                     }
                 }
                 TagEnd::Item => {
-                    in_item = false;
-                    list_items.push(std::mem::take(&mut current_inlines));
+                    let depth = list_stack.len().saturating_sub(1);
+                    if let Some(frame) = list_stack.last_mut() {
+                        if !current_inlines.is_empty() {
+                            frame.items.push(MarkdownListItem {
+                                depth,
+                                inlines: std::mem::take(&mut current_inlines),
+                            });
+                        }
+                    }
                 }
                 TagEnd::List(_) => {
-                    if let Some(ordered) = in_list.take() {
-                        blocks.push(MarkdownBlock::List {
-                            ordered,
-                            items: std::mem::take(&mut list_items),
-                        });
+                    if let Some(finished_frame) = list_stack.pop() {
+                        if let Some(parent_frame) = list_stack.last_mut() {
+                            // Merge nested list items into the parent frame while preserving their depth
+                            parent_frame.items.extend(finished_frame.items);
+                        } else {
+                            // Outermost list block complete
+                            blocks.push(MarkdownBlock::List {
+                                ordered: finished_frame.ordered,
+                                items: finished_frame.items,
+                            });
+                        }
                     }
                 }
                 TagEnd::BlockQuote(_) => {
@@ -201,6 +234,18 @@ pub fn parse_markdown(input: &str) -> Vec<MarkdownBlock> {
                 }
             }
             _ => {}
+        }
+    }
+
+    // Flush any remaining unclosed list frames if malformed markdown
+    while let Some(finished_frame) = list_stack.pop() {
+        if let Some(parent_frame) = list_stack.last_mut() {
+            parent_frame.items.extend(finished_frame.items);
+        } else {
+            blocks.push(MarkdownBlock::List {
+                ordered: finished_frame.ordered,
+                items: finished_frame.items,
+            });
         }
     }
 
@@ -277,6 +322,12 @@ pub fn tokenize_inlines(inlines: &[InlineItem]) -> Vec<WordToken> {
 }
 
 #[derive(Debug, Clone, PartialEq)]
+pub struct PreparedListItem {
+    pub depth: usize,
+    pub tokens: Vec<WordToken>,
+}
+
+#[derive(Debug, Clone, PartialEq)]
 pub enum PreparedBlock {
     Heading {
         level: u32,
@@ -293,7 +344,7 @@ pub enum PreparedBlock {
     },
     List {
         ordered: bool,
-        items: Vec<Vec<WordToken>>,
+        items: Vec<PreparedListItem>,
     },
     BlockQuote {
         tokens: Vec<WordToken>,
@@ -351,7 +402,10 @@ pub fn get_or_prepare_markdown(content: &str) -> std::sync::Arc<Vec<PreparedBloc
             MarkdownBlock::List { ordered, items } => {
                 let prepared_items = items
                     .into_iter()
-                    .map(|item_inlines| tokenize_inlines(&item_inlines))
+                    .map(|item| PreparedListItem {
+                        depth: item.depth,
+                        tokens: tokenize_inlines(&item.inlines),
+                    })
                     .collect();
                 prepared.push(PreparedBlock::List {
                     ordered,
@@ -614,26 +668,43 @@ pub fn render_markdown_preview(
                     .full_width()
                     .padding(1.0, 0.0, 2.0, 0.0)
                     .column()
-                    .gap(2.5)
+                    .gap(3.0)
                     .show(|ui| {
-                        for (idx, tokens) in items.iter().enumerate() {
+                        let mut order_counters = [0usize; 8];
+                        for item in items.iter() {
+                            let depth = item.depth.min(7);
+                            order_counters[depth] += 1;
+                            for d in (depth + 1)..8 {
+                                order_counters[d] = 0;
+                            }
+
+                            let left_indent = (depth as f32) * 14.0;
+                            let bullet_sym = if depth == 0 {
+                                "•"
+                            } else if depth == 1 {
+                                "◦"
+                            } else {
+                                "–"
+                            };
+
                             ui.container()
                                 .full_width()
+                                .padding(0.0, 0.0, 0.0, left_indent)
                                 .row()
                                 .no_wrap()
                                 .gap(6.0)
                                 .valign(Align::Top)
                                 .show(|ui| {
                                     if *ordered {
-                                        ui.text(&format!("{}.", idx + 1))
+                                        ui.text(&format!("{}.", order_counters[depth]))
                                             .size(10.0)
                                             .weight(FontWeight::Bold)
                                             .color(colors.accent)
                                             .show();
                                     } else {
-                                        ui.text("•")
+                                        ui.text(bullet_sym)
                                             .size(10.0)
-                                            .color(colors.accent)
+                                            .color(if depth == 0 { colors.accent } else { colors.text_muted })
                                             .show();
                                     }
 
@@ -644,7 +715,7 @@ pub fn render_markdown_preview(
                                         .gap(3.5)
                                         .valign(Align::Center)
                                         .show(|ui| {
-                                            for token in tokens {
+                                            for token in &item.tokens {
                                                 render_token_widget(ui, token, colors, code_badge_bg);
                                             }
                                         });
@@ -825,5 +896,38 @@ mod tests {
         assert_eq!(second.len(), 3);
         // Verify both point to identical cached Arc allocation
         assert!(std::sync::Arc::ptr_eq(&first, &second));
+    }
+
+    #[test]
+    fn test_parse_markdown_nested_lists() {
+        let md = "* crates/zenthree/: The main application\n* crates/editor/: Contains fundamental structures:\n  * rope/: Efficient text storage\n  * buffer/: Manages file contents\n* crates/syntax/: Syntax highlighting\n";
+        let blocks = parse_markdown(md);
+        assert_eq!(blocks.len(), 1);
+        match &blocks[0] {
+            MarkdownBlock::List { ordered, items } => {
+                assert_eq!(*ordered, false);
+                // All 5 items must be preserved!
+                assert_eq!(items.len(), 5);
+                assert_eq!(items[0].depth, 0);
+                assert_eq!(items[1].depth, 0);
+                assert_eq!(items[2].depth, 1);
+                assert_eq!(items[3].depth, 1);
+                assert_eq!(items[4].depth, 0);
+
+                // Verify the parent text was NOT wiped out
+                let item0_text = items[0].inlines.iter().map(|i| match i {
+                    InlineItem::Text(s) => s.as_str(),
+                    _ => "",
+                }).collect::<String>();
+                assert!(item0_text.contains("crates/zenthree/"));
+
+                let item1_text = items[1].inlines.iter().map(|i| match i {
+                    InlineItem::Text(s) => s.as_str(),
+                    _ => "",
+                }).collect::<String>();
+                assert!(item1_text.contains("crates/editor/"));
+            }
+            _ => panic!("Expected MarkdownBlock::List"),
+        }
     }
 }

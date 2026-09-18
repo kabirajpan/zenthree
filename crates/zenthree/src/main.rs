@@ -90,6 +90,35 @@ fn main() {
                             state.save_persistent_state();
                             should_redraw = true;
                         }
+                        // Go to Definition (F12)
+                        winit::keyboard::KeyCode::F12 => {
+                            state.goto_definition_at_cursor();
+                            should_redraw = true;
+                        }
+                        // Request Hover Documentation (Ctrl+H)
+                        winit::keyboard::KeyCode::KeyH if state.ctrl_pressed => {
+                            state.request_hover_at_cursor();
+                            should_redraw = true;
+                        }
+                        // Toggle In-Buffer Find (Ctrl+F)
+                        winit::keyboard::KeyCode::KeyF if state.ctrl_pressed => {
+                            state.toggle_find_in_buffer();
+                            should_redraw = true;
+                        }
+                        // Find match navigation when find overlay is active
+                        winit::keyboard::KeyCode::Enter if state.find_in_buffer_open => {
+                            if state.shift_pressed {
+                                state.prev_find_match();
+                            } else {
+                                state.next_find_match();
+                            }
+                            should_redraw = true;
+                        }
+                        winit::keyboard::KeyCode::Escape if state.find_in_buffer_open => {
+                            state.find_in_buffer_open = false;
+                            state.find_matches.clear();
+                            should_redraw = true;
+                        }
                         _ => {}
                     },
                     zenthra_platform::event::PlatformEvent::KeyUp { key } => match key {
@@ -111,8 +140,14 @@ fn main() {
                 ui.request_redraw();
             }
 
-            // Poll background LSP messages (diagnostics, completions, server lifecycle)
+            // Poll background LSP messages (diagnostics, completions, definition, hover, server lifecycle)
             if state.lsp_manager.poll() {
+                if let Some(loc) = state.lsp_manager.latest_definition.take() {
+                    state.jump_to_location(&loc);
+                }
+                if let Some(hover) = state.lsp_manager.latest_hover.take() {
+                    state.active_hover_text = Some(hover.contents.to_markdown_or_plain());
+                }
                 ui.request_redraw();
             }
 

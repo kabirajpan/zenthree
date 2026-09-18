@@ -305,6 +305,76 @@ pub struct CompletionParams {
     pub position: Position,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Location {
+    pub uri: String,
+    pub range: Range,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum GotoDefinitionResponse {
+    Scalar(Location),
+    Array(Vec<Location>),
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GotoDefinitionParams {
+    #[serde(rename = "textDocument")]
+    pub text_document: TextDocumentIdentifier,
+    pub position: Position,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct HoverParams {
+    #[serde(rename = "textDocument")]
+    pub text_document: TextDocumentIdentifier,
+    pub position: Position,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct MarkupContent {
+    pub kind: String,
+    pub value: String,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(untagged)]
+pub enum HoverContents {
+    Scalar(String),
+    Markup(MarkupContent),
+    Array(Vec<serde_json::Value>),
+}
+
+impl HoverContents {
+    pub fn to_markdown_or_plain(&self) -> String {
+        match self {
+            HoverContents::Scalar(s) => s.clone(),
+            HoverContents::Markup(m) => m.value.clone(),
+            HoverContents::Array(arr) => {
+                arr.iter()
+                    .filter_map(|v| {
+                        if let Some(s) = v.as_str() {
+                            Some(s.to_string())
+                        } else if let Ok(m) = serde_json::from_value::<MarkupContent>(v.clone()) {
+                            Some(m.value)
+                        } else {
+                            None
+                        }
+                    })
+                    .collect::<Vec<_>>()
+                    .join("\n\n")
+            }
+        }
+    }
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Hover {
+    pub contents: HoverContents,
+    pub range: Option<Range>,
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -364,5 +434,61 @@ mod tests {
             }
             _ => panic!("Expected CompletionList"),
         }
+    }
+
+    #[test]
+    fn test_goto_definition_response_deserialization() {
+        let json_loc = serde_json::json!({
+            "uri": "file:///path/to/file.rs",
+            "range": {
+                "start": { "line": 42, "character": 7 },
+                "end": { "line": 42, "character": 15 }
+            }
+        });
+        let resp: GotoDefinitionResponse = serde_json::from_value(json_loc).expect("Failed to parse scalar location");
+        match resp {
+            GotoDefinitionResponse::Scalar(loc) => {
+                assert_eq!(loc.uri, "file:///path/to/file.rs");
+                assert_eq!(loc.range.start.line, 42);
+                assert_eq!(loc.range.start.character, 7);
+            }
+            _ => panic!("Expected scalar location"),
+        }
+
+        let json_arr = serde_json::json!([
+            {
+                "uri": "file:///path/to/def.rs",
+                "range": {
+                    "start": { "line": 1, "character": 0 },
+                    "end": { "line": 1, "character": 5 }
+                }
+            }
+        ]);
+        let resp_arr: GotoDefinitionResponse = serde_json::from_value(json_arr).expect("Failed to parse array location");
+        match resp_arr {
+            GotoDefinitionResponse::Array(locs) => {
+                assert_eq!(locs.len(), 1);
+                assert_eq!(locs[0].uri, "file:///path/to/def.rs");
+            }
+            _ => panic!("Expected array location"),
+        }
+    }
+
+    #[test]
+    fn test_hover_deserialization() {
+        let json_hover = serde_json::json!({
+            "contents": {
+                "kind": "markdown",
+                "value": "```rust\npub fn hello()\n```\nSays hello"
+            },
+            "range": {
+                "start": { "line": 5, "character": 4 },
+                "end": { "line": 5, "character": 9 }
+            }
+        });
+
+        let hover: Hover = serde_json::from_value(json_hover).expect("Failed to parse hover");
+        assert_eq!(hover.contents.to_markdown_or_plain(), "```rust\npub fn hello()\n```\nSays hello");
+        assert!(hover.range.is_some());
     }
 }

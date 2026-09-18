@@ -195,6 +195,8 @@ pub struct AiMessage {
     #[serde(default)]
     pub is_working: bool,
     #[serde(default)]
+    pub status_text: Option<String>,
+    #[serde(default)]
     pub sub_agent: Option<crate::agent::SubAgentRole>,
     #[serde(default)]
     pub elapsed_secs: Option<u64>,
@@ -211,6 +213,7 @@ impl Default for AiMessage {
             explored_items: Vec::new(),
             edited_files: Vec::new(),
             is_working: false,
+            status_text: None,
             sub_agent: None,
             elapsed_secs: None,
         }
@@ -433,6 +436,11 @@ pub struct ZenthreeState {
     pub completion_active: bool,
     pub completion_items: Vec<crate::lsp::protocol::CompletionItem>,
     pub completion_selected_idx: usize,
+    pub active_hover_text: Option<String>,
+    pub find_in_buffer_open: bool,
+    pub find_query: String,
+    pub find_match_index: usize,
+    pub find_matches: Vec<(usize, usize, usize)>, // (row, start_col, end_col)
     pub inline_tree_input: Option<InlineTreeState>,
     pub tree_context_menu: Option<TreeContextMenu>,
     pub tree_clipboard: Option<TreeClipboardAction>,
@@ -452,7 +460,9 @@ pub struct ZenthreeState {
     pub pending_modifications: Vec<PendingModification>,
     pub last_ai_prompt: String,
     pub expanded_explored_msgs: std::collections::HashSet<usize>,
+    pub collapsed_explored_folders: std::collections::HashSet<(usize, String)>,
     pub expanded_thought_items: std::collections::HashSet<(usize, usize)>,
+    #[allow(dead_code)]
     pub expanded_worked_msgs: std::collections::HashSet<usize>,
     pub ai_request_start_times: std::collections::HashMap<usize, std::time::Instant>,
     pub expanded_code_blocks: std::collections::HashSet<u64>,
@@ -597,6 +607,11 @@ impl ZenthreeState {
             completion_active: false,
             completion_items: Vec::new(),
             completion_selected_idx: 0,
+            active_hover_text: None,
+            find_in_buffer_open: false,
+            find_query: String::new(),
+            find_match_index: 0,
+            find_matches: Vec::new(),
             inline_tree_input: None,
             tree_context_menu: None,
             tree_clipboard: None,
@@ -610,6 +625,7 @@ impl ZenthreeState {
             pending_modifications: Vec::new(),
             last_ai_prompt: String::new(),
             expanded_explored_msgs: std::collections::HashSet::new(),
+            collapsed_explored_folders: std::collections::HashSet::new(),
             expanded_thought_items: std::collections::HashSet::new(),
             expanded_worked_msgs: std::collections::HashSet::new(),
             ai_request_start_times: std::collections::HashMap::new(),
@@ -643,7 +659,14 @@ impl ZenthreeState {
             ai_pending_prompt: None,
             ai_generation_ticks: 0,
             ai_context_snapshot: String::new(),
+            #[cfg(test)]
             ai_backend: crate::agent::AgentBackend::Native,
+            #[cfg(not(test))]
+            ai_backend: if ai::GooseSupervisor::new().find_binary().is_some() {
+                crate::agent::AgentBackend::GooseAcp
+            } else {
+                crate::agent::AgentBackend::Native
+            },
         };
 
         // Restore previous session preferences (theme, accent, extensions, etc.)
@@ -868,7 +891,42 @@ impl ZenthreeState {
                 ai::AgentEvent::ToolStarted { tool, summary } => {
                     if let Some(msg) = self.ai_messages.get_mut(idx) {
                         msg.is_working = true;
+                        let clean_tool = tool.trim();
+                        if clean_tool.starts_with("search") {
+                            msg.status_text = Some("Searching".to_string());
+                        } else if clean_tool.starts_with("read") {
+                            msg.status_text = Some("Reading".to_string());
+                        } else {
+                            msg.status_text = Some("Working".to_string());
+                        }
                         msg.content = format!("⚡ *Executing:* `{}`...", tool);
+                        if clean_tool.starts_with("read ") || clean_tool.starts_with("read_file") {
+                            let path = clean_tool.trim_start_matches("read ").trim_start_matches("read_file").trim().trim_matches('`').trim_start_matches("./");
+                            let fname = if path.is_empty() { "file".to_string() } else { path.to_string() };
+                            if !fname.is_empty() && !msg.explored_items.iter().any(|i| i.file_name == fname) {
+                                msg.explored_items.push(ExploredItem {
+                                    file_name: fname,
+                                    line_range: None,
+                                    action_type: "Analyzed".to_string(),
+                                    thought_content: None,
+                                    duration_secs: None,
+                                    children: Vec::new(),
+                                });
+                            }
+                        } else if clean_tool.starts_with("list ") || clean_tool.starts_with("list_directory") {
+                            let path = clean_tool.trim_start_matches("list ").trim_start_matches("list_directory").trim().trim_matches('`').trim_start_matches("./");
+                            let fname = if path.is_empty() || path == "." { ".".to_string() } else { path.to_string() };
+                            if !fname.is_empty() && !msg.explored_items.iter().any(|i| i.file_name == fname) {
+                                msg.explored_items.push(ExploredItem {
+                                    file_name: fname,
+                                    line_range: None,
+                                    action_type: "Analyzed".to_string(),
+                                    thought_content: None,
+                                    duration_secs: None,
+                                    children: Vec::new(),
+                                });
+                            }
+                        }
                     }
                     if let Some(ref mut mission) = self.current_mission {
                         mission.status_message = format!("Agent running: {}", summary);
@@ -918,8 +976,42 @@ impl ZenthreeState {
                 ai::AgentEvent::ToolFinished { tool, ok, output_snippet, duration_ms } => {
                     if let Some(msg) = self.ai_messages.get_mut(idx) {
                         msg.is_working = true;
+                        msg.status_text = Some("Working".to_string());
                         let icon = if ok { "✓" } else { "✗" };
                         msg.content = format!("{} *Finished:* `{}` ({}ms)\n\n*Analyzing results...*", icon, tool, duration_ms);
+
+                        let clean_tool = tool.trim();
+                        if clean_tool.starts_with("list ") || clean_tool.starts_with("list_directory") {
+                            let path = clean_tool.trim_start_matches("list ").trim_start_matches("list_directory").trim().trim_matches('`').trim_start_matches("./");
+                            let fname = if path.is_empty() || path == "." { ".".to_string() } else { path.to_string() };
+                            let mut discovered_children = Vec::new();
+                            for line in output_snippet.lines() {
+                                let trimmed = line.trim();
+                                if trimmed.starts_with("📁 ") {
+                                    let dir = trimmed.trim_start_matches("📁 ").trim().trim_end_matches('/').to_string();
+                                    if !dir.is_empty() {
+                                        discovered_children.push(format!("{}/", dir));
+                                    }
+                                } else if trimmed.starts_with("📄 ") {
+                                    let file = trimmed.trim_start_matches("📄 ").trim().split_whitespace().next().unwrap_or("").to_string();
+                                    if !file.is_empty() {
+                                        discovered_children.push(file);
+                                    }
+                                }
+                            }
+                            if let Some(existing) = msg.explored_items.iter_mut().find(|i| i.file_name == fname) {
+                                existing.children = discovered_children;
+                            } else {
+                                msg.explored_items.push(ExploredItem {
+                                    file_name: fname,
+                                    line_range: None,
+                                    action_type: "Analyzed".to_string(),
+                                    thought_content: None,
+                                    duration_secs: None,
+                                    children: discovered_children,
+                                });
+                            }
+                        }
                     }
 
                     let is_run_cmd = tool.starts_with("run ") || tool.starts_with("run `") || tool == "run_command" || tool.starts_with("run");
@@ -1042,17 +1134,20 @@ impl ZenthreeState {
                 }
                 ai::AgentEvent::FileAnalyzed { file_path, start_line, end_line } => {
                     if let Some(msg) = self.ai_messages.get_mut(idx) {
-                        let p = std::path::Path::new(&file_path);
-                        let file_name = p.file_name().and_then(|n| n.to_str()).unwrap_or(&file_path).to_string();
+                        let clean_path = file_path.trim_start_matches("./").to_string();
+                        let p = std::path::Path::new(&clean_path);
+                        let file_name = p.file_name().and_then(|n| n.to_str()).unwrap_or(&clean_path).to_string();
                         let range = format!("#L{}-{}", start_line, end_line);
-                        let already_has = msg.explored_items.iter().any(|i| i.file_name == file_name && i.line_range.as_deref() == Some(&range));
-                        if !already_has {
+                        if let Some(existing) = msg.explored_items.iter_mut().find(|i| i.file_name == clean_path || i.file_name == file_name) {
+                            existing.line_range = Some(range);
+                        } else {
                             msg.explored_items.push(ExploredItem {
-                                file_name,
+                                file_name: clean_path,
                                 line_range: Some(range),
                                 action_type: "Analyzed".to_string(),
                                 thought_content: None,
                                 duration_secs: None,
+                                children: Vec::new(),
                             });
                         }
                     }
@@ -1066,6 +1161,7 @@ impl ZenthreeState {
                             action_type: "Searched".to_string(),
                             thought_content: None,
                             duration_secs: None,
+                            children: Vec::new(),
                         });
                     }
                     updated = true;
@@ -1078,6 +1174,7 @@ impl ZenthreeState {
                             action_type: "Thought".to_string(),
                             thought_content: Some(content),
                             duration_secs: Some(duration_secs),
+                            children: Vec::new(),
                         });
                     }
                     updated = true;
@@ -1086,7 +1183,22 @@ impl ZenthreeState {
                     let duration = self.ai_request_start_times.remove(&idx)
                         .map(|t| t.elapsed().as_secs())
                         .unwrap_or(0);
-                    let trimmed_content = summary.trim();
+                    let mut clean_summary = summary;
+                    while let Some(start) = clean_summary.find("<thought>") {
+                        if let Some(end) = clean_summary[start..].find("</thought>") {
+                            clean_summary.replace_range(start..start + end + 10, "");
+                        } else {
+                            break;
+                        }
+                    }
+                    while let Some(start) = clean_summary.find("<thinking>") {
+                        if let Some(end) = clean_summary[start..].find("</thinking>") {
+                            clean_summary.replace_range(start..start + end + 11, "");
+                        } else {
+                            break;
+                        }
+                    }
+                    let trimmed_content = clean_summary.trim();
                     if let Some(msg) = self.ai_messages.get_mut(idx) {
                         msg.elapsed_secs = Some(duration.max(1));
                         if trimmed_content.is_empty() {
@@ -1095,9 +1207,10 @@ impl ZenthreeState {
                                 self.last_ai_prompt
                             );
                         } else {
-                            msg.content = summary;
+                            msg.content = trimmed_content.to_string();
                         }
                         msg.is_working = false;
+                        msg.status_text = None;
                     }
                     self.ai_pending_requests = self.ai_pending_requests.saturating_sub(1);
                     if self.ai_pending_requests == 0 {
@@ -1116,10 +1229,18 @@ impl ZenthreeState {
                     self.rebuild_tree();
                     updated = true;
                 }
+                ai::AgentEvent::StatusChanged { status } => {
+                    if let Some(msg) = self.ai_messages.get_mut(idx) {
+                        msg.is_working = true;
+                        msg.status_text = Some(status);
+                    }
+                    updated = true;
+                }
                 ai::AgentEvent::Error { error } => {
                     if let Some(msg) = self.ai_messages.get_mut(idx) {
                         msg.content = format!("⚠️ {}", error);
                         msg.is_working = false;
+                        msg.status_text = None;
                     }
                     self.ai_pending_requests = self.ai_pending_requests.saturating_sub(1);
                     if self.ai_pending_requests == 0 {
@@ -1363,6 +1484,19 @@ impl ZenthreeState {
         }
     }
 
+    pub fn toggle_explored_folder(&mut self, msg_idx: usize, folder_path: &str) {
+        let key = (msg_idx, folder_path.to_string());
+        if self.collapsed_explored_folders.contains(&key) {
+            self.collapsed_explored_folders.remove(&key);
+        } else {
+            self.collapsed_explored_folders.insert(key);
+        }
+    }
+
+    pub fn is_explored_folder_expanded(&self, msg_idx: usize, folder_path: &str) -> bool {
+        !self.collapsed_explored_folders.contains(&(msg_idx, folder_path.to_string()))
+    }
+
     pub fn toggle_thought_accordion(&mut self, msg_idx: usize, item_idx: usize) {
         let key = (msg_idx, item_idx);
         if self.expanded_thought_items.contains(&key) {
@@ -1372,6 +1506,7 @@ impl ZenthreeState {
         }
     }
 
+    #[allow(dead_code)]
     pub fn toggle_worked_accordion(&mut self, msg_idx: usize) {
         if self.expanded_worked_msgs.contains(&msg_idx) {
             self.expanded_worked_msgs.remove(&msg_idx);
@@ -1381,16 +1516,35 @@ impl ZenthreeState {
     }
 
     pub fn jump_to_file_and_line(&mut self, file_name: &str, line_range: Option<&str>) {
+        let full_path = if std::path::Path::new(file_name).is_absolute() {
+            std::path::PathBuf::from(file_name)
+        } else {
+            self.current_dir.join(file_name)
+        };
+        if full_path.is_dir() {
+            self.expanded_dirs.insert(full_path.clone());
+            self.selected_sidebar_path = Some(full_path);
+            self.rebuild_tree();
+            return;
+        }
         self.open_file_by_name(file_name);
         if let Some(range_str) = line_range {
             let clean = range_str.trim_start_matches("#L").trim_start_matches('L');
-            let start_line = clean.split('-').next().and_then(|s| s.parse::<usize>().ok()).unwrap_or(1);
+            let mut parts = clean.split('-');
+            let start_line = parts.next().and_then(|s| s.parse::<usize>().ok()).unwrap_or(1);
+            let end_line = parts.next().and_then(|s| s.parse::<usize>().ok()).unwrap_or(start_line);
             if let Some(tab_idx) = self.active_tab {
                 if let Some(tab) = self.tabs.get_mut(tab_idx) {
                     let total_lines = tab.editor.buffer.lines().len();
-                    let target_line = (start_line.saturating_sub(1)).min(total_lines.saturating_sub(1));
-                    tab.editor.set_cursor(editor::buffer::Point::new(target_line, 0));
-                    tab.scroll_y = (target_line as f32 * 20.0).max(0.0);
+                    let start_row = (start_line.saturating_sub(1)).min(total_lines.saturating_sub(1));
+                    let end_row = (end_line.saturating_sub(1)).min(total_lines.saturating_sub(1));
+                    let end_col = tab.editor.buffer.line(end_row).map(|l| l.len()).unwrap_or(0);
+                    let sel = editor::selection::Selection::new(
+                        editor::buffer::Point::new(start_row, 0),
+                        editor::buffer::Point::new(end_row, end_col),
+                    );
+                    tab.editor.set_selection(sel);
+                    tab.scroll_y = (start_row as f32 * 20.0).max(0.0);
                 }
             }
         }
@@ -2500,6 +2654,130 @@ impl ZenthreeState {
         self.save_persistent_state();
     }
 
+    /// Request Go to Definition for symbol under cursor in the active editor
+    pub fn goto_definition_at_cursor(&mut self) {
+        if let Some(active_idx) = self.active_tab {
+            if let Some(tab) = self.tabs.get(active_idx) {
+                if let Some(ref path) = tab.path {
+                    let cursor = tab.editor.cursor();
+                    self.lsp_manager.request_definition(
+                        path,
+                        cursor.row as u32,
+                        cursor.column as u32,
+                    );
+                    self.status_message = format!("Requesting definition at {}:{}...", cursor.row + 1, cursor.column + 1);
+                }
+            }
+        }
+    }
+
+    /// Request Hover info for symbol under cursor in the active editor
+    pub fn request_hover_at_cursor(&mut self) {
+        if let Some(active_idx) = self.active_tab {
+            if let Some(tab) = self.tabs.get(active_idx) {
+                if let Some(ref path) = tab.path {
+                    let cursor = tab.editor.cursor();
+                    self.lsp_manager.request_hover(
+                        path,
+                        cursor.row as u32,
+                        cursor.column as u32,
+                    );
+                }
+            }
+        }
+    }
+
+    /// Jump directly to an LSP Location (e.g. from Go-to-Definition)
+    pub fn jump_to_location(&mut self, loc: &crate::lsp::protocol::Location) {
+        let raw_path = loc.uri.trim_start_matches("file://");
+        let path = std::path::PathBuf::from(raw_path);
+        self.open_file(&path);
+        if let Some(active_idx) = self.active_tab {
+            if active_idx < self.tabs.len() {
+                let tab = &mut self.tabs[active_idx];
+                let target_line = loc.range.start.line as usize;
+                let target_col = loc.range.start.character as usize;
+                tab.editor.set_cursor(editor::buffer::Point::new(target_line, target_col));
+                self.status_message = format!(
+                    "Jumped to {}:{}:{}",
+                    path.file_name().and_then(|n| n.to_str()).unwrap_or(""),
+                    target_line + 1,
+                    target_col + 1
+                );
+            }
+        }
+    }
+
+    /// Toggle Find in active buffer overlay
+    pub fn toggle_find_in_buffer(&mut self) {
+        self.find_in_buffer_open = !self.find_in_buffer_open;
+        if self.find_in_buffer_open {
+            self.update_find_matches();
+        } else {
+            self.find_matches.clear();
+        }
+    }
+
+    /// Update search matches within the active buffer
+    pub fn update_find_matches(&mut self) {
+        self.find_matches.clear();
+        if self.find_query.is_empty() {
+            return;
+        }
+        if let Some(active_idx) = self.active_tab {
+            if let Some(tab) = self.tabs.get(active_idx) {
+                let query = self.find_query.to_lowercase();
+                for (row, line) in tab.editor.buffer.lines().iter().enumerate() {
+                    let line_lower = line.to_lowercase();
+                    let mut start = 0;
+                    while let Some(idx) = line_lower[start..].find(&query) {
+                        let col = start + idx;
+                        self.find_matches.push((row, col, col + query.len()));
+                        start = col + query.len().max(1);
+                    }
+                }
+            }
+        }
+        if !self.find_matches.is_empty() {
+            if self.find_match_index >= self.find_matches.len() {
+                self.find_match_index = 0;
+            }
+        }
+    }
+
+    /// Jump to the next match
+    pub fn next_find_match(&mut self) {
+        if self.find_matches.is_empty() {
+            return;
+        }
+        self.find_match_index = (self.find_match_index + 1) % self.find_matches.len();
+        self.jump_to_current_find_match();
+    }
+
+    /// Jump to the previous match
+    pub fn prev_find_match(&mut self) {
+        if self.find_matches.is_empty() {
+            return;
+        }
+        if self.find_match_index == 0 {
+            self.find_match_index = self.find_matches.len() - 1;
+        } else {
+            self.find_match_index -= 1;
+        }
+        self.jump_to_current_find_match();
+    }
+
+    /// Center editor cursor on the currently selected find match
+    pub fn jump_to_current_find_match(&mut self) {
+        if let Some(&(row, col, _)) = self.find_matches.get(self.find_match_index) {
+            if let Some(active_idx) = self.active_tab {
+                if let Some(tab) = self.tabs.get_mut(active_idx) {
+                    tab.editor.set_cursor(editor::buffer::Point::new(row, col));
+                }
+            }
+        }
+    }
+
     pub fn check_language_support_prompt(&mut self, path: &Path) {
         if let Some(ext) = crate::extensions::ExtensionCatalog::find_by_path(path) {
             // Check if installed or explicitly ignored
@@ -3066,43 +3344,8 @@ impl ZenthreeState {
             self.connectome.deliberate(ev_a, ev_b, 30)
         };
 
-        let mut explored_items = Vec::new();
-        let tree_overview = if self.has_workspace {
-            self.get_or_update_workspace_tree().to_string()
-        } else {
-            String::new()
-        };
-
-        let project_ctx = if self.has_workspace {
-            let ctx = crate::project_index::search_project_context(&self.current_dir, trimmed, 6);
-            for f in &ctx.matched_files {
-                let range = if let Some((first_l, _)) = f.snippet_lines.first() {
-                    let last_l = f.snippet_lines.last().map(|(l, _)| *l).unwrap_or(*first_l);
-                    if *first_l == last_l {
-                        Some(format!("#L{}", first_l))
-                    } else {
-                        Some(format!("#L{}-{}", first_l, (first_l + 15).max(last_l)))
-                    }
-                } else {
-                    None
-                };
-                let display_file = f.path.file_name().and_then(|n| n.to_str()).unwrap_or(&f.relative_path);
-                explored_items.push(ExploredItem {
-                    file_name: display_file.to_string(),
-                    line_range: range,
-                    action_type: "Analyzed".to_string(),
-                    thought_content: None,
-                    duration_secs: None,
-                });
-            }
-            ctx
-        } else {
-            crate::project_index::ProjectContextSummary {
-                matched_files: Vec::new(),
-                symbol_locations: Vec::new(),
-                formatted_prompt_context: String::new(),
-            }
-        };
+        // Explored items starts empty and is populated strictly when real tools execute
+        let explored_items = Vec::new();
 
         // Autonomous mission and subagents are only initiated for work/project intents that are not pure explanations
         let sub_agent = if intent.is_work() && self.has_workspace && !is_explain {
@@ -3165,6 +3408,7 @@ impl ZenthreeState {
                 explored_items,
                 edited_files: Vec::new(),
                 is_working: true,
+                status_text: Some("Working".to_string()),
                 sub_agent,
                 elapsed_secs: None,
             });
@@ -3194,7 +3438,8 @@ impl ZenthreeState {
                 build_autonomous_agent_prompt(deliberation.confidence * 100.0)
             } else {
                 format!(
-                    "You are ZENE, an intelligent coding and software engineering assistant integrated directly into the Zenthree code editor.\n\
+                    "You are ZENE, an autonomous software engineering assistant integrated directly into the Zenthree code editor.\n\
+                    CRITICAL: Never introduce yourself or say 'I am ZENE' or greeting intros. Jump straight into the technical answer or code.\n\
                     Note: The user currently has NO workspace or folder opened.\n\
                     Help the user directly with their questions, code generation, algorithms, or explanations. Do not assume or reference files from any workspace unless provided by the user in the prompt or active editor buffer."
                 )
@@ -3232,12 +3477,6 @@ impl ZenthreeState {
             };
             if !term_text.trim().is_empty() {
                 loop_ctx.recent_terminal_output = Some(term_text);
-            }
-            if self.has_workspace && !tree_overview.is_empty() {
-                loop_ctx.workspace_tree = Some(tree_overview);
-            }
-            if self.has_workspace && !project_ctx.formatted_prompt_context.is_empty() {
-                loop_ctx.project_context = Some(project_ctx.formatted_prompt_context);
             }
             loop_ctx.max_iterations = 10;
             self.ai_cancellation_token.reset();
@@ -3342,7 +3581,7 @@ impl ZenthreeState {
             out
         } else if intent.is_discussion() {
             format!(
-                "### Discussion & Technical Guide\n\nHello! I'm ZENE, your engineering collaborator and architectural guide.\n\nI'm here to:\n- Discuss system architecture, tradeoffs, and design patterns\n- Help brainstorm and plan upcoming features\n- Guide you through workflows and answer technical questions\n\nWhenever you're ready to inspect code, analyze files, or implement changes in your workspace, just let me know what you'd like to work on!"
+                "### Discussion & Technical Guide\n\n- **Architecture & Tradeoffs**: Deep dive into system design, patterns, and component boundaries\n- **Feature Planning**: Brainstorming and technical planning\n- **Workflows & Code Inspection**: Guided walkthroughs and troubleshooting\n\nLet me know what you would like to work on or explore!"
             )
         } else if is_explain {
             let is_empty_buffer = if let Some(idx) = self.active_tab {
@@ -4717,6 +4956,7 @@ mod tests {
             explored_items: Vec::new(),
             edited_files: Vec::new(),
             is_working: true,
+            status_text: None,
             sub_agent: None,
             elapsed_secs: None,
         });
@@ -4769,6 +5009,7 @@ mod tests {
                         action_type: "Analyzed".to_string(),
                         thought_content: None,
                         duration_secs: None,
+                        children: Vec::new(),
                     });
                 }
                 _ => {}
@@ -4781,6 +5022,7 @@ mod tests {
                         action_type: "Searched".to_string(),
                         thought_content: None,
                         duration_secs: None,
+                        children: Vec::new(),
                     });
                 }
                 _ => {}
@@ -4793,6 +5035,7 @@ mod tests {
                         action_type: "Thought".to_string(),
                         thought_content: Some(content),
                         duration_secs: Some(duration_secs),
+                        children: Vec::new(),
                     });
                 }
                 _ => {}
@@ -4860,6 +5103,80 @@ mod tests {
         state.open_workspace(repo_root);
         assert!(state.git_state.is_repo);
         assert!(!state.git_state.branch.is_empty());
+    }
+
+    #[test]
+    fn test_lsp_definition_jump_and_find_in_buffer() {
+        let mut state = ZenthreeState::new();
+        state.new_untitled_file();
+        let active_idx = state.active_tab.unwrap();
+        state.tabs[active_idx].editor.insert("fn calculate_metrics() {\n    let value = 42;\n    println!(\"{}\", value);\n}", None, None);
+
+        // Test Find in buffer
+        state.find_query = "value".to_string();
+        state.toggle_find_in_buffer();
+        assert!(state.find_in_buffer_open);
+        assert_eq!(state.find_matches.len(), 2);
+        assert_eq!(state.find_matches[0], (1, 8, 13));
+        assert_eq!(state.find_matches[1], (2, 19, 24));
+
+        // Test navigation
+        state.next_find_match();
+        assert_eq!(state.find_match_index, 1);
+        state.prev_find_match();
+        assert_eq!(state.find_match_index, 0);
+
+        // Test Jump to Location
+        let _loc = crate::lsp::protocol::Location {
+            uri: "file:///test/mock.rs".to_string(),
+            range: crate::lsp::protocol::Range {
+                start: crate::lsp::protocol::Position { line: 10, character: 4 },
+                end: crate::lsp::protocol::Position { line: 10, character: 12 },
+            },
+        };
+        // Use a temp file so open_file succeeds
+        let tmp = std::env::temp_dir().join("zenthree_test_jump.rs");
+        std::fs::write(&tmp, "pub fn jump_target() {}\n").unwrap();
+        let loc_real = crate::lsp::protocol::Location {
+            uri: format!("file://{}", tmp.display()),
+            range: crate::lsp::protocol::Range {
+                start: crate::lsp::protocol::Position { line: 0, character: 7 },
+                end: crate::lsp::protocol::Position { line: 0, character: 18 },
+            },
+        };
+        state.jump_to_location(&loc_real);
+        let curr_tab = state.active_tab.unwrap();
+        assert_eq!(state.tabs[curr_tab].editor.cursor(), editor::buffer::Point::new(0, 7));
+        let _ = std::fs::remove_file(tmp);
+    }
+
+    #[test]
+    fn test_explored_folder_toggle_and_selection_jump() {
+        let mut state = ZenthreeState::new();
+        let msg_idx = 0;
+        let folder = "crates/ai/src";
+
+        // Default: expanded
+        assert!(state.is_explored_folder_expanded(msg_idx, folder));
+
+        // Toggle: collapsed
+        state.toggle_explored_folder(msg_idx, folder);
+        assert!(!state.is_explored_folder_expanded(msg_idx, folder));
+
+        // Toggle back: expanded
+        state.toggle_explored_folder(msg_idx, folder);
+        assert!(state.is_explored_folder_expanded(msg_idx, folder));
+
+        // Test jump_to_file_and_line with selection
+        let tmp = std::env::temp_dir().join("zenthree_test_explored_file.rs");
+        std::fs::write(&tmp, "line1\nline2\nline3\nline4\n").unwrap();
+        state.jump_to_file_and_line(tmp.to_str().unwrap(), Some("#L2-3"));
+        let tab_idx = state.active_tab.expect("Tab should be open");
+        let tab = &state.tabs[tab_idx];
+        let sel = tab.editor.selection();
+        assert_eq!(sel.start, editor::buffer::Point::new(1, 0));
+        assert_eq!(sel.end, editor::buffer::Point::new(2, 5));
+        let _ = std::fs::remove_file(tmp);
     }
 }
 

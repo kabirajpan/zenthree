@@ -20,6 +20,16 @@ pub struct AcpTransport {
 impl AcpTransport {
     /// Spawns a child process with piped stdin/stdout and establishes the JSON-RPC IPC.
     pub fn spawn(command: &str, args: &[&str], current_dir: Option<&std::path::Path>) -> Result<Self, String> {
+        Self::spawn_with_env(command, args, current_dir, &[])
+    }
+
+    /// Spawns a child process with explicit environment variables, piped stdin/stdout, and JSON-RPC IPC.
+    pub fn spawn_with_env(
+        command: &str,
+        args: &[&str],
+        current_dir: Option<&std::path::Path>,
+        env_vars: &[(String, String)],
+    ) -> Result<Self, String> {
         let mut cmd = Command::new(command);
         cmd.args(args)
             .stdin(Stdio::piped())
@@ -28,6 +38,10 @@ impl AcpTransport {
 
         if let Some(dir) = current_dir {
             cmd.current_dir(dir);
+        }
+
+        for (k, v) in env_vars {
+            cmd.env(k, v);
         }
 
         let mut child = cmd.spawn().map_err(|e| format!("Failed to spawn ACP agent process '{}': {}", command, e))?;
@@ -129,6 +143,29 @@ impl AcpTransport {
             }
             format!("ACP request '{}' (id {}) timed out or channel closed: {}", method, id, e)
         })
+    }
+
+    /// Sends a JSON-RPC request and returns the request ID and receiver channel for asynchronous response handling.
+    pub fn send_request_channel(&self, method: &str, params: Option<serde_json::Value>) -> Result<(u64, Receiver<AcpResponse>), String> {
+        let id = self.next_id.fetch_add(1, Ordering::SeqCst);
+        let req = AcpRequest::new(id, method, params);
+
+        let (res_tx, res_rx) = std::sync::mpsc::sync_channel::<AcpResponse>(1);
+        if let Ok(mut pending) = self.pending_requests.lock() {
+            pending.insert(id, res_tx);
+        } else {
+            return Err("Failed to acquire pending requests lock".to_string());
+        }
+
+        let json_str = serde_json::to_string(&req).map_err(|e| format!("Failed to serialize ACP request: {}", e))?;
+        self.stdin_tx.send(json_str).map_err(|e| format!("Failed to send ACP request: {}", e))?;
+        let (res_tx_unbounded, res_rx_unbounded) = std::sync::mpsc::channel();
+        std::thread::spawn(move || {
+            if let Ok(resp) = res_rx.recv() {
+                let _ = res_tx_unbounded.send(resp);
+            }
+        });
+        Ok((id, res_rx_unbounded))
     }
 
     /// Sends a fire-and-forget notification

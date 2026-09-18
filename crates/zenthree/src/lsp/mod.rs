@@ -75,6 +75,10 @@ pub struct LspManager {
     pub diagnostics: HashMap<PathBuf, Vec<Diagnostic>>,
     pub latest_completions: Option<Vec<CompletionItem>>,
     pub pending_completion_id: Option<u64>,
+    pub latest_definition: Option<Location>,
+    pub pending_definition_id: Option<u64>,
+    pub latest_hover: Option<Hover>,
+    pub pending_hover_id: Option<u64>,
 }
 
 impl LspManager {
@@ -84,6 +88,10 @@ impl LspManager {
             diagnostics: HashMap::new(),
             latest_completions: None,
             pending_completion_id: None,
+            latest_definition: None,
+            pending_definition_id: None,
+            latest_hover: None,
+            pending_hover_id: None,
         }
     }
 
@@ -282,6 +290,48 @@ impl LspManager {
         }
     }
 
+    /// Request definition for symbol at line and character
+    pub fn request_definition(&mut self, path: &Path, line: u32, character: u32) {
+        let uri = format!("file://{}", path.display());
+        let info = if let Some(i) = LspServerInfo::for_path(path) { i } else { return; };
+
+        if let Some(session) = self.sessions.get_mut(info.language_id) {
+            let req_id = session.next_request_id;
+            session.next_request_id += 1;
+            self.pending_definition_id = Some(req_id);
+
+            let params = GotoDefinitionParams {
+                text_document: TextDocumentIdentifier { uri },
+                position: Position { line, character },
+            };
+            let req = JsonRpcRequest::new(req_id, "textDocument/definition", params);
+            if let Ok(bytes) = encode_lsp_message(&req) {
+                let _ = session.transport.send_raw(&bytes);
+            }
+        }
+    }
+
+    /// Request hover documentation for symbol at line and character
+    pub fn request_hover(&mut self, path: &Path, line: u32, character: u32) {
+        let uri = format!("file://{}", path.display());
+        let info = if let Some(i) = LspServerInfo::for_path(path) { i } else { return; };
+
+        if let Some(session) = self.sessions.get_mut(info.language_id) {
+            let req_id = session.next_request_id;
+            session.next_request_id += 1;
+            self.pending_hover_id = Some(req_id);
+
+            let params = HoverParams {
+                text_document: TextDocumentIdentifier { uri },
+                position: Position { line, character },
+            };
+            let req = JsonRpcRequest::new(req_id, "textDocument/hover", params);
+            if let Ok(bytes) = encode_lsp_message(&req) {
+                let _ = session.transport.send_raw(&bytes);
+            }
+        }
+    }
+
     /// Poll incoming LSP messages across all sessions (called once per frame)
     pub fn poll(&mut self) -> bool {
         let mut had_updates = false;
@@ -312,12 +362,33 @@ impl LspManager {
                     LspIncomingMessage::Response { id, result, .. } => {
                         if Some(id) == self.pending_completion_id {
                             self.pending_completion_id = None;
-                            if let Some(res) = result {
+                            if let Some(res) = result.clone() {
                                 if let Ok(comp_res) = serde_json::from_value::<CompletionResponse>(res) {
                                     match comp_res {
                                         CompletionResponse::List(l) => self.latest_completions = Some(l.items),
                                         CompletionResponse::Array(a) => self.latest_completions = Some(a),
                                     }
+                                }
+                            }
+                        }
+                        if Some(id) == self.pending_definition_id {
+                            self.pending_definition_id = None;
+                            if let Some(res) = result.clone() {
+                                if let Ok(def_res) = serde_json::from_value::<GotoDefinitionResponse>(res) {
+                                    match def_res {
+                                        GotoDefinitionResponse::Scalar(loc) => self.latest_definition = Some(loc),
+                                        GotoDefinitionResponse::Array(mut locs) => {
+                                            self.latest_definition = locs.pop();
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        if Some(id) == self.pending_hover_id {
+                            self.pending_hover_id = None;
+                            if let Some(res) = result {
+                                if let Ok(hover) = serde_json::from_value::<Hover>(res) {
+                                    self.latest_hover = Some(hover);
                                 }
                             }
                         }

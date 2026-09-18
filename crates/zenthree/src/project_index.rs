@@ -193,26 +193,25 @@ pub fn search_project_context(
     }
 }
 
-/// Generates a visual file tree overview of the project workspace
+/// Generates a clean, compact relative file paths overview of the project workspace
 pub fn generate_project_tree_overview(workspace_root: &Path, max_depth: usize) -> String {
     let mut tree_lines = Vec::new();
-    tree_lines.push(".".to_string());
-    build_tree_recursive(workspace_root, &mut tree_lines, "", 0, max_depth);
+    build_paths_recursive(workspace_root, workspace_root, &mut tree_lines, 0, max_depth);
     tree_lines.join("\n")
 }
 
-fn build_tree_recursive(
-    dir: &Path,
+fn build_paths_recursive(
+    workspace_root: &Path,
+    current_dir: &Path,
     out: &mut Vec<String>,
-    prefix: &str,
     depth: usize,
     max_depth: usize,
 ) {
-    if depth >= max_depth || out.len() > 120 {
+    if depth >= max_depth || out.len() > 150 {
         return;
     }
 
-    let mut entries = match std::fs::read_dir(dir) {
+    let mut entries = match std::fs::read_dir(current_dir) {
         Ok(read_dir) => {
             let mut items: Vec<_> = read_dir.flatten().collect();
             items.sort_by_key(|e| {
@@ -224,37 +223,50 @@ fn build_tree_recursive(
         Err(_) => return,
     };
 
-    // Filter out ignored / noisy directories
+    // Filter out ignored / noisy directories, assets/fonts/icons, and hidden files
     entries.retain(|e| {
         let name = e.file_name().to_string_lossy().to_string();
+        let lower = name.to_lowercase();
         !name.starts_with('.')
             && name != "target"
             && name != "node_modules"
             && name != "dist"
             && name != "build"
             && name != "vendor"
+            && name != "__pycache__"
             && name != ".git"
+            && lower != "assets"
+            && lower != "fonts"
+            && lower != "icons"
+            && lower != "themes"
     });
 
-    let count = entries.len();
-    for (i, entry) in entries.iter().enumerate() {
-        if out.len() > 120 {
-            out.push(format!("{}└── ... (more files)", prefix));
+    for entry in entries {
+        if out.len() > 150 {
             break;
         }
 
-        let is_last = i == count - 1;
-        let branch = if is_last { "└── " } else { "├── " };
-        let next_prefix = format!("{}{}", prefix, if is_last { "    " } else { "│   " });
-
-        let name = entry.file_name().to_string_lossy().to_string();
         let is_dir = entry.file_type().map(|ft| ft.is_dir()).unwrap_or(false);
+        let rel_path = entry.path().strip_prefix(workspace_root)
+            .unwrap_or(&entry.path())
+            .to_string_lossy()
+            .to_string();
 
         if is_dir {
-            out.push(format!("{}{}{}/", prefix, branch, name));
-            build_tree_recursive(&entry.path(), out, &next_prefix, depth + 1, max_depth);
+            out.push(format!("{}/", rel_path));
+            build_paths_recursive(workspace_root, &entry.path(), out, depth + 1, max_depth);
         } else {
-            out.push(format!("{}{}{}", prefix, branch, name));
+            // Filter out media, fonts, and lockfiles from token overview
+            if let Some(ext) = entry.path().extension().and_then(|s| s.to_str()) {
+                let lower = ext.to_lowercase();
+                if lower == "svg" || lower == "png" || lower == "jpg" || lower == "jpeg"
+                    || lower == "ico" || lower == "webp" || lower == "gif" || lower == "otf"
+                    || lower == "ttf" || lower == "woff" || lower == "woff2" || lower == "mp3"
+                    || lower == "mp4" || lower == "wasm" || lower == "lock" {
+                    continue;
+                }
+            }
+            out.push(rel_path);
         }
     }
 }

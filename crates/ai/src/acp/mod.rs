@@ -24,10 +24,46 @@ impl AcpClient {
     /// Launches a Goose or any ACP-compliant agent child process and initializes the connection.
     pub fn connect(command: &str, args: &[&str], workspace_root: &Path) -> Result<Self, String> {
         let ws_str = workspace_root.to_string_lossy().to_string();
-        let transport = AcpTransport::spawn(command, args, Some(workspace_root))?;
+
+        // Collect environment variables from system and .env files
+        let mut env_vars = Vec::new();
+        let candidates = [
+            workspace_root.join(".env"),
+            workspace_root.join("apps/zenthree/.env"),
+            workspace_root.join("../.env"),
+            workspace_root.join("../../.env"),
+        ];
+        for env_path in &candidates {
+            if let Ok(content) = std::fs::read_to_string(env_path) {
+                for line in content.lines() {
+                    let trimmed = line.trim();
+                    if trimmed.is_empty() || trimmed.starts_with('#') {
+                        continue;
+                    }
+                    if let Some((k, v)) = trimmed.split_once('=') {
+                        let k = k.trim().to_string();
+                        let v = v.trim().trim_matches('"').trim_matches('\'').to_string();
+                        if k == "GEMINI_API_KEY" {
+                            env_vars.push(("GOOGLE_API_KEY".to_string(), v.clone()));
+                        }
+                        env_vars.push((k, v));
+                    }
+                }
+                break;
+            }
+        }
+        if let Ok(val) = std::env::var("GEMINI_API_KEY") {
+            env_vars.push(("GOOGLE_API_KEY".to_string(), val.clone()));
+            env_vars.push(("GEMINI_API_KEY".to_string(), val));
+        }
+        if let Ok(val) = std::env::var("GROQ_API_KEY") {
+            env_vars.push(("GROQ_API_KEY".to_string(), val));
+        }
+
+        let transport = AcpTransport::spawn_with_env(command, args, Some(workspace_root), &env_vars)?;
 
         let init_params = InitializeParams {
-            protocol_version: "1.0".to_string(),
+            protocol_version: 1,
             client_info: ClientInfo {
                 name: "zenthree".to_string(),
                 version: "0.1.0".to_string(),
@@ -65,15 +101,17 @@ impl AcpClient {
     /// Creates a new session on the ACP agent
     pub fn new_session(&mut self, system_prompt: Option<String>, mode: Option<String>) -> Result<String, String> {
         let params = SessionNewParams {
-            workspace_path: self.workspace_path.clone(),
+            cwd: self.workspace_path.clone(),
+            mcp_servers: vec![],
+            workspace_path: Some(self.workspace_path.clone()),
             system_prompt,
-            mode: mode.or_else(|| Some("code".to_string())),
+            mode: mode.or_else(|| Some("auto".to_string())),
         };
 
         let resp = self.transport.send_request(
             "session/new",
             Some(serde_json::to_value(params).map_err(|e| e.to_string())?),
-            Duration::from_secs(10),
+            Duration::from_secs(15),
         )?;
 
         let result = resp.result.ok_or_else(|| {
@@ -92,29 +130,20 @@ impl AcpClient {
     pub fn send_prompt(
         &mut self,
         prompt: &str,
-        attachments: Vec<PromptAttachment>,
+        _attachments: Vec<PromptAttachment>,
         event_tx: &Sender<AgentEvent>,
         cancel_token: &CancellationToken,
     ) -> Result<String, String> {
         let session_id = self.session_id.clone().ok_or("No active ACP session")?;
 
-        let params = SessionPromptParams {
-            session_id: session_id.clone(),
-            prompt: prompt.to_string(),
-            attachments,
-        };
+        let prompt_blocks = json!([{"type": "text", "text": prompt}]);
+        let params = json!({
+            "sessionId": session_id,
+            "prompt": prompt_blocks,
+        });
 
-        // Send prompt asynchronously or as a request
-        // In ACP, session/prompt initiates the turn and notifications stream back.
-        let prompt_val = serde_json::to_value(params).map_err(|e| e.to_string())?;
-        
-        // Spawn prompt dispatch
-        let prompt_tx = self.transport.send_notification("session/prompt", Some(prompt_val));
-        if let Err(e) = prompt_tx {
-            return Err(format!("Failed to dispatch prompt to agent: {}", e));
-        }
+        let (_req_id, res_rx) = self.transport.send_request_channel("session/prompt", Some(params))?;
 
-        let mut completed_summary = String::new();
         let mut full_response = String::new();
 
         loop {
@@ -133,34 +162,29 @@ impl AcpClient {
                 return Ok("Cancelled".to_string());
             }
 
+            // Check if final response arrived
+            if let Ok(resp) = res_rx.try_recv() {
+                if let Some(err) = resp.error {
+                    let _ = event_tx.send(AgentEvent::Error { error: err.message.clone() });
+                    return Err(err.message);
+                }
+                let summary = if !full_response.trim().is_empty() {
+                    full_response.clone()
+                } else {
+                    "Session completed successfully".to_string()
+                };
+                let _ = event_tx.send(AgentEvent::Completed { summary: summary.clone() });
+                return Ok(summary);
+            }
+
             // Read notifications
             if let Some(notif) = self.transport.try_recv_notification() {
                 let events = AcpAdapter::convert_notification(&notif);
-                let mut finished = false;
-
                 for ev in events {
-                    let mut is_err = None;
-                    match &ev {
-                        AgentEvent::StreamChunk { delta } => {
-                            full_response.push_str(delta);
-                        }
-                        AgentEvent::Completed { summary } => {
-                            completed_summary = summary.clone();
-                            finished = true;
-                        }
-                        AgentEvent::Error { error } => {
-                            is_err = Some(error.clone());
-                        }
-                        _ => {}
+                    if let AgentEvent::StreamChunk { ref delta } = ev {
+                        full_response.push_str(delta);
                     }
                     let _ = event_tx.send(ev);
-                    if let Some(err) = is_err {
-                        return Err(err);
-                    }
-                }
-
-                if finished {
-                    break;
                 }
             } else {
                 std::thread::sleep(Duration::from_millis(15));
@@ -175,16 +199,6 @@ impl AcpClient {
                 return Err(err_msg);
             }
         }
-
-        if completed_summary.is_empty() {
-            completed_summary = if full_response.is_empty() {
-                "Finished task".to_string()
-            } else {
-                full_response
-            };
-        }
-
-        Ok(completed_summary)
     }
 
     pub fn agent_info(&self) -> Option<&AgentInfo> {

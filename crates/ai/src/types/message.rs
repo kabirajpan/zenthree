@@ -10,6 +10,8 @@ pub struct ExploredItem {
     pub thought_content: Option<String>,
     #[serde(default)]
     pub duration_secs: Option<u64>,
+    #[serde(default)]
+    pub children: Vec<String>,
 }
 
 impl ExploredItem {
@@ -20,6 +22,7 @@ impl ExploredItem {
             action_type: action_type.into(),
             thought_content: None,
             duration_secs: None,
+            children: Vec::new(),
         }
     }
 
@@ -30,6 +33,7 @@ impl ExploredItem {
             action_type: "Thought".to_string(),
             thought_content: Some(content.into()),
             duration_secs: Some(duration_secs),
+            children: Vec::new(),
         }
     }
 }
@@ -60,6 +64,8 @@ pub struct AiMessage {
     #[serde(default)]
     pub is_working: bool,
     #[serde(default)]
+    pub status_text: Option<String>,
+    #[serde(default)]
     pub sub_agent: Option<SubAgentRole>,
     #[serde(default)]
     pub elapsed_secs: Option<u64>,
@@ -76,6 +82,7 @@ impl Default for AiMessage {
             explored_items: Vec::new(),
             edited_files: Vec::new(),
             is_working: false,
+            status_text: None,
             sub_agent: None,
             elapsed_secs: None,
         }

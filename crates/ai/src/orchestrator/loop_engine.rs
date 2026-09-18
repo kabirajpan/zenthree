@@ -83,58 +83,14 @@ impl AgentLoop {
 
         let system_prompt = self.ctx.system_prompt.clone().unwrap_or_else(|| build_autonomous_agent_prompt(95.0));
 
-        // Build implicit context header
+        // Only the user's message is passed first; LLM deduces intent and explores tools dynamically
         let mut initial_user_prompt = String::new();
-
-        if let Some(ref tree) = self.ctx.workspace_tree {
-            if !tree.trim().is_empty() {
-                initial_user_prompt.push_str(&format!(
-                    "### Project Workspace Tree:\n```\n{}\n```\n\n",
-                    tree.trim()
-                ));
-            } else {
-                initial_user_prompt.push_str("### Project Workspace Tree:\n(Workspace directory is currently empty - no project files exist yet)\n\n");
-            }
-        } else {
-            initial_user_prompt.push_str("### Project Workspace Tree:\n(Workspace directory is currently empty - no project files exist yet)\n\n");
-        }
-        initial_user_prompt.push_str("Grounding Rule: Only refer to files that actually exist in the workspace tree above. Never assume or hallucinate project names or files that are not present.\n\n");
-
-        if let Some(ref pctx) = self.ctx.project_context {
-            if !pctx.trim().is_empty() {
-                initial_user_prompt.push_str(pctx.trim());
-                initial_user_prompt.push_str("\n\n");
-            }
-        }
-
         if let Some(ref active) = self.ctx.active_file {
             let rel = active.strip_prefix(&self.ctx.workspace_root).unwrap_or(active).to_string_lossy();
-            let cursor_str = self.ctx.cursor_line.map(|l| format!(" (cursor at line {})", l)).unwrap_or_default();
-            initial_user_prompt.push_str(&format!("Active Editor Document: `{}`{}\n", rel, cursor_str));
+            let cursor_str = self.ctx.cursor_line.map(|l| format!(" (cursor line {})", l)).unwrap_or_default();
+            initial_user_prompt.push_str(&format!("[Active open file in editor: `{}`{}]\n\n", rel, cursor_str));
         }
-
-        if !self.ctx.open_tabs.is_empty() {
-            let tabs: Vec<String> = self.ctx.open_tabs.iter().map(|p| {
-                p.strip_prefix(&self.ctx.workspace_root).unwrap_or(p).to_string_lossy().to_string()
-            }).collect();
-            initial_user_prompt.push_str(&format!("Open Editor Tabs: [{}]\n", tabs.join(", ")));
-        }
-
-        if let Some(ref buf) = self.ctx.active_buffer {
-            if !buf.trim().is_empty() {
-                let sample: String = buf.chars().take(3000).collect();
-                initial_user_prompt.push_str(&format!("Current Active Buffer Content:\n```\n{}\n```\n\n", sample));
-            }
-        }
-
-        if let Some(ref term_out) = self.ctx.recent_terminal_output {
-            if !term_out.trim().is_empty() {
-                let sample: String = term_out.chars().take(2000).collect();
-                initial_user_prompt.push_str(&format!("Recent Terminal Output / Status:\n```\n{}\n```\n\n", sample));
-            }
-        }
-
-        initial_user_prompt.push_str(&format!("User Goal / Request:\n{}", goal));
+        initial_user_prompt.push_str(goal);
 
         let mut history: Vec<ChatMessage> = self.ctx.prior_history.clone();
         let mut current_user_prompt = initial_user_prompt;
@@ -147,6 +103,26 @@ impl AgentLoop {
                 });
                 return Err("Task cancelled by user".to_string());
             }
+
+            // If conversation history has grown large, compact context
+            if history.len() >= 6 || history.iter().map(|m| m.content.len()).sum::<usize>() > 14000 {
+                (self.event_sender)(AgentEvent::StatusChanged {
+                    status: "Compacting".to_string(),
+                });
+                let keep_count = 4;
+                let start_idx = history.len().saturating_sub(keep_count);
+                let recent = history[start_idx..].to_vec();
+                let summary_item = ChatMessage::new(
+                    "user",
+                    format!("[Context Compacted: Prior {} interaction turns retained in working memory]", start_idx),
+                );
+                history = vec![summary_item];
+                history.extend(recent);
+            }
+
+            (self.event_sender)(AgentEvent::StatusChanged {
+                status: "Working".to_string(),
+            });
 
             (self.event_sender)(AgentEvent::Thinking {
                 delta: format!("Step {} of {}: Analyzing actions...", iteration + 1, max_steps),
@@ -227,16 +203,20 @@ impl AgentLoop {
             let mut tool_results: Vec<AgentToolResult> = Vec::new();
 
             for call in &tool_calls {
-                let tool_name = match call {
-                    AgentToolCall::ReadFile { path, .. } => format!("read `{}`", path),
-                    AgentToolCall::SearchCode { query } => format!("search `{}`", query),
-                    AgentToolCall::ListDirectory { path } => format!("list `{}`", path.as_deref().unwrap_or(".")),
-                    AgentToolCall::RunCommand { cmd } => format!("run `{}`", cmd),
-                    AgentToolCall::EditFile { path, .. } => format!("patch `{}`", path),
-                    AgentToolCall::DetectEnvironment { .. } => "detect environment".to_string(),
-                    AgentToolCall::GitStatus => "git status".to_string(),
-                    AgentToolCall::GitDiff { .. } => "git diff".to_string(),
+                let (tool_name, tool_status) = match call {
+                    AgentToolCall::ReadFile { path, .. } => (format!("read `{}`", path), "Reading"),
+                    AgentToolCall::SearchCode { query } => (format!("search `{}`", query), "Searching"),
+                    AgentToolCall::ListDirectory { path } => (format!("list `{}`", path.as_deref().unwrap_or(".")), "Exploring"),
+                    AgentToolCall::RunCommand { cmd } => (format!("run `{}`", cmd), "Working"),
+                    AgentToolCall::EditFile { path, .. } => (format!("patch `{}`", path), "Working"),
+                    AgentToolCall::DetectEnvironment { .. } => ("detect environment".to_string(), "Working"),
+                    AgentToolCall::GitStatus => ("git status".to_string(), "Working"),
+                    AgentToolCall::GitDiff { .. } => ("git diff".to_string(), "Working"),
                 };
+
+                (self.event_sender)(AgentEvent::StatusChanged {
+                    status: tool_status.to_string(),
+                });
 
                 (self.event_sender)(AgentEvent::ToolStarted {
                     tool: tool_name.clone(),
@@ -275,17 +255,6 @@ impl AgentLoop {
                             result_count: if res.ok { 1 } else { 0 },
                         });
                     }
-                    AgentToolCall::ListDirectory { path } => {
-                        let count = if res.ok {
-                            res.output.lines().filter(|l| !l.trim().is_empty()).count()
-                        } else {
-                            0
-                        };
-                        (self.event_sender)(AgentEvent::SearchExecuted {
-                            query: format!("list `{}`", path.as_deref().unwrap_or(".")),
-                            result_count: count,
-                        });
-                    }
                     _ => {}
                 }
 
@@ -300,6 +269,11 @@ impl AgentLoop {
                     ok: res.ok,
                     output_snippet,
                     duration_ms,
+                });
+
+                // Immediately return to Working decision state for next step
+                (self.event_sender)(AgentEvent::StatusChanged {
+                    status: "Working".to_string(),
                 });
 
                 tool_results.push(res);
@@ -340,8 +314,9 @@ impl AgentLoop {
             current_user_prompt = format!(
                 "Observation Feedback:\n{}\n\n\
                 Next Step Instructions:\n\
-                - If all required changes and verification steps are complete, provide your final summary to the user.\n\
-                - If more files need to be created/edited or build/test commands need to run, proceed directly with the next tool call or file block.",
+                - If you discovered modular containers or subdirectories (e.g. `crates/`, `src/`, `packages/`) that have not been explored yet, DO NOT summarize prematurely! Execute `{{\"tool\": \"list_directory\", \"path\": \"<container>\"}}` and descend into child crates/folders to inspect leaf files.\n\
+                - Once all required changes, DFS tree traversal to leaf files, and verification steps are complete, provide your final summary to the user.\n\
+                - Otherwise, proceed directly with the next tool call or file block.",
                 observation
             );
         }

@@ -1544,6 +1544,170 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                         }
                     }
                 }
+
+                // ─── Render In-Buffer Find Search Overlay (Ctrl+F) ────────────
+                if state.find_in_buffer_open {
+                    let find_w = 340.0f32;
+                    let find_h = 36.0f32;
+                    let find_x = (width - find_w - 20.0).max(10.0);
+                    let find_y = 38.0f32;
+
+                    ui.overlay(|ui| {
+                        ui.container()
+                            .raw_id(Id::from_u64(999999666))
+                            .absolute(find_x, find_y)
+                            .overlay()
+                            .width(find_w)
+                            .height(find_h)
+                            .bg(colors.bg_sidebar)
+                            .border(colors.accent, 1.0)
+                            .radius_all(6.0)
+                            .shadow(Color::rgba(0.0, 0.0, 0.0, 0.45), 0.0, 4.0, 10.0)
+                            .padding(4.0, 8.0, 4.0, 8.0)
+                            .row()
+                            .valign(Align::Center)
+                            .gap(6.0)
+                            .show(|ui| {
+                                ui.text("\u{f002}")
+                                    .size(12.0)
+                                    .color(colors.text_muted)
+                                    .show();
+
+                                let query_label = if state.find_query.is_empty() {
+                                    "Type to search...".to_string()
+                                } else {
+                                    state.find_query.clone()
+                                };
+
+                                let query_color = if state.find_query.is_empty() {
+                                    colors.text_muted
+                                } else {
+                                    colors.text_primary
+                                };
+
+                                ui.container()
+                                    .width(150.0)
+                                    .show(|ui| {
+                                        ui.text(&query_label)
+                                            .size(12.0)
+                                            .color(query_color)
+                                            .show();
+                                    });
+
+                                let count_str = if state.find_matches.is_empty() {
+                                    if state.find_query.is_empty() {
+                                        "".to_string()
+                                    } else {
+                                        "No matches".to_string()
+                                    }
+                                } else {
+                                    format!("{}/{}", state.find_match_index + 1, state.find_matches.len())
+                                };
+
+                                ui.text(&count_str)
+                                    .size(11.0)
+                                    .color(if state.find_matches.is_empty() { Color::rgb(0.9, 0.3, 0.3) } else { colors.text_muted })
+                                    .show();
+
+                                let prev_id = Id::from_u64(999999667);
+                                let prev_clicked = ui.container()
+                                    .raw_id(prev_id)
+                                    .padding(2.0, 4.0, 2.0, 4.0)
+                                    .radius_all(3.0)
+                                    .show(|ui| {
+                                        ui.text("▲").size(10.0).color(colors.text_muted).show();
+                                    });
+                                if prev_clicked.clicked {
+                                    state.prev_find_match();
+                                    ui.request_redraw();
+                                }
+
+                                let next_id = Id::from_u64(999999668);
+                                let next_clicked = ui.container()
+                                    .raw_id(next_id)
+                                    .padding(2.0, 4.0, 2.0, 4.0)
+                                    .radius_all(3.0)
+                                    .show(|ui| {
+                                        ui.text("▼").size(10.0).color(colors.text_muted).show();
+                                    });
+                                if next_clicked.clicked {
+                                    state.next_find_match();
+                                    ui.request_redraw();
+                                }
+
+                                let close_id = Id::from_u64(999999669);
+                                let close_clicked = ui.container()
+                                    .raw_id(close_id)
+                                    .padding(2.0, 4.0, 2.0, 4.0)
+                                    .radius_all(3.0)
+                                    .show(|ui| {
+                                        ui.text("✕").size(11.0).color(colors.text_muted).show();
+                                    });
+                                if close_clicked.clicked {
+                                    state.find_in_buffer_open = false;
+                                    state.find_matches.clear();
+                                    ui.request_redraw();
+                                }
+                            });
+                    });
+                }
+
+                // ─── Render LSP Hover Tooltip Overlay ─────────────────────────
+                if let Some(ref hover_text) = state.active_hover_text {
+                    if let Some([cur_x, cur_y]) = cursor_screen_pos {
+                        let hover_w = 380.0f32.min(ui.width - 40.0);
+                        let mut hx = cur_x;
+                        if hx + hover_w > ui.width - 12.0 {
+                            hx = (ui.width - hover_w - 12.0).max(12.0);
+                        }
+                        let mut hy = (cur_y - 120.0).max(36.0);
+                        if hy < 40.0 {
+                            hy = cur_y + 24.0;
+                        }
+
+                        let hover_bg = colors.bg_sidebar;
+                        let text_color = colors.text_primary;
+                        let snippet = hover_text.clone();
+
+                        ui.overlay(|ui| {
+                            ui.container()
+                                .raw_id(Id::from_u64(999999555))
+                                .absolute(hx, hy)
+                                .overlay()
+                                .width(hover_w)
+                                .bg(hover_bg)
+                                .border(colors.accent, 1.0)
+                                .radius_all(6.0)
+                                .shadow(Color::rgba(0.0, 0.0, 0.0, 0.5), 0.0, 4.0, 12.0)
+                                .padding(8.0, 10.0, 8.0, 10.0)
+                                .column()
+                                .gap(4.0)
+                                .show(|ui| {
+                                    ui.container()
+                                        .row()
+                                        .valign(Align::Center)
+                                        .show(|ui| {
+                                            ui.text("LSP Documentation")
+                                                .size(10.5)
+                                                .weight(FontWeight::Bold)
+                                                .color(colors.accent)
+                                                .show();
+                                        });
+                                    for line in snippet.lines().take(6) {
+                                        ui.text(line)
+                                            .size(11.5)
+                                            .color(text_color)
+                                            .show();
+                                    }
+                                });
+                        });
+
+                        if ui.clicked {
+                            state.active_hover_text = None;
+                            ui.request_redraw();
+                        }
+                    }
+                }
             }
         });
 }

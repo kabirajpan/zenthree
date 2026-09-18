@@ -152,16 +152,38 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                 ui.needs_redraw = true;
                             }
 
-                            let agent_name = match state.ai_backend {
-                                crate::agent::AgentBackend::Native => "ZENE",
-                                crate::agent::AgentBackend::GooseAcp => "Goose",
-                            };
+                            let backend_btn = ui.container()
+                                .row()
+                                .valign(Align::Center)
+                                .gap(4.0)
+                                .padding(2.0, 6.0, 2.0, 6.0)
+                                .radius_all(4.0)
+                                .hover_bg(colors.highlight)
+                                .show(|ui| {
+                                    let (agent_name, badge) = match state.ai_backend {
+                                        crate::agent::AgentBackend::Native => ("ZENE", "Native"),
+                                        crate::agent::AgentBackend::GooseAcp => ("Goose", "ACP"),
+                                    };
 
-                            ui.text(agent_name)
-                                .size(12.0)
-                                .weight(FontWeight::Bold)
-                                .color(colors.text_primary)
-                                .show();
+                                    ui.text(agent_name)
+                                        .size(12.0)
+                                        .weight(FontWeight::Bold)
+                                        .color(colors.text_primary)
+                                        .show();
+
+                                    ui.text(&format!("({})", badge))
+                                        .size(10.0)
+                                        .color(colors.text_muted)
+                                        .show();
+                                });
+
+                            if backend_btn.clicked {
+                                state.ai_backend = match state.ai_backend {
+                                    crate::agent::AgentBackend::Native => crate::agent::AgentBackend::GooseAcp,
+                                    crate::agent::AgentBackend::GooseAcp => crate::agent::AgentBackend::Native,
+                                };
+                                ui.needs_redraw = true;
+                            }
                         });
 
                     // Right side: + icon and cross icon to close
@@ -775,10 +797,10 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                     }
 
                     let total_msgs = msgs.len();
-                    let mut toggle_accordion_idx = None;
-                    let mut toggle_thought_key = None;
-                    let mut toggle_worked_idx = None;
-                    let mut jump_target = None;
+                    let mut toggle_accordion_idx: Option<usize> = None;
+                    let mut toggle_explored_folder_target: Option<(usize, String)> = None;
+                    let mut toggle_thought_key: Option<(usize, usize)> = None;
+                    let mut jump_target: Option<(String, Option<String>)> = None;
                     let mut open_file_target = None;
                     let mut open_session_target = None;
 
@@ -860,7 +882,7 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
 
                                     let mut chat_reject_single = None;
 
-                                    // Top-level Cognitive Work Accordion: "Worked for Xs" / "Working..."
+                                    // Top-level Cognitive Work / Exploration Accordion
                                     let has_work_activity = msg.is_working
                                         || msg.elapsed_secs.is_some()
                                         || !msg.explored_items.is_empty()
@@ -868,18 +890,39 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                         || msg.thoughts.is_some();
 
                                     if has_work_activity {
-                                        let is_worked_expanded = msg.is_working
-                                            || state.expanded_worked_msgs.contains(&msg_idx);
-                                        let worked_arrow = if is_worked_expanded { "\u{f078}" } else { "\u{f054}" };
-                                        let worked_title = if msg.is_working {
-                                            "Working...".to_string()
+                                        let file_count = msg.explored_items.iter()
+                                            .filter(|i| i.action_type == "Analyzed" && (i.line_range.is_some() || i.file_name.contains('.')))
+                                            .count();
+                                        let folder_count = msg.explored_items.iter()
+                                            .filter(|i| i.action_type == "Analyzed" && i.line_range.is_none() && !i.file_name.contains('.') && !i.file_name.is_empty())
+                                            .count();
+                                        let search_count = msg.explored_items.iter().filter(|i| i.action_type == "Searched").count();
+
+                                        let is_exp_open = if msg.is_working {
+                                            !state.expanded_explored_msgs.contains(&msg_idx)
+                                        } else {
+                                            state.expanded_explored_msgs.contains(&msg_idx)
+                                        };
+                                        let exp_arrow = if is_exp_open { "\u{f078}" } else { "\u{f054}" };
+
+                                        let verb = if msg.is_working { "Exploring" } else { "Explored" };
+                                        let header_title = if file_count > 0 && folder_count > 0 {
+                                            format!("{} {} file{}, {} folder{}", verb, file_count, if file_count == 1 { "" } else { "s" }, folder_count, if folder_count == 1 { "" } else { "s" })
+                                        } else if file_count > 0 {
+                                            format!("{} {} file{}", verb, file_count, if file_count == 1 { "" } else { "s" })
+                                        } else if folder_count > 0 {
+                                            format!("{} {} folder{}", verb, folder_count, if folder_count == 1 { "" } else { "s" })
+                                        } else if search_count > 0 {
+                                            format!("{} {} search{}", if msg.is_working { "Searching" } else { "Searched" }, search_count, if search_count == 1 { "" } else { "es" })
+                                        } else if msg.is_working {
+                                            "Exploring workspace".to_string()
                                         } else if let Some(secs) = msg.elapsed_secs {
                                             format!("Worked for {}s", secs.max(1))
                                         } else {
-                                            "Worked on workspace".to_string()
+                                            "Explored workspace".to_string()
                                         };
 
-                                        let worked_btn = ui.container()
+                                        let exp_btn = ui.container()
                                             .padding(2.0, 4.0, 2.0, 4.0)
                                             .hover_bg(Color::rgba(1.0, 1.0, 1.0, 0.04))
                                             .radius_all(3.0)
@@ -888,287 +931,299 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                             .gap(5.0)
                                             .show(|ui| {
                                                 ui.container()
-                                                    .width(12.0)
+                                                    .width(10.0)
                                                     .valign(Align::Center)
                                                     .halign(Align::Center)
                                                     .show(|ui| {
-                                                        ui.text(worked_arrow)
-                                                            .size(7.5)
+                                                        ui.text(exp_arrow)
+                                                            .size(7.0)
                                                             .color(colors.text_muted)
                                                             .show();
                                                     });
-                                                ui.text(&worked_title)
+                                                ui.text(&header_title)
                                                     .size(10.5)
                                                     .weight(FontWeight::Medium)
                                                     .color(colors.text_dim)
                                                     .show();
                                             });
 
-                                        if worked_btn.clicked {
-                                            toggle_worked_idx = Some(msg_idx);
+                                        if exp_btn.clicked {
+                                            toggle_accordion_idx = Some(msg_idx);
                                         }
 
-                                        if is_worked_expanded {
+                                        if is_exp_open {
                                             ui.container()
-                                                .padding_left(12.0)
+                                                .padding_left(14.0)
                                                 .column()
-                                                .gap(4.0)
+                                                .gap(3.0)
                                                 .show(|ui| {
-                                                    // 1. Exploration & Deliberation items
-                                                    if !msg.explored_items.is_empty() {
-                                                        let unique_count = msg.explored_items.iter().filter(|i| !i.file_name.is_empty()).map(|i| &i.file_name).collect::<std::collections::HashSet<_>>().len();
-                                                        let search_count = msg.explored_items.iter().filter(|i| i.action_type == "Searched").count();
-                                                        let is_explored_expanded = !state.expanded_explored_msgs.contains(&msg_idx);
-                                                        let exp_arrow = if is_explored_expanded { "\u{f078}" } else { "\u{f054}" };
+                                                    // 1. Chronological event progression (Thoughts and Analyzed items interleaved)
+                                                    for (item_idx, item) in msg.explored_items.iter().enumerate() {
+                                                        if item.action_type == "Thought" || item.thought_content.is_some() {
+                                                            let thought_text = item.thought_content.as_deref().unwrap_or("");
+                                                            let thought_dur = item.duration_secs.unwrap_or(1);
+                                                            let is_thought_exp = state.expanded_thought_items.contains(&(msg_idx, item_idx));
+                                                            let t_arrow = if is_thought_exp { "\u{f078}" } else { "\u{f054}" };
 
-                                                        let header_title = if unique_count > 0 && search_count > 0 {
-                                                            format!("{} {} file{}, {} search{}", if msg.is_working { "Exploring" } else { "Explored" }, unique_count, if unique_count == 1 { "" } else { "s" }, search_count, if search_count == 1 { "" } else { "es" })
-                                                        } else if unique_count > 0 {
-                                                            format!("{} {} file{}", if msg.is_working { "Exploring" } else { "Explored" }, unique_count, if unique_count == 1 { "" } else { "s" })
-                                                        } else if search_count > 0 {
-                                                            format!("{} {} search{}", if msg.is_working { "Searching" } else { "Searched" }, search_count, if search_count == 1 { "" } else { "es" })
-                                                        } else {
-                                                            "Reasoning & steps".to_string()
-                                                        };
+                                                            let t_btn = ui.container()
+                                                                .padding(1.5, 6.0, 1.5, 6.0)
+                                                                .hover_bg(Color::rgba(1.0, 1.0, 1.0, 0.05))
+                                                                .radius_all(3.0)
+                                                                .row()
+                                                                .valign(Align::Center)
+                                                                .gap(5.0)
+                                                                .show(|ui| {
+                                                                    ui.container()
+                                                                        .width(8.0)
+                                                                        .valign(Align::Center)
+                                                                        .halign(Align::Center)
+                                                                        .show(|ui| {
+                                                                            ui.text(t_arrow)
+                                                                                .size(6.5)
+                                                                                .color(colors.text_muted)
+                                                                                .show();
+                                                                        });
+                                                                    ui.text(&format!("Thought for {}s", thought_dur))
+                                                                        .size(9.5)
+                                                                        .weight(FontWeight::Medium)
+                                                                        .color(colors.text_muted)
+                                                                        .show();
+                                                                });
 
-                                                        let exp_btn = ui.container()
-                                                            .padding(1.0, 3.0, 1.0, 3.0)
-                                                            .hover_bg(Color::rgba(1.0, 1.0, 1.0, 0.03))
-                                                            .radius_all(3.0)
-                                                            .row()
-                                                            .valign(Align::Center)
-                                                            .gap(5.0)
-                                                            .show(|ui| {
+                                                            if t_btn.clicked {
+                                                                toggle_thought_key = Some((msg_idx, item_idx));
+                                                            }
+
+                                                            if is_thought_exp && !thought_text.is_empty() {
                                                                 ui.container()
-                                                                    .width(10.0)
-                                                                    .valign(Align::Center)
-                                                                    .halign(Align::Center)
+                                                                    .padding_left(14.0)
                                                                     .show(|ui| {
-                                                                        ui.text(exp_arrow)
-                                                                            .size(7.0)
+                                                                        ui.container()
+                                                                            .padding(5.0, 9.0, 5.0, 9.0)
+                                                                            .bg(Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, 0.03))
+                                                                            .radius_all(4.0)
+                                                                            .show(|ui| {
+                                                                                ui.text(thought_text)
+                                                                                    .size(9.5)
+                                                                                    .line_height(1.3)
+                                                                                    .color(colors.text_dim)
+                                                                                    .max_width(assistant_text_w - 32.0)
+                                                                                    .wrap(zenthra_text::prelude::TextWrap::Word)
+                                                                                    .show();
+                                                                            });
+                                                                    });
+                                                            }
+                                                        } else if item.action_type == "Analyzed" {
+                                                            let is_dir = item.line_range.is_none() && (!item.file_name.contains('.') || item.file_name.ends_with('/'));
+                                                            let display_name = std::path::Path::new(&item.file_name)
+                                                                .file_name()
+                                                                .and_then(|n| n.to_str())
+                                                                .unwrap_or(&item.file_name);
+
+                                                            if is_dir {
+                                                                let is_folder_expanded = state.is_explored_folder_expanded(msg_idx, &item.file_name);
+                                                                let f_arrow = if is_folder_expanded { "\u{f078}" } else { "\u{f054}" };
+
+                                                                let folder_row = ui.container()
+                                                                    .padding(1.5, 6.0, 1.5, 6.0)
+                                                                    .hover_bg(Color::rgba(1.0, 1.0, 1.0, 0.04))
+                                                                    .radius_all(3.0)
+                                                                    .row()
+                                                                    .valign(Align::Center)
+                                                                    .gap(5.0)
+                                                                    .show(|ui| {
+                                                                        ui.container()
+                                                                            .width(8.0)
+                                                                            .valign(Align::Center)
+                                                                            .halign(Align::Center)
+                                                                            .show(|ui| {
+                                                                                ui.text(f_arrow)
+                                                                                    .size(6.5)
+                                                                                    .color(colors.text_muted)
+                                                                                    .show();
+                                                                            });
+                                                                        ui.text("Analyzed")
+                                                                            .size(10.0)
                                                                             .color(colors.text_muted)
                                                                             .show();
+                                                                        ui.text("\u{f07b}")
+                                                                            .size(10.0)
+                                                                            .color(Color::rgb(0.35, 0.60, 0.95))
+                                                                            .show();
+                                                                        ui.text(display_name)
+                                                                            .size(10.0)
+                                                                            .weight(FontWeight::Medium)
+                                                                            .color(colors.text_primary)
+                                                                            .show();
                                                                     });
-                                                                ui.text(&header_title)
-                                                                    .size(10.0)
-                                                                    .weight(FontWeight::Medium)
-                                                                    .color(colors.text_muted)
-                                                                    .show();
-                                                            });
 
-                                                        if exp_btn.clicked {
-                                                            toggle_accordion_idx = Some(msg_idx);
-                                                        }
+                                                                if folder_row.clicked {
+                                                                    toggle_explored_folder_target = Some((msg_idx, item.file_name.clone()));
+                                                                }
 
-                                                        if is_explored_expanded {
-                                                            ui.container()
-                                                                .padding_left(12.0)
-                                                                .column()
-                                                                .gap(3.0)
-                                                                .show(|ui| {
-                                                                    for (item_idx, item) in msg.explored_items.iter().enumerate() {
-                                                                        if item.action_type == "Thought" || item.thought_content.is_some() {
-                                                                            let thought_text = item.thought_content.as_deref().unwrap_or("");
-                                                                            let thought_dur = item.duration_secs.unwrap_or(1);
-                                                                            let is_thought_exp = state.expanded_thought_items.contains(&(msg_idx, item_idx));
-                                                                            let t_arrow = if is_thought_exp { "\u{f078}" } else { "\u{f054}" };
-
-                                                                            let t_btn = ui.container()
-                                                                                .padding(1.0, 3.0, 1.0, 3.0)
-                                                                                .hover_bg(Color::rgba(1.0, 1.0, 1.0, 0.03))
-                                                                                .radius_all(3.0)
-                                                                                .row()
-                                                                                .valign(Align::Center)
-                                                                                .gap(4.0)
-                                                                                .show(|ui| {
-                                                                                    ui.text(t_arrow)
-                                                                                        .size(6.5)
-                                                                                        .color(colors.text_muted)
-                                                                                        .show();
-                                                                                    ui.text(&format!("Thought for {}s", thought_dur))
-                                                                                        .size(9.5)
-                                                                                        .color(colors.text_muted)
-                                                                                        .show();
-                                                                                });
-
-                                                                            if t_btn.clicked {
-                                                                                toggle_thought_key = Some((msg_idx, item_idx));
-                                                                            }
-
-                                                                            if is_thought_exp && !thought_text.is_empty() {
+                                                                if is_folder_expanded && !item.children.is_empty() {
+                                                                    ui.container()
+                                                                        .padding_left(16.0)
+                                                                        .column()
+                                                                        .gap(2.0)
+                                                                        .show(|ui| {
+                                                                            for child in &item.children {
+                                                                                let (c_glyph, c_color) = get_file_glyph_and_color(child, &colors);
+                                                                                let c_name = child.trim_end_matches('/');
                                                                                 ui.container()
-                                                                                    .padding(4.0, 8.0, 4.0, 8.0)
-                                                                                    .bg(Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, 0.03))
-                                                                                    .radius_all(4.0)
+                                                                                    .padding(1.0, 4.0, 1.0, 4.0)
+                                                                                    .row()
+                                                                                    .valign(Align::Center)
+                                                                                    .gap(5.0)
                                                                                     .show(|ui| {
-                                                                                        ui.text(thought_text)
+                                                                                        ui.text("•")
+                                                                                            .size(7.0)
+                                                                                            .color(colors.text_muted)
+                                                                                            .show();
+                                                                                        ui.text(c_glyph)
                                                                                             .size(9.5)
-                                                                                            .line_height(1.3)
+                                                                                            .color(c_color)
+                                                                                            .show();
+                                                                                        ui.text(c_name)
+                                                                                            .size(9.5)
                                                                                             .color(colors.text_dim)
-                                                                                            .max_width(assistant_text_w - 32.0)
-                                                                                            .wrap(zenthra_text::prelude::TextWrap::Word)
                                                                                             .show();
                                                                                     });
                                                                             }
-                                                                        } else if item.action_type == "Searched" {
-                                                                            ui.container()
-                                                                                .row()
-                                                                                .gap(5.0)
-                                                                                .valign(Align::Center)
-                                                                                .show(|ui| {
-                                                                                    ui.text("•")
-                                                                                        .size(9.0)
-                                                                                        .color(colors.text_muted)
-                                                                                        .show();
-                                                                                    ui.text("Searched")
-                                                                                        .size(10.0)
-                                                                                        .color(colors.text_dim)
-                                                                                        .show();
-                                                                                    ui.text(&format!("`{}`", item.file_name))
-                                                                                        .size(10.0)
-                                                                                        .color(colors.accent)
-                                                                                        .show();
-                                                                                    if let Some(ref range) = item.line_range {
-                                                                                        ui.text(range)
-                                                                                            .size(9.5)
-                                                                                            .color(colors.text_muted)
-                                                                                            .show();
-                                                                                    }
-                                                                                });
-                                                                        } else {
-                                                                            // Analyzed file
-                                                                            let glyph = get_file_glyph(&item.file_name);
-                                                                            let analyze_btn = ui.container()
-                                                                                .padding(1.0, 3.0, 1.0, 3.0)
-                                                                                .hover_bg(Color::rgba(1.0, 1.0, 1.0, 0.03))
-                                                                                .radius_all(3.0)
-                                                                                .row()
-                                                                                .gap(5.0)
-                                                                                .valign(Align::Center)
-                                                                                .show(|ui| {
-                                                                                    ui.text("•")
-                                                                                        .size(9.0)
-                                                                                        .color(colors.text_muted)
-                                                                                        .show();
-                                                                                    ui.text(&item.action_type)
-                                                                                        .size(10.0)
-                                                                                        .color(colors.text_dim)
-                                                                                        .show();
-                                                                                    ui.text(glyph)
-                                                                                        .size(10.0)
-                                                                                        .color(colors.accent)
-                                                                                        .show();
-                                                                                    ui.text(&item.file_name)
-                                                                                        .size(10.0)
-                                                                                        .weight(FontWeight::Medium)
-                                                                                        .color(colors.text_primary)
-                                                                                        .show();
-                                                                                    if let Some(ref range) = item.line_range {
-                                                                                        ui.text(range)
-                                                                                            .size(9.5)
-                                                                                            .color(colors.accent.with_alpha(0.8))
-                                                                                            .show();
-                                                                                    }
-                                                                                });
+                                                                        });
+                                                                }
+                                                            } else {
+                                                                let (glyph, icon_color) = get_file_glyph_and_color(&item.file_name, &colors);
 
-                                                                            if analyze_btn.clicked {
-                                                                                jump_target = Some((item.file_name.clone(), item.line_range.clone()));
-                                                                            }
+                                                                let file_row = ui.container()
+                                                                    .padding(1.5, 6.0, 1.5, 6.0)
+                                                                    .hover_bg(Color::rgba(1.0, 1.0, 1.0, 0.04))
+                                                                    .radius_all(3.0)
+                                                                    .row()
+                                                                    .valign(Align::Center)
+                                                                    .gap(6.0)
+                                                                    .show(|ui| {
+                                                                        ui.text("Analyzed")
+                                                                            .size(10.0)
+                                                                            .color(colors.text_muted)
+                                                                            .show();
+
+                                                                        ui.text(glyph)
+                                                                            .size(10.0)
+                                                                            .color(icon_color)
+                                                                            .show();
+
+                                                                        ui.text(display_name)
+                                                                            .size(10.0)
+                                                                            .weight(FontWeight::Medium)
+                                                                            .color(colors.text_primary)
+                                                                            .show();
+
+                                                                        if let Some(ref range) = item.line_range {
+                                                                            ui.text(range)
+                                                                                .size(9.5)
+                                                                                .color(colors.text_muted)
+                                                                                .show();
                                                                         }
+                                                                    });
+
+                                                                if file_row.clicked {
+                                                                    jump_target = Some((item.file_name.clone(), item.line_range.clone()));
+                                                                }
+                                                            }
+                                                        } else if item.action_type == "Searched" {
+                                                            ui.container()
+                                                                .padding(1.5, 6.0, 1.5, 6.0)
+                                                                .hover_bg(Color::rgba(1.0, 1.0, 1.0, 0.04))
+                                                                .radius_all(3.0)
+                                                                .row()
+                                                                .valign(Align::Center)
+                                                                .gap(6.0)
+                                                                .show(|ui| {
+                                                                    ui.text("Searched")
+                                                                        .size(10.0)
+                                                                        .color(colors.text_muted)
+                                                                        .show();
+
+                                                                    ui.text("\u{f002}")
+                                                                        .size(9.5)
+                                                                        .color(colors.accent)
+                                                                        .show();
+
+                                                                    ui.text(&item.file_name)
+                                                                        .size(10.0)
+                                                                        .weight(FontWeight::Medium)
+                                                                        .color(colors.text_primary)
+                                                                        .show();
+
+                                                                    if let Some(ref range) = item.line_range {
+                                                                        ui.text(range)
+                                                                            .size(9.5)
+                                                                            .color(colors.text_muted)
+                                                                            .show();
                                                                     }
                                                                 });
                                                         }
-                                                    } else if let Some(ref thought_text) = msg.thoughts {
-                                                        // Fallback when explored_items is empty but thought exists
-                                                        let is_thought_exp = state.expanded_thought_items.contains(&(msg_idx, 999999));
-                                                        let t_arrow = if is_thought_exp { "\u{f078}" } else { "\u{f054}" };
+                                                    }
 
-                                                        let t_btn = ui.container()
-                                                            .padding(1.0, 3.0, 1.0, 3.0)
-                                                            .hover_bg(Color::rgba(1.0, 1.0, 1.0, 0.03))
-                                                            .radius_all(3.0)
-                                                            .row()
-                                                            .valign(Align::Center)
-                                                            .gap(4.0)
-                                                            .show(|ui| {
-                                                                ui.text(t_arrow)
-                                                                    .size(6.5)
-                                                                    .color(colors.text_muted)
-                                                                    .show();
-                                                                ui.text("Thought for 1s")
-                                                                    .size(9.5)
-                                                                    .color(colors.text_muted)
-                                                                    .show();
-                                                            });
+                                                    // Fallback thought if explored_items has no thoughts but msg.thoughts exists
+                                                    if !msg.explored_items.iter().any(|i| i.action_type == "Thought" || i.thought_content.is_some()) {
+                                                        if let Some(ref thought_text) = msg.thoughts {
+                                                            let is_thought_exp = state.expanded_thought_items.contains(&(msg_idx, 999999));
+                                                            let t_arrow = if is_thought_exp { "\u{f078}" } else { "\u{f054}" };
 
-                                                        if t_btn.clicked {
-                                                            toggle_thought_key = Some((msg_idx, 999999));
-                                                        }
-
-                                                        if is_thought_exp && !thought_text.trim().is_empty() {
-                                                            ui.container()
-                                                                .padding(4.0, 8.0, 4.0, 8.0)
-                                                                .bg(Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, 0.03))
-                                                                .radius_all(4.0)
+                                                            let t_btn = ui.container()
+                                                                .padding(1.5, 6.0, 1.5, 6.0)
+                                                                .hover_bg(Color::rgba(1.0, 1.0, 1.0, 0.05))
+                                                                .radius_all(3.0)
+                                                                .row()
+                                                                .valign(Align::Center)
+                                                                .gap(5.0)
                                                                 .show(|ui| {
-                                                                    ui.text(thought_text)
+                                                                    ui.container()
+                                                                        .width(8.0)
+                                                                        .valign(Align::Center)
+                                                                        .halign(Align::Center)
+                                                                        .show(|ui| {
+                                                                            ui.text(t_arrow)
+                                                                                .size(6.5)
+                                                                                .color(colors.text_muted)
+                                                                                .show();
+                                                                        });
+                                                                    ui.text("Reasoning")
                                                                         .size(9.5)
-                                                                        .line_height(1.3)
-                                                                        .color(colors.text_dim)
-                                                                        .max_width(assistant_text_w - 32.0)
-                                                                        .wrap(zenthra_text::prelude::TextWrap::Word)
+                                                                        .weight(FontWeight::Medium)
+                                                                        .color(colors.text_muted)
                                                                         .show();
                                                                 });
+
+                                                            if t_btn.clicked {
+                                                                toggle_thought_key = Some((msg_idx, 999999));
+                                                            }
+
+                                                            if is_thought_exp && !thought_text.trim().is_empty() {
+                                                                ui.container()
+                                                                    .padding_left(14.0)
+                                                                    .show(|ui| {
+                                                                        ui.container()
+                                                                            .padding(5.0, 9.0, 5.0, 9.0)
+                                                                            .bg(Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, 0.03))
+                                                                            .radius_all(4.0)
+                                                                            .show(|ui| {
+                                                                                ui.text(thought_text)
+                                                                                    .size(9.5)
+                                                                                    .line_height(1.3)
+                                                                                    .color(colors.text_dim)
+                                                                                    .max_width(assistant_text_w - 32.0)
+                                                                                    .wrap(zenthra_text::prelude::TextWrap::Word)
+                                                                                    .show();
+                                                                            });
+                                                                    });
+                                                            }
                                                         }
                                                     }
 
-                                                    // 2. Real-time working spinner
-                                                    if msg.is_working {
-                                                        let now_ms = std::time::SystemTime::now()
-                                                            .duration_since(std::time::UNIX_EPOCH)
-                                                            .map(|d| d.as_millis())
-                                                            .unwrap_or(0);
-                                                        let spinner_frames = ["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
-                                                        let spinner = spinner_frames[((now_ms / 80) % 10) as usize];
-                                                        let dots_count = ((now_ms / 350) % 4) as usize;
-                                                        let dots = match dots_count {
-                                                            0 => "",
-                                                            1 => ".",
-                                                            2 => "..",
-                                                            _ => "...",
-                                                        };
-                                                        let action_label = match msg.sub_agent {
-                                                            Some(crate::agent::SubAgentRole::Planner) => "Planning architecture",
-                                                            Some(crate::agent::SubAgentRole::Explorer) => "Exploring workspace",
-                                                            Some(crate::agent::SubAgentRole::Detector) => "Detecting files & env",
-                                                            Some(crate::agent::SubAgentRole::Builder) => "Building solution",
-                                                            Some(crate::agent::SubAgentRole::Tester) => "Verifying code",
-                                                            None => "Analyzing & exploring",
-                                                        };
-
-                                                        ui.container()
-                                                            .row()
-                                                            .gap(5.0)
-                                                            .valign(Align::Center)
-                                                            .padding(2.0, 6.0, 2.0, 6.0)
-                                                            .bg(colors.accent.with_alpha(0.08))
-                                                            .border(colors.accent.with_alpha(0.25), 1.0)
-                                                            .radius_all(10.0)
-                                                            .show(|ui| {
-                                                                ui.text(spinner)
-                                                                    .size(11.0)
-                                                                    .color(colors.accent)
-                                                                    .show();
-                                                                ui.text(&format!("{}{}", action_label, dots))
-                                                                    .size(10.0)
-                                                                    .weight(FontWeight::Medium)
-                                                                    .color(colors.accent)
-                                                                    .show();
-                                                            });
-                                                        ui.needs_redraw = true;
-                                                    }
-
-                                                    // 3. Edited files badges (nested INSIDE Worked for Xs)
+                                                    // 2. Edited files badges
                                                     for edited in &files_to_show {
                                                         let glyph = get_file_glyph(&edited.file_name);
                                                         let target_name = edited.file_name.clone();
@@ -1195,33 +1250,39 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                                             .gap(6.0)
                                                             .show(|ui| {
                                                                 ui.text("Edited")
-                                                                    .size(10.5)
+                                                                    .size(10.0)
                                                                     .color(colors.text_muted)
                                                                     .show();
+
                                                                 ui.text(glyph)
-                                                                    .size(10.5)
+                                                                    .size(10.0)
                                                                     .color(colors.accent)
                                                                     .show();
+
                                                                 ui.text(&file_name)
-                                                                    .size(11.0)
-                                                                    .weight(FontWeight::SemiBold)
+                                                                    .size(10.0)
+                                                                    .weight(FontWeight::Medium)
                                                                     .color(colors.text_primary)
                                                                     .show();
 
-                                                                if edited.lines_added > 0 {
-                                                                    ui.text(&format!("+{}", edited.lines_added))
-                                                                        .size(10.0)
-                                                                        .weight(FontWeight::Bold)
-                                                                        .color(Color::rgb(0.35, 0.85, 0.45))
-                                                                        .show();
-                                                                }
-                                                                if edited.lines_removed > 0 {
-                                                                    ui.text(&format!("-{}", edited.lines_removed))
-                                                                        .size(10.0)
-                                                                        .weight(FontWeight::Bold)
-                                                                        .color(Color::rgb(0.97, 0.45, 0.45))
-                                                                        .show();
-                                                                }
+                                                                ui.container()
+                                                                    .row()
+                                                                    .gap(4.0)
+                                                                    .valign(Align::Center)
+                                                                    .show(|ui| {
+                                                                        if edited.lines_added > 0 {
+                                                                            ui.text(&format!("+{}", edited.lines_added))
+                                                                                .size(9.0)
+                                                                                .color(Color::rgb(34.0 / 255.0, 197.0 / 255.0, 94.0 / 255.0))
+                                                                                .show();
+                                                                        }
+                                                                        if edited.lines_removed > 0 {
+                                                                            ui.text(&format!("-{}", edited.lines_removed))
+                                                                                .size(9.0)
+                                                                                .color(Color::rgb(239.0 / 255.0, 68.0 / 255.0, 68.0 / 255.0))
+                                                                                .show();
+                                                                        }
+                                                                    });
 
                                                                 if let Some(pending) = pending_match {
                                                                     let rej_btn = ui.container()
@@ -1243,6 +1304,42 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                                         if edit_btn.clicked && chat_reject_single.is_none() {
                                                             open_file_target = Some(target_name);
                                                         }
+                                                    }
+
+                                                    // 3. Active Decision Sub-State Indicator (Working.. / Compacting. / Searching.. / Reading..)
+                                                    if msg.is_working {
+                                                        let now_ms = std::time::SystemTime::now()
+                                                            .duration_since(std::time::UNIX_EPOCH)
+                                                            .map(|d| d.as_millis())
+                                                            .unwrap_or(0);
+                                                        let dots_count = ((now_ms / 350) % 3) as usize;
+                                                        let dots = match dots_count {
+                                                            0 => ".",
+                                                            1 => "..",
+                                                            _ => "...",
+                                                        };
+
+                                                        let base_status = match msg.status_text.as_deref() {
+                                                            Some("Searching") => "Searching",
+                                                            Some("Compacting") => "Compacting",
+                                                            Some("Reading") => "Reading",
+                                                            Some("Exploring") => "Exploring",
+                                                            Some(s) => s,
+                                                            None => "Working",
+                                                        };
+                                                        let status_label = format!("{}{}", base_status, dots);
+
+                                                        ui.container()
+                                                            .padding(2.0, 6.0, 2.0, 6.0)
+                                                            .row()
+                                                            .valign(Align::Center)
+                                                            .show(|ui| {
+                                                                ui.text(&status_label)
+                                                                    .size(10.0)
+                                                                    .color(colors.text_dim)
+                                                                    .show();
+                                                            });
+                                                        ui.needs_redraw = true;
                                                     }
                                                 });
                                         }
@@ -1641,12 +1738,12 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                         state.toggle_explored_accordion(idx);
                         ui.needs_redraw = true;
                     }
-                    if let Some((msg_idx, item_idx)) = toggle_thought_key {
-                        state.toggle_thought_accordion(msg_idx, item_idx);
+                    if let Some((msg_idx, folder_path)) = toggle_explored_folder_target {
+                        state.toggle_explored_folder(msg_idx, &folder_path);
                         ui.needs_redraw = true;
                     }
-                    if let Some(idx) = toggle_worked_idx {
-                        state.toggle_worked_accordion(idx);
+                    if let Some((msg_idx, item_idx)) = toggle_thought_key {
+                        state.toggle_thought_accordion(msg_idx, item_idx);
                         ui.needs_redraw = true;
                     }
                     if let Some((file, range)) = jump_target {
@@ -3040,8 +3137,32 @@ fn get_file_glyph(name: &str) -> &'static str {
         "\u{e73c}"
     } else if name.ends_with(".html") || name.ends_with(".css") {
         "\u{e736}"
+    } else if !name.contains('.') || name == "." || name.ends_with('/') {
+        "\u{f07b}"
     } else {
         "\u{ea7f}"
+    }
+}
+
+fn get_file_glyph_and_color(name: &str, colors: &crate::theme::ThemeColors) -> (&'static str, Color) {
+    if name.ends_with(".rs") {
+        ("\u{e7a8}", Color::rgb(0.95, 0.42, 0.20))
+    } else if name.to_lowercase().contains("media") || name.ends_with(".png") || name.ends_with(".jpg") || name.ends_with(".jpeg") || name.ends_with(".webp") || name.ends_with(".svg") {
+        ("\u{f03e}", Color::rgb(0.70, 0.70, 0.75))
+    } else if name.ends_with(".ts") || name.ends_with(".js") || name.ends_with(".tsx") || name.ends_with(".jsx") {
+        ("\u{e628}", Color::rgb(0.35, 0.65, 0.95))
+    } else if name.ends_with(".toml") || name.ends_with(".json") || name.ends_with(".yaml") || name.ends_with(".yml") {
+        ("\u{e60b}", Color::rgb(0.40, 0.80, 0.75))
+    } else if name.ends_with(".md") || name.ends_with(".txt") {
+        ("\u{f15c}", Color::rgb(0.45, 0.65, 0.95))
+    } else if name.ends_with(".py") {
+        ("\u{e73c}", Color::rgb(0.95, 0.80, 0.30))
+    } else if name.ends_with(".html") || name.ends_with(".css") {
+        ("\u{e736}", Color::rgb(0.90, 0.45, 0.30))
+    } else if !name.contains('.') || name == "." || name.ends_with('/') {
+        ("\u{f07b}", Color::rgb(0.35, 0.60, 0.95))
+    } else {
+        ("\u{ea7f}", colors.accent)
     }
 }
 
@@ -3112,5 +3233,385 @@ fn draw_ctx_menu_item(
         });
 
     resp.clicked
+}
+
+#[allow(dead_code)]
+#[derive(Debug, Clone)]
+pub struct ExploredTreeNode {
+    pub name: String,
+    pub full_path: String,
+    pub is_dir: bool,
+    pub action_type: String,
+    pub line_range: Option<String>,
+    pub children: Vec<ExploredTreeNode>,
+}
+
+#[allow(dead_code)]
+fn build_explored_tree(items: &[&crate::state::ExploredItem]) -> Vec<ExploredTreeNode> {
+    let mut root_nodes: Vec<ExploredTreeNode> = Vec::new();
+
+    for item in items {
+        if item.action_type == "Searched" {
+            root_nodes.push(ExploredTreeNode {
+                name: item.file_name.clone(),
+                full_path: item.file_name.clone(),
+                is_dir: false,
+                action_type: "Searched".to_string(),
+                line_range: item.line_range.clone(),
+                children: Vec::new(),
+            });
+            continue;
+        }
+
+        if item.file_name == "." || item.file_name.is_empty() {
+            for child in &item.children {
+                let is_dir = child.ends_with('/') || !child.contains('.');
+                let clean_child = child.trim_end_matches('/').to_string();
+                if !root_nodes.iter().any(|n| n.name == clean_child) {
+                    root_nodes.push(ExploredTreeNode {
+                        name: clean_child.clone(),
+                        full_path: clean_child,
+                        is_dir,
+                        action_type: "Analyzed".to_string(),
+                        line_range: None,
+                        children: Vec::new(),
+                    });
+                }
+            }
+            continue;
+        }
+
+        let clean_path = item.file_name.trim_start_matches("./").trim_end_matches('/').to_string();
+        let parts: Vec<&str> = clean_path.split('/').filter(|s| !s.is_empty()).collect();
+        if parts.is_empty() {
+            continue;
+        }
+
+        let is_dir_item = !item.children.is_empty()
+            || (item.line_range.is_none() && (!parts.last().unwrap_or(&"").contains('.') || item.file_name.ends_with('/')));
+
+        let mut current_children = &mut root_nodes;
+        let mut path_so_far = String::new();
+
+        for (idx, part) in parts.iter().enumerate() {
+            let is_last = idx + 1 == parts.len();
+            if !path_so_far.is_empty() {
+                path_so_far.push('/');
+            }
+            path_so_far.push_str(part);
+
+            if !is_last {
+                let found_idx = current_children.iter().position(|n| n.name == *part);
+                let node_idx = match found_idx {
+                    Some(i) => i,
+                    None => {
+                        current_children.push(ExploredTreeNode {
+                            name: part.to_string(),
+                            full_path: path_so_far.clone(),
+                            is_dir: true,
+                            action_type: "Analyzed".to_string(),
+                            line_range: None,
+                            children: Vec::new(),
+                        });
+                        current_children.len() - 1
+                    }
+                };
+                current_children = &mut current_children[node_idx].children;
+            } else {
+                let found_idx = current_children.iter().position(|n| n.name == *part);
+                let node_idx = match found_idx {
+                    Some(i) => {
+                        let node = &mut current_children[i];
+                        if is_dir_item {
+                            node.is_dir = true;
+                        } else {
+                            node.is_dir = false;
+                            if item.line_range.is_some() {
+                                node.line_range = item.line_range.clone();
+                            }
+                        }
+                        i
+                    }
+                    None => {
+                        current_children.push(ExploredTreeNode {
+                            name: part.to_string(),
+                            full_path: path_so_far.clone(),
+                            is_dir: is_dir_item,
+                            action_type: "Analyzed".to_string(),
+                            line_range: if is_dir_item { None } else { item.line_range.clone() },
+                            children: Vec::new(),
+                        });
+                        current_children.len() - 1
+                    }
+                };
+
+                if is_dir_item && !item.children.is_empty() {
+                    let parent_path = path_so_far.clone();
+                    let node = &mut current_children[node_idx];
+                    for child in &item.children {
+                        let is_child_dir = child.ends_with('/') || !child.contains('.');
+                        let clean_child = child.trim_end_matches('/').to_string();
+                        if !node.children.iter().any(|c| c.name == clean_child) {
+                            let child_full_path = format!("{}/{}", parent_path, clean_child);
+                            node.children.push(ExploredTreeNode {
+                                name: clean_child,
+                                full_path: child_full_path,
+                                is_dir: is_child_dir,
+                                action_type: "Analyzed".to_string(),
+                                line_range: None,
+                                children: Vec::new(),
+                            });
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    sort_tree(&mut root_nodes);
+    root_nodes
+}
+
+#[allow(dead_code)]
+fn sort_tree(nodes: &mut Vec<ExploredTreeNode>) {
+    nodes.sort_by(|a, b| {
+        match (a.is_dir, b.is_dir) {
+            (true, false) => std::cmp::Ordering::Less,
+            (false, true) => std::cmp::Ordering::Greater,
+            _ => a.name.cmp(&b.name),
+        }
+    });
+    for node in nodes.iter_mut() {
+        if !node.children.is_empty() {
+            sort_tree(&mut node.children);
+        }
+    }
+}
+
+#[allow(dead_code)]
+fn count_tree_nodes(nodes: &[ExploredTreeNode]) -> (usize, usize) {
+    let mut files = 0;
+    let mut folders = 0;
+    for node in nodes {
+        if node.action_type == "Searched" {
+            // query search
+        } else if node.is_dir {
+            folders += 1;
+            let (sub_files, sub_folders) = count_tree_nodes(&node.children);
+            files += sub_files;
+            folders += sub_folders;
+        } else {
+            files += 1;
+        }
+    }
+    (files, folders)
+}
+
+#[allow(dead_code)]
+fn render_explored_tree_node(
+    ui: &mut Ui,
+    state: &ZenthreeState,
+    colors: &crate::theme::ThemeColors,
+    msg_idx: usize,
+    node: &ExploredTreeNode,
+    depth: usize,
+    jump_target: &mut Option<(String, Option<String>)>,
+    toggle_folder_target: &mut Option<(usize, String)>,
+) {
+    let indent = (depth as f32) * 14.0;
+    if node.action_type == "Searched" {
+        ui.container()
+            .padding_left(indent)
+            .row()
+            .gap(5.0)
+            .valign(Align::Center)
+            .show(|ui| {
+                ui.text("•")
+                    .size(9.0)
+                    .color(colors.text_muted)
+                    .show();
+                ui.text("Searched")
+                    .size(10.0)
+                    .color(colors.text_dim)
+                    .show();
+                ui.text(&format!("`{}`", node.name))
+                    .size(10.0)
+                    .color(colors.accent)
+                    .show();
+                if let Some(ref range) = node.line_range {
+                    ui.text(range)
+                        .size(9.5)
+                        .color(colors.text_muted)
+                        .show();
+                }
+            });
+    } else if node.is_dir {
+        let is_expanded = state.is_explored_folder_expanded(msg_idx, &node.full_path);
+        let arrow = if is_expanded { "\u{f078}" } else { "\u{f054}" };
+
+        let folder_btn = ui.container()
+            .padding_left(indent)
+            .padding(1.0, 3.0, 1.0, 3.0)
+            .hover_bg(Color::rgba(1.0, 1.0, 1.0, 0.04))
+            .radius_all(3.0)
+            .row()
+            .gap(4.0)
+            .valign(Align::Center)
+            .show(|ui| {
+                ui.container()
+                    .width(10.0)
+                    .valign(Align::Center)
+                    .halign(Align::Center)
+                    .show(|ui| {
+                        ui.text(arrow)
+                            .size(6.5)
+                            .color(colors.text_muted)
+                            .show();
+                    });
+                ui.text("Analyzed")
+                    .size(10.0)
+                    .color(colors.text_dim)
+                    .show();
+                ui.text("\u{f07b}")
+                    .size(10.0)
+                    .color(colors.accent)
+                    .show();
+                ui.text(&node.name)
+                    .size(10.0)
+                    .weight(FontWeight::Medium)
+                    .color(colors.text_primary)
+                    .show();
+            });
+
+        if folder_btn.clicked {
+            *toggle_folder_target = Some((msg_idx, node.full_path.clone()));
+        }
+
+        if is_expanded {
+            for child in &node.children {
+                render_explored_tree_node(
+                    ui,
+                    state,
+                    colors,
+                    msg_idx,
+                    child,
+                    depth + 1,
+                    jump_target,
+                    toggle_folder_target,
+                );
+            }
+        }
+    } else {
+        // Leaf file
+        let glyph = get_file_glyph(&node.name);
+        let file_btn = ui.container()
+            .padding_left(indent + 14.0)
+            .padding(1.0, 3.0, 1.0, 3.0)
+            .hover_bg(Color::rgba(1.0, 1.0, 1.0, 0.04))
+            .radius_all(3.0)
+            .row()
+            .gap(4.0)
+            .valign(Align::Center)
+            .show(|ui| {
+                ui.text("•")
+                    .size(9.0)
+                    .color(colors.text_muted)
+                    .show();
+                ui.text("Analyzed")
+                    .size(10.0)
+                    .color(colors.text_dim)
+                    .show();
+                ui.text(glyph)
+                    .size(10.0)
+                    .color(colors.accent)
+                    .show();
+                ui.text(&node.name)
+                    .size(10.0)
+                    .weight(FontWeight::Medium)
+                    .color(colors.text_primary)
+                    .show();
+                if let Some(ref range) = node.line_range {
+                    ui.container()
+                        .padding(0.0, 3.0, 0.0, 3.0)
+                        .radius_all(3.0)
+                        .bg(Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, 0.05))
+                        .show(|ui| {
+                            ui.text(range)
+                                .size(9.5)
+                                .color(colors.accent)
+                                .show();
+                        });
+                }
+            });
+
+        if file_btn.clicked {
+            *jump_target = Some((node.full_path.clone(), node.line_range.clone()));
+        }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::state::ExploredItem;
+
+    #[test]
+    fn test_build_explored_tree_hierarchy_and_counting() {
+        let root_dir = ExploredItem {
+            file_name: ".".to_string(),
+            line_range: None,
+            action_type: "Analyzed".to_string(),
+            thought_content: None,
+            duration_secs: None,
+            children: vec!["Cargo.toml".to_string(), "README.md".to_string(), "crates/".to_string()],
+        };
+        let cargo_toml = ExploredItem {
+            file_name: "Cargo.toml".to_string(),
+            line_range: Some("#L1-25".to_string()),
+            action_type: "Analyzed".to_string(),
+            thought_content: None,
+            duration_secs: None,
+            children: Vec::new(),
+        };
+        let crates_dir = ExploredItem {
+            file_name: "crates".to_string(),
+            line_range: None,
+            action_type: "Analyzed".to_string(),
+            thought_content: None,
+            duration_secs: None,
+            children: vec!["ai/".to_string(), "connectome/".to_string()],
+        };
+        let connectome_lib = ExploredItem {
+            file_name: "crates/connectome/src/lib.rs".to_string(),
+            line_range: Some("#L1-50".to_string()),
+            action_type: "Analyzed".to_string(),
+            thought_content: None,
+            duration_secs: None,
+            children: Vec::new(),
+        };
+
+        let items = vec![&root_dir, &cargo_toml, &crates_dir, &connectome_lib];
+        let tree = build_explored_tree(&items);
+
+        // Verify top-level: crates/ (folder first), Cargo.toml, README.md
+        assert_eq!(tree[0].name, "crates");
+        assert!(tree[0].is_dir);
+
+        // Find crates node and its children
+        let crates_node = &tree[0];
+        let connectome_node = crates_node.children.iter().find(|c| c.name == "connectome").expect("connectome node");
+        assert!(connectome_node.is_dir);
+
+        let src_node = connectome_node.children.iter().find(|c| c.name == "src").expect("src node");
+        assert!(src_node.is_dir);
+
+        let lib_node = src_node.children.iter().find(|c| c.name == "lib.rs").expect("lib.rs node");
+        assert!(!lib_node.is_dir);
+        assert_eq!(lib_node.line_range, Some("#L1-50".to_string()));
+
+        let (files, folders) = count_tree_nodes(&tree);
+        assert!(files >= 2);
+        assert!(folders >= 4); // crates, ai, connectome, src
+    }
 }
 

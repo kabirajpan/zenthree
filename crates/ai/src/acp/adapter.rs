@@ -11,7 +11,11 @@ impl AcpAdapter {
         match notification.method.as_str() {
             "session/update" => {
                 if let Some(params) = &notification.params {
-                    if let Ok(update) = serde_json::from_value::<SessionUpdateNotification>(params.clone()) {
+                    if let Some(update_val) = params.get("update") {
+                        if let Ok(update) = serde_json::from_value::<SessionUpdateNotification>(update_val.clone()) {
+                            events.extend(Self::convert_session_update(update));
+                        }
+                    } else if let Ok(update) = serde_json::from_value::<SessionUpdateNotification>(params.clone()) {
                         events.extend(Self::convert_session_update(update));
                     }
                 }
@@ -49,35 +53,49 @@ impl AcpAdapter {
         let mut events = Vec::new();
 
         match update.event_type.as_str() {
-            "thinking" => {
-                if let Some(delta) = update.content {
-                    events.push(AgentEvent::Thinking { delta });
+            "agent_message_chunk" | "chunk" | "text" | "content" => {
+                if let Some(ref val) = update.content {
+                    let delta = extract_text_from_value(val);
+                    if !delta.is_empty() {
+                        events.push(AgentEvent::StreamChunk { delta });
+                    }
                 }
             }
-            "chunk" | "text" | "content" => {
-                if let Some(delta) = update.content {
-                    events.push(AgentEvent::StreamChunk { delta });
+            "thinking" => {
+                if let Some(ref val) = update.content {
+                    let delta = extract_text_from_value(val);
+                    if !delta.is_empty() {
+                        events.push(AgentEvent::Thinking { delta });
+                    }
                 }
             }
             "subagent" | "agent_switch" => {
-                let name = update.content.unwrap_or_else(|| "Goose Subagent".to_string());
+                let name = update.content.map(|v| extract_text_from_value(&v)).unwrap_or_else(|| "Goose Subagent".to_string());
                 events.push(AgentEvent::SubAgentActivated {
                     role: "subagent".to_string(),
                     name,
                 });
             }
             "tool_call" | "tool_start" => {
-                let tool = update.tool_name.unwrap_or_else(|| "tool".to_string());
-                let summary = if let Some(args) = update.tool_args {
+                let tool = update.title
+                    .or(update.tool_name)
+                    .unwrap_or_else(|| "tool".to_string());
+                let summary = if let Some(ref args) = update.raw_input.or(update.tool_args) {
                     format!("{}({})", tool, args)
                 } else {
                     format!("Running {}", tool)
                 };
                 events.push(AgentEvent::ToolStarted { tool, summary });
             }
-            "tool_result" | "tool_end" => {
-                let tool = update.tool_name.unwrap_or_else(|| "tool".to_string());
-                let output = update.tool_result.or(update.content).unwrap_or_default();
+            "tool_call_update" | "tool_result" | "tool_end" => {
+                let tool = update.title
+                    .or(update.tool_name)
+                    .unwrap_or_else(|| "tool".to_string());
+                let output = update.raw_output
+                    .or(update.tool_result)
+                    .map(|v| extract_text_from_value(&v))
+                    .or_else(|| update.content.map(|v| extract_text_from_value(&v)))
+                    .unwrap_or_default();
                 let output_snippet = if output.len() > 300 {
                     format!("{}...", &output[..300])
                 } else {
@@ -104,7 +122,8 @@ impl AcpAdapter {
                 }
             }
             "status" => {
-                if let Some(msg) = update.content {
+                if let Some(ref val) = update.content {
+                    let msg = extract_text_from_value(val);
                     events.push(AgentEvent::TaskUpdated {
                         task_id: "goose-step".to_string(),
                         status: "in_progress".to_string(),
@@ -113,21 +132,53 @@ impl AcpAdapter {
                 }
             }
             "completed" => {
-                let summary = update.content.unwrap_or_else(|| "Finished".to_string());
+                let summary = update.content.map(|v| extract_text_from_value(&v)).unwrap_or_else(|| "Finished".to_string());
                 events.push(AgentEvent::Completed { summary });
             }
             "error" => {
-                let error = update.content.unwrap_or_else(|| "Goose execution failed".to_string());
+                let error = update.content.map(|v| extract_text_from_value(&v)).unwrap_or_else(|| "Goose execution failed".to_string());
                 events.push(AgentEvent::Error { error });
             }
             other => {
                 log::debug!("[Goose/ACP] Unknown event type: {}", other);
-                if let Some(content) = update.content {
-                    events.push(AgentEvent::StreamChunk { delta: content });
+                if let Some(ref val) = update.content {
+                    let delta = extract_text_from_value(val);
+                    if !delta.is_empty() {
+                        events.push(AgentEvent::StreamChunk { delta });
+                    }
                 }
             }
         }
 
         events
+    }
+}
+
+fn extract_text_from_value(val: &serde_json::Value) -> String {
+    match val {
+        serde_json::Value::String(s) => s.clone(),
+        serde_json::Value::Object(map) => {
+            if let Some(t) = map.get("text").and_then(|v| v.as_str()) {
+                t.to_string()
+            } else if let Some(c) = map.get("content") {
+                extract_text_from_value(c)
+            } else {
+                String::new()
+            }
+        }
+        serde_json::Value::Array(arr) => {
+            let mut out = String::new();
+            for item in arr {
+                let sub = extract_text_from_value(item);
+                if !sub.is_empty() {
+                    if !out.is_empty() {
+                        out.push('\n');
+                    }
+                    out.push_str(&sub);
+                }
+            }
+            out
+        }
+        _ => String::new(),
     }
 }

@@ -47,6 +47,9 @@ pub enum AgentEvent {
     Completed {
         summary: String,
     },
+    StatusChanged {
+        status: String,
+    },
     Error {
         error: String,
     },
