@@ -471,6 +471,15 @@ impl Default for WorkspaceDomainState {
     }
 }
 
+#[derive(Clone, Debug, PartialEq, Default)]
+pub struct AgentDomainState {
+    pub is_running: bool,
+    pub active_status: Option<String>,
+    pub active_file: Option<String>,
+    pub event_count: usize,
+    pub pending_requests: usize,
+}
+
 pub struct ZenthreeState {
     pub theme: ThemeMode,
     pub accent_color: String,
@@ -608,6 +617,8 @@ pub struct ZenthreeState {
     pub sidebar_visible_sig: zenthra_state::Signal<bool>,
     pub ai_panel_visible_sig: zenthra_state::Signal<bool>,
     pub terminal_visible_sig: zenthra_state::Signal<bool>,
+    pub agent_state: AgentDomainState,
+    pub agent_signal: zenthra_state::Signal<AgentDomainState>,
 }
 
 impl ZenthreeState {
@@ -806,6 +817,8 @@ impl ZenthreeState {
             sidebar_visible_sig: zenthra_state::Signal::new(true),
             ai_panel_visible_sig: zenthra_state::Signal::new(false),
             terminal_visible_sig: zenthra_state::Signal::new(false),
+            agent_state: AgentDomainState::default(),
+            agent_signal: zenthra_state::Signal::new(AgentDomainState::default()),
         };
 
         // Restore previous session preferences (theme, accent, extensions, etc.)
@@ -1047,6 +1060,13 @@ impl ZenthreeState {
         self.workspace.explorer_show_hidden = self.explorer_show_hidden;
         self.workspace.workspace_tree_overview = self.workspace_tree_overview.clone();
         self.workspace_signal.set(self.workspace.clone());
+
+        self.agent_state.is_running = self.ai_pending_requests > 0;
+        self.agent_state.active_status = self.ai_active_status.with(|s| s.clone());
+        self.agent_state.active_file = self.ai_active_file.with(|f| f.clone());
+        self.agent_state.event_count = self.ai_event_signal.get();
+        self.agent_state.pending_requests = self.ai_pending_requests;
+        self.agent_signal.set(self.agent_state.clone());
     }
 
     pub fn set_explorer_preset(&mut self, preset: ExplorerPreset) {

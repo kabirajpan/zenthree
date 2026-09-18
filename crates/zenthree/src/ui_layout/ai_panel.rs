@@ -7,6 +7,7 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
         ui.request_redraw();
     }
     let colors = zenthra::use_context::<crate::theme::ThemeColors>().map(|c| *c).unwrap_or_else(|| state.colors());
+    let agent_ctx = zenthra::use_context::<crate::state::AgentDomainState>();
     let ai_panel_w = width;
     let ai_id = Id::from_u64(999999801);
     let ai_input_id = ui.id_from("ai_prompt_text_area");
@@ -1319,7 +1320,9 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                                             _ => "...",
                                                         };
 
-                                                        let signal_status = state.ai_active_status.with(|s| s.clone());
+                                                        let signal_status = agent_ctx.as_ref()
+                                                            .and_then(|a| a.active_status.clone())
+                                                            .or_else(|| state.ai_active_status.with(|s| s.clone()));
                                                         let active_status_str = signal_status.as_deref().or(msg.status_text.as_deref());
                                                         let base_status = match active_status_str {
                                                             Some("Searching") => "Searching",

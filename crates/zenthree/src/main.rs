@@ -194,6 +194,7 @@ fn main() {
             provide_context(state.theme_state.clone());
             provide_context(state.ui_layout.clone());
             provide_context(state.workspace.clone());
+            provide_context(state.agent_state.clone());
 
             // Main Background Container: vertical layout
             ui.container()
