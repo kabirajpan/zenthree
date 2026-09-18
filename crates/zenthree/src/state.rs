@@ -760,14 +760,7 @@ impl ZenthreeState {
             ai_include_terminal: false,
             ai_manual_permissions: false,
             ai_context_snapshot: String::new(),
-            #[cfg(test)]
             ai_backend: crate::agent::AgentBackend::Native,
-            #[cfg(not(test))]
-            ai_backend: if agent::GooseSupervisor::new().find_binary().is_some() {
-                crate::agent::AgentBackend::GooseAcp
-            } else {
-                crate::agent::AgentBackend::Native
-            },
             theme_state: ThemeState::default(),
             theme_signal: zenthra_state::Signal::new(ThemeState::default()),
             colors_signal: zenthra_state::Signal::new(ThemeColors::get_custom(ThemeMode::Dark, "blue")),

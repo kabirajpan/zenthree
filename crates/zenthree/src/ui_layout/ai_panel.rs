@@ -1241,13 +1241,26 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
 
                                     // 3. Markdown formatted response content
                                     if !msg.content.trim().is_empty() {
+                                        let is_quota = msg.content.contains("quota limit")
+                                            || msg.content.contains("RESOURCE_EXHAUSTED")
+                                            || msg.content.contains("429")
+                                            || msg.content.contains("quota exceeded")
+                                            || msg.content.contains("No capacity available");
+                                        let is_goose_err = msg.content.contains("Goose ACP") || (msg.content.contains("Internal error") && state.ai_backend == crate::agent::AgentBackend::GooseAcp);
                                         let is_err_or_quota = msg.content.trim().starts_with("⚠️")
                                             || msg.content.contains("UNAVAILABLE")
-                                            || msg.content.contains("quota limit")
-                                            || msg.content.contains("RESOURCE_EXHAUSTED")
-                                            || msg.content.contains("No capacity available");
+                                            || is_quota
+                                            || is_goose_err;
 
                                         if is_err_or_quota {
+                                            let (title_text, sub_text) = if is_quota {
+                                                ("AI Engine Service Notice", "Quota limit or rate limit reached. Auto-routed request to active provider.")
+                                            } else if is_goose_err {
+                                                ("Goose ACP Notice", "Local Goose engine reported an error. Click 'Goose (ACP)' in header to switch to Native (ZENE).")
+                                            } else {
+                                                ("AI Engine Notice", "Provider or engine reported an issue. Check model status or network.")
+                                            };
+
                                             ui.container()
                                                 .width(assistant_text_w)
                                                 .padding(6.0, 8.0, 6.0, 8.0)
@@ -1265,12 +1278,12 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                                         .column()
                                                         .gap(2.0)
                                                         .show(|ui| {
-                                                            ui.text("AI Engine Service Notice")
+                                                            ui.text(title_text)
                                                                 .size(10.0)
                                                                 .weight(FontWeight::Bold)
                                                                 .color(Color::rgb(0.95, 0.65, 0.3))
                                                                 .show();
-                                                            ui.text("Quota limit or server capacity reached. Auto-routed request to active provider.")
+                                                            ui.text(sub_text)
                                                                 .size(9.0)
                                                                 .color(colors.text_dim)
                                                                 .show();
@@ -2260,10 +2273,11 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
             let quota_banner_w = ai_panel_w;
             let active_notice = state.last_provider_notice.clone();
             let mut dismiss_notice = false;
-
             let mut switch_to_groq = false;
+            let mut switch_to_native = false;
 
             if let Some(ref notice) = active_notice {
+                let is_goose = state.ai_backend == crate::agent::AgentBackend::GooseAcp;
                 let is_quota = notice.contains("429")
                     || notice.contains("quota")
                     || notice.contains("Quota")
@@ -2287,7 +2301,9 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                 ui.text("⚠️")
                                     .size(10.0)
                                     .show();
-                                let display_msg = if is_quota {
+                                let display_msg = if is_goose {
+                                    "Goose ACP Error · Switch to ZENE Native"
+                                } else if is_quota {
                                     "Gemini Quota Exceeded (429) · Switch to Groq (Free & Fast)"
                                 } else {
                                     let cleaned = notice.strip_prefix("AI Notice: ").unwrap_or(notice);
@@ -2309,7 +2325,23 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                             .gap(4.0)
                             .valign(Align::Center)
                             .show(|ui| {
-                                if is_quota || state.selected_model.contains("gemini") {
+                                if is_goose {
+                                    let native_btn = ui.container()
+                                        .padding(2.0, 6.0, 2.0, 6.0)
+                                        .bg(Color::rgba(0.2, 0.6, 0.95, 0.25))
+                                        .hover_bg(Color::rgba(0.2, 0.6, 0.95, 0.50))
+                                        .radius_all(3.0)
+                                        .show(|ui| {
+                                            ui.text("Switch to ZENE")
+                                                .size(8.5)
+                                                .weight(FontWeight::SemiBold)
+                                                .color(Color::rgb(0.85, 0.95, 1.0))
+                                                .show();
+                                        });
+                                    if native_btn.clicked {
+                                        switch_to_native = true;
+                                    }
+                                } else if is_quota || state.selected_model.contains("gemini") {
                                     let groq_btn = ui.container()
                                         .padding(2.0, 6.0, 2.0, 6.0)
                                         .bg(Color::rgba(0.95, 0.55, 0.2, 0.25))
@@ -2343,7 +2375,12 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                             });
                     });
 
-                if switch_to_groq {
+                if switch_to_native {
+                    state.ai_backend = crate::agent::AgentBackend::Native;
+                    state.last_provider_notice = None;
+                    state.status_message = "Switched to ZENE (Native) engine".to_string();
+                    ui.needs_redraw = true;
+                } else if switch_to_groq {
                     state.selected_model = "qwen/qwen3.8-27b".to_string();
                     state.model_auto_mode = false;
                     state.last_provider_notice = None;

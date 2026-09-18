@@ -20,6 +20,9 @@ pub fn load_gemini_api_key() -> Option<String> {
         if let Ok(content) = std::fs::read_to_string(path) {
             for line in content.lines() {
                 let trimmed = line.trim();
+                if trimmed.starts_with('#') || trimmed.starts_with("//") {
+                    continue;
+                }
                 if let Some((k, v)) = trimmed.split_once('=') {
                     if k.trim() == "GEMINI_API_KEY" {
                         let key = v.trim().trim_matches('"').trim_matches('\'').trim();
@@ -40,6 +43,9 @@ pub fn load_gemini_api_key() -> Option<String> {
         if let Ok(content) = std::fs::read_to_string(fixed_path) {
             for line in content.lines() {
                 let trimmed = line.trim();
+                if trimmed.starts_with('#') || trimmed.starts_with("//") {
+                    continue;
+                }
                 if let Some((k, v)) = trimmed.split_once('=') {
                     if k.trim() == "GEMINI_API_KEY" {
                         let key = v.trim().trim_matches('"').trim_matches('\'').trim();
