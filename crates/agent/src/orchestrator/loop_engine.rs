@@ -413,6 +413,13 @@ fn sanitize_summary_tool_blocks(text: &str) -> String {
             break;
         }
     }
+    // Also remove any <tool_call>...</tool_call> or < tool_call>...</ tool_call>
+    if let Ok(re) = regex::Regex::new(r"(?is)<\s*(?:tool_call|function_call)\b[^>]*>.*?<\s*/\s*(?:tool_call|function_call)\s*>") {
+        out = re.replace_all(&out, "").to_string();
+    }
+    if let Ok(re_unclosed) = regex::Regex::new(r"(?is)<\s*(?:tool_call|function_call)\b[^>]*>.*") {
+        out = re_unclosed.replace_all(&out, "").to_string();
+    }
     out.trim().to_string()
 }
 
@@ -436,12 +443,14 @@ fn extract_thought_content(text: &str) -> Option<String> {
     // Fallback: Check for preamble reasoning before first tool call or file block
     let first_file = text.find("### File:");
     let first_tool = text.find("{\"tool\":");
-    let cutoff = match (first_file, first_tool) {
-        (Some(f), Some(t)) => Some(f.min(t)),
-        (Some(f), None) => Some(f),
-        (None, Some(t)) => Some(t),
-        (None, None) => None,
-    };
+    let first_xml = text.find("<tool_call").or_else(|| text.find("< tool_call"));
+    let mut cutoff = None;
+    for pos in [first_file, first_tool, first_xml].into_iter().flatten() {
+        cutoff = Some(match cutoff {
+            Some(curr) => std::cmp::min(curr, pos),
+            None => pos,
+        });
+    }
     if let Some(c) = cutoff {
         if c > 15 {
             let preamble = text[..c].trim();

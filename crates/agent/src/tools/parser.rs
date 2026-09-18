@@ -1,3 +1,4 @@
+use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use super::patch::{FileEditAction, SearchReplaceBlock, TargetFileModification};
 use super::AgentToolCall;
@@ -265,9 +266,439 @@ pub fn parse_tool_call_values(val: &serde_json::Value) -> Vec<AgentToolCall> {
     }
 }
 
-/// Parses structured tool calls from model output (JSON blocks, inline JSON, or legacy tags)
+/// Extracts function name from an XML tool call block (e.g. `<function=list_files>` or `<function name="list_files">`)
+fn extract_xml_function_name(block: &str) -> Option<String> {
+    // 1. Attribute-style: <function=list_files>, <invoke name="list_files">, <tool:write_file>
+    let re_attr = regex::Regex::new(
+        r#"(?i)<\s*(?:function|invoke|call|action|tool)(?:[\s=:_]+(?:name\s*=\s*)?["']?([a-zA-Z0-9_\-\.\/]+)["']?|\s+name\s*=\s*["']?([a-zA-Z0-9_\-\.\/]+)["']?)\s*>"#
+    ).ok()?;
+    if let Some(caps) = re_attr.captures(block) {
+        if let Some(m) = caps.get(1).or_else(|| caps.get(2)) {
+            let name = m.as_str().trim();
+            if !name.is_empty() {
+                return Some(name.to_string());
+            }
+        }
+    }
+
+    // 2. Tag-style: <function>list_files</function>, <invoke>list_files</invoke>
+    let re_tag = regex::Regex::new(
+        r#"(?i)<\s*(?:function|invoke|call|action|tool)\s*>([a-zA-Z0-9_\-\.\/]+)<\s*/\s*(?:function|invoke|call|action|tool)\s*>"#
+    ).ok()?;
+    if let Some(caps) = re_tag.captures(block) {
+        if let Some(m) = caps.get(1) {
+            let name = m.as_str().trim();
+            if !name.is_empty() {
+                return Some(name.to_string());
+            }
+        }
+    }
+
+    // 3. Name-style: <name=list_files>, <name>list_files</name>
+    let re_name = regex::Regex::new(
+        r#"(?i)<\s*name(?:[\s=:_]+["']?([a-zA-Z0-9_\-\.\/]+)["']?|\s*>([a-zA-Z0-9_\-\.\/]+)<\s*/\s*name\s*)>"#
+    ).ok()?;
+    if let Some(caps) = re_name.captures(block) {
+        if let Some(m) = caps.get(1).or_else(|| caps.get(2)) {
+            let name = m.as_str().trim();
+            if !name.is_empty() {
+                return Some(name.to_string());
+            }
+        }
+    }
+
+    None
+}
+
+/// Extracts parameter key-value pairs from an XML tool call block.
+/// Supports both self-delimited `<parameter=key>val</parameter>` and consecutive `<parameter=key>val <parameter=key2>val2` or unclosed tags.
+fn extract_xml_parameters_map(block: &str) -> HashMap<String, String> {
+    let mut map = HashMap::new();
+
+    let param_start_re = match regex::Regex::new(
+        r#"(?i)<\s*(?:parameter|param|arg|argument)(?:[\s=:_]+(?:name\s*=\s*)?["']?([a-zA-Z0-9_\-]+)["']?|\s+name\s*=\s*["']?([a-zA-Z0-9_\-]+)["']?)\s*>"#
+    ) {
+        Ok(r) => r,
+        Err(_) => return map,
+    };
+
+    let param_close_re = match regex::Regex::new(
+        r#"(?i)<\s*/\s*(?:parameter|param|arg|argument)\s*>"#
+    ) {
+        Ok(r) => r,
+        Err(_) => return map,
+    };
+
+    let matches: Vec<_> = param_start_re.find_iter(block).collect();
+    let caps_vec: Vec<_> = param_start_re.captures_iter(block).collect();
+
+    for (i, (m, caps)) in matches.iter().zip(caps_vec.iter()).enumerate() {
+        let param_name = match caps.get(1).or_else(|| caps.get(2)) {
+            Some(name_match) => name_match.as_str().to_lowercase(),
+            None => continue,
+        };
+
+        let val_start = m.end();
+        let next_start = if i + 1 < matches.len() {
+            Some(matches[i + 1].start())
+        } else {
+            None
+        };
+
+        let mut val_end = next_start.unwrap_or(block.len());
+
+        // Check if there is an explicit closing parameter tag between val_start and val_end
+        if let Some(close_m) = param_close_re.find_at(block, val_start) {
+            if close_m.start() < val_end {
+                val_end = close_m.start();
+            }
+        }
+
+        if val_start <= val_end {
+            let mut raw_val = block[val_start..val_end].trim();
+            // Strip outer matching quotes/backticks if present
+            if (raw_val.starts_with('"') && raw_val.ends_with('"') && raw_val.len() >= 2)
+                || (raw_val.starts_with('\'') && raw_val.ends_with('\'') && raw_val.len() >= 2)
+                || (raw_val.starts_with('`') && raw_val.ends_with('`') && raw_val.len() >= 2)
+            {
+                raw_val = &raw_val[1..raw_val.len() - 1];
+            }
+            map.insert(param_name, raw_val.to_string());
+        }
+    }
+
+    // Also support direct child tags like <path>src/App.tsx</path> or <content>...</content>
+    for tag in ["path", "file_path", "file", "content", "code", "text", "contents", "cmd", "command", "search", "replace", "query", "directory", "dir"] {
+        if !map.contains_key(tag) {
+            let re_child = regex::Regex::new(&format!(r#"(?is)<\s*{}\s*>([\s\S]*?)<\s*/\s*{}\s*>"#, tag, tag)).ok();
+            if let Some(r) = re_child {
+                if let Some(caps) = r.captures(block) {
+                    if let Some(m) = caps.get(1) {
+                        map.insert(tag.to_string(), m.as_str().trim().to_string());
+                    }
+                }
+            }
+        }
+    }
+
+    map
+}
+
+/// Maps a function name and extracted XML parameters to an AgentToolCall.
+fn map_function_and_params_to_tool_call(
+    func_name: &str,
+    params: &HashMap<String, String>,
+) -> Option<AgentToolCall> {
+    let name_lower = func_name.trim().to_lowercase();
+    match name_lower.as_str() {
+        "list_files" | "list_directory" | "list_dir" | "ls" | "directory_list" | "dir_list" => {
+            let path = params
+                .get("path")
+                .or_else(|| params.get("directory"))
+                .or_else(|| params.get("dir"))
+                .or_else(|| params.get("folder"))
+                .map(|p| p.trim().trim_matches('"').to_string());
+            let path = match path {
+                Some(p) if p.is_empty() || p == "." || p == "./" => Some(".".to_string()),
+                Some(p) => Some(p),
+                None => Some(".".to_string()),
+            };
+            Some(AgentToolCall::ListDirectory { path })
+        }
+        "run_command" | "exec" | "terminal" | "bash" | "sh" | "shell" | "run" | "execute" | "execute_command" | "cmd" => {
+            let cmd = params
+                .get("cmd")
+                .or_else(|| params.get("command"))
+                .or_else(|| params.get("input"))
+                .or_else(|| params.get("code"))
+                .or_else(|| params.get("script"))?;
+            Some(AgentToolCall::RunCommand {
+                cmd: cmd.trim().to_string(),
+            })
+        }
+        "read_file" | "view_file" | "cat" | "read" | "open_file" => {
+            let path = params
+                .get("path")
+                .or_else(|| params.get("file_path"))
+                .or_else(|| params.get("file"))?;
+            let start_line = params.get("start_line").and_then(|s| s.parse::<usize>().ok());
+            let end_line = params.get("end_line").and_then(|s| s.parse::<usize>().ok());
+            Some(AgentToolCall::ReadFile {
+                path: path.trim().trim_matches('"').to_string(),
+                start_line,
+                end_line,
+            })
+        }
+        "write_file" | "create_file" | "new_file" | "overwrite_file" | "save_file" => {
+            let path = params
+                .get("path")
+                .or_else(|| params.get("file_path"))
+                .or_else(|| params.get("file"))?;
+            let content = params
+                .get("content")
+                .or_else(|| params.get("code"))
+                .or_else(|| params.get("text"))
+                .or_else(|| params.get("contents"))
+                .cloned()
+                .unwrap_or_default();
+            Some(AgentToolCall::WriteFile {
+                path: path.trim().trim_matches('"').to_string(),
+                content,
+            })
+        }
+        "edit_file" | "patch_file" | "modify_file" | "replace_in_file" => {
+            let path = params
+                .get("path")
+                .or_else(|| params.get("file_path"))
+                .or_else(|| params.get("file"))?;
+            let search = params
+                .get("search")
+                .or_else(|| params.get("old_str"))
+                .or_else(|| params.get("old_code"))
+                .or_else(|| params.get("find"))?;
+            let replace = params
+                .get("replace")
+                .or_else(|| params.get("new_str"))
+                .or_else(|| params.get("new_code"))
+                .cloned()
+                .unwrap_or_default();
+            Some(AgentToolCall::EditFile {
+                path: path.trim().trim_matches('"').to_string(),
+                search: search.clone(),
+                replace,
+            })
+        }
+        "search_code" | "grep" | "search" | "find_in_files" => {
+            let query = params
+                .get("query")
+                .or_else(|| params.get("pattern"))
+                .or_else(|| params.get("search"))
+                .or_else(|| params.get("text"))?;
+            Some(AgentToolCall::SearchCode {
+                query: query.trim().to_string(),
+            })
+        }
+        "detect_environment" | "detect_toolchain" | "detect_project" => {
+            let subpath = params
+                .get("subpath")
+                .or_else(|| params.get("path"))
+                .map(|s| s.trim().trim_matches('"').to_string());
+            Some(AgentToolCall::DetectEnvironment { subpath })
+        }
+        "git_status" => Some(AgentToolCall::GitStatus),
+        "git_diff" => {
+            let staged_only = params
+                .get("staged_only")
+                .map(|s| s == "true" || s == "1")
+                .unwrap_or(false);
+            Some(AgentToolCall::GitDiff { staged_only })
+        }
+        other => {
+            if let Some(cmd) = params.get("cmd").or_else(|| params.get("command")) {
+                return Some(AgentToolCall::RunCommand { cmd: cmd.trim().to_string() });
+            }
+            let json_map: serde_json::Map<String, serde_json::Value> = params
+                .iter()
+                .map(|(k, v)| (k.clone(), serde_json::Value::String(v.clone())))
+                .collect();
+            Some(AgentToolCall::Mcp {
+                tool_name: other.to_string(),
+                arguments: serde_json::Value::Object(json_map),
+            })
+        }
+    }
+}
+
+/// Parses XML/pseudo-XML tool calls produced by models such as Qwen, DeepSeek, Claude, etc.
+/// Handles forms like:
+/// `< tool_call> < function=list_files> < parameter=path>. </ tool_call>`
+/// `<tool_call>\n<function=run_command>\n<parameter=cmd>bun run dev</parameter>\n</tool_call>`
+pub fn parse_xml_tool_calls(content: &str) -> Vec<AgentToolCall> {
+    let mut results = Vec::new();
+
+    let open_re = match regex::Regex::new(r"(?i)<\s*(?:tool_call|function_call)\b[^>]*>") {
+        Ok(r) => r,
+        Err(_) => return results,
+    };
+    let close_re = match regex::Regex::new(r"(?i)<\s*/\s*(?:tool_call|function_call)\s*>") {
+        Ok(r) => r,
+        Err(_) => return results,
+    };
+
+    let mut blocks = Vec::new();
+    let mut start_search = 0;
+
+    while let Some(m) = open_re.find_at(content, start_search) {
+        let block_start = m.end();
+        if let Some(close_m) = close_re.find_at(content, block_start) {
+            let next_open = open_re.find_at(content, block_start);
+            if let Some(next_o) = next_open {
+                if next_o.start() < close_m.start() {
+                    blocks.push(&content[block_start..next_o.start()]);
+                    start_search = next_o.start();
+                    continue;
+                }
+            }
+            blocks.push(&content[block_start..close_m.start()]);
+            start_search = close_m.end();
+        } else {
+            blocks.push(&content[block_start..]);
+            break;
+        }
+    }
+
+    // Fallback: If no <tool_call> tags were present, check if standalone <function=...> tags are present
+    if blocks.is_empty() {
+        let func_detect_re = regex::Regex::new(r#"(?i)<\s*function(?:[\s=:_]+(?:name\s*=\s*)?["']?[a-zA-Z0-9_\-\.\/]+|\s+name\s*=)"#).ok();
+        if let Some(f_re) = func_detect_re {
+            if f_re.is_match(content) {
+                blocks.push(content);
+            }
+        }
+    }
+
+    let func_split_re = regex::Regex::new(
+        r#"(?i)(?=<\s*function(?:[\s=:_]+(?:name\s*=\s*)?["']?[a-zA-Z0-9_\-\.\/]+["']?|\s+name\s*=\s*["']?[a-zA-Z0-9_\-\.\/]+["']?|\s*>))\s*"#
+    ).ok();
+
+    for block in blocks {
+        let trimmed_block = block.trim();
+
+        // 1. Check if the block contains JSON
+        if trimmed_block.starts_with('{') || trimmed_block.starts_with('[') {
+            let repaired = repair_json_newlines(trimmed_block);
+            if let Ok(val) = serde_json::from_str::<serde_json::Value>(&repaired) {
+                for call in parse_tool_call_values(&val) {
+                    if !results.iter().any(|r| r == &call) {
+                        results.push(call);
+                    }
+                }
+                continue;
+            }
+        }
+
+        // 2. Sub-divide if multiple <function=...> tags exist in one block
+        let sub_blocks: Vec<&str> = if let Some(ref splitter) = func_split_re {
+            let parts: Vec<&str> = splitter.split(block).map(|s| s.trim()).filter(|s| !s.is_empty()).collect();
+            if parts.is_empty() {
+                vec![block]
+            } else {
+                parts
+            }
+        } else {
+            vec![block]
+        };
+
+        for sub in sub_blocks {
+            if let Some(func_name) = extract_xml_function_name(sub) {
+                let params = extract_xml_parameters_map(sub);
+                if let Some(call) = map_function_and_params_to_tool_call(&func_name, &params) {
+                    if !results.iter().any(|r| r == &call) {
+                        results.push(call);
+                    }
+                }
+            }
+        }
+    }
+
+    results
+}
+
+/// Parses standalone XML tool tags like `<write_file path="...">content</write_file>`
+/// or `<create_file path="...">content</create_file>`
+pub fn parse_direct_xml_tags(content: &str) -> Vec<AgentToolCall> {
+    let mut results = Vec::new();
+
+    // 1. Direct write_file / create_file / new_file
+    let write_re = regex::Regex::new(
+        r#"(?is)<\s*(?:write_file|create_file|new_file)\b([^>]*)>([\s\S]*?)<\s*/\s*(?:write_file|create_file|new_file)\s*>"#
+    ).ok();
+
+    if let Some(re) = write_re {
+        for caps in re.captures_iter(content) {
+            let attrs = caps.get(1).map(|m| m.as_str()).unwrap_or("");
+            let body = caps.get(2).map(|m| m.as_str()).unwrap_or("");
+
+            let path_attr_re = regex::Regex::new(r#"(?i)\b(?:path|file|file_path)\s*=\s*["']?([^"'\s>]+)["']?"#).ok();
+            let mut path = path_attr_re.and_then(|r| r.captures(attrs)).and_then(|c| c.get(1)).map(|m| m.as_str().trim().to_string());
+
+            if path.is_none() {
+                let path_tag_re = regex::Regex::new(r#"(?is)<\s*(?:path|file|file_path)\s*>([\s\S]*?)<\s*/\s*(?:path|file|file_path)\s*>"#).ok();
+                path = path_tag_re.and_then(|r| r.captures(body)).and_then(|c| c.get(1)).map(|m| m.as_str().trim().to_string());
+            }
+
+            if let Some(p) = path {
+                let content_tag_re = regex::Regex::new(r#"(?is)<\s*(?:content|code|text)\s*>([\s\S]*?)<\s*/\s*(?:content|code|text)\s*>"#).ok();
+                let file_content = if let Some(c_caps) = content_tag_re.and_then(|r| r.captures(body)) {
+                    c_caps.get(1).map(|m| m.as_str().trim().to_string()).unwrap_or_default()
+                } else {
+                    body.trim().to_string()
+                };
+
+                results.push(AgentToolCall::WriteFile {
+                    path: p.trim_matches('"').trim_matches('\'').to_string(),
+                    content: file_content,
+                });
+            }
+        }
+    }
+
+    // 2. Direct edit_file / patch_file
+    let edit_re = regex::Regex::new(
+        r#"(?is)<\s*(?:edit_file|patch_file)\b([^>]*)>([\s\S]*?)<\s*/\s*(?:edit_file|patch_file)\s*>"#
+    ).ok();
+
+    if let Some(re) = edit_re {
+        for caps in re.captures_iter(content) {
+            let attrs = caps.get(1).map(|m| m.as_str()).unwrap_or("");
+            let body = caps.get(2).map(|m| m.as_str()).unwrap_or("");
+
+            let path_attr_re = regex::Regex::new(r#"(?i)\b(?:path|file|file_path)\s*=\s*["']?([^"'\s>]+)["']?"#).ok();
+            let mut path = path_attr_re.and_then(|r| r.captures(attrs)).and_then(|c| c.get(1)).map(|m| m.as_str().trim().to_string());
+
+            if path.is_none() {
+                let path_tag_re = regex::Regex::new(r#"(?is)<\s*(?:path|file|file_path)\s*>([\s\S]*?)<\s*/\s*(?:path|file|file_path)\s*>"#).ok();
+                path = path_tag_re.and_then(|r| r.captures(body)).and_then(|c| c.get(1)).map(|m| m.as_str().trim().to_string());
+            }
+
+            if let Some(p) = path {
+                let search_re = regex::Regex::new(r#"(?is)<\s*(?:search|old_str|old_code)\s*>([\s\S]*?)<\s*/\s*(?:search|old_str|old_code)\s*>"#).ok();
+                let replace_re = regex::Regex::new(r#"(?is)<\s*(?:replace|new_str|new_code)\s*>([\s\S]*?)<\s*/\s*(?:replace|new_str|new_code)\s*>"#).ok();
+
+                let search = search_re.and_then(|r| r.captures(body)).and_then(|c| c.get(1)).map(|m| m.as_str().to_string());
+                let replace = replace_re.and_then(|r| r.captures(body)).and_then(|c| c.get(1)).map(|m| m.as_str().to_string()).unwrap_or_default();
+
+                if let Some(s) = search {
+                    results.push(AgentToolCall::EditFile {
+                        path: p.trim_matches('"').trim_matches('\'').to_string(),
+                        search: s,
+                        replace,
+                    });
+                }
+            }
+        }
+    }
+
+    results
+}
+
+/// Parses structured tool calls from model output (JSON blocks, XML tags, inline JSON, or legacy tags)
 pub fn parse_agent_tool_calls(content: &str) -> Vec<AgentToolCall> {
     let mut results = Vec::new();
+
+    // 0. Priority: Parse XML tool calls (e.g. Qwen / DeepSeek / Claude pseudo-XML tags)
+    for call in parse_xml_tool_calls(content) {
+        if !results.iter().any(|r| r == &call) {
+            results.push(call);
+        }
+    }
+
+    // 0.1 Direct XML tags like <write_file path="..."> or <create_file path="...">
+    for call in parse_direct_xml_tags(content) {
+        if !results.iter().any(|r| r == &call) {
+            results.push(call);
+        }
+    }
 
     // 1. Check fenced code blocks (```json ... ``` or ``` ...)
     for block in content.split("```") {
@@ -410,10 +841,11 @@ pub fn parse_agent_tool_calls(content: &str) -> Vec<AgentToolCall> {
         }
     }
 
-    // 5. Fallback: Parse runnable commands from fenced ```bash ... ``` or ```sh ... ``` code blocks
-    for block in content.split("```") {
-        let trimmed = block.trim();
-        let sh_code = if let Some(rest) = trimmed.strip_prefix("bash") {
+    // 5. Fallback: Parse runnable commands from fenced ```bash ... ``` or ```sh ... ``` code blocks (only if no explicit tool calls found)
+    if results.is_empty() {
+        for block in content.split("```") {
+            let trimmed = block.trim();
+            let sh_code = if let Some(rest) = trimmed.strip_prefix("bash") {
             Some(rest)
         } else if let Some(rest) = trimmed.strip_prefix("sh") {
             Some(rest)
@@ -451,6 +883,7 @@ pub fn parse_agent_tool_calls(content: &str) -> Vec<AgentToolCall> {
             }
         }
     }
+}
 
     results
 }
@@ -799,6 +1232,23 @@ pub fn extract_all_file_modifications(
             } else {
                 None
             }
+        } else if let Some(rest) = trimmed.strip_prefix("**File:**") {
+            Some(rest)
+        } else if let Some(rest) = trimmed.strip_prefix("Create file:").or_else(|| trimmed.strip_prefix("create file:")) {
+            Some(rest)
+        } else if let Some(rest) = trimmed.strip_prefix("Create ").or_else(|| trimmed.strip_prefix("create ")) {
+            let candidate = rest.trim().trim_end_matches(':').trim().trim_matches('`').trim_matches('*').trim();
+            if is_likely_filepath(candidate) {
+                Some(candidate)
+            } else {
+                None
+            }
+        } else if let Some(candidate) = trimmed.strip_suffix(':').map(|s| s.trim().trim_matches('`').trim_matches('*').trim()) {
+            if is_likely_filepath(candidate) {
+                Some(candidate)
+            } else {
+                None
+            }
         } else {
             None
         };
@@ -853,6 +1303,13 @@ pub fn extract_all_file_modifications(
             } else {
                 in_block = true;
                 code_lines.clear();
+                if current_target.is_none() {
+                    let fence_info = trimmed.trim_start_matches('`').trim();
+                    if let Some(path_str) = extract_filepath_from_fence_info(fence_info) {
+                        let path = ground_workspace_path(workspace_root, &path_str);
+                        current_target = Some(path);
+                    }
+                }
             }
             continue;
         }
@@ -867,6 +1324,32 @@ pub fn extract_all_file_modifications(
     flush_raw_patch(&current_target, &mut raw_patch_lines, &mut results);
 
     results
+}
+
+pub fn extract_filepath_from_fence_info(info: &str) -> Option<String> {
+    if info.is_empty() {
+        return None;
+    }
+    for token in info.split_whitespace() {
+        let t = token.trim();
+        if let Some(val) = t.strip_prefix("file=").or_else(|| t.strip_prefix("path=")).or_else(|| t.strip_prefix("filename=")).or_else(|| t.strip_prefix("title=")) {
+            let clean = val.trim_matches('"').trim_matches('\'').trim();
+            if is_likely_filepath(clean) {
+                return Some(clean.to_string());
+            }
+        }
+        if let Some(colon_pos) = t.find(':') {
+            let after_colon = t[colon_pos + 1..].trim().trim_matches('"').trim_matches('\'');
+            if is_likely_filepath(after_colon) {
+                return Some(after_colon.to_string());
+            }
+        }
+        let clean_t = t.trim_matches('"').trim_matches('\'');
+        if is_likely_filepath(clean_t) {
+            return Some(clean_t.to_string());
+        }
+    }
+    None
 }
 
 pub fn is_likely_filepath(s: &str) -> bool {
@@ -1014,6 +1497,127 @@ I will update src/App.css to implement the calculator styling.
                 assert_eq!(blocks[0].replace, "const a = 2;");
             }
             _ => panic!("Expected SurgicalPatch action"),
+        }
+    }
+
+    #[test]
+    fn test_parse_qwen_xml_tool_call_list_files() {
+        let input = "< tool_call> < function=list_files> < parameter=path>. </ tool_call>";
+        let calls = parse_agent_tool_calls(input);
+        assert_eq!(calls.len(), 1);
+        match &calls[0] {
+            AgentToolCall::ListDirectory { path } => {
+                assert_eq!(path.as_deref(), Some("."));
+            }
+            _ => panic!("Expected ListDirectory call, got {:?}", calls[0]),
+        }
+    }
+
+    #[test]
+    fn test_parse_qwen_xml_tool_call_multiline_run_command() {
+        let input = r#"
+<tool_call>
+<function=run_command>
+<parameter=cmd>
+bun create vite calculator --template react-ts
+</parameter>
+</tool_call>
+        "#;
+        let calls = parse_agent_tool_calls(input);
+        assert_eq!(calls.len(), 1);
+        match &calls[0] {
+            AgentToolCall::RunCommand { cmd } => {
+                assert_eq!(cmd, "bun create vite calculator --template react-ts");
+            }
+            _ => panic!("Expected RunCommand call, got {:?}", calls[0]),
+        }
+    }
+
+    #[test]
+    fn test_parse_qwen_xml_tool_call_write_file_with_jsx() {
+        let input = r#"
+<tool_call>
+<function=write_file>
+<parameter=path>src/App.tsx</parameter>
+<parameter=content>
+import React from 'react';
+export default function App() {
+  return <div className="calc"><button>1</button></div>;
+}
+</parameter>
+</tool_call>
+        "#;
+        let calls = parse_agent_tool_calls(input);
+        assert_eq!(calls.len(), 1);
+        match &calls[0] {
+            AgentToolCall::WriteFile { path, content } => {
+                assert_eq!(path, "src/App.tsx");
+                assert!(content.contains(r#"<div className="calc"><button>1</button></div>"#));
+            }
+            _ => panic!("Expected WriteFile call, got {:?}", calls[0]),
+        }
+    }
+
+    #[test]
+    fn test_parse_qwen_xml_tool_call_edit_file() {
+        let input = r#"
+<tool_call>
+<function=edit_file>
+<parameter=path>src/index.css</parameter>
+<parameter=search>body { margin: 0; }</parameter>
+<parameter=replace>body { margin: 0; background: #111; }</parameter>
+</tool_call>
+        "#;
+        let calls = parse_agent_tool_calls(input);
+        assert_eq!(calls.len(), 1);
+        match &calls[0] {
+            AgentToolCall::EditFile { path, search, replace } => {
+                assert_eq!(path, "src/index.css");
+                assert_eq!(search, "body { margin: 0; }");
+                assert_eq!(replace, "body { margin: 0; background: #111; }");
+            }
+            _ => panic!("Expected EditFile call, got {:?}", calls[0]),
+        }
+    }
+
+    #[test]
+    fn test_parse_direct_xml_write_file() {
+        let input = r#"
+<write_file path="src/main.tsx">
+import ReactDOM from 'react-dom/client';
+ReactDOM.createRoot(document.getElementById('root')!).render(<App />);
+</write_file>
+        "#;
+        let calls = parse_agent_tool_calls(input);
+        assert_eq!(calls.len(), 1);
+        match &calls[0] {
+            AgentToolCall::WriteFile { path, content } => {
+                assert_eq!(path, "src/main.tsx");
+                assert!(content.contains("ReactDOM"));
+            }
+            _ => panic!("Expected WriteFile call from direct XML, got {:?}", calls[0]),
+        }
+    }
+
+    #[test]
+    fn test_extract_all_file_modifications_from_fence_header() {
+        let tmp = tempfile::tempdir().unwrap();
+        let input = r#"
+Here is the calculator component:
+```tsx src/Calculator.tsx
+export default function Calculator() {
+  return <div>0</div>;
+}
+```
+        "#;
+        let mods = extract_all_file_modifications(input, tmp.path(), None);
+        assert_eq!(mods.len(), 1);
+        assert_eq!(mods[0].file_path, tmp.path().join("src/Calculator.tsx"));
+        match &mods[0].action {
+            FileEditAction::CreateOrOverwrite(code) => {
+                assert!(code.contains("export default function Calculator"));
+            }
+            _ => panic!("Expected CreateOrOverwrite action"),
         }
     }
 }

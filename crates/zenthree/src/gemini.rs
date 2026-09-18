@@ -82,19 +82,12 @@ pub fn call_gemini_api_with_model(
 ) -> Result<String, String> {
     // Model preference: Google Gemini models verified live for this API key:
     let mut models = vec![
-        "gemini-3.6-flash",
-        "gemini-3.1-flash-lite-preview",
-        "gemini-flash-latest",
-        "gemini-flash-lite-latest",
+        "gemini-2.5-flash",
         "gemini-2.5-pro",
-        "gemini-3.5-flash",
-        "gemma-4-31b-it",
+        "gemma-4-26b-a4b-it",
     ];
     if let Some(pref) = preferred_model {
-        let mut trimmed = pref.trim();
-        if trimmed == "gemini-2.5-flash" || trimmed == "gemini-3.5-flash" {
-            trimmed = "gemini-3.6-flash";
-        }
+        let trimmed = pref.trim();
         if !trimmed.is_empty() {
             if let Some(pos) = models.iter().position(|m| *m == trimmed) {
                 let m = models.remove(pos);
@@ -108,7 +101,7 @@ pub fn call_gemini_api_with_model(
 
     let agent = ureq::builder()
         .resolver(ipv4_resolver)
-        .timeout(std::time::Duration::from_secs(12))
+        .timeout(std::time::Duration::from_secs(30))
         .build();
 
     for model in &models {

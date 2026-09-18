@@ -99,7 +99,7 @@ pub fn call_groq_api_messages_with_model(
 
     let agent = ureq::builder()
         .resolver(ipv4_resolver)
-        .timeout(std::time::Duration::from_secs(15))
+        .timeout(std::time::Duration::from_secs(30))
         .build();
 
     for model in &models {
@@ -127,11 +127,8 @@ pub fn call_groq_api_messages_with_model(
 
                 if let Some(err) = json.get("error") {
                     let err_msg = err["message"].as_str().unwrap_or("Unknown error").to_string();
-                    if err_msg.contains("429") || err_msg.contains("Rate limit") || err_msg.contains("rate_limit") {
-                        last_error = format!("Rate limit (429) on {}: {}", model, err_msg);
-                        continue;
-                    }
-                    return Err(format!("Groq error: {}", err_msg));
+                    last_error = format!("Groq error on {}: {}", model, err_msg);
+                    continue;
                 }
 
                 if let Some(content) = json["choices"][0]["message"]["content"].as_str() {
@@ -147,16 +144,14 @@ pub fn call_groq_api_messages_with_model(
                 if let Some(content) = json["choices"][0]["message"]["content"].as_str() {
                     return Ok(content.to_string());
                 } else {
-                    return Err("Invalid choices format from Groq API".to_string());
+                    last_error = format!("Invalid choices format from Groq API on {}", model);
+                    continue;
                 }
             }
             Err(e) => {
                 let err_str = e.to_string();
-                if err_str.contains("429") {
-                    last_error = format!("HTTP 429 rate limit on {}: {}", model, err_str);
-                    continue;
-                }
-                return Err(format!("Groq API request error: {}", err_str));
+                last_error = format!("Groq API error on {}: {}", model, err_str);
+                continue;
             }
         }
     }
