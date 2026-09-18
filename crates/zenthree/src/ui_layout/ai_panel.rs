@@ -99,6 +99,8 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
     };
     const SUB_TOOLBAR_H: f32 = 22.0;
     let bottom_input_total_h = prompt_box_h + 46.0 + SUB_TOOLBAR_H;
+    let mut model_btn_just_clicked = false;
+    let mut add_ctx_btn_just_clicked = false;
 
     // Main AI Agent Panel
     let panel_container = ui.container()
@@ -183,6 +185,70 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                     crate::agent::AgentBackend::Native => crate::agent::AgentBackend::GooseAcp,
                                     crate::agent::AgentBackend::GooseAcp => crate::agent::AgentBackend::Native,
                                 };
+                                ui.needs_redraw = true;
+                            }
+
+                            // Direct manual model switcher pill in header
+                            let hdr_model_name = if state.model_auto_mode {
+                                "Auto"
+                            } else if !state.selected_model.is_empty() {
+                                friendly_model_name(&state.selected_model)
+                            } else {
+                                "Model"
+                            };
+                            let (hdr_dot_c, _) = if state.last_provider_notice.is_some() {
+                                (Color::rgb(0.95, 0.55, 0.20), "●")
+                            } else if state.selected_model.contains("gemini") {
+                                (Color::rgb(0.95, 0.75, 0.35), "●")
+                            } else {
+                                (Color::rgb(0.35, 0.85, 0.45), "●")
+                            };
+                            let hdr_model_btn = ui.container()
+                                .row()
+                                .valign(Align::Center)
+                                .gap(3.0)
+                                .padding(2.0, 6.0, 2.0, 6.0)
+                                .radius_all(4.0)
+                                .bg(Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, 0.05))
+                                .hover_bg(colors.highlight)
+                                .show(|ui| {
+                                    ui.text("●")
+                                        .size(6.0)
+                                        .color(hdr_dot_c)
+                                        .show();
+                                    ui.text(hdr_model_name)
+                                        .size(9.5)
+                                        .weight(FontWeight::Medium)
+                                        .color(colors.text_muted)
+                                        .show();
+                                    ui.text("\u{f107}")
+                                        .size(7.5)
+                                        .color(colors.text_dim)
+                                        .show();
+                                });
+
+                            if hdr_model_btn.clicked {
+                                state.ai_model_menu_open = !state.ai_model_menu_open;
+                                state.ai_context_menu_open = false;
+                                model_btn_just_clicked = true;
+                                ui.needs_redraw = true;
+                            } else if ui.right_clicked && hdr_model_btn.hovered {
+                                let cycle = [
+                                    ("qwen/qwen3.8-27b", "Qwen 3.8 27B"),
+                                    ("openai/gpt-oss-120b", "GPT-OSS 120B"),
+                                    ("gemini-3.6-flash", "Gemini 3.6 Flash"),
+                                    ("gemini-2.5-pro", "Gemini 2.5 Pro"),
+                                    ("claude-3-7-sonnet", "Claude 3.7 Sonnet"),
+                                ];
+                                let curr = &state.selected_model;
+                                let next_idx = cycle.iter().position(|(id, _)| id == curr)
+                                    .map(|idx| (idx + 1) % cycle.len())
+                                    .unwrap_or(0);
+                                let (next_id, next_name) = cycle[next_idx];
+                                state.selected_model = next_id.to_string();
+                                state.model_auto_mode = false;
+                                state.last_provider_notice = None;
+                                state.status_message = format!("Switched model to {}", next_name);
                                 ui.needs_redraw = true;
                             }
                         });
@@ -2301,27 +2367,99 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                     .show(|ui| {
                         ui.container()
                             .row()
-                            .gap(4.0)
+                            .gap(5.0)
                             .valign(Align::Center)
                             .show(|ui| {
                                 let (engine_dot, engine_label) = if state.model_auto_mode {
-                                    (Color::rgb(0.35, 0.85, 0.45), "Auto-Failover Active · Groq & Gemini")
+                                    (Color::rgb(0.35, 0.85, 0.45), "Auto")
                                 } else if state.selected_model.contains("qwen") || state.selected_model.contains("gpt") {
-                                    (Color::rgb(0.35, 0.85, 0.45), "Groq Cloud Active · Fast & Free")
+                                    (Color::rgb(0.35, 0.85, 0.45), "Groq")
                                 } else if state.selected_model.contains("gemini") {
-                                    (Color::rgb(0.95, 0.75, 0.35), "Google Gemini Active")
+                                    (Color::rgb(0.95, 0.75, 0.35), "Google")
                                 } else {
-                                    (Color::rgb(0.45, 0.65, 0.95), "AI Engine Active")
+                                    (Color::rgb(0.45, 0.65, 0.95), "AI")
                                 };
                                 ui.text("●")
-                                    .size(7.0)
+                                    .size(6.0)
                                     .color(engine_dot)
                                     .show();
                                 ui.text(engine_label)
                                     .size(8.5)
                                     .weight(FontWeight::Medium)
-                                    .color(colors.text_muted)
+                                    .color(colors.text_dim)
                                     .show();
+
+                                ui.text("·")
+                                    .size(8.5)
+                                    .color(colors.border)
+                                    .show();
+
+                                // Manual Quick Model Switch Chips
+                                let is_qwen = !state.model_auto_mode && state.selected_model == "qwen/qwen3.8-27b";
+                                let qwen_chip = ui.container()
+                                    .padding(1.0, 4.0, 1.0, 4.0)
+                                    .radius_all(3.0)
+                                    .bg(if is_qwen { colors.accent.with_alpha(0.2) } else { Color::TRANSPARENT })
+                                    .hover_bg(colors.highlight)
+                                    .border(if is_qwen { colors.accent } else { Color::TRANSPARENT }, 0.5)
+                                    .show(|ui| {
+                                        ui.text("Qwen 3.8")
+                                            .size(8.5)
+                                            .weight(if is_qwen { FontWeight::Bold } else { FontWeight::Regular })
+                                            .color(if is_qwen { colors.accent } else { colors.text_muted })
+                                            .show();
+                                    });
+                                if qwen_chip.clicked {
+                                    state.selected_model = "qwen/qwen3.8-27b".to_string();
+                                    state.model_auto_mode = false;
+                                    state.last_provider_notice = None;
+                                    state.status_message = "Active AI model set to Qwen 3.8 27B (Groq)".to_string();
+                                    ui.needs_redraw = true;
+                                }
+
+                                let is_gem = !state.model_auto_mode && state.selected_model.contains("gemini");
+                                let gem_chip = ui.container()
+                                    .padding(1.0, 4.0, 1.0, 4.0)
+                                    .radius_all(3.0)
+                                    .bg(if is_gem { colors.accent.with_alpha(0.2) } else { Color::TRANSPARENT })
+                                    .hover_bg(colors.highlight)
+                                    .border(if is_gem { colors.accent } else { Color::TRANSPARENT }, 0.5)
+                                    .show(|ui| {
+                                        ui.text("Gemini 3.6")
+                                            .size(8.5)
+                                            .weight(if is_gem { FontWeight::Bold } else { FontWeight::Regular })
+                                            .color(if is_gem { colors.accent } else { colors.text_muted })
+                                            .show();
+                                    });
+                                if gem_chip.clicked {
+                                    state.selected_model = "gemini-3.6-flash".to_string();
+                                    state.model_auto_mode = false;
+                                    state.last_provider_notice = None;
+                                    state.status_message = "Active AI model set to Gemini 3.6 Flash".to_string();
+                                    ui.needs_redraw = true;
+                                }
+
+                                let is_gpt = !state.model_auto_mode && state.selected_model.contains("gpt-oss");
+                                let gpt_chip = ui.container()
+                                    .padding(1.0, 4.0, 1.0, 4.0)
+                                    .radius_all(3.0)
+                                    .bg(if is_gpt { colors.accent.with_alpha(0.2) } else { Color::TRANSPARENT })
+                                    .hover_bg(colors.highlight)
+                                    .border(if is_gpt { colors.accent } else { Color::TRANSPARENT }, 0.5)
+                                    .show(|ui| {
+                                        ui.text("GPT-OSS")
+                                            .size(8.5)
+                                            .weight(if is_gpt { FontWeight::Bold } else { FontWeight::Regular })
+                                            .color(if is_gpt { colors.accent } else { colors.text_muted })
+                                            .show();
+                                    });
+                                if gpt_chip.clicked {
+                                    state.selected_model = "openai/gpt-oss-120b".to_string();
+                                    state.model_auto_mode = false;
+                                    state.last_provider_notice = None;
+                                    state.status_message = "Active AI model set to GPT-OSS 120B (Groq)".to_string();
+                                    ui.needs_redraw = true;
+                                }
                             });
                         ui.container()
                             .row()
@@ -2446,6 +2584,7 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                     if add_ctx_btn.clicked {
                                         state.ai_context_menu_open = !state.ai_context_menu_open;
                                         state.ai_model_menu_open = false;
+                                        add_ctx_btn_just_clicked = true;
                                         ui.needs_redraw = true;
                                     }
 
@@ -2526,6 +2665,25 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                     if model_btn.clicked {
                                         state.ai_model_menu_open = !state.ai_model_menu_open;
                                         state.ai_context_menu_open = false;
+                                        model_btn_just_clicked = true;
+                                        ui.needs_redraw = true;
+                                    } else if ui.right_clicked && model_btn.hovered {
+                                        let cycle = [
+                                            ("qwen/qwen3.8-27b", "Qwen 3.8 27B"),
+                                            ("openai/gpt-oss-120b", "GPT-OSS 120B"),
+                                            ("gemini-3.6-flash", "Gemini 3.6 Flash"),
+                                            ("gemini-2.5-pro", "Gemini 2.5 Pro"),
+                                            ("claude-3-7-sonnet", "Claude 3.7 Sonnet"),
+                                        ];
+                                        let curr = &state.selected_model;
+                                        let next_idx = cycle.iter().position(|(id, _)| id == curr)
+                                            .map(|idx| (idx + 1) % cycle.len())
+                                            .unwrap_or(0);
+                                        let (next_id, next_name) = cycle[next_idx];
+                                        state.selected_model = next_id.to_string();
+                                        state.model_auto_mode = false;
+                                        state.last_provider_notice = None;
+                                        state.status_message = format!("Switched model to {}", next_name);
                                         ui.needs_redraw = true;
                                     }
 
@@ -2738,13 +2896,24 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
     if state.ai_context_menu_open {
         let menu_w = 185.0;
         let menu_h = 225.0;
-        let menu_x = (splitter_x + 8.0).clamp(8.0, (ui.width - menu_w - 8.0).max(8.0));
-        let menu_y = (splitter_y + height - bottom_input_total_h - menu_h - 4.0).max(splitter_y + 40.0);
+        let (menu_x, menu_y) = if let Some((btn_rect, _)) = ui.get_recorded_layout(Id::from_u64(999998601)) {
+            let x = btn_rect.origin.x.clamp(8.0, (ui.width - menu_w - 8.0).max(8.0));
+            let y = (btn_rect.origin.y - menu_h - 4.0).max(splitter_y + 36.0);
+            (x, y)
+        } else {
+            let x = (splitter_x + 8.0).clamp(8.0, (ui.width - menu_w - 8.0).max(8.0));
+            let y = (splitter_y + height - bottom_input_total_h - menu_h - 4.0).max(splitter_y + 40.0);
+            (x, y)
+        };
 
-        let mouse_in_menu = ui.mouse_in_rect(menu_x, menu_y, menu_w, menu_h);
-        let mouse_in_add_btn = ui.mouse_in_rect(splitter_x + 8.0, splitter_y + height - 36.0, 32.0, 32.0);
+        let mouse_in_menu = ui.mouse_in_rect(menu_x - 6.0, menu_y - 6.0, menu_w + 12.0, menu_h + 12.0);
+        let mouse_in_add_btn = if let Some((btn_rect, _)) = ui.get_recorded_layout(Id::from_u64(999998601)) {
+            ui.mouse_in_rect(btn_rect.origin.x - 4.0, btn_rect.origin.y - 4.0, btn_rect.size.width + 8.0, btn_rect.size.height + 8.0)
+        } else {
+            ui.mouse_in_rect(splitter_x + 8.0, splitter_y + height - 36.0, 32.0, 32.0)
+        };
         let mut close_menu = false;
-        if (ui.clicked || ui.right_clicked) && !mouse_in_menu && !mouse_in_add_btn {
+        if (ui.clicked || ui.right_clicked) && !add_ctx_btn_just_clicked && !mouse_in_menu && !mouse_in_add_btn {
             close_menu = true;
         }
 
@@ -2829,15 +2998,28 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
 
     // ── Floating Model Selection Menu ───────────────────────────
     if state.ai_model_menu_open {
-        let menu_w = 230.0;
-        let menu_h = if state.adding_custom_model { 320.0 } else { 290.0 };
-        let menu_x = (splitter_x + ai_panel_w - menu_w - 8.0).clamp(8.0, (ui.width - menu_w - 8.0).max(8.0));
-        let menu_y = (splitter_y + height - bottom_input_total_h - menu_h - 4.0).max(splitter_y + 40.0);
+        let menu_w = 236.0;
+        let menu_h = if state.adding_custom_model { 360.0 } else { 310.0 };
 
-        let mouse_in_menu = ui.mouse_in_rect(menu_x, menu_y, menu_w, menu_h);
-        let mouse_in_model_btn = ui.mouse_in_rect(splitter_x + ai_panel_w - 140.0, splitter_y + height - 36.0, 140.0, 32.0);
+        let (menu_x, menu_y) = if let Some((btn_rect, _)) = ui.get_recorded_layout(Id::from_u64(999998603)) {
+            let x = (btn_rect.origin.x + btn_rect.size.width - menu_w).clamp(8.0, (ui.width - menu_w - 8.0).max(8.0));
+            let y = (btn_rect.origin.y - menu_h - 4.0).max(splitter_y + 36.0);
+            (x, y)
+        } else {
+            let x = (splitter_x + ai_panel_w - menu_w - 8.0).clamp(8.0, (ui.width - menu_w - 8.0).max(8.0));
+            let y = (splitter_y + height - bottom_input_total_h - menu_h - 4.0).max(splitter_y + 40.0);
+            (x, y)
+        };
+
+        let mouse_in_menu = ui.mouse_in_rect(menu_x - 6.0, menu_y - 6.0, menu_w + 12.0, menu_h + 12.0);
+        let mouse_in_model_btn = if let Some((btn_rect, _)) = ui.get_recorded_layout(Id::from_u64(999998603)) {
+            ui.mouse_in_rect(btn_rect.origin.x - 4.0, btn_rect.origin.y - 4.0, btn_rect.size.width + 8.0, btn_rect.size.height + 8.0)
+        } else {
+            ui.mouse_in_rect(splitter_x + ai_panel_w - 140.0, splitter_y + height - 36.0, 140.0, 32.0)
+        };
+
         let mut close_menu = false;
-        if (ui.clicked || ui.right_clicked) && !mouse_in_menu && !mouse_in_model_btn {
+        if (ui.clicked || ui.right_clicked) && !model_btn_just_clicked && !mouse_in_menu && !mouse_in_model_btn {
             close_menu = true;
         }
 
@@ -2903,6 +3085,8 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                         state.model_auto_mode = !state.model_auto_mode;
                         if state.model_auto_mode {
                             state.selected_model = "Auto".to_string();
+                            state.last_provider_notice = None;
+                            state.status_message = "Auto model failover enabled".to_string();
                             close_menu = true;
                         }
                         ui.needs_redraw = true;
@@ -2976,7 +3160,10 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                         if m_resp.clicked {
                             state.selected_model = m_id.to_string();
                             state.model_auto_mode = false;
+                            state.last_provider_notice = None;
+                            state.status_message = format!("Active AI model set to {}", m_name);
                             close_menu = true;
+                            ui.needs_redraw = true;
                         }
                     }
 
@@ -3012,7 +3199,10 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                         if c_resp.clicked {
                             state.selected_model = c_model.clone();
                             state.model_auto_mode = false;
+                            state.last_provider_notice = None;
+                            state.status_message = format!("Active AI model set to {}", c_model);
                             close_menu = true;
+                            ui.needs_redraw = true;
                         }
                     }
 
