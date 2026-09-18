@@ -100,7 +100,7 @@ impl AgentLoop {
         if let Some(ref active) = self.ctx.active_file {
             let rel = active.strip_prefix(&self.ctx.workspace_root).unwrap_or(active).to_string_lossy();
             let cursor_str = self.ctx.cursor_line.map(|l| format!(" (cursor line {})", l)).unwrap_or_default();
-            initial_user_prompt.push_str(&format!("[Active open file in editor: `{}`{}]\n\n", rel, cursor_str));
+            initial_user_prompt.push_str(&format!("[Active open file in editor: `{}`{} (Note: Only modify or reference this file if directly relevant to the user's goal below)]\n\n", rel, cursor_str));
         }
         initial_user_prompt.push_str(goal);
 
@@ -376,10 +376,13 @@ impl AgentLoop {
             current_user_prompt = format!(
                 "Observation Feedback:\n{}\n\n\
                 Next Step Instructions:\n\
-                - If you discovered modular containers or subdirectories (e.g. `crates/`, `src/`, `packages/`) that have not been explored yet, DO NOT summarize prematurely! Execute `{{\"tool\": \"list_directory\", \"path\": \"<container>\"}}` and descend into child crates/folders to inspect leaf files.\n\
-                - Once all required changes, DFS tree traversal to leaf files, and verification steps are complete, provide your final summary to the user.\n\
+                - Original User Goal: {}\n\
+                - Execute the tools needed to accomplish the user's explicit goal directly.\n\
+                - Strictly respect the user's requested tech stack and framework (e.g. React, Bun, Python, etc.). Do not generate unrelated languages.\n\
+                - Once all required changes and verification steps are complete, provide your final summary to the user.\n\
                 - Otherwise, proceed directly with the next tool call or file block.",
-                observation
+                observation,
+                goal
             );
         }
 

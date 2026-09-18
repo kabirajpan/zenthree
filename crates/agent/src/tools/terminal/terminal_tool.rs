@@ -93,7 +93,7 @@ pub fn execute_terminal(
 pub fn terminal_schema() -> serde_json::Value {
     serde_json::json!({
         "name": "terminal",
-        "description": "Executes a shell command in the project workspace with timeout and security protection.\n\nANTI-HANG INSTRUCTIONS:\n- For read-only git calls, always insert `--no-pager` (e.g. `git --no-pager log -n 5`).\n- Commands that may launch an editor must be prefixed with `GIT_EDITOR=true`.\n- Never generate shell substitutions: `$VAR`, `$(...)`, or backticks.\n\n<example>\n{\"tool\": \"terminal\", \"command\": \"cargo check -p agent\"}\n</example>",
+        "description": "Executes a shell command in the project workspace with timeout and security protection.\n\nANTI-HANG INSTRUCTIONS:\n- For read-only git calls, always insert `--no-pager` (e.g. `git --no-pager log -n 5`).\n- Commands that may launch an editor must be prefixed with `GIT_EDITOR=true`.\n- Never generate shell substitutions: `$VAR`, `$(...)`, or backticks.\n\n<example>\n{\"tool\": \"terminal\", \"command\": \"bun run build\"}\n</example>",
         "parameters": {
             "type": "object",
             "properties": {

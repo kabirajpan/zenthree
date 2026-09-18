@@ -58,7 +58,7 @@ pub fn format_tool_definitions_prompt() -> String {
     out.push_str("- Parameter `path`: (string, required) File path relative to workspace root\n");
     out.push_str("- Parameter `start_line`: (integer, optional) 1-based start line\n");
     out.push_str("- Parameter `end_line`: (integer, optional) 1-based end line\n");
-    out.push_str("Format:\n`{\"tool\": \"read_file\", \"path\": \"src/main.rs\", \"start_line\": 1, \"end_line\": 60}`\n\n");
+    out.push_str("Format:\n`{\"tool\": \"read_file\", \"path\": \"path/to/file.ext\", \"start_line\": 1, \"end_line\": 50}`\n\n");
 
     out.push_str("### 5. `list_directory`\n");
     out.push_str("Lists all files and directories in a directory to explore the project structure.\n");
@@ -68,8 +68,8 @@ pub fn format_tool_definitions_prompt() -> String {
     out.push_str("### 6. `grep`\n");
     out.push_str("Searches for regex patterns or text symbols across files in the workspace.\n");
     out.push_str("- Parameter `regex`: (string, required) Search pattern\n");
-    out.push_str("- Parameter `include_pattern`: (string, optional) Glob filter like `**/*.rs` or `**/*.tsx`\n");
-    out.push_str("Format:\n`{\"tool\": \"grep\", \"regex\": \"useState\", \"include_pattern\": \"**/*.tsx\"}`\n\n");
+    out.push_str("- Parameter `include_pattern`: (string, optional) Glob filter like `src/**/*`\n");
+    out.push_str("Format:\n`{\"tool\": \"grep\", \"regex\": \"searchPattern\"}`\n\n");
 
     out.push_str("CRITICAL: When the user asks you to create files or build applications, immediately output the `write_file` or `terminal` tool invocation. Never just describe what to do—execute it!");
     out
@@ -80,32 +80,32 @@ pub fn format_few_shot_tool_examples() -> String {
     let mut out = String::new();
     out.push_str("<tool_call_examples>\n");
     out.push_str("Example 1: Reading a specific file range\n");
-    out.push_str("User: \"How does the agent handle secret scrubbing?\"\n");
+    out.push_str("User: \"Check the database configuration\"\n");
     out.push_str("Assistant:\n");
-    out.push_str("<thought>I will inspect `crates/agent/src/environment/secret_scrubber.rs` to review the regex patterns.</thought>\n");
-    out.push_str("{\"tool\": \"read_file\", \"path\": \"crates/agent/src/environment/secret_scrubber.rs\", \"start_line\": 1, \"end_line\": 60}\n\n");
+    out.push_str("<thought>I will inspect the configuration file to check the database settings.</thought>\n");
+    out.push_str("{\"tool\": \"read_file\", \"path\": \"config/settings.json\", \"start_line\": 1, \"end_line\": 50}\n\n");
 
     out.push_str("Example 2: Finding code symbols with grep\n");
-    out.push_str("User: \"Where is the PermissionEngine defined?\"\n");
+    out.push_str("User: \"Where is handleRequest defined?\"\n");
     out.push_str("Assistant:\n");
-    out.push_str("<thought>Searching for struct PermissionEngine across Rust files.</thought>\n");
-    out.push_str("{\"tool\": \"grep\", \"regex\": \"struct PermissionEngine\", \"include_pattern\": \"**/*.rs\"}\n\n");
+    out.push_str("<thought>Searching for handleRequest across project files.</thought>\n");
+    out.push_str("{\"tool\": \"grep\", \"regex\": \"handleRequest\"}\n\n");
 
     out.push_str("Example 3: Surgical code modification\n");
-    out.push_str("User: \"Update the timeout default to 45 seconds\"\n");
+    out.push_str("User: \"Update the port to 8080\"\n");
     out.push_str("Assistant:\n");
-    out.push_str("<thought>Updating DEFAULT_TIMEOUT_SECS in process_runner.rs.</thought>\n");
+    out.push_str("<thought>Updating port setting in configuration file.</thought>\n");
     out.push_str("<<<<<<< SEARCH\n");
-    out.push_str("pub const DEFAULT_TIMEOUT_SECS: u64 = 30;\n");
+    out.push_str("port = 3000\n");
     out.push_str("=======\n");
-    out.push_str("pub const DEFAULT_TIMEOUT_SECS: u64 = 45;\n");
+    out.push_str("port = 8080\n");
     out.push_str(">>>>>>> REPLACE\n\n");
 
-    out.push_str("Example 4: Running a verification command\n");
-    out.push_str("User: \"Check if the agent crate compiles\"\n");
+    out.push_str("Example 4: Running a verification or package command\n");
+    out.push_str("User: \"Run tests\"\n");
     out.push_str("Assistant:\n");
-    out.push_str("<thought>Running cargo check on the agent crate.</thought>\n");
-    out.push_str("{\"tool\": \"terminal\", \"command\": \"cargo check -p agent\"}\n");
+    out.push_str("<thought>Running the workspace test command.</thought>\n");
+    out.push_str("{\"tool\": \"terminal\", \"command\": \"npm test\"}\n");
     out.push_str("</tool_call_examples>");
     out
 }
