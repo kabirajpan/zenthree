@@ -30,7 +30,20 @@ pub fn execute_list_directory(workspace: &Path, rel_path: Option<&str>) -> Agent
 
     for entry in entries.flatten() {
         let name = entry.file_name().to_string_lossy().to_string();
-        if name.starts_with('.') || name == "node_modules" || name == "target" || name == "dist" || name == "build" {
+        if name == ".git"
+            || name == ".zenthree"
+            || name == ".svn"
+            || name == ".hg"
+            || name == ".cache"
+            || name == ".idea"
+            || name == ".DS_Store"
+            || name == "Thumbs.db"
+            || name == "node_modules"
+            || name == "target"
+            || name == "dist"
+            || name == "build"
+            || name == "vendor"
+        {
             continue;
         }
 

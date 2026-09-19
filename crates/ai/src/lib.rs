@@ -32,7 +32,8 @@ pub use tools::{
     execute_git_status, execute_git_diff,
     extract_all_file_modifications, extract_json_tool_modifications,
     extract_tool_call_read_paths, parse_agent_tool_calls, parse_search_replace_blocks,
-    parse_single_tool_call_value, ground_workspace_path,
+    parse_single_tool_call_value, ground_workspace_path, ground_workspace_path_with_context,
+    verify_or_relocate_target_with_search,
 };
 
 pub use providers::{

@@ -39,13 +39,19 @@ pub fn execute_search_code(workspace: &Path, query: &str) -> AgentToolResult {
             let file_name = entry.file_name();
             let name_str = file_name.to_string_lossy();
 
-            if name_str.starts_with('.')
+            if name_str == ".git"
+                || name_str == ".zenthree"
+                || name_str == ".svn"
+                || name_str == ".hg"
+                || name_str == ".cache"
+                || name_str == ".idea"
+                || name_str == ".DS_Store"
                 || name_str == "node_modules"
                 || name_str == "target"
                 || name_str == "dist"
                 || name_str == "build"
+                || name_str == "vendor"
                 || name_str == ".gemini"
-                || name_str == ".git"
             {
                 continue;
             }
@@ -53,19 +59,35 @@ pub fn execute_search_code(workspace: &Path, query: &str) -> AgentToolResult {
             if path.is_dir() {
                 walk_dir(&path, workspace, lower_query, matches, max_matches);
             } else if path.is_file() {
+                let lower_name = name_str.to_lowercase();
                 let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-                let is_code = matches!(
-                    ext,
+                let ext_lower = ext.to_lowercase();
+
+                let is_config_file = lower_name == "dockerfile"
+                    || lower_name.starts_with("dockerfile.")
+                    || lower_name == ".dockerignore"
+                    || lower_name == ".gitignore"
+                    || lower_name == ".gitattributes"
+                    || lower_name == ".editorconfig"
+                    || lower_name == "makefile"
+                    || lower_name == "justfile"
+                    || lower_name == "procfile"
+                    || lower_name.starts_with(".env");
+
+                let is_searchable_ext = matches!(
+                    ext_lower.as_str(),
                     "rs" | "ts" | "tsx" | "js" | "jsx" | "vue" | "svelte" | "json" | "toml" | "html"
-                        | "css" | "py" | "go" | "c" | "cpp" | "h" | "md" | "yaml" | "yml"
+                        | "css" | "scss" | "less" | "py" | "go" | "c" | "cpp" | "h" | "hpp" | "md"
+                        | "yaml" | "yml" | "sh" | "bash" | "zsh" | "sql" | "xml" | "zig" | "java"
+                        | "kt" | "swift" | "php" | "rb" | "dart" | "ex" | "exs" | "conf" | "cfg" | "ini"
                 );
 
-                if !is_code {
+                if !is_searchable_ext && !is_config_file {
                     continue;
                 }
 
                 if let Ok(meta) = path.metadata() {
-                    if meta.len() > 500_000 {
+                    if meta.len() > 5_000_000 {
                         continue;
                     }
                 }

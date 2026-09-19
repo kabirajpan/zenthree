@@ -1086,16 +1086,20 @@ impl ZenthreeState {
                     let duration = self.ai_request_start_times.remove(&idx)
                         .map(|t| t.elapsed().as_secs())
                         .unwrap_or(0);
-                    let trimmed_content = summary.trim();
+                    let is_empty = summary.trim().is_empty();
+                    let is_plan_content = summary.contains("## Proposed Changes")
+                        || summary.contains("# Implementation Plan")
+                        || summary.contains("## Proposed Architecture");
+
                     if let Some(msg) = self.ai_messages.get_mut(idx) {
                         msg.elapsed_secs = Some(duration.max(1));
-                        if trimmed_content.is_empty() {
+                        if is_empty {
                             msg.content = format!(
                                 "I completed the workspace tasks for `{}`. Let me know if you would like any further changes or testing!",
                                 self.last_ai_prompt
                             );
                         } else {
-                            msg.content = summary;
+                            msg.content = summary.clone();
                         }
                         msg.is_working = false;
                     }
@@ -1112,6 +1116,10 @@ impl ZenthreeState {
                         mission.is_active = false;
                         mission.status_message = "✓ All tasks completed successfully".to_string();
                         self.current_session.update_mission_file(mission);
+                    }
+                    if is_plan_content {
+                        let explored = self.ai_messages.get(idx).map(|m| m.explored_items.clone()).unwrap_or_default();
+                        self.current_session.update_implementation_plan(&self.last_ai_prompt, &explored, &summary);
                     }
                     self.rebuild_tree();
                     updated = true;
@@ -2097,7 +2105,17 @@ impl ZenthreeState {
                     let path = entry.path();
                     if path.is_dir() {
                         let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-                        let allow = if show_hidden {
+                        let is_cache = name == "node_modules"
+                            || name == "target"
+                            || name == ".git"
+                            || name == ".next"
+                            || name == ".nuxt"
+                            || name == "dist"
+                            || name == "build";
+
+                        let allow = if is_cache {
+                            false
+                        } else if show_hidden {
                             name != "." && name != ".."
                         } else {
                             !name.starts_with('.') || name == ".github"
@@ -3236,8 +3254,15 @@ impl ZenthreeState {
             if self.has_workspace && !tree_overview.is_empty() {
                 loop_ctx.workspace_tree = Some(tree_overview);
             }
-            if self.has_workspace && !project_ctx.formatted_prompt_context.is_empty() {
-                loop_ctx.project_context = Some(project_ctx.formatted_prompt_context);
+            if self.has_workspace {
+                let db = crate::db::ZenthreeDb::open_or_create(&self.current_dir);
+                let mut combined_ctx = project_ctx.formatted_prompt_context;
+                if let Some(mem_text) = db.get_relevant_context_for_prompt(trimmed) {
+                    combined_ctx.push_str(&mem_text);
+                }
+                if !combined_ctx.is_empty() {
+                    loop_ctx.project_context = Some(combined_ctx);
+                }
             }
             loop_ctx.max_iterations = 10;
             self.ai_cancellation_token.reset();
@@ -3755,7 +3780,7 @@ pub fn detect_target_file_from_response(
     content: &str,
     prompt: &str,
     workspace_root: &Path,
-    _active_path: Option<&Path>,
+    active_path: Option<&Path>,
 ) -> Option<PathBuf> {
     // 1. Look for explicit file markers in the response (including create / new file directives)
     for line in content.lines() {
@@ -3783,7 +3808,7 @@ pub fn detect_target_file_from_response(
         if let Some(path_candidate) = stripped {
             let cleaned = path_candidate.trim().trim_matches('`').trim_matches('*').trim();
             if !cleaned.is_empty() {
-                return Some(crate::agent::ground_workspace_path(workspace_root, cleaned));
+                return Some(crate::agent::ground_workspace_path_with_context(workspace_root, cleaned, active_path));
             }
         }
     }
@@ -3796,7 +3821,7 @@ pub fn detect_target_file_from_response(
             if let Some(first_token) = after.split_whitespace().next() {
                 let clean = first_token.trim_matches(|c: char| !c.is_alphanumeric() && c != '.' && c != '/' && c != '_' && c != '-');
                 if clean.contains('.') && !clean.starts_with('.') && clean.len() >= 3 {
-                    return Some(crate::agent::ground_workspace_path(workspace_root, clean));
+                    return Some(crate::agent::ground_workspace_path_with_context(workspace_root, clean, active_path));
                 }
             }
         }
@@ -3806,9 +3831,9 @@ pub fn detect_target_file_from_response(
     for token in prompt.split_whitespace() {
         let clean = token.trim_matches(|c: char| !c.is_alphanumeric() && c != '.' && c != '/' && c != '_' && c != '-');
         if clean.contains('.') && !clean.starts_with('.') {
-            let direct = workspace_root.join(clean);
-            if direct.exists() && direct.is_file() {
-                return Some(direct);
+            let grounded = crate::agent::ground_workspace_path_with_context(workspace_root, clean, active_path);
+            if grounded.exists() && grounded.is_file() {
+                return Some(grounded);
             }
         }
     }

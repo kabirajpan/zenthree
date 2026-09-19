@@ -8,10 +8,15 @@ pub fn execute_read_file(
     end_line: Option<usize>,
 ) -> AgentToolResult {
     let cleaned = rel_path.trim().trim_matches('"').trim_matches('\'').trim();
-    let full_path = if Path::new(cleaned).is_absolute() {
+    let direct = if Path::new(cleaned).is_absolute() {
         PathBuf::from(cleaned)
     } else {
         workspace.join(cleaned)
+    };
+    let full_path = if direct.exists() {
+        direct
+    } else {
+        super::parser::ground_workspace_path_with_context(workspace, cleaned, None)
     };
 
     if let (Ok(can_ws), Ok(can_full)) = (workspace.canonicalize(), full_path.canonicalize()) {
@@ -29,8 +34,14 @@ pub fn execute_read_file(
             let lines: Vec<&str> = content.lines().collect();
             let total_lines = lines.len();
 
+            let default_end = if start_line.is_none() && end_line.is_none() && total_lines > 250 {
+                250
+            } else {
+                total_lines
+            };
+
             let s_idx = start_line.unwrap_or(1).saturating_sub(1).min(total_lines);
-            let e_idx = end_line.unwrap_or(total_lines).min(total_lines);
+            let e_idx = end_line.unwrap_or(default_end).min(total_lines);
 
             if s_idx >= e_idx && total_lines > 0 {
                 return AgentToolResult {
@@ -52,17 +63,34 @@ pub fn execute_read_file(
                 formatted.push(format!("{:4} | {}", line_no, line));
             }
 
-            AgentToolResult {
-                tool_name: "read_file".to_string(),
-                ok: true,
-                output: format!(
-                    "File `{}` (lines {}-{} of {}):\n{}",
-                    cleaned,
+            let (type_name, method) = crate::tools::environment::DetectorAgent::classify_file_quick(&full_path, &content);
+
+            let mut output_str = format!(
+                "File `{}` [Type: {} (via {})] (lines {}-{} of {}):\n{}",
+                cleaned,
+                type_name,
+                method,
+                s_idx + 1,
+                e_idx,
+                total_lines,
+                formatted.join("\n")
+            );
+
+            if e_idx < total_lines && (start_line.is_none() || end_line.is_none()) {
+                output_str.push_str(&format!(
+                    "\n\n... [Showing lines {}-{} of {}. To inspect remaining code, call read_file with start_line={} and end_line={}]",
                     s_idx + 1,
                     e_idx,
                     total_lines,
-                    formatted.join("\n")
-                ),
+                    e_idx + 1,
+                    (e_idx + 250).min(total_lines)
+                ));
+            }
+
+            AgentToolResult {
+                tool_name: "read_file".to_string(),
+                ok: true,
+                output: output_str,
             }
         }
         Err(e) => AgentToolResult {

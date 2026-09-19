@@ -13,6 +13,7 @@ pub mod gemini;
 pub mod project_index;
 pub mod agent;
 pub mod session;
+pub mod db;
 
 
 

@@ -252,27 +252,49 @@ impl AgentSession {
     pub fn update_implementation_plan(&mut self, prompt: &str, explored: &[ExploredItem], plan_text: &str) {
         let path = self.plan_file_path();
         let mut content = String::new();
-        content.push_str(&format!("# Implementation Plan: {}\n\n", self.title));
-        content.push_str(&format!("**User Request**: {}\n\n", prompt));
+        let trimmed_plan = plan_text.trim();
 
-        if !explored.is_empty() {
-            content.push_str("## Analyzed Workspace Context\n");
-            for item in explored {
-                let range = item.line_range.as_deref().unwrap_or("");
-                content.push_str(&format!("- **`{}`** {} ({})\n", item.file_name, range, item.action_type));
-            }
-            content.push_str("\n");
-        }
-
-        content.push_str("## Proposed Architecture & Changes\n\n");
-        if plan_text.trim().is_empty() {
-            content.push_str("Automatic multi-file generation & symbol synthesis in progress...\n");
+        if !trimmed_plan.is_empty() && (trimmed_plan.starts_with('#') || trimmed_plan.contains("## Proposed Changes") || trimmed_plan.contains("## User Review Required")) {
+            // Full LLM-generated architectural blueprint
+            content.push_str(trimmed_plan);
+            content.push_str("\n\n---\n*Generated autonomously by ZENE Agent*\n");
         } else {
-            content.push_str(plan_text);
-            content.push_str("\n");
-        }
+            content.push_str(&format!("# Implementation Plan: {}\n\n", self.title));
+            content.push_str(&format!("**User Request**: {}\n\n", prompt));
 
-        content.push_str("\n## Verification Plan\n- Automated syntax checks and compiler diagnostics\n- Workspace parity verification\n");
+            content.push_str("## User Review Required\n");
+            content.push_str("> [!IMPORTANT]\n");
+            content.push_str("> Automatic architecture analysis in progress. Review the proposed component structure and verification plan below before applying changes.\n\n");
+
+            if !explored.is_empty() {
+                content.push_str("## Analyzed Workspace Context\n");
+                for item in explored {
+                    let range = item.line_range.as_deref().unwrap_or("");
+                    content.push_str(&format!("- **`{}`** {} ({})\n", item.file_name, range, item.action_type));
+                }
+                content.push_str("\n");
+            }
+
+            content.push_str("## Proposed Architecture & Changes\n\n");
+            if trimmed_plan.is_empty() {
+                content.push_str("### Component 1: Core Architecture & Implementation\n");
+                content.push_str("- Synthesizing modular components, services, and configuration files following workspace conventions.\n");
+                content.push_str("- Ensuring clean idiomatic structure, strict type safety, and zero root-directory pollution.\n\n");
+                content.push_str("### Component 2: Tooling & Verification\n");
+                content.push_str("- Automated compiler checks, syntax diagnostics, and test suite execution.\n");
+            } else {
+                content.push_str(trimmed_plan);
+                content.push_str("\n");
+            }
+
+            content.push_str("\n## Verification Plan\n");
+            content.push_str("### Automated Tests\n");
+            content.push_str("- Language-specific test runner & compiler check (e.g. `cargo check`, `npm test`, `pytest`).\n");
+            content.push_str("### Manual Verification\n");
+            content.push_str("- Interactive editor inspection of generated/modified files.\n");
+            content.push_str("- Runtime health verification & clean exit code validation.\n");
+            content.push_str("\n---\n*Generated autonomously by ZENE Agent*\n");
+        }
 
         let _ = std::fs::create_dir_all(&self.dir_path);
         let _ = std::fs::write(&path, content);

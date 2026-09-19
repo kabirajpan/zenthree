@@ -23,3 +23,8 @@
 # Backup files
 *~
 *.bak
+
+references/
+/references/
+references
+**/references/**

@@ -132,8 +132,15 @@ pub fn parse_single_tool_call_value(val: &serde_json::Value) -> Option<AgentTool
                     .or_else(|| params.get("code"))
                     .or_else(|| params.get("script"))
                     .and_then(|v| v.as_str())?;
+                let cwd = params
+                    .get("cwd")
+                    .or_else(|| params.get("working_dir"))
+                    .or_else(|| params.get("dir"))
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.trim().to_string());
                 Some(AgentToolCall::RunCommand {
                     cmd: cmd.trim().to_string(),
+                    cwd,
                 })
             }
         "edit_file" => {
@@ -176,8 +183,15 @@ pub fn parse_single_tool_call_value(val: &serde_json::Value) -> Option<AgentTool
 } else {
     // Fallback: Check if object directly specifies cmd/command
     if let Some(cmd) = val.get("cmd").or_else(|| val.get("command")).or_else(|| val.get("run")).and_then(|v| v.as_str()) {
+        let cwd = val
+            .get("cwd")
+            .or_else(|| val.get("working_dir"))
+            .or_else(|| val.get("dir"))
+            .and_then(|v| v.as_str())
+            .map(|s| s.trim().to_string());
         return Some(AgentToolCall::RunCommand {
             cmd: cmd.trim().to_string(),
+            cwd,
         });
     }
     None
@@ -270,7 +284,7 @@ pub fn parse_agent_tool_calls(content: &str) -> Vec<AgentToolCall> {
             if let Some(end) = after.find(&close_tag) {
                 let cmd = after[..end].trim();
                 if !cmd.is_empty() {
-                    let call = AgentToolCall::RunCommand { cmd: cmd.to_string() };
+                    let call = AgentToolCall::RunCommand { cmd: cmd.to_string(), cwd: None };
                     if !results.iter().any(|r| r == &call) {
                         results.push(call);
                     }
@@ -291,7 +305,7 @@ pub fn parse_agent_tool_calls(content: &str) -> Vec<AgentToolCall> {
         {
             let cmd = rest.trim().trim_matches('`').trim();
             if !cmd.is_empty() {
-                let call = AgentToolCall::RunCommand { cmd: cmd.to_string() };
+                let call = AgentToolCall::RunCommand { cmd: cmd.to_string(), cwd: None };
                 if !results.iter().any(|r| r == &call) {
                     results.push(call);
                 }
@@ -333,7 +347,7 @@ pub fn parse_agent_tool_calls(content: &str) -> Vec<AgentToolCall> {
 
             if !lines.is_empty() {
                 let full_cmd = lines.join(" && ");
-                let call = AgentToolCall::RunCommand { cmd: full_cmd };
+                let call = AgentToolCall::RunCommand { cmd: full_cmd, cwd: None };
                 if !results.iter().any(|r| r == &call) {
                     results.push(call);
                 }
@@ -361,33 +375,146 @@ fn extract_lenient_run_command(text: &str) -> Option<AgentToolCall> {
 
     let cleaned = cmd_body.trim();
     if !cleaned.is_empty() {
-        Some(AgentToolCall::RunCommand { cmd: cleaned.to_string() })
+        Some(AgentToolCall::RunCommand { cmd: cleaned.to_string(), cwd: None })
     } else {
         None
     }
+}
+
+pub fn is_ignored_path_segment(name: &str) -> bool {
+    name == ".git"
+        || name == ".zenthree"
+        || name == ".svn"
+        || name == ".hg"
+        || name == ".cache"
+        || name == ".idea"
+        || name == ".DS_Store"
+        || name == "Thumbs.db"
+        || name == "target"
+        || name == "node_modules"
+        || name == "dist"
+        || name == "build"
+        || name == "vendor"
+        || name == ".next"
+        || name == ".nuxt"
+        || name == ".turbo"
+}
+
+/// Cross-verifies that the target file actually contains the `search_snippet`.
+/// If it does not, scans the workspace for candidate files with the same filename (or other source files)
+/// that actually contain the snippet, automatically relocating to the correct file and
+/// preventing edits to the wrong file!
+pub fn verify_or_relocate_target_with_search(
+    workspace_root: &Path,
+    target: PathBuf,
+    search_snippet: &str,
+) -> PathBuf {
+    let clean_search = search_snippet.trim();
+    if clean_search.is_empty() {
+        return target;
+    }
+
+    // 1. Direct check: Does target file already contain the search snippet?
+    if let Ok(content) = std::fs::read_to_string(&target) {
+        if content.contains(clean_search)
+            || content.replace("\r\n", "\n").contains(&clean_search.replace("\r\n", "\n"))
+        {
+            return target;
+        }
+    }
+
+    // 2. Target does not contain search snippet.
+    // Search the workspace for any candidate file with the same filename that DOES contain it.
+    let fname = target.file_name().and_then(|f| f.to_str()).unwrap_or("");
+    if !fname.is_empty() {
+        let mut stack = vec![(workspace_root.to_path_buf(), 0usize)];
+        while let Some((dir, depth)) = stack.pop() {
+            if depth > 7 {
+                continue;
+            }
+            if let Ok(entries) = std::fs::read_dir(&dir) {
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    let name = entry.file_name().to_string_lossy().to_string();
+                    if is_ignored_path_segment(&name) {
+                        continue;
+                    }
+                    if path.is_dir() {
+                        stack.push((path, depth + 1));
+                    } else if path.is_file() && name == fname && path != target {
+                        if let Ok(content) = std::fs::read_to_string(&path) {
+                            if content.contains(clean_search)
+                                || content.replace("\r\n", "\n").contains(&clean_search.replace("\r\n", "\n"))
+                            {
+                                return path;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // 3. Fallback scan: check other likely source files if search snippet is distinctive (>= 15 chars)
+    if clean_search.len() >= 15 {
+        let mut stack = vec![(workspace_root.to_path_buf(), 0usize)];
+        while let Some((dir, depth)) = stack.pop() {
+            if depth > 7 {
+                continue;
+            }
+            if let Ok(entries) = std::fs::read_dir(&dir) {
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    let name = entry.file_name().to_string_lossy().to_string();
+                    if is_ignored_path_segment(&name) {
+                        continue;
+                    }
+                    if path.is_dir() {
+                        stack.push((path, depth + 1));
+                    } else if path.is_file() && path != target && is_likely_filepath(&name) {
+                        if let Ok(content) = std::fs::read_to_string(&path) {
+                            if content.contains(clean_search)
+                                || content.replace("\r\n", "\n").contains(&clean_search.replace("\r\n", "\n"))
+                            {
+                                return path;
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    // Fallback to original target (matcher will safely error rather than corrupting)
+    target
 }
 
 pub fn extract_json_tool_modifications(
     content: &str,
     workspace_root: &Path,
 ) -> Vec<TargetFileModification> {
+    extract_json_tool_modifications_with_context(content, workspace_root, None)
+}
+
+pub fn extract_json_tool_modifications_with_context(
+    content: &str,
+    workspace_root: &Path,
+    active_path: Option<&Path>,
+) -> Vec<TargetFileModification> {
     let mut results = Vec::new();
     let calls = parse_agent_tool_calls(content);
 
     for call in calls {
         if let AgentToolCall::EditFile { path, search, replace } = call {
-            let p = if Path::new(&path).is_absolute() {
-                PathBuf::from(&path)
-            } else {
-                workspace_root.join(&path)
-            };
+            let p = ground_workspace_path_with_context(workspace_root, &path, active_path);
+            let verified_p = verify_or_relocate_target_with_search(workspace_root, p, &search);
             let block = SearchReplaceBlock { search, replace };
-            if let Some(existing) = results.iter_mut().find(|m: &&mut TargetFileModification| m.file_path == p) {
+            if let Some(existing) = results.iter_mut().find(|m: &&mut TargetFileModification| m.file_path == verified_p) {
                 if let FileEditAction::SurgicalPatch(ref mut blocks) = existing.action {
                     blocks.push(block);
                 }
             } else {
-                results.push(TargetFileModification::new_patch(p, vec![block]));
+                results.push(TargetFileModification::new_patch(verified_p, vec![block]));
             }
         }
     }
@@ -396,30 +523,155 @@ pub fn extract_json_tool_modifications(
 }
 
 pub fn ground_workspace_path(workspace_root: &Path, cleaned: &str) -> PathBuf {
-    if Path::new(cleaned).is_absolute() {
-        return PathBuf::from(cleaned);
+    ground_workspace_path_with_context(workspace_root, cleaned, None)
+}
+
+/// Intelligently grounds a relative or bare filepath against the workspace:
+/// 1. Suffix matching for partial/nested relative paths (e.g. `src/tools/read.rs` -> `crates/ai/src/tools/read.rs`).
+/// 2. Workspace-wide exact filename resolution for existing files (prevents modifying/creating ghost files on root).
+/// 3. Anti-root-dumping placement for new files (prefers active file sibling directory or standard `src/`/`app/`/`lib/` over root).
+pub fn ground_workspace_path_with_context(
+    workspace_root: &Path,
+    cleaned: &str,
+    active_path: Option<&Path>,
+) -> PathBuf {
+    let clean_str = cleaned.trim().trim_matches('`').trim_matches('*').trim();
+    if clean_str.is_empty() {
+        return workspace_root.to_path_buf();
     }
-    let direct = workspace_root.join(cleaned);
+    if Path::new(clean_str).is_absolute() {
+        return PathBuf::from(clean_str);
+    }
+
+    let direct = workspace_root.join(clean_str);
     if direct.exists() {
         return direct;
     }
-    if let Some(parent) = direct.parent() {
-        if parent.exists() {
-            return direct;
+
+    let p = Path::new(clean_str);
+    let has_directory_components = p.parent().map_or(false, |par| !par.as_os_str().is_empty());
+
+    // 1. If explicit multi-segment directory components were provided and its parent exists in workspace
+    if has_directory_components {
+        if let Some(parent) = direct.parent() {
+            if parent.exists() && parent.is_dir() {
+                return direct;
+            }
         }
     }
-    // Search subfolders in workspace_root for matching subproject or file
-    if let Ok(entries) = std::fs::read_dir(workspace_root) {
-        for entry in entries.flatten() {
-            let p = entry.path();
-            if p.is_dir() {
-                let candidate = p.join(cleaned);
-                if candidate.exists() || candidate.parent().map(|par| par.exists()).unwrap_or(false) {
-                    return candidate;
+
+    // Helper: list candidates recursively in workspace (excluding build artifacts & noise)
+    let mut matching_files = Vec::new();
+    let mut suffix_matches = Vec::new();
+    let fname = p.file_name().and_then(|f| f.to_str()).unwrap_or(clean_str);
+
+    let mut stack = vec![(workspace_root.to_path_buf(), 0usize)];
+    while let Some((dir, depth)) = stack.pop() {
+        if depth > 7 || matching_files.len() > 30 {
+            continue;
+        }
+        if let Ok(entries) = std::fs::read_dir(&dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                let name = entry.file_name().to_string_lossy().to_string();
+                if is_ignored_path_segment(&name) {
+                    continue;
+                }
+                if path.is_dir() {
+                    stack.push((path, depth + 1));
+                } else if path.is_file() {
+                    // Check exact filename match
+                    if name == fname {
+                        matching_files.push(path.clone());
+                    }
+                    // Check suffix match for relative paths like "src/tools/read.rs" matching "crates/ai/src/tools/read.rs"
+                    if has_directory_components {
+                        if let Ok(rel) = path.strip_prefix(workspace_root) {
+                            let rel_str = rel.to_string_lossy();
+                            if rel_str.ends_with(clean_str) {
+                                suffix_matches.push(path);
+                            }
+                        }
+                    }
                 }
             }
         }
     }
+
+    // 2. Suffix match takes high priority for qualified subpaths
+    if let Some(suf) = suffix_matches.first() {
+        return suf.clone();
+    }
+
+    // 3. Exact filename match for existing files
+    if !matching_files.is_empty() {
+        if let Some(active) = active_path {
+            if let Some(active_dir) = active.parent() {
+                // Check if any matching file shares the active file's directory
+                if let Some(same_dir) = matching_files.iter().find(|m| m.parent() == Some(active_dir)) {
+                    return same_dir.clone();
+                }
+            }
+        }
+        // Return first existing matching file in workspace
+        return matching_files[0].clone();
+    }
+
+    // 4. If explicit directory components were specified and no existing file matched:
+    // Keep the requested structure relative to workspace_root (e.g. ".github/workflows/ci.yml" or "src/components/NewButton.tsx")
+    if has_directory_components {
+        return direct;
+    }
+
+    // 5. Bare filename for a NEW file (doesn't exist anywhere in the project):
+    let fname_lower = fname.to_lowercase();
+    let is_root_file = fname_lower == "readme.md"
+        || fname_lower == "license"
+        || fname_lower == "licence"
+        || fname_lower == "makefile"
+        || fname_lower == "justfile"
+        || fname_lower == "dockerfile"
+        || fname_lower.starts_with("dockerfile.")
+        || fname_lower == "docker-compose.yml"
+        || fname_lower == "docker-compose.yaml"
+        || fname_lower == "procfile"
+        || fname_lower == ".dockerignore"
+        || fname_lower == ".gitignore"
+        || fname_lower == ".gitattributes"
+        || fname_lower == ".editorconfig"
+        || fname_lower.starts_with(".env")
+        || fname_lower.starts_with(".eslint")
+        || fname_lower.starts_with(".prettier")
+        || fname_lower == "cargo.toml"
+        || fname_lower == "package.json"
+        || fname_lower == "tsconfig.json"
+        || fname_lower == "pyproject.toml"
+        || fname_lower == "go.mod"
+        || fname_lower == "cmakelists.txt"
+        || fname_lower == "composer.json"
+        || fname_lower == "gemfile";
+
+    if is_root_file {
+        return direct;
+    }
+
+    // Sibling of active file: if user has an active file open in workspace, place new sibling file in same folder
+    if let Some(active) = active_path {
+        if let Some(active_dir) = active.parent() {
+            if active_dir.starts_with(workspace_root) && active_dir.exists() {
+                return active_dir.join(fname);
+            }
+        }
+    }
+
+    // Place in standard source directory if present (e.g. src/, app/, lib/, pkg/)
+    for standard_src in ["src", "app", "lib", "pkg"] {
+        let candidate_dir = workspace_root.join(standard_src);
+        if candidate_dir.is_dir() {
+            return candidate_dir.join(fname);
+        }
+    }
+
     direct
 }
 
@@ -428,7 +680,7 @@ pub fn extract_all_file_modifications(
     workspace_root: &Path,
     active_path: Option<&Path>,
 ) -> Vec<TargetFileModification> {
-    let mut results = extract_json_tool_modifications(content, workspace_root);
+    let mut results = extract_json_tool_modifications_with_context(content, workspace_root, active_path);
     let mut current_target: Option<PathBuf> = None;
     let mut in_block = false;
     let mut code_lines = Vec::new();
@@ -443,12 +695,14 @@ pub fn extract_all_file_modifications(
         if !blocks.is_empty() {
             let target_file = target.clone().or_else(|| active_path.map(|p| p.to_path_buf()));
             if let Some(tf) = target_file {
-                if let Some(existing) = res.iter_mut().find(|m| m.file_path == tf) {
+                let first_search = blocks.first().map(|b| b.search.as_str()).unwrap_or("");
+                let verified_tf = verify_or_relocate_target_with_search(workspace_root, tf, first_search);
+                if let Some(existing) = res.iter_mut().find(|m| m.file_path == verified_tf) {
                     if let FileEditAction::SurgicalPatch(ref mut b) = existing.action {
                         b.extend(blocks);
                     }
                 } else {
-                    res.push(TargetFileModification::new_patch(tf, blocks));
+                    res.push(TargetFileModification::new_patch(verified_tf, blocks));
                 }
             }
         }
@@ -505,7 +759,7 @@ pub fn extract_all_file_modifications(
 
             let cleaned = candidate.trim().trim_matches('`').trim_matches('*').trim();
             if !cleaned.is_empty() {
-                let path = ground_workspace_path(workspace_root, cleaned);
+                let path = ground_workspace_path_with_context(workspace_root, cleaned, active_path);
                 current_target = Some(path);
             }
             continue;
@@ -533,12 +787,14 @@ pub fn extract_all_file_modifications(
 
                     if let Some(target_file) = target_file {
                         if !surgical_blocks.is_empty() {
-                            if let Some(existing) = results.iter_mut().find(|m| m.file_path == target_file) {
+                            let first_search = surgical_blocks.first().map(|b| b.search.as_str()).unwrap_or("");
+                            let verified_tf = verify_or_relocate_target_with_search(workspace_root, target_file, first_search);
+                            if let Some(existing) = results.iter_mut().find(|m| m.file_path == verified_tf) {
                                 if let FileEditAction::SurgicalPatch(ref mut b) = existing.action {
                                     b.extend(surgical_blocks);
                                 }
                             } else {
-                                results.push(TargetFileModification::new_patch(target_file, surgical_blocks));
+                                results.push(TargetFileModification::new_patch(verified_tf, surgical_blocks));
                             }
                         } else {
                             results.push(TargetFileModification::new_overwrite(target_file, block_text));
@@ -568,6 +824,20 @@ pub fn extract_all_file_modifications(
 
 pub fn is_likely_filepath(s: &str) -> bool {
     let lower = s.to_lowercase();
+    let is_known_config_file = lower == "dockerfile"
+        || lower.starts_with("dockerfile.")
+        || lower == "makefile"
+        || lower == "justfile"
+        || lower == "procfile"
+        || lower == "gemfile"
+        || lower == ".dockerignore"
+        || lower == ".gitignore"
+        || lower == ".gitattributes"
+        || lower == ".editorconfig"
+        || lower.starts_with(".env")
+        || lower.starts_with(".eslint")
+        || lower.starts_with(".prettier");
+
     let has_ext = lower.ends_with(".rs")
         || lower.ends_with(".jsx")
         || lower.ends_with(".js")
@@ -582,6 +852,12 @@ pub fn is_likely_filepath(s: &str) -> bool {
         || lower.ends_with(".md")
         || lower.ends_with(".sh")
         || lower.ends_with(".yaml")
-        || lower.ends_with(".yml");
-    has_ext && !s.contains(' ') && s.len() >= 3
+        || lower.ends_with(".yml")
+        || lower.ends_with(".xml")
+        || lower.ends_with(".sql")
+        || lower.ends_with(".conf")
+        || lower.ends_with(".cfg")
+        || lower.ends_with(".ini");
+
+    (has_ext || is_known_config_file) && !s.contains(' ') && s.len() >= 2
 }

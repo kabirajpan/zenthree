@@ -84,6 +84,193 @@ pub fn is_continuous_server_command(cmd: &str) -> bool {
         || (lower.contains("vite") && !lower.contains("create"))
 }
 
+/// Checks if a command is a project scaffolding or generator command that creates initial project boilerplate.
+pub fn is_scaffolding_command(cmd: &str) -> bool {
+    let lower = cmd.trim().to_lowercase();
+    let is_scaffold_action = lower.contains("create")
+        || lower.contains("init")
+        || lower.contains("startproject")
+        || lower.contains("new ")
+        || lower.starts_with("new ");
+
+    let is_scaffold_tool = lower.contains("vite")
+        || lower.contains("react")
+        || lower.contains("vue")
+        || lower.contains("svelte")
+        || lower.contains("next")
+        || lower.contains("nuxt")
+        || lower.contains("astro")
+        || lower.contains("cargo new")
+        || lower.contains("cargo init")
+        || lower.contains("go mod init")
+        || lower.contains("npm init")
+        || lower.contains("npm create")
+        || lower.contains("bun create")
+        || lower.contains("pnpm create")
+        || lower.contains("yarn create")
+        || lower.contains("flutter create")
+        || lower.contains("django-admin")
+        || lower.contains("rails new")
+        || lower.contains("dotnet new")
+        || lower.contains("composer create-project")
+        || lower.contains("poetry new")
+        || lower.contains("poetry init")
+        || lower.contains("create-vite")
+        || lower.contains("create-react-app")
+        || lower.contains("create-next-app");
+
+    is_scaffold_action && is_scaffold_tool
+}
+
+/// Scans the workspace directory to discover scaffolded project directories and key entry files.
+pub fn detect_scaffolded_project_files(workspace: &Path) -> Vec<String> {
+    let mut found = Vec::new();
+    let manifests = [
+        "package.json", "Cargo.toml", "pyproject.toml", "go.mod", "pubspec.yaml",
+        "CMakeLists.txt", "pom.xml", "build.gradle", "deno.json",
+    ];
+    let key_files = [
+        "App.jsx", "App.tsx", "App.vue", "App.svelte", "main.jsx", "main.tsx",
+        "index.html", "main.rs", "main.py", "app.py", "main.go", "main.dart",
+        "index.js", "index.ts",
+    ];
+
+    if let Ok(entries) = std::fs::read_dir(workspace) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let fname = entry.file_name().to_string_lossy().to_string();
+            if fname == "target" || fname == "node_modules" || fname == ".git" {
+                continue;
+            }
+            if path.is_dir() {
+                let has_manifest = manifests.iter().any(|m| path.join(m).is_file());
+                if has_manifest {
+                    let mut stack = vec![(path.clone(), 0usize)];
+                    while let Some((dir, depth)) = stack.pop() {
+                        if depth > 4 || found.len() >= 25 { break; }
+                        if let Ok(sub_entries) = std::fs::read_dir(&dir) {
+                            for se in sub_entries.flatten() {
+                                let sp = se.path();
+                                let sname = se.file_name().to_string_lossy().to_string();
+                                if sname == "node_modules" || sname == "target" || sname == ".git" {
+                                    continue;
+                                }
+                                if sp.is_dir() {
+                                    stack.push((sp, depth + 1));
+                                } else if sp.is_file() {
+                                    let rel = sp.strip_prefix(workspace).unwrap_or(&sp).to_string_lossy().to_string();
+                                    if manifests.iter().any(|m| sname.eq_ignore_ascii_case(m))
+                                        || key_files.iter().any(|k| sname.eq_ignore_ascii_case(k))
+                                    {
+                                        found.push(rel);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            } else if path.is_file() {
+                if manifests.iter().any(|m| fname.eq_ignore_ascii_case(m))
+                    || key_files.iter().any(|k| fname.eq_ignore_ascii_case(k))
+                {
+                    found.push(fname);
+                }
+            }
+        }
+    }
+    found
+}
+
+pub const PROJECT_MANIFEST_NAMES: &[&str] = &[
+    "package.json", "Cargo.toml", "pyproject.toml", "go.mod", "CMakeLists.txt",
+    "pubspec.yaml", "pom.xml", "build.gradle", "build.gradle.kts", "deno.json",
+    "composer.json", "Gemfile", "Makefile", "justfile",
+];
+
+/// Walks upward from start_path looking for the nearest project manifest file.
+/// Stops when it hits workspace_root or filesystem root.
+pub fn find_nearest_manifest_dir(start_path: &Path, workspace_root: &Path) -> Option<std::path::PathBuf> {
+    let mut current = if start_path.is_file() {
+        start_path.parent().map(|p| p.to_path_buf())
+    } else {
+        Some(start_path.to_path_buf())
+    };
+
+    while let Some(dir) = current {
+        for manifest in PROJECT_MANIFEST_NAMES {
+            if dir.join(manifest).is_file() {
+                return Some(dir);
+            }
+        }
+        if dir == workspace_root || !dir.starts_with(workspace_root) {
+            break;
+        }
+        current = dir.parent().map(|p| p.to_path_buf());
+    }
+
+    None
+}
+
+/// Resolves the effective execution working directory for terminal commands:
+/// 1. Explicit requested_cwd (relative to workspace_root or absolute).
+/// 2. Nearest manifest from active_target file/folder.
+/// 3. If workspace has no root manifest, but contains a single subproject with a manifest, use that.
+/// 4. Fallback: workspace_root.
+pub fn resolve_command_cwd(
+    workspace_root: &Path,
+    requested_cwd: Option<&str>,
+    active_target: Option<&Path>,
+) -> std::path::PathBuf {
+    if let Some(req) = requested_cwd {
+        let trimmed = req.trim();
+        if !trimmed.is_empty() {
+            let p = Path::new(trimmed);
+            let resolved = if p.is_absolute() {
+                p.to_path_buf()
+            } else {
+                workspace_root.join(p)
+            };
+            if resolved.is_dir() {
+                return resolved;
+            }
+        }
+    }
+
+    if let Some(target) = active_target {
+        if let Some(dir) = find_nearest_manifest_dir(target, workspace_root) {
+            return dir;
+        }
+    }
+
+    // Single subproject heuristic: if workspace has no root manifest,
+    // but contains a single subproject with a manifest (e.g. "react-calculator/"), use that!
+    let has_root_manifest = PROJECT_MANIFEST_NAMES.iter().any(|m| workspace_root.join(m).is_file());
+    if !has_root_manifest {
+        if let Ok(entries) = std::fs::read_dir(workspace_root) {
+            let mut subprojects = Vec::new();
+            for entry in entries.flatten() {
+                let path = entry.path();
+                let name = entry.file_name().to_string_lossy().to_string();
+                if name == "node_modules" || name == "target" || name == ".git" {
+                    continue;
+                }
+                if path.is_dir() {
+                    let has_manifest = PROJECT_MANIFEST_NAMES.iter().any(|m| path.join(m).is_file());
+                    if has_manifest {
+                        subprojects.push(path);
+                    }
+                }
+            }
+            if subprojects.len() == 1 {
+                return subprojects.remove(0);
+            }
+        }
+    }
+
+    workspace_root.to_path_buf()
+}
+
+
 #[derive(Debug, Clone)]
 pub struct ActiveAiProcess {
     pub command: String,
@@ -144,7 +331,36 @@ pub fn kill_active_process(pid: u32) -> bool {
     true
 }
 
+/// Parses a command that starts with `cd ` or `cd` to extract the target directory and optional chained command.
+/// Examples:
+/// - `cd subfolder` -> Some(("subfolder", None))
+/// - `cd subfolder && npm test` -> Some(("subfolder", Some("npm test")))
+/// - `cd subfolder; npm test` -> Some(("subfolder", Some("npm test")))
+pub fn parse_cd_statement(cmd: &str) -> Option<(String, Option<String>)> {
+    let trimmed = cmd.trim();
+    if trimmed == "cd" {
+        return Some((".".to_string(), None));
+    }
+    if let Some(rest) = trimmed.strip_prefix("cd ") {
+        let rest = rest.trim();
+        if let Some(pos) = rest.find("&&").or_else(|| rest.find(';')) {
+            let target = rest[..pos].trim().trim_matches(|c| c == '\'' || c == '"').to_string();
+            let remainder = rest[pos..].trim_start_matches(|c| c == '&' || c == ';' || c == ' ').trim().to_string();
+            let rem_opt = if remainder.is_empty() { None } else { Some(remainder) };
+            return Some((target, rem_opt));
+        } else {
+            let target = rest.trim_matches(|c| c == '\'' || c == '"').to_string();
+            return Some((target, None));
+        }
+    }
+    None
+}
+
 pub fn execute_run_command(workspace: &Path, cmd: &str) -> AgentToolResult {
+    execute_run_command_with_cwd(workspace, cmd, None)
+}
+
+pub fn execute_run_command_with_cwd(workspace: &Path, cmd: &str, cwd: Option<&str>) -> AgentToolResult {
     let trimmed = cmd.trim();
     if trimmed.is_empty() {
         return AgentToolResult {
@@ -164,6 +380,14 @@ pub fn execute_run_command(workspace: &Path, cmd: &str) -> AgentToolResult {
             ),
         };
     }
+
+    let effective_cwd = resolve_command_cwd(workspace, cwd, None);
+    let rel_cwd_label = if effective_cwd != workspace {
+        let rel = effective_cwd.strip_prefix(workspace).unwrap_or(&effective_cwd).to_string_lossy();
+        Some(format!("[Working Directory: {}]\n", rel))
+    } else {
+        None
+    };
 
     prune_active_processes();
     let lower = trimmed.to_lowercase();
@@ -203,7 +427,7 @@ pub fn execute_run_command(workspace: &Path, cmd: &str) -> AgentToolResult {
     let mut cmd_builder = {
         let comspec = std::env::var("COMSPEC").unwrap_or_else(|_| "cmd.exe".to_string());
         let mut builder = std::process::Command::new(comspec);
-        builder.arg("/C").arg(trimmed).current_dir(workspace);
+        builder.arg("/C").arg(trimmed).current_dir(&effective_cwd);
         builder
     };
 
@@ -211,7 +435,7 @@ pub fn execute_run_command(workspace: &Path, cmd: &str) -> AgentToolResult {
     let mut cmd_builder = {
         let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".to_string());
         let mut builder = std::process::Command::new(&shell);
-        builder.arg("-c").arg(trimmed).current_dir(workspace);
+        builder.arg("-c").arg(trimmed).current_dir(&effective_cwd);
         builder
     };
 
@@ -324,7 +548,7 @@ pub fn execute_run_command(workspace: &Path, cmd: &str) -> AgentToolResult {
                 let _ = h_err.join();
 
                 let combined = output_buffer.lock().map(|l| l.clone()).unwrap_or_default();
-                let final_output = if combined.trim().is_empty() {
+                let mut final_output = if combined.trim().is_empty() {
                     if status.success() {
                         "Command exited successfully with code 0 (no output)".to_string()
                     } else {
@@ -333,6 +557,32 @@ pub fn execute_run_command(workspace: &Path, cmd: &str) -> AgentToolResult {
                 } else {
                     combined
                 };
+
+                if status.success() && is_scaffolding_command(trimmed) {
+                    let mut files = detect_scaffolded_project_files(workspace);
+                    if files.is_empty() && effective_cwd != workspace {
+                        files = detect_scaffolded_project_files(&effective_cwd);
+                    }
+                    let mut scaffold_notice = String::from("\n\n[PROJECT SCAFFOLDING DETECTED]\n");
+                    if !files.is_empty() {
+                        scaffold_notice.push_str("Discovered generated project files:\n");
+                        for f in &files {
+                            scaffold_notice.push_str(&format!("  - {}\n", f));
+                        }
+                    }
+                    scaffold_notice.push_str(
+                        "\nCRITICAL MANDATORY NEXT STEPS (DO NOT STOP HERE):\n\
+                        1. The initial project structure was scaffolded, but this is only the empty starter template!\n\
+                        2. If dependencies are not yet installed, run the installation command (e.g. `cd <folder> && npm install` or `cargo build`).\n\
+                        3. OVERWRITE the entry component or source file (e.g. `### File: <folder>/src/App.jsx` or `<folder>/src/main.rs`) with the FULL, REAL, BEAUTIFULLY STYLED implementation of the requested project (e.g. calculator buttons, state logic, arithmetic, styling).\n\
+                        4. Do NOT leave the project as default starter boilerplate! Provide the complete application."
+                    );
+                    final_output.push_str(&scaffold_notice);
+                }
+
+                if let Some(ref label) = rel_cwd_label {
+                    final_output = format!("{}{}", label, final_output);
+                }
 
                 AgentToolResult {
                     tool_name: "run_command".to_string(),
@@ -356,11 +606,16 @@ pub fn execute_run_command(workspace: &Path, cmd: &str) -> AgentToolResult {
                 } else {
                     format!("Command `{}` started in background (PID {}).\nInitial terminal output:\n{}", trimmed, pid, accumulated.trim())
                 };
+                let full_out = if let Some(ref label) = rel_cwd_label {
+                    format!("{}{}", label, out_msg)
+                } else {
+                    out_msg
+                };
 
                 AgentToolResult {
                     tool_name: "run_command".to_string(),
                     ok: true,
-                    output: out_msg,
+                    output: full_out,
                 }
             } else {
                 // Non-server command timed out - terminate it so it does not hang
@@ -371,10 +626,15 @@ pub fn execute_run_command(workspace: &Path, cmd: &str) -> AgentToolResult {
                 } else {
                     format!("Command `{}` timed out after 45 seconds. Terminal output captured:\n{}", trimmed, accumulated.trim())
                 };
+                let full_out = if let Some(ref label) = rel_cwd_label {
+                    format!("{}{}", label, out_msg)
+                } else {
+                    out_msg
+                };
                 AgentToolResult {
                     tool_name: "run_command".to_string(),
                     ok: false,
-                    output: out_msg,
+                    output: full_out,
                 }
             }
         }

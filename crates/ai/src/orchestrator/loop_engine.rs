@@ -5,7 +5,8 @@ use std::time::Instant;
 use crate::types::{AgentEvent, CancellationToken, ChatMessage, EditedFileSummary};
 use crate::tools::{
     execute_agent_tool, parse_agent_tool_calls, extract_all_file_modifications,
-    AgentToolCall, AgentToolResult,
+    AgentToolCall, AgentToolResult, find_nearest_manifest_dir, parse_cd_statement,
+    is_scaffolding_command, detect_scaffolded_project_files,
 };
 use crate::providers::ProviderChain;
 use crate::context::build_autonomous_agent_prompt;
@@ -98,7 +99,12 @@ impl AgentLoop {
         } else {
             initial_user_prompt.push_str("### Project Workspace Tree:\n(Workspace directory is currently empty - no project files exist yet)\n\n");
         }
-        initial_user_prompt.push_str("Grounding Rule: Only refer to files that actually exist in the workspace tree above. Never assume or hallucinate project names or files that are not present.\n\n");
+        initial_user_prompt.push_str("Workspace Grounding & Anti-Root-Dumping Protocol (When creating or modifying files upon user request):\n\
+- EXACT PATHS: Always specify the full workspace-relative path in `### File: <path>` (e.g. `src/components/Button.tsx` or `crates/ai/src/tools/read.rs`). Never emit bare filenames.\n\
+- NO ROOT DUMPING: Never create new source code, components, or services on the workspace root directory. Follow the project folder hierarchy shown in the tree (`src/`, `lib/`, `app/`, `crates/...`).\n\
+- TARGET VERIFICATION: When modifying existing files, inspect the tree above or use `{\"tool\": \"search_code\", \"query\": \"<pattern>\"}` to verify the real relative path.\n\
+- SUBDIRECTORY NAVIGATION: If a project or subcrate is inside a folder, navigate with `cd <folder>` or reference paths relative to that folder.\n\
+- CONVERSATION & EXPLANATIONS: If the user is asking a conversational question or asking for an explanation, answer cleanly in Markdown without emitting `### File:` blocks.\n\n");
 
         if let Some(ref pctx) = self.ctx.project_context {
             if !pctx.trim().is_empty() {
@@ -139,6 +145,10 @@ impl AgentLoop {
         let mut history: Vec<ChatMessage> = self.ctx.prior_history.clone();
         let mut current_user_prompt = initial_user_prompt;
         let mut last_response = String::new();
+        let mut has_scaffolded_project = false;
+        let mut files_written_count = 0usize;
+        let mut prevented_premature_exit = 0usize;
+        let mut active_cwd: Option<PathBuf> = None;
 
         for iteration in 0..max_steps {
             if self.ctx.cancellation_token.is_cancelled() {
@@ -178,6 +188,7 @@ impl AgentLoop {
             let active_path = self.ctx.active_file.as_deref();
             let file_mods = extract_all_file_modifications(&response, &self.ctx.workspace_root, active_path);
             let mut file_summaries = Vec::new();
+            let mut file_errors = Vec::new();
 
             for modif in &file_mods {
                 let target = &modif.file_path;
@@ -186,27 +197,52 @@ impl AgentLoop {
                 }
 
                 let original_code = std::fs::read_to_string(target).unwrap_or_default();
-                if let Ok(new_code) = modif.apply_to(&original_code) {
-                    if let Ok(_) = std::fs::write(target, &new_code) {
+                match modif.apply_to(&original_code) {
+                    Ok(new_code) => {
+                        match std::fs::write(target, &new_code) {
+                            Ok(_) => {
+                                // Track active working directory from written files
+                                if let Some(dir) = find_nearest_manifest_dir(target, &self.ctx.workspace_root) {
+                                    if dir != self.ctx.workspace_root {
+                                        active_cwd = Some(dir);
+                                    }
+                                }
+                                let rel_name = target
+                                    .strip_prefix(&self.ctx.workspace_root)
+                                    .unwrap_or(target)
+                                    .to_string_lossy()
+                                    .to_string();
+                                let lines_added = new_code.lines().count().saturating_sub(original_code.lines().count());
+                                let lines_removed = original_code.lines().count().saturating_sub(new_code.lines().count());
+                                file_summaries.push(EditedFileSummary {
+                                    file_name: rel_name,
+                                    lines_added,
+                                    lines_removed,
+                                    original_code: Some(original_code),
+                                    proposed_code: Some(new_code),
+                                });
+                            }
+                            Err(e) => {
+                                let rel_name = target
+                                    .strip_prefix(&self.ctx.workspace_root)
+                                    .unwrap_or(target)
+                                    .to_string_lossy();
+                                file_errors.push(format!("Failed to write to `{}`: {}", rel_name, e));
+                            }
+                        }
+                    }
+                    Err(e) => {
                         let rel_name = target
                             .strip_prefix(&self.ctx.workspace_root)
                             .unwrap_or(target)
-                            .to_string_lossy()
-                            .to_string();
-                        let lines_added = new_code.lines().count().saturating_sub(original_code.lines().count());
-                        let lines_removed = original_code.lines().count().saturating_sub(new_code.lines().count());
-                        file_summaries.push(EditedFileSummary {
-                            file_name: rel_name,
-                            lines_added,
-                            lines_removed,
-                            original_code: Some(original_code),
-                            proposed_code: Some(new_code),
-                        });
+                            .to_string_lossy();
+                        file_errors.push(format!("Failed to apply patch to `{}`: {}", rel_name, e));
                     }
                 }
             }
 
             if !file_summaries.is_empty() {
+                files_written_count += file_summaries.len();
                 (self.event_sender)(AgentEvent::PendingModifications {
                     summaries: file_summaries.clone(),
                 });
@@ -215,8 +251,33 @@ impl AgentLoop {
             // Check for tool calls
             let tool_calls = parse_agent_tool_calls(&response);
 
-            // If neither tool calls nor file modifications were produced, the agent has finished its goal!
+            // If neither tool calls nor file modifications were produced, the agent wants to finish:
             if tool_calls.is_empty() && file_mods.is_empty() {
+                // PREMATURE COMPLETION GUARD:
+                // If a project was scaffolded, but the agent hasn't written any application files yet,
+                // do NOT allow it to exit with just the empty starter boilerplate!
+                if has_scaffolded_project && files_written_count == 0 && prevented_premature_exit < 2 {
+                    prevented_premature_exit += 1;
+                    let warning = "PREMATURE COMPLETION BLOCKED: You initialized or scaffolded the project template, but you have NOT yet implemented the requested application logic, components, or UI (e.g. calculator, app features, state, styling)! Do not leave the project as an empty default template. Proceed now by creating/editing the main source files (e.g. `### File: <relative_path>`) to write the complete application code.";
+                    history.push(ChatMessage {
+                        role: "user".to_string(),
+                        content: current_user_prompt,
+                    });
+                    history.push(ChatMessage {
+                        role: "assistant".to_string(),
+                        content: response,
+                    });
+                    compact_conversation_history(&mut history);
+                    current_user_prompt = format!(
+                        "Observation Feedback:\n{}\n\n\
+                        Next Step Instructions:\n\
+                        - You MUST now implement the application code in the source files using `### File: <relative_path>`.\n\
+                        - Do not stop until the full requested application is created!",
+                        warning
+                    );
+                    continue;
+                }
+
                 (self.event_sender)(AgentEvent::Completed {
                     summary: response.clone(),
                 });
@@ -227,11 +288,52 @@ impl AgentLoop {
             let mut tool_results: Vec<AgentToolResult> = Vec::new();
 
             for call in &tool_calls {
-                let tool_name = match call {
+                let (effective_call, is_standalone_cd) = match call {
+                    AgentToolCall::RunCommand { cmd, cwd } => {
+                        if let Some((target_dir, remainder_cmd)) = parse_cd_statement(cmd) {
+                            let base = active_cwd.as_deref().unwrap_or(&self.ctx.workspace_root);
+                            let resolved = if target_dir == ".." {
+                                base.parent().unwrap_or(&self.ctx.workspace_root).to_path_buf()
+                            } else if target_dir == "." {
+                                base.to_path_buf()
+                            } else {
+                                let p = std::path::Path::new(&target_dir);
+                                if p.is_absolute() {
+                                    p.to_path_buf()
+                                } else {
+                                    base.join(p)
+                                }
+                            };
+
+                            if resolved.is_dir() && resolved.starts_with(&self.ctx.workspace_root) {
+                                active_cwd = Some(resolved);
+                            }
+
+                            if let Some(rem) = remainder_cmd {
+                                let rel = active_cwd.as_ref()
+                                    .and_then(|ac| ac.strip_prefix(&self.ctx.workspace_root).ok())
+                                    .map(|p| p.to_string_lossy().to_string());
+                                (AgentToolCall::RunCommand { cmd: rem, cwd: rel.or_else(|| cwd.clone()) }, false)
+                            } else {
+                                (call.clone(), true)
+                            }
+                        } else {
+                            let effective_cwd = cwd.clone().or_else(|| {
+                                active_cwd.as_ref()
+                                    .and_then(|ac| ac.strip_prefix(&self.ctx.workspace_root).ok())
+                                    .map(|p| p.to_string_lossy().to_string())
+                            });
+                            (AgentToolCall::RunCommand { cmd: cmd.clone(), cwd: effective_cwd }, false)
+                        }
+                    }
+                    _ => (call.clone(), false),
+                };
+
+                let tool_name = match &effective_call {
                     AgentToolCall::ReadFile { path, .. } => format!("read `{}`", path),
                     AgentToolCall::SearchCode { query } => format!("search `{}`", query),
                     AgentToolCall::ListDirectory { path } => format!("list `{}`", path.as_deref().unwrap_or(".")),
-                    AgentToolCall::RunCommand { cmd } => format!("run `{}`", cmd),
+                    AgentToolCall::RunCommand { cmd, .. } => format!("run `{}`", cmd),
                     AgentToolCall::EditFile { path, .. } => format!("patch `{}`", path),
                     AgentToolCall::DetectEnvironment { .. } => "detect environment".to_string(),
                     AgentToolCall::GitStatus => "git status".to_string(),
@@ -244,11 +346,49 @@ impl AgentLoop {
                 });
 
                 let start_time = Instant::now();
-                let res = execute_agent_tool(&self.ctx.workspace_root, call);
+
+                let res = if is_standalone_cd {
+                    let rel = active_cwd.as_ref()
+                        .and_then(|ac| ac.strip_prefix(&self.ctx.workspace_root).ok())
+                        .map(|p| p.to_string_lossy().to_string())
+                        .unwrap_or_else(|| ".".to_string());
+                    AgentToolResult {
+                        tool_name: "run_command".to_string(),
+                        ok: true,
+                        output: format!("[Working Directory: {}]\nWorking directory changed to `{}`.", rel, rel),
+                    }
+                } else {
+                    let r = execute_agent_tool(&self.ctx.workspace_root, &effective_call);
+                    if r.ok {
+                        if let AgentToolCall::RunCommand { ref cmd, ref cwd } = effective_call {
+                            if let Some(ref c) = cwd {
+                                let p = std::path::Path::new(c);
+                                let resolved = if p.is_absolute() { p.to_path_buf() } else { self.ctx.workspace_root.join(p) };
+                                if resolved.is_dir() && resolved.starts_with(&self.ctx.workspace_root) {
+                                    active_cwd = Some(resolved);
+                                }
+                            }
+                            if is_scaffolding_command(cmd) {
+                                has_scaffolded_project = true;
+                                let files = detect_scaffolded_project_files(&self.ctx.workspace_root);
+                                if let Some(first_file) = files.first() {
+                                    let p = self.ctx.workspace_root.join(first_file);
+                                    if let Some(dir) = find_nearest_manifest_dir(&p, &self.ctx.workspace_root) {
+                                        if dir != self.ctx.workspace_root {
+                                            active_cwd = Some(dir);
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                    r
+                };
+
                 let duration_ms = start_time.elapsed().as_millis() as u64;
 
                 // Emit granular cognitive loop events for UI exploration
-                match call {
+                match &effective_call {
                     AgentToolCall::ReadFile { path, start_line, end_line } => {
                         let s = start_line.unwrap_or(1);
                         let e = end_line.unwrap_or(s.saturating_add(40));
@@ -269,7 +409,7 @@ impl AgentLoop {
                             result_count: count,
                         });
                     }
-                    AgentToolCall::RunCommand { cmd } => {
+                    AgentToolCall::RunCommand { cmd, .. } => {
                         (self.event_sender)(AgentEvent::SearchExecuted {
                             query: format!("run `{}`", cmd),
                             result_count: if res.ok { 1 } else { 0 },
@@ -307,12 +447,27 @@ impl AgentLoop {
 
             // Build observation feedback for the next iteration
             let mut observation = String::new();
+            if let Some(ref ac) = active_cwd {
+                let rel_ac = ac.strip_prefix(&self.ctx.workspace_root).unwrap_or(ac).to_string_lossy();
+                if !rel_ac.is_empty() && rel_ac != "." {
+                    observation.push_str(&format!("Active Working Directory: `{}`\n\n", rel_ac));
+                }
+            }
+
             if !file_summaries.is_empty() {
                 observation.push_str("### File Updates Applied to Disk:\n");
                 for s in &file_summaries {
                     observation.push_str(&format!("- Wrote `{}` (+{} / -{} lines)\n", s.file_name, s.lines_added, s.lines_removed));
                 }
                 observation.push('\n');
+            }
+
+            if !file_errors.is_empty() {
+                observation.push_str("### File Patch Failures:\n");
+                for err in &file_errors {
+                    observation.push_str(&format!("- {}\n", err));
+                }
+                observation.push_str("Recommendation: Call `read_file` on the target file to inspect its exact current content before re-attempting the SEARCH/REPLACE edit.\n\n");
             }
 
             if !tool_results.is_empty() {
@@ -336,6 +491,8 @@ impl AgentLoop {
                 role: "assistant".to_string(),
                 content: response,
             });
+
+            compact_conversation_history(&mut history);
 
             current_user_prompt = format!(
                 "Observation Feedback:\n{}\n\n\
@@ -388,4 +545,74 @@ fn extract_thought_content(text: &str) -> Option<String> {
         }
     }
     None
+}
+
+/// Compacts conversation history when it grows beyond 6 messages (3 full turns).
+/// Preserves:
+/// 1. Initial turn (user goal & first plan)
+/// 2. Compact high-density summary of intermediate file writes & executed tools
+/// 3. The most recent active turn with full observations
+pub fn compact_conversation_history(history: &mut Vec<ChatMessage>) {
+    if history.len() <= 6 {
+        return;
+    }
+    let total = history.len();
+    let to_compact_end = total.saturating_sub(2);
+    if to_compact_end <= 2 {
+        return;
+    }
+
+    let mut actions_summary = Vec::new();
+    for msg in &history[2..to_compact_end] {
+        if msg.role == "assistant" {
+            for line in msg.content.lines() {
+                let trimmed = line.trim();
+                if trimmed.starts_with("### File:") {
+                    let f = trimmed.strip_prefix("### File:").unwrap_or(trimmed).trim();
+                    actions_summary.push(format!("- Created/updated `{}`", f));
+                } else if trimmed.starts_with("{\"tool\":") {
+                    if let Ok(v) = serde_json::from_str::<serde_json::Value>(trimmed) {
+                        if let Some(t) = v.get("tool").and_then(|t| t.as_str()) {
+                            if t == "run_command" {
+                                if let Some(cmd) = v.get("cmd").and_then(|c| c.as_str()) {
+                                    actions_summary.push(format!("- Executed: `{}`", cmd));
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        } else if msg.role == "user" && msg.content.contains("### File Updates Applied to Disk:") {
+            for line in msg.content.lines() {
+                let trimmed = line.trim();
+                if trimmed.starts_with("- Wrote `") {
+                    actions_summary.push(trimmed.to_string());
+                }
+            }
+        }
+    }
+
+    actions_summary.dedup();
+    let summary_content = if actions_summary.is_empty() {
+        "Previous Steps Summary: Completed intermediate exploration and execution commands.".to_string()
+    } else {
+        format!("Previous Steps Summary (Compacted Context):\n{}", actions_summary.join("\n"))
+    };
+
+    let compacted_turn = vec![
+        ChatMessage {
+            role: "user".to_string(),
+            content: "[System: Older context compacted to preserve optimal reasoning and token budget]".to_string(),
+        },
+        ChatMessage {
+            role: "assistant".to_string(),
+            content: summary_content,
+        },
+    ];
+
+    let mut new_history = Vec::new();
+    new_history.extend_from_slice(&history[..2]);
+    new_history.extend(compacted_turn);
+    new_history.extend_from_slice(&history[to_compact_end..]);
+    *history = new_history;
 }

@@ -7,11 +7,14 @@ pub fn create_mission_for_prompt(prompt: &str, explored_items: &[ExploredItem]) 
     let lower = trimmed.to_lowercase();
     let is_refactor = lower.contains("refactor") || lower.contains("optimize");
     let is_explain = lower.contains("explain");
+    let is_plan = lower.contains("plan") || lower.contains("architect") || lower.contains("blueprint");
 
     let mut tasks = Vec::new();
 
     // Task 1: Context & Reading (Explorer)
-    let read_title = if !explored_items.is_empty() {
+    let read_title = if is_plan {
+        "Analyze workspace architecture, dependencies & conventions".to_string()
+    } else if !explored_items.is_empty() {
         let file_list: Vec<&str> = explored_items.iter().take(2).map(|i| i.file_name.as_str()).collect();
         format!("Analyze workspace context ({})", file_list.join(", "))
     } else {
@@ -37,9 +40,11 @@ pub fn create_mission_for_prompt(prompt: &str, explored_items: &[ExploredItem]) 
     });
 
     // Task 3: Code Execution / Generation (Builder)
-    let exec_title = if lower.contains("create") || lower.contains("make") || lower.contains("add") {
+    let exec_title = if is_plan {
+        "Formulate comprehensive architectural implementation blueprint".to_string()
+    } else if lower.contains("create") || lower.contains("make") || lower.contains("add") {
         let desc = if trimmed.len() > 30 { &trimmed[..30] } else { trimmed };
-        format!("Generate file & directory updates for `{}`", desc)
+        format!("Scaffold structure & implement application for `{}`", desc)
     } else if is_refactor {
         "Apply architectural refactoring".to_string()
     } else if is_explain {
@@ -58,9 +63,14 @@ pub fn create_mission_for_prompt(prompt: &str, explored_items: &[ExploredItem]) 
     });
 
     // Task 4: Verification & self-check (Tester)
+    let test_title = if is_plan {
+        "Formulate automated test strategy & manual verification plan".to_string()
+    } else {
+        "Verify syntax, run compiler check & test suite".to_string()
+    };
     tasks.push(AgentTask {
         id: "task_4_test".to_string(),
-        title: "Verify syntax, run compiler check & test suite".to_string(),
+        title: test_title,
         status: TaskStatus::Pending,
         target_file: None,
         diff_summary: None,

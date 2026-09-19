@@ -4,4 +4,4 @@
 //! including ACP (Agent Client Protocol), Goose Process Supervisor, and the built-in Native loop.
 
 pub use ai::*;
-pub use ai::tools::ground_workspace_path;
+pub use ai::tools::{ground_workspace_path, ground_workspace_path_with_context};

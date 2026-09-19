@@ -16,12 +16,17 @@ pub use patch::{SearchReplaceBlock, FileEditAction, TargetFileModification, appl
 pub use read::{execute_read_file, extract_tool_call_read_paths};
 pub use search::execute_search_code;
 pub use list::execute_list_directory;
-pub use command::execute_run_command;
+pub use command::{
+    execute_run_command, execute_run_command_with_cwd, find_nearest_manifest_dir,
+    resolve_command_cwd, is_scaffolding_command, detect_scaffolded_project_files,
+    parse_cd_statement, PROJECT_MANIFEST_NAMES,
+};
 pub use git::{execute_git_status, execute_git_diff};
 pub use environment::{DetectorAgent, execute_detect_environment};
 pub use parser::{
     parse_search_replace_blocks, parse_agent_tool_calls, parse_single_tool_call_value,
     extract_all_file_modifications, extract_json_tool_modifications, ground_workspace_path,
+    ground_workspace_path_with_context, verify_or_relocate_target_with_search,
 };
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -42,6 +47,8 @@ pub enum AgentToolCall {
     },
     RunCommand {
         cmd: String,
+        #[serde(default)]
+        cwd: Option<String>,
     },
     EditFile {
         path: String,
@@ -77,8 +84,8 @@ pub fn execute_agent_tool(workspace: &Path, call: &AgentToolCall) -> AgentToolRe
         AgentToolCall::ListDirectory { path } => {
             execute_list_directory(workspace, path.as_deref())
         }
-        AgentToolCall::RunCommand { cmd } => {
-            execute_run_command(workspace, cmd)
+        AgentToolCall::RunCommand { cmd, cwd } => {
+            execute_run_command_with_cwd(workspace, cmd, cwd.as_deref())
         }
         AgentToolCall::EditFile { path, search, replace } => {
             let full_path = if Path::new(path).is_absolute() {
