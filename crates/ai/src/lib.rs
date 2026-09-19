@@ -6,8 +6,13 @@ pub mod providers;
 pub mod context;
 pub mod acp;
 pub mod goose;
+pub mod benchmark;
 
 // Root convenience re-exports
+pub use benchmark::{
+    BenchmarkRunner, BenchmarkTask, BenchmarkReport, BenchmarkResult,
+    BenchmarkCategory, BenchmarkDifficulty, ValidationRule, get_standard_benchmark_suite,
+};
 pub use types::{
     AiMessage, ChatMessage, EditedFileSummary, ExploredItem, ProjectEnvironment,
     ProjectLanguage, UserIntent, WorkspaceDetectionContext, CancellationToken,

@@ -1,5 +1,6 @@
 use std::path::{Path, PathBuf};
 use super::patch::{FileEditAction, SearchReplaceBlock, TargetFileModification};
+use super::command::{find_nearest_manifest_dir, PROJECT_MANIFEST_NAMES};
 use super::AgentToolCall;
 
 fn is_search_marker(trimmed: &str) -> bool {
@@ -603,8 +604,8 @@ pub fn ground_workspace_path_with_context(
         return suf.clone();
     }
 
-    // 3. Exact filename match for existing files
-    if !matching_files.is_empty() {
+    // 3. Exact filename match for existing files (only for bare filenames when no explicit directories were given!)
+    if !has_directory_components && !matching_files.is_empty() {
         if let Some(active) = active_path {
             if let Some(active_dir) = active.parent() {
                 // Check if any matching file shares the active file's directory
@@ -617,13 +618,67 @@ pub fn ground_workspace_path_with_context(
         return matching_files[0].clone();
     }
 
-    // 4. If explicit directory components were specified and no existing file matched:
+    // 4. Subproject redirection for qualified paths:
+    // If the workspace root has no manifest, but a subproject root was discovered (or active file is in a subproject),
+    // route files like `src/components/Display.jsx` into the subproject directory instead of dumping onto the workspace root!
+    let subproject_root: Option<PathBuf> = if let Some(active) = active_path {
+        find_nearest_manifest_dir(active, workspace_root)
+            .filter(|p| p != workspace_root)
+    } else {
+        let has_root_manifest = PROJECT_MANIFEST_NAMES.iter().any(|m| workspace_root.join(m).is_file());
+        if !has_root_manifest {
+            if let Ok(entries) = std::fs::read_dir(workspace_root) {
+                let mut found = Vec::new();
+                for entry in entries.flatten() {
+                    let path = entry.path();
+                    let name = entry.file_name().to_string_lossy().to_string();
+                    if !is_ignored_path_segment(&name) && path.is_dir() {
+                        if PROJECT_MANIFEST_NAMES.iter().any(|m| path.join(m).is_file()) {
+                            found.push(path);
+                        }
+                    }
+                }
+                if found.len() == 1 {
+                    Some(found.remove(0))
+                } else {
+                    None
+                }
+            } else {
+                None
+            }
+        } else {
+            None
+        }
+    };
+
+    if let Some(ref sub) = subproject_root {
+        let sub_name = sub.file_name().and_then(|n| n.to_str()).unwrap_or("");
+        let first_segment = p.components().next().and_then(|c| c.as_os_str().to_str()).unwrap_or("");
+        if first_segment != sub_name {
+            let candidate = sub.join(clean_str);
+            if candidate.exists() {
+                return candidate;
+            }
+            if has_directory_components {
+                // If workspace root does not have this directory at the root,
+                // or if candidate's parent exists inside the subproject:
+                // route into subproject to prevent root dumping!
+                let root_segment_dir = workspace_root.join(first_segment);
+                let root_has_dir = root_segment_dir.is_dir() && root_segment_dir != *sub;
+                if !root_has_dir {
+                    return candidate;
+                }
+            }
+        }
+    }
+
+    // 5. If explicit directory components were specified and no existing file matched:
     // Keep the requested structure relative to workspace_root (e.g. ".github/workflows/ci.yml" or "src/components/NewButton.tsx")
     if has_directory_components {
         return direct;
     }
 
-    // 5. Bare filename for a NEW file (doesn't exist anywhere in the project):
+    // 6. Bare filename for a NEW file (doesn't exist anywhere in the project):
     let fname_lower = fname.to_lowercase();
     let is_root_file = fname_lower == "readme.md"
         || fname_lower == "license"
@@ -664,7 +719,16 @@ pub fn ground_workspace_path_with_context(
         }
     }
 
-    // Place in standard source directory if present (e.g. src/, app/, lib/, pkg/)
+    // Place in standard source directory if present (check subproject first, then workspace)
+    if let Some(ref sub) = subproject_root {
+        for standard_src in ["src", "app", "lib", "pkg"] {
+            let candidate_dir = sub.join(standard_src);
+            if candidate_dir.is_dir() {
+                return candidate_dir.join(fname);
+            }
+        }
+    }
+
     for standard_src in ["src", "app", "lib", "pkg"] {
         let candidate_dir = workspace_root.join(standard_src);
         if candidate_dir.is_dir() {

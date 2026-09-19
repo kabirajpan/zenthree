@@ -117,7 +117,10 @@ pub fn is_scaffolding_command(cmd: &str) -> bool {
         || lower.contains("poetry init")
         || lower.contains("create-vite")
         || lower.contains("create-react-app")
-        || lower.contains("create-next-app");
+        || lower.contains("create-next-app")
+        || lower.contains("zig init")
+        || lower.contains("uv init")
+        || lower.contains("archetype:generate");
 
     is_scaffold_action && is_scaffold_tool
 }
@@ -125,14 +128,11 @@ pub fn is_scaffolding_command(cmd: &str) -> bool {
 /// Scans the workspace directory to discover scaffolded project directories and key entry files.
 pub fn detect_scaffolded_project_files(workspace: &Path) -> Vec<String> {
     let mut found = Vec::new();
-    let manifests = [
-        "package.json", "Cargo.toml", "pyproject.toml", "go.mod", "pubspec.yaml",
-        "CMakeLists.txt", "pom.xml", "build.gradle", "deno.json",
-    ];
+    let manifests = PROJECT_MANIFEST_NAMES;
     let key_files = [
         "App.jsx", "App.tsx", "App.vue", "App.svelte", "main.jsx", "main.tsx",
-        "index.html", "main.rs", "main.py", "app.py", "main.go", "main.dart",
-        "index.js", "index.ts",
+        "index.html", "main.rs", "lib.rs", "main.py", "app.py", "main.go", "main.dart",
+        "index.js", "index.ts", "main.zig", "CMakeLists.txt",
     ];
 
     if let Ok(entries) = std::fs::read_dir(workspace) {
@@ -184,7 +184,8 @@ pub fn detect_scaffolded_project_files(workspace: &Path) -> Vec<String> {
 pub const PROJECT_MANIFEST_NAMES: &[&str] = &[
     "package.json", "Cargo.toml", "pyproject.toml", "go.mod", "CMakeLists.txt",
     "pubspec.yaml", "pom.xml", "build.gradle", "build.gradle.kts", "deno.json",
-    "composer.json", "Gemfile", "Makefile", "justfile",
+    "composer.json", "Gemfile", "Makefile", "justfile", "build.zig", "build.zig.zon",
+    "manage.py",
 ];
 
 /// Walks upward from start_path looking for the nearest project manifest file.

@@ -33,7 +33,15 @@ pub fn extract_prompt_keywords(prompt: &str) -> Vec<String> {
     let grammatical_noise: HashSet<&str> = [
         "the", "a", "an", "and", "or", "in", "on", "at", "to", "for", "with",
         "about", "is", "are", "was", "were", "be", "been", "being",
-        "of", "by", "as", "from", "into"
+        "of", "by", "as", "from", "into", "does", "do", "did", "have", "has", "had",
+        "can", "could", "will", "would", "should", "what", "which", "who", "where",
+        "when", "why", "how", "there", "this", "that", "these", "those", "it", "its",
+        "you", "your", "me", "my", "we", "our", "they", "them", "their", "hello", "hi",
+        "hey", "tell", "show", "give", "please", "like", "want", "need", "know", "think",
+        "let", "us", "any", "all", "some", "more", "much", "many", "such", "no", "not",
+        "explain", "explaining", "explanation", "project", "projects", "codebase",
+        "repo", "repos", "repository", "workspace", "folder", "directory", "file", "files",
+        "tree", "overview", "summary", "understand", "walkthrough"
     ].iter().cloned().collect();
 
     let mut keywords = Vec::new();
@@ -404,6 +412,14 @@ fn build_tree_recursive(
             && name != "dist"
             && name != "build"
             && name != "vendor"
+            && name != "references"
+            && name != ".next"
+            && name != ".turbo"
+            && name != ".svelte-kit"
+            && name != ".nuxt"
+            && name != "out"
+            && name != "coverage"
+            && name != ".gemini"
     });
 
     let count = entries.len();
@@ -469,6 +485,14 @@ fn collect_source_files(dir: &Path, out: &mut Vec<PathBuf>, depth: usize) {
             || name == "dist"
             || name == "build"
             || name == "vendor"
+            || name == "references"
+            || name == ".next"
+            || name == ".turbo"
+            || name == ".svelte-kit"
+            || name == ".nuxt"
+            || name == "out"
+            || name == "coverage"
+            || name == ".gemini"
         {
             continue;
         }
@@ -476,6 +500,23 @@ fn collect_source_files(dir: &Path, out: &mut Vec<PathBuf>, depth: usize) {
         if path.is_dir() {
             collect_source_files(&path, out, depth + 1);
         } else if path.is_file() {
+            let lower_name = name.to_lowercase();
+
+            // Exclude lockfiles, large data dictionaries, and minified bundles
+            if lower_name == "package-lock.json"
+                || lower_name == "pnpm-lock.yaml"
+                || lower_name == "yarn.lock"
+                || lower_name == "cargo.lock"
+                || lower_name == "tokens.json"
+                || lower_name == "canonical_models.json"
+                || lower_name.ends_with(".old.json")
+                || lower_name.ends_with(".min.js")
+                || lower_name.ends_with(".min.css")
+                || lower_name.ends_with(".map")
+            {
+                continue;
+            }
+
             let ext = path.extension().and_then(|s| s.to_str()).unwrap_or("");
             let ext_lower = ext.to_lowercase();
             let is_binary = binary_exts.contains(&ext_lower.as_str());
@@ -578,6 +619,30 @@ mod tests {
         assert!(ctx.contains("Quantum Engine"));
         assert!(ctx.contains("distributed high-performance quantum computing simulator"));
         assert!(ctx.contains("Run `cargo run` to start the engine"));
+
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn test_broad_project_explanation_query_does_not_grepp_noise() {
+        // "explain me this project" should extract zero noisy symbols
+        let kw = extract_prompt_keywords("explain me this project");
+        assert!(kw.is_empty(), "Expected empty keywords for broad project explanation, got: {:?}", kw);
+
+        let kw2 = extract_prompt_keywords("explain the codebase architecture");
+        assert_eq!(kw2, vec!["architecture"]);
+
+        let tmp = std::env::temp_dir().join(format!("zenthree_explain_test_{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        let _ = std::fs::create_dir_all(tmp.join("src"));
+        let _ = std::fs::write(tmp.join("README.md"), "# Zenthree Core\nNext-gen agentic IDE.");
+        let _ = std::fs::write(tmp.join("src/lib.rs"), "pub fn start() {}\n");
+
+        let summary = search_project_context(&tmp, "explain me this project", 5);
+        // It must NOT match random files via blind keyword search
+        assert!(summary.matched_files.is_empty());
+        // But it MUST provide the workspace tree and README overview
+        assert!(summary.formatted_prompt_context.contains("Project Workspace File Tree"));
+        assert!(summary.formatted_prompt_context.contains("Zenthree Core"));
 
         let _ = std::fs::remove_dir_all(&tmp);
     }

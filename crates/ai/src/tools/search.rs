@@ -52,6 +52,11 @@ pub fn execute_search_code(workspace: &Path, query: &str) -> AgentToolResult {
                 || name_str == "build"
                 || name_str == "vendor"
                 || name_str == ".gemini"
+                || name_str == "references"
+                || name_str == ".next"
+                || name_str == ".turbo"
+                || name_str == ".svelte-kit"
+                || name_str == "out"
             {
                 continue;
             }
@@ -60,6 +65,22 @@ pub fn execute_search_code(workspace: &Path, query: &str) -> AgentToolResult {
                 walk_dir(&path, workspace, lower_query, matches, max_matches);
             } else if path.is_file() {
                 let lower_name = name_str.to_lowercase();
+
+                // Exclude noisy lockfiles, large data dictionaries, and minified bundles
+                if lower_name == "package-lock.json"
+                    || lower_name == "pnpm-lock.yaml"
+                    || lower_name == "yarn.lock"
+                    || lower_name == "cargo.lock"
+                    || lower_name == "tokens.json"
+                    || lower_name == "canonical_models.json"
+                    || lower_name.ends_with(".old.json")
+                    || lower_name.ends_with(".min.js")
+                    || lower_name.ends_with(".min.css")
+                    || lower_name.ends_with(".map")
+                {
+                    continue;
+                }
+
                 let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
                 let ext_lower = ext.to_lowercase();
 

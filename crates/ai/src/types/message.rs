@@ -145,11 +145,12 @@ pub fn classify_user_intent(text: &str) -> UserIntent {
         return UserIntent::GeneralChat;
     }
 
-    // 1. Greetings and casual chit-chat
-    let is_greeting = words[0] == "hi"
-        || words[0] == "hello"
-        || words[0] == "hey"
-        || words[0] == "greetings"
+    // 1. Greetings and casual chit-chat (only if NO action verbs or technical requests are present)
+    let first_word = words[0].trim_matches(|c: char| !c.is_alphanumeric());
+    let is_greeting = first_word == "hi"
+        || first_word == "hello"
+        || first_word == "hey"
+        || first_word == "greetings"
         || lower.starts_with("good morning")
         || lower.starts_with("good afternoon")
         || lower.starts_with("good evening")
@@ -157,7 +158,23 @@ pub fn classify_user_intent(text: &str) -> UserIntent {
         || lower.starts_with("who are you")
         || lower.starts_with("what can you do");
 
-    if is_greeting && words.len() <= 6 {
+    let has_action_verb = lower.contains("build")
+        || lower.contains("create")
+        || lower.contains("make")
+        || lower.contains("fix")
+        || lower.contains("add")
+        || lower.contains("write")
+        || lower.contains("setup")
+        || lower.contains("set up")
+        || lower.contains("scaffold")
+        || lower.contains("generate")
+        || lower.contains("implement")
+        || lower.contains("refactor")
+        || lower.contains("code")
+        || lower.contains("app")
+        || lower.contains("project");
+
+    if is_greeting && words.len() <= 6 && !has_action_verb {
         return UserIntent::GeneralChat;
     }
 
@@ -255,22 +272,52 @@ pub fn classify_user_intent(text: &str) -> UserIntent {
         return UserIntent::ArchitecturePlanning;
     }
 
-    // 9. Direct Code Generation / Modification actions
+    // 9. Direct Code Generation / Project Creation / Human conversational requests
     let is_code_gen = lower.contains("create a")
+        || lower.contains("create an")
+        || lower.contains("create me a")
+        || lower.contains("create me an")
         || lower.contains("create new")
         || lower.contains("add a")
+        || lower.contains("add an")
         || lower.contains("add new")
         || lower.contains("build a")
+        || lower.contains("build an")
+        || lower.contains("build me a")
+        || lower.contains("build me an")
+        || lower.contains("make a")
+        || lower.contains("make an")
+        || lower.contains("make me a")
+        || lower.contains("make me an")
+        || lower.contains("setup a")
+        || lower.contains("setup an")
+        || lower.contains("set up a")
+        || lower.contains("set up an")
+        || lower.contains("scaffold a")
+        || lower.contains("scaffold an")
+        || lower.contains("generate a")
+        || lower.contains("generate an")
+        || lower.contains("develop a")
+        || lower.contains("develop an")
         || lower.contains("implement")
         || lower.contains("write code")
         || lower.contains("write a")
-        || lower.contains("make a")
+        || lower.contains("write an")
         || lower.contains("code for")
+        || lower.contains("i need a")
+        || lower.contains("i need an")
+        || lower.contains("i want a")
+        || lower.contains("i want an")
+        || lower.contains("give me a")
+        || lower.contains("give me an")
         || lower.starts_with("create")
         || lower.starts_with("add")
         || lower.starts_with("write")
         || lower.starts_with("make")
-        || lower.starts_with("build");
+        || lower.starts_with("build")
+        || lower.starts_with("setup")
+        || lower.starts_with("set up")
+        || lower.starts_with("scaffold");
 
     if is_code_gen {
         return UserIntent::CodeGeneration;

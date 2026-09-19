@@ -42,7 +42,16 @@ pub fn create_mission_for_prompt(prompt: &str, explored_items: &[ExploredItem]) 
     // Task 3: Code Execution / Generation (Builder)
     let exec_title = if is_plan {
         "Formulate comprehensive architectural implementation blueprint".to_string()
-    } else if lower.contains("create") || lower.contains("make") || lower.contains("add") {
+    } else if lower.contains("create")
+        || lower.contains("make")
+        || lower.contains("add")
+        || lower.contains("build")
+        || lower.contains("setup")
+        || lower.contains("set up")
+        || lower.contains("scaffold")
+        || lower.contains("develop")
+        || lower.contains("generate")
+    {
         let desc = if trimmed.len() > 30 { &trimmed[..30] } else { trimmed };
         format!("Scaffold structure & implement application for `{}`", desc)
     } else if is_refactor {
