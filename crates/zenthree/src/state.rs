@@ -102,6 +102,8 @@ pub struct AiMessage {
     pub content: String,
     pub code_snippet: Option<String>,
     pub thoughts: Option<String>,
+    #[serde(default)]
+    pub expanded: bool,
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -245,6 +247,8 @@ pub struct ZenthreeState {
     pub tree_clipboard: Option<TreeClipboardAction>,
     #[allow(dead_code)]
     pub groq_api_key: Option<String>,
+    pub ai_response_rx: Option<std::sync::mpsc::Receiver<String>>,
+    pub copied_ai_msg: Option<(usize, std::time::Instant)>,
 }
 
 impl ZenthreeState {
@@ -331,6 +335,7 @@ impl ZenthreeState {
                     content: "Hello! I am your assistant. How can I help you today?".to_string(),
                     code_snippet: None,
                     thoughts: None,
+                    expanded: false,
                 },
             ],
             ai_input: String::new(),
@@ -357,6 +362,8 @@ impl ZenthreeState {
             tree_context_menu: None,
             tree_clipboard: None,
             groq_api_key: std::env::var("GROQ_API_KEY").ok(),
+            ai_response_rx: None,
+            copied_ai_msg: None,
         };
 
         // Restore previous session preferences (theme, accent, extensions, etc.)
@@ -1478,31 +1485,76 @@ impl ZenthreeState {
             return;
         }
 
+        // Keep maximum 60 messages to bound memory
+        if self.ai_messages.len() >= 60 {
+            let remove_count = self.ai_messages.len() - 58;
+            self.ai_messages.drain(0..remove_count);
+        }
+
         self.ai_messages.push(AiMessage {
             is_user: true,
             content: trimmed.to_string(),
             code_snippet: None,
             thoughts: None,
+            expanded: false,
         });
-
-        let reply = if trimmed.to_lowercase().contains("explain") {
-            "I've analyzed the structure and data flow. The code follows clean Rust architecture with reactive UI bindings.".to_string()
-        } else if trimmed.to_lowercase().contains("refactor") || trimmed.to_lowercase().contains("optimize") {
-            "Here is an optimized refactoring suggestion:\n\npub fn optimize() -> bool {\n    true\n}".to_string()
-        } else if trimmed.to_lowercase().contains("test") {
-            "Unit tests can be added following standard Rust conventions with `#[cfg(test)]`:\n\n#[test]\nfn test_example() {\n    assert!(true);\n}".to_string()
-        } else {
-            format!("I'm ready to assist with editing, analyzing, or terminal commands for: {}", trimmed)
-        };
 
         self.ai_messages.push(AiMessage {
             is_user: false,
-            content: reply,
+            content: "Thinking...".to_string(),
             code_snippet: None,
             thoughts: None,
+            expanded: false,
         });
 
         self.ai_input.clear();
+
+        let (tx, rx) = std::sync::mpsc::channel();
+        self.ai_response_rx = Some(rx);
+
+        let prompt = trimmed.to_string();
+        std::thread::spawn(move || {
+            let res = agent::provider::complete(&prompt);
+            let reply = match res {
+                Ok(content) => content,
+                Err(err) => format!("Error: {}", err),
+            };
+            let _ = tx.send(reply);
+        });
+    }
+
+    pub fn poll_ai_response(&mut self) -> bool {
+        if let Some(ref rx) = self.ai_response_rx {
+            match rx.try_recv() {
+                Ok(reply) => {
+                    if let Some(last) = self.ai_messages.iter_mut().rev().find(|m| !m.is_user) {
+                        last.content = reply;
+                    } else {
+                        self.ai_messages.push(AiMessage {
+                            is_user: false,
+                            content: reply,
+                            code_snippet: None,
+                            thoughts: None,
+                            expanded: false,
+                        });
+                    }
+                    self.ai_response_rx = None;
+                    true
+                }
+                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                    if let Some(last) = self.ai_messages.iter_mut().rev().find(|m| !m.is_user) {
+                        if last.content == "Thinking..." {
+                            last.content = "Connection closed without response.".to_string();
+                        }
+                    }
+                    self.ai_response_rx = None;
+                    true
+                }
+                Err(std::sync::mpsc::TryRecvError::Empty) => false,
+            }
+        } else {
+            false
+        }
     }
 }
 

@@ -206,7 +206,6 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
             // Dock height: inner padding (12) + gap (4) + send row (22) + outer dock padding (14) = prompt_box_h + 52.0
             let dock_total_h = prompt_box_h + 52.0;
             let msgs_h = (height - HEADER_H - 1.0 - dock_total_h).max(30.0);
-            let max_content_w = (ai_panel_w - 24.0).max(80.0);
 
             // ─── Messages Scroll Area ────────────────────────────────────
             let msgs_scroll_id = Id::from_u64(999999802);
@@ -257,53 +256,246 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                     .show();
                             });
                     } else {
-                        let msgs = state.ai_messages.clone();
-                        for msg in msgs {
+                        let mut toggle_expand_idx: Option<usize> = None;
+                        let mut copy_target_idx: Option<usize> = None;
+
+                        for (msg_idx, msg) in state.ai_messages.iter().enumerate() {
+                            let is_copied = state.copied_ai_msg
+                                .as_ref()
+                                .map(|(idx, t)| *idx == msg_idx && t.elapsed().as_secs_f32() < 2.0)
+                                .unwrap_or(false);
+
+                            let bubble_id = Id::from_u64(999990000 + (msg_idx as u64) * 2);
+                            let copy_btn_id = Id::from_u64(999990000 + (msg_idx as u64) * 2 + 1);
+                            let mut copy_clicked = false;
+
+                            let full_text: &str = &msg.content;
+                            let is_thinking = !msg.is_user && full_text == "Thinking...";
+
+                            // Fast byte check for long text - zero heap allocation
+                            let newline_count = full_text.as_bytes().iter().filter(|&&b| b == b'\n').count();
+                            let is_long = !is_thinking && (newline_count >= 4 || full_text.len() > 200);
+                            let is_expanded = msg.expanded;
+
+                            // Truncate to first 4 lines directly for collapsed view - saves 95% text shaping overhead
+                            let display_text: &str = if is_long && !is_expanded {
+                                let mut end = full_text.len();
+                                let mut lines = 0;
+                                for (i, b) in full_text.bytes().enumerate() {
+                                    if b == b'\n' {
+                                        lines += 1;
+                                        if lines >= 4 {
+                                            end = i;
+                                            break;
+                                        }
+                                    }
+                                    if i >= 240 && lines >= 2 {
+                                        end = i;
+                                        break;
+                                    }
+                                }
+                                let mut safe_end = end.min(full_text.len());
+                                while !full_text.is_char_boundary(safe_end) {
+                                    safe_end -= 1;
+                                }
+                                &full_text[..safe_end]
+                            } else {
+                                full_text
+                            };
+
                             if msg.is_user {
-                                // User Message Bubble: Sleek rounded pill
+                                // ─── User Message (Right-aligned, accent tint) ───
                                 let bubble_max_w = (ai_panel_w - 36.0).max(80.0);
-                                let user_text_w = (bubble_max_w - 18.0).max(60.0);
+                                let user_text_w = (bubble_max_w - 20.0).max(60.0);
+
                                 ui.container()
                                     .full_width()
                                     .row()
                                     .halign(Align::Right)
                                     .show(|ui| {
-                                        ui.container()
+                                        let bubble_res = ui.container()
+                                            .id(bubble_id)
                                             .max_width(bubble_max_w)
-                                            .padding(8.0, 12.0, 8.0, 12.0)
+                                            .padding(8.0, 10.0, 6.0, 10.0)
                                             .bg(colors.accent.with_alpha(0.12))
-                                            .border(colors.accent.with_alpha(0.3), 1.0)
+                                            .hover_bg(colors.accent.with_alpha(0.16))
+                                            .border(colors.accent.with_alpha(0.3), 0.5)
                                             .radius_all(10.0)
+                                            .column()
+                                            .gap(4.0)
                                             .show(|ui| {
-                                                ui.text(&msg.content)
+                                                ui.text(display_text)
                                                     .size(11.0)
                                                     .line_height(1.35)
                                                     .color(colors.text_primary)
                                                     .max_width(user_text_w)
                                                     .wrap(zenthra_text::prelude::TextWrap::Word)
                                                     .show();
+
+                                                ui.container()
+                                                    .width(user_text_w)
+                                                    .row()
+                                                    .halign(Align::Right)
+                                                    .valign(Align::Center)
+                                                    .gap(6.0)
+                                                    .show(|ui| {
+                                                        if is_long {
+                                                            ui.text(if is_expanded { "Show less" } else { "Show more" })
+                                                                .size(9.0)
+                                                                .color(colors.accent.with_alpha(0.85))
+                                                                .show();
+                                                        }
+
+                                                        let copy_btn = ui.container()
+                                                            .id(copy_btn_id)
+                                                            .padding(2.0, 4.0, 2.0, 4.0)
+                                                            .radius_all(4.0)
+                                                            .hover_bg(colors.highlight)
+                                                            .row()
+                                                            .valign(Align::Center)
+                                                            .gap(3.0)
+                                                            .show(|ui| {
+                                                                ui.text(if is_copied { "\u{f00c}" } else { "\u{f0c5}" })
+                                                                    .size(9.5)
+                                                                    .color(if is_copied { colors.accent } else { colors.text_muted })
+                                                                    .show();
+                                                                if is_copied {
+                                                                    ui.text("Copied")
+                                                                        .size(9.0)
+                                                                        .color(colors.accent)
+                                                                        .show();
+                                                                }
+                                                            });
+
+                                                        if copy_btn.hovered {
+                                                            ui.cursor_icon = CursorIcon::Pointer;
+                                                        }
+                                                        if copy_btn.clicked {
+                                                            copy_clicked = true;
+                                                        }
+                                                    });
                                             });
+
+                                        if copy_clicked {
+                                            copy_target_idx = Some(msg_idx);
+                                        } else if bubble_res.clicked && is_long {
+                                            toggle_expand_idx = Some(msg_idx);
+                                        }
+                                        if bubble_res.hovered && is_long {
+                                            ui.cursor_icon = CursorIcon::Pointer;
+                                        }
                                     });
                             } else {
-                                // Assistant Message: Pure text only
-                                let full_text = if let Some(ref code) = msg.code_snippet {
-                                    format!("{}\n\n{}", msg.content, code)
-                                } else {
-                                    msg.content.clone()
-                                };
+                                // ─── Assistant Message (Left-aligned, matching card) ───
+                                let bubble_max_w = (ai_panel_w - 28.0).max(80.0);
+                                let ai_text_w = (bubble_max_w - 20.0).max(60.0);
+
                                 ui.container()
                                     .full_width()
-                                    .padding(4.0, 4.0, 4.0, 4.0)
+                                    .row()
+                                    .halign(Align::Left)
                                     .show(|ui| {
-                                        ui.text(&full_text)
-                                            .size(11.0)
-                                            .line_height(1.4)
-                                            .color(colors.text_primary)
-                                            .max_width(max_content_w)
-                                            .wrap(zenthra_text::prelude::TextWrap::Word)
-                                            .show();
+                                        let bubble_res = ui.container()
+                                            .id(bubble_id)
+                                            .max_width(bubble_max_w)
+                                            .padding(8.0, 10.0, 6.0, 10.0)
+                                            .bg(colors.bg_sidebar.with_alpha(0.55))
+                                            .hover_bg(colors.bg_sidebar.with_alpha(0.75))
+                                            .border(colors.border.with_alpha(0.5), 0.5)
+                                            .radius_all(10.0)
+                                            .column()
+                                            .gap(4.0)
+                                            .show(|ui| {
+                                                if is_thinking {
+                                                    ui.text("Thinking...")
+                                                        .size(11.0)
+                                                        .italic()
+                                                        .color(colors.accent)
+                                                        .show();
+                                                } else {
+                                                    ui.text(display_text)
+                                                        .size(11.0)
+                                                        .line_height(1.35)
+                                                        .color(colors.text_primary)
+                                                        .max_width(ai_text_w)
+                                                        .wrap(zenthra_text::prelude::TextWrap::Word)
+                                                        .show();
+                                                }
+
+                                                if !is_thinking {
+                                                    ui.container()
+                                                        .width(ai_text_w)
+                                                        .row()
+                                                        .halign(Align::Right)
+                                                        .valign(Align::Center)
+                                                        .gap(6.0)
+                                                        .show(|ui| {
+                                                            if is_long {
+                                                                ui.text(if is_expanded { "Show less" } else { "Show more" })
+                                                                    .size(9.0)
+                                                                    .color(colors.accent.with_alpha(0.85))
+                                                                    .show();
+                                                            }
+
+                                                            let copy_btn = ui.container()
+                                                                .id(copy_btn_id)
+                                                                .padding(2.0, 4.0, 2.0, 4.0)
+                                                                .radius_all(4.0)
+                                                                .hover_bg(colors.highlight)
+                                                                .row()
+                                                                .valign(Align::Center)
+                                                                .gap(3.0)
+                                                                .show(|ui| {
+                                                                    ui.text(if is_copied { "\u{f00c}" } else { "\u{f0c5}" })
+                                                                        .size(9.5)
+                                                                        .color(if is_copied { colors.accent } else { colors.text_muted })
+                                                                        .show();
+                                                                    if is_copied {
+                                                                        ui.text("Copied")
+                                                                            .size(9.0)
+                                                                            .color(colors.accent)
+                                                                            .show();
+                                                                    }
+                                                                });
+
+                                                            if copy_btn.hovered {
+                                                                ui.cursor_icon = CursorIcon::Pointer;
+                                                            }
+                                                            if copy_btn.clicked {
+                                                                copy_clicked = true;
+                                                            }
+                                                        });
+                                                }
+                                            });
+
+                                        if copy_clicked {
+                                            copy_target_idx = Some(msg_idx);
+                                        } else if bubble_res.clicked && is_long {
+                                            toggle_expand_idx = Some(msg_idx);
+                                        }
+                                        if bubble_res.hovered && is_long {
+                                            ui.cursor_icon = CursorIcon::Pointer;
+                                        }
                                     });
                             }
+                        }
+
+                        if let Some(idx) = toggle_expand_idx {
+                            if let Some(m) = state.ai_messages.get_mut(idx) {
+                                m.expanded = !m.expanded;
+                                ui.needs_redraw = true;
+                            }
+                        }
+
+                        if let Some(idx) = copy_target_idx {
+                            if let Some(m) = state.ai_messages.get(idx) {
+                                if let Ok(mut cb) = arboard::Clipboard::new() {
+                                    let _ = cb.set_text(m.content.clone());
+                                }
+                            }
+                            state.copied_ai_msg = Some((idx, std::time::Instant::now()));
+                            state.status_message = "Copied to clipboard".to_string();
+                            ui.needs_redraw = true;
                         }
                     }
                 });
@@ -399,27 +591,68 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                         .color(colors.text_muted.with_alpha(0.5))
                                         .show();
 
-                                    // Right: Sleek Send Button
+                                    // Right: Sleek Send Button (or Stop Button during processing)
+                                    let is_processing = state.ai_response_rx.is_some();
                                     let has_text = !state.ai_input.trim().is_empty();
-                                    let send_bg = if has_text { colors.accent } else { colors.bg_sidebar };
-                                    let send_text_color = if has_text { Color::WHITE } else { colors.text_muted.with_alpha(0.5) };
+
+                                    let send_bg = if is_processing {
+                                        Color::rgb(0.20, 0.20, 0.23)
+                                    } else if has_text {
+                                        colors.accent
+                                    } else {
+                                        colors.bg_sidebar
+                                    };
+
+                                    let send_hover_bg = if is_processing {
+                                        Color::rgb(0.28, 0.28, 0.32)
+                                    } else if has_text {
+                                        colors.highlight
+                                    } else {
+                                        colors.bg_sidebar
+                                    };
 
                                     let send_btn = ui.container()
                                         .width(26.0)
                                         .height(22.0)
                                         .radius_all(5.0)
                                         .bg(send_bg)
-                                        .hover_bg(if has_text { colors.highlight } else { colors.bg_sidebar })
+                                        .hover_bg(send_hover_bg)
                                         .halign(Align::Center)
                                         .valign(Align::Center)
                                         .show(|ui| {
-                                            ui.text("➤")
-                                                .size(9.5)
-                                                .color(send_text_color)
-                                                .show();
+                                            if is_processing {
+                                                // Square red box with dark gray background
+                                                ui.container()
+                                                    .width(8.0)
+                                                    .height(8.0)
+                                                    .radius_all(1.5)
+                                                    .bg(Color::rgb(0.92, 0.26, 0.26))
+                                                    .show(|_| {});
+                                            } else {
+                                                let send_text_color = if has_text { Color::WHITE } else { colors.text_muted.with_alpha(0.5) };
+                                                ui.text("➤")
+                                                    .size(9.5)
+                                                    .color(send_text_color)
+                                                    .show();
+                                            }
                                         });
 
-                                    if trigger_send || text_res.submitted || send_btn.clicked {
+                                    if send_btn.hovered && (is_processing || has_text) {
+                                        ui.cursor_icon = CursorIcon::Pointer;
+                                    }
+
+                                    if is_processing {
+                                        if send_btn.clicked {
+                                            // Cancel ongoing AI request
+                                            state.ai_response_rx = None;
+                                            if let Some(last) = state.ai_messages.iter_mut().rev().find(|m| !m.is_user) {
+                                                if last.content == "Thinking..." {
+                                                    last.content = "Request stopped.".to_string();
+                                                }
+                                            }
+                                            ui.needs_redraw = true;
+                                        }
+                                    } else if trigger_send || text_res.submitted || send_btn.clicked {
                                         let msg = state.ai_input.trim().to_string();
                                         if !msg.is_empty() {
                                             state.send_ai_message(&msg);

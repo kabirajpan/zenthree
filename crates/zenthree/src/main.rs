@@ -68,6 +68,13 @@ fn main() {
                 ui.request_redraw();
             }
 
+            // Poll background AI agent responses
+            if state.poll_ai_response() {
+                ui.request_redraw();
+            } else if state.ai_response_rx.is_some() {
+                ui.request_redraw_after(std::time::Duration::from_millis(50));
+            }
+
             // Expose the active theme flag to interaction_state so widgets can read it
             let theme_val = if state.theme == ThemeMode::Light { 1.0 } else { 0.0 };
             ui.interaction_state.insert(Id::from_u64(999999999), theme_val);
