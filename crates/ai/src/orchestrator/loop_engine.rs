@@ -99,18 +99,19 @@ impl AgentLoop {
         } else {
             initial_user_prompt.push_str("### Project Workspace Tree:\n(Workspace directory is currently empty - no project files exist yet)\n\n");
         }
-        initial_user_prompt.push_str("Workspace Grounding & Anti-Root-Dumping Protocol (When creating or modifying files upon user request):\n\
-- EXACT PATHS: Always specify the full workspace-relative path in `### File: <path>` (e.g. `src/components/Button.tsx` or `crates/ai/src/tools/read.rs`). Never emit bare filenames.\n\
-- NO ROOT DUMPING: Never create new source code, components, or services on the workspace root directory. Follow the project folder hierarchy shown in the tree (`src/`, `lib/`, `app/`, `crates/...`).\n\
-- TARGET VERIFICATION: When modifying existing files, inspect the tree above or use `{\"tool\": \"search_code\", \"query\": \"<pattern>\"}` to verify the real relative path.\n\
-- SUBDIRECTORY NAVIGATION: If a project or subcrate is inside a folder, navigate with `cd <folder>` or reference paths relative to that folder.\n\
-- CONVERSATION & EXPLANATIONS: If the user is asking a conversational question or asking for an explanation, answer cleanly in Markdown without emitting `### File:` blocks.\n\n");
 
         if let Some(ref pctx) = self.ctx.project_context {
             if !pctx.trim().is_empty() {
                 initial_user_prompt.push_str(pctx.trim());
                 initial_user_prompt.push_str("\n\n");
             }
+        }
+
+        let customizations = crate::customizations::CustomizationContext::discover(&self.ctx.workspace_root);
+        let cust_str = customizations.render_for_prompt();
+        if !cust_str.is_empty() {
+            initial_user_prompt.push_str(cust_str.trim());
+            initial_user_prompt.push_str("\n\n");
         }
 
         if let Some(ref active) = self.ctx.active_file {

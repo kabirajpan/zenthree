@@ -7,10 +7,12 @@ pub mod command;
 pub mod git;
 pub mod environment;
 pub mod parser;
+pub mod registry;
 
 use std::path::Path;
 use serde::{Deserialize, Serialize};
 
+pub use registry::{ToolRegistry, ToolDefinition, ToolParam};
 pub use matcher::match_and_replace;
 pub use patch::{SearchReplaceBlock, FileEditAction, TargetFileModification, apply_search_replace};
 pub use read::{execute_read_file, extract_tool_call_read_paths};

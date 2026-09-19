@@ -1,5 +1,4 @@
 use std::path::{Path, PathBuf};
-use std::collections::HashSet;
 
 #[derive(Debug, Clone)]
 pub struct SymbolLocation {
@@ -27,179 +26,9 @@ pub struct ProjectContextSummary {
     pub formatted_prompt_context: String,
 }
 
-/// Extracts meaningful search keywords, symbol names, and identifiers from user prompt
-pub fn extract_prompt_keywords(prompt: &str) -> Vec<String> {
-    // Only filter grammatical noise particles; preserve ALL potential identifiers, verbs, and filenames
-    let grammatical_noise: HashSet<&str> = [
-        "the", "a", "an", "and", "or", "in", "on", "at", "to", "for", "with",
-        "about", "is", "are", "was", "were", "be", "been", "being",
-        "of", "by", "as", "from", "into", "does", "do", "did", "have", "has", "had",
-        "can", "could", "will", "would", "should", "what", "which", "who", "where",
-        "when", "why", "how", "there", "this", "that", "these", "those", "it", "its",
-        "you", "your", "me", "my", "we", "our", "they", "them", "their", "hello", "hi",
-        "hey", "tell", "show", "give", "please", "like", "want", "need", "know", "think",
-        "let", "us", "any", "all", "some", "more", "much", "many", "such", "no", "not",
-        "explain", "explaining", "explanation", "project", "projects", "codebase",
-        "repo", "repos", "repository", "workspace", "folder", "directory", "file", "files",
-        "tree", "overview", "summary", "understand", "walkthrough"
-    ].iter().cloned().collect();
-
-    let mut keywords = Vec::new();
-    let mut seen = HashSet::new();
-
-    // Extract alphanumeric / identifier tokens
-    let cleaned: String = prompt.chars().map(|c| {
-        if c.is_alphanumeric() || c == '_' || c == '-' || c == '.' || c == '/' {
-            c
-        } else {
-            ' '
-        }
-    }).collect();
-
-    for token in cleaned.split_whitespace() {
-        let trimmed = token.trim_matches('.').trim_matches('-').trim();
-        let lower = trimmed.to_lowercase();
-        if trimmed.len() >= 2 && !grammatical_noise.contains(lower.as_str()) {
-            if seen.insert(lower.clone()) {
-                keywords.push(trimmed.to_string());
-            }
-        }
-    }
-
-    keywords
-}
-
-/// Scans the workspace directory to find files, directory structure, and symbol references
-pub fn search_project_context(
-    workspace_root: &Path,
-    prompt: &str,
-    max_files: usize,
-) -> ProjectContextSummary {
-    let keywords = extract_prompt_keywords(prompt);
-
-    let mut matched_files: Vec<FileMatch> = Vec::new();
-    let mut symbol_locations: Vec<SymbolLocation> = Vec::new();
-
-    let mut candidates = Vec::new();
-    collect_source_files(workspace_root, &mut candidates, 0);
-
-    if !keywords.is_empty() {
-        for path in &candidates {
-            let rel_path = path.strip_prefix(workspace_root)
-                .unwrap_or(path)
-                .to_string_lossy()
-                .to_string();
-
-            if let Ok(content) = std::fs::read_to_string(path) {
-                let mut file_score = 0;
-                let mut matched_keys = Vec::new();
-                let mut snippets = Vec::new();
-
-                for kw in &keywords {
-                    let kw_lower = kw.to_lowercase();
-                    let mut found_count = 0;
-                    for (line_idx, line) in content.lines().enumerate() {
-                        let line_lower = line.to_lowercase();
-                        if line_lower.contains(&kw_lower) {
-                            found_count += 1;
-                            if snippets.len() < 4 {
-                                snippets.push((line_idx + 1, line.trim().to_string()));
-                            }
-
-                            // Inspect syntax definitions across all languages
-                            let trimmed_line = line.trim();
-                            let is_syntax_def = trimmed_line.starts_with("fn ")
-                                || trimmed_line.starts_with("pub fn ")
-                                || trimmed_line.starts_with("async fn ")
-                                || trimmed_line.starts_with("pub async fn ")
-                                || trimmed_line.starts_with("function ")
-                                || trimmed_line.starts_with("export function ")
-                                || trimmed_line.starts_with("async function ")
-                                || trimmed_line.starts_with("export async function ")
-                                || trimmed_line.starts_with("const ")
-                                || trimmed_line.starts_with("export const ")
-                                || trimmed_line.starts_with("let ")
-                                || trimmed_line.starts_with("export let ")
-                                || trimmed_line.starts_with("class ")
-                                || trimmed_line.starts_with("export class ")
-                                || trimmed_line.starts_with("struct ")
-                                || trimmed_line.starts_with("pub struct ")
-                                || trimmed_line.starts_with("enum ")
-                                || trimmed_line.starts_with("pub enum ")
-                                || trimmed_line.starts_with("trait ")
-                                || trimmed_line.starts_with("pub trait ")
-                                || trimmed_line.starts_with("interface ")
-                                || trimmed_line.starts_with("export interface ")
-                                || trimmed_line.starts_with("type ")
-                                || trimmed_line.starts_with("export type ")
-                                || trimmed_line.starts_with("def ")
-                                || trimmed_line.starts_with("async def ")
-                                || trimmed_line.starts_with("func ")
-                                || trimmed_line.starts_with("fun ")
-                                || trimmed_line.starts_with("val ")
-                                || trimmed_line.starts_with("var ")
-                                || trimmed_line.starts_with("public ")
-                                || trimmed_line.starts_with("private ")
-                                || trimmed_line.starts_with("protected ");
-
-                            if is_syntax_def {
-                                let kind = if trimmed_line.contains("fn ")
-                                    || trimmed_line.contains("def ")
-                                    || trimmed_line.contains("function ")
-                                    || trimmed_line.contains("func ")
-                                    || trimmed_line.contains("fun ")
-                                {
-                                    "fn".to_string()
-                                } else if trimmed_line.contains("struct ")
-                                    || trimmed_line.contains("class ")
-                                    || trimmed_line.contains("interface ")
-                                    || trimmed_line.contains("trait ")
-                                {
-                                    "struct".to_string()
-                                } else if trimmed_line.contains("enum ") {
-                                    "enum".to_string()
-                                } else if trimmed_line.contains("const ") || trimmed_line.contains("val ") {
-                                    "const".to_string()
-                                } else {
-                                    "type".to_string()
-                                };
-
-                                symbol_locations.push(SymbolLocation {
-                                    file_path: path.clone(),
-                                    relative_path: rel_path.clone(),
-                                    name: kw.clone(),
-                                    kind,
-                                    line_number: line_idx + 1,
-                                    snippet: trimmed_line.to_string(),
-                                });
-                            }
-                        }
-                    }
-
-                    if found_count > 0 {
-                        file_score += found_count;
-                        matched_keys.push(kw.clone());
-                    }
-                }
-
-                if file_score > 0 {
-                    matched_files.push(FileMatch {
-                        path: path.clone(),
-                        relative_path: rel_path,
-                        score: file_score,
-                        matched_keywords: matched_keys,
-                        snippet_lines: snippets,
-                    });
-                }
-            }
-        }
-
-        // Sort matching files by relevance score (highest matches first)
-        matched_files.sort_by(|a, b| b.score.cmp(&a.score));
-        matched_files.truncate(max_files);
-    }
-
-    // Build synthesized prompt context string
+/// Constructs clean structural project context (tree, subprojects, README overview, manifests).
+/// No brittle keyword extraction or blind grepping is performed.
+pub fn get_project_context(workspace_root: &Path) -> ProjectContextSummary {
     let mut out = String::new();
 
     // 1. Always provide the full workspace file tree structure so the AI understands project layout & conventions
@@ -220,7 +49,7 @@ pub fn search_project_context(
         out.push_str("NOTE: Application code, dependencies, and build/dev commands for these projects should target their respective subproject directory.\n\n");
     }
 
-    // 3. If README exists, inject first 40 lines as immediate project overview (ideal for first-time project queries)
+    // 3. If README exists, inject first 40 lines as immediate project overview
     for readme_name in ["README.md", "readme.md", "README", "readme.txt"] {
         let rpath = workspace_root.join(readme_name);
         if rpath.is_file() {
@@ -236,31 +65,11 @@ pub fn search_project_context(
         }
     }
 
-    if !matched_files.is_empty() || !symbol_locations.is_empty() {
-        out.push_str("### Project Workspace Code Context\n\n");
+    let mut candidates = Vec::new();
+    collect_source_files(workspace_root, &mut candidates, 0);
 
-        if !symbol_locations.is_empty() {
-            out.push_str("**Symbol Definitions & Syntax Tracing:**\n");
-            for sym in symbol_locations.iter().take(6) {
-                out.push_str(&format!(
-                    "- `{}` (`{}`) in `{}:{}` -> `{}`\n",
-                    sym.name, sym.kind, sym.relative_path, sym.line_number, sym.snippet
-                ));
-            }
-            out.push('\n');
-        }
-
-        if !matched_files.is_empty() {
-            out.push_str("**Relevant Project Files & Snippets:**\n");
-            for f in &matched_files {
-                out.push_str(&format!("- File `{}` (Keywords: {}):\n", f.relative_path, f.matched_keywords.join(", ")));
-                for (line_num, snip) in &f.snippet_lines {
-                    let truncated: String = snip.chars().take(120).collect();
-                    out.push_str(&format!("    L{}: {}\n", line_num, truncated));
-                }
-            }
-        }
-    }
+    let matched_files = Vec::new();
+    let symbol_locations = Vec::new();
 
     // If no specific files matched the user's prompt (e.g. high-level question), highlight key manifests & entry points
     if matched_files.is_empty() && !candidates.is_empty() {
@@ -332,6 +141,15 @@ pub fn search_project_context(
         symbol_locations,
         formatted_prompt_context: out,
     }
+}
+
+/// Compatibility wrapper forwarding to get_project_context
+pub fn search_project_context(
+    workspace_root: &Path,
+    _prompt: &str,
+    _max_files: usize,
+) -> ProjectContextSummary {
+    get_project_context(workspace_root)
 }
 
 /// Discovers any subproject directories within depth 1-2 that contain manifest files.
@@ -580,10 +398,10 @@ mod tests {
         // Binary files must be excluded
         assert!(!file_names.contains(&"logo.png".to_string()));
 
-        // Index searching must locate the symbol and entrypoint
-        let summary = search_project_context(&tmp, "compute_result", 5);
+        // Project context must locate the workspace tree and entrypoint
+        let summary = get_project_context(&tmp);
+        assert!(summary.formatted_prompt_context.contains("Project Workspace File Tree"));
         assert!(summary.formatted_prompt_context.contains("main.gleam"));
-        assert!(summary.formatted_prompt_context.contains("compute_result"));
 
         let _ = std::fs::remove_dir_all(&tmp);
     }
@@ -625,19 +443,12 @@ mod tests {
 
     #[test]
     fn test_broad_project_explanation_query_does_not_grepp_noise() {
-        // "explain me this project" should extract zero noisy symbols
-        let kw = extract_prompt_keywords("explain me this project");
-        assert!(kw.is_empty(), "Expected empty keywords for broad project explanation, got: {:?}", kw);
-
-        let kw2 = extract_prompt_keywords("explain the codebase architecture");
-        assert_eq!(kw2, vec!["architecture"]);
-
         let tmp = std::env::temp_dir().join(format!("zenthree_explain_test_{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
         let _ = std::fs::create_dir_all(tmp.join("src"));
         let _ = std::fs::write(tmp.join("README.md"), "# Zenthree Core\nNext-gen agentic IDE.");
         let _ = std::fs::write(tmp.join("src/lib.rs"), "pub fn start() {}\n");
 
-        let summary = search_project_context(&tmp, "explain me this project", 5);
+        let summary = get_project_context(&tmp);
         // It must NOT match random files via blind keyword search
         assert!(summary.matched_files.is_empty());
         // But it MUST provide the workspace tree and README overview

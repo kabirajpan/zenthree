@@ -236,6 +236,7 @@ pub fn classify_user_intent(text: &str) -> UserIntent {
         || lower.contains("understand")
         || lower.contains("teach me")
         || lower.contains("how to")
+        || lower.starts_with("how ")
     {
         return UserIntent::CodeExplanation;
     }

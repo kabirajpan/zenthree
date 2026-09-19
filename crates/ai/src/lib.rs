@@ -7,8 +7,13 @@ pub mod context;
 pub mod acp;
 pub mod goose;
 pub mod benchmark;
+pub mod customizations;
 
 // Root convenience re-exports
+pub use customizations::{
+    CustomizationContext, SkillMetadata, ProjectRule,
+    discover_skills, discover_rules, render_skills_summary, render_rules_summary,
+};
 pub use benchmark::{
     BenchmarkRunner, BenchmarkTask, BenchmarkReport, BenchmarkResult,
     BenchmarkCategory, BenchmarkDifficulty, ValidationRule, get_standard_benchmark_suite,
@@ -31,7 +36,8 @@ pub use goose::{GooseSupervisor, GooseBinaryStatus, GooseConfig};
 
 pub use tools::{
     AgentToolCall, AgentToolResult, DetectorAgent, FileEditAction, SearchReplaceBlock,
-    TargetFileModification, apply_search_replace, execute_agent_tool, execute_agent_tool_with_provider,
+    TargetFileModification, ToolRegistry, ToolDefinition, ToolParam,
+    apply_search_replace, execute_agent_tool, execute_agent_tool_with_provider,
     execute_detect_environment,
     execute_list_directory, execute_read_file, execute_run_command, execute_search_code,
     execute_git_status, execute_git_diff,

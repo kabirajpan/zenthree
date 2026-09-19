@@ -3084,51 +3084,15 @@ impl ZenthreeState {
             self.connectome.deliberate(ev_a, ev_b, 30)
         };
 
-        let mut explored_items = Vec::new();
+        let explored_items = Vec::new();
         let tree_overview = if self.has_workspace {
             self.get_or_update_workspace_tree().to_string()
         } else {
             String::new()
         };
 
-        let prompt_keywords = crate::project_index::extract_prompt_keywords(trimmed);
-        let is_broad_inquiry = prompt_keywords.is_empty()
-            || intent == UserIntent::GeneralChat
-            || intent == UserIntent::DiscussionAndGuide;
-
         let project_ctx = if self.has_workspace {
-            // For general chit-chat, broad project overviews, and inquiries without specific symbols:
-            // do NOT run blind keyword searches across the workspace!
-            // Provide clean file tree structure and subproject awareness without dumping random search matches.
-            let search_prompt = if is_broad_inquiry {
-                ""
-            } else {
-                trimmed
-            };
-            let ctx = crate::project_index::search_project_context(&self.current_dir, search_prompt, 6);
-            if !is_broad_inquiry {
-                for f in &ctx.matched_files {
-                    let range = if let Some((first_l, _)) = f.snippet_lines.first() {
-                        let last_l = f.snippet_lines.last().map(|(l, _)| *l).unwrap_or(*first_l);
-                        if *first_l == last_l {
-                            Some(format!("#L{}", first_l))
-                        } else {
-                            Some(format!("#L{}-{}", first_l, (first_l + 15).max(last_l)))
-                        }
-                    } else {
-                        None
-                    };
-                    let display_file = f.path.file_name().and_then(|n| n.to_str()).unwrap_or(&f.relative_path);
-                    explored_items.push(ExploredItem {
-                        file_name: display_file.to_string(),
-                        line_range: range,
-                        action_type: "Analyzed".to_string(),
-                        thought_content: None,
-                        duration_secs: None,
-                    });
-                }
-            }
-            ctx
+            crate::project_index::get_project_context(&self.current_dir)
         } else {
             crate::project_index::ProjectContextSummary {
                 matched_files: Vec::new(),
