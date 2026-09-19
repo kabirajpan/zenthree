@@ -19,3 +19,6 @@
 # Backup files
 *~
 *.bak
+
+# Cloned references
+references/

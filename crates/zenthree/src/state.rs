@@ -328,9 +328,9 @@ impl ZenthreeState {
             ai_messages: vec![
                 AiMessage {
                     is_user: false,
-                    content: "Hello! I am your Zenthra AI Assistant. How can I help you with your code today?".to_string(),
+                    content: "Hello! I am your assistant. How can I help you today?".to_string(),
                     code_snippet: None,
-                    thoughts: Some("Context initialized with workspace files and syntax engine.".to_string()),
+                    thoughts: None,
                 },
             ],
             ai_input: String::new(),
@@ -1485,32 +1485,21 @@ impl ZenthreeState {
             thoughts: None,
         });
 
-        let active_file = self.active_tab
-            .and_then(|idx| self.tabs.get(idx))
-            .map(|t| t.name.clone())
-            .unwrap_or_else(|| "No active file".to_string());
-
         let reply = if trimmed.to_lowercase().contains("explain") {
-            format!("I've analyzed `{}`. The structure and data-flow adhere to clean Rust architecture with reactive UI bindings.", active_file)
+            "I've analyzed the structure and data flow. The code follows clean Rust architecture with reactive UI bindings.".to_string()
         } else if trimmed.to_lowercase().contains("refactor") || trimmed.to_lowercase().contains("optimize") {
-            format!("Here is an optimized refactoring suggestion for `{}`:", active_file)
+            "Here is an optimized refactoring suggestion:\n\npub fn optimize() -> bool {\n    true\n}".to_string()
         } else if trimmed.to_lowercase().contains("test") {
-            format!("Unit tests for `{}` can be added following standard Rust conventions with `#[cfg(test)]`.", active_file)
+            "Unit tests can be added following standard Rust conventions with `#[cfg(test)]`:\n\n#[test]\nfn test_example() {\n    assert!(true);\n}".to_string()
         } else {
-            format!("I understand you're asking about `{}`. I'm actively analyzing workspace AST and ready to assist with editing or terminal commands.", trimmed)
-        };
-
-        let snippet = if trimmed.to_lowercase().contains("refactor") || trimmed.to_lowercase().contains("code") {
-            Some("// Example suggested optimization\npub fn optimize() -> bool {\n    true\n}".to_string())
-        } else {
-            None
+            format!("I'm ready to assist with editing, analyzing, or terminal commands for: {}", trimmed)
         };
 
         self.ai_messages.push(AiMessage {
             is_user: false,
             content: reply,
-            code_snippet: snippet,
-            thoughts: Some(format!("Context loaded: {} | AST verified", active_file)),
+            code_snippet: None,
+            thoughts: None,
         });
 
         self.ai_input.clear();
