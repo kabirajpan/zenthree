@@ -41,7 +41,7 @@ pub fn chat_completion(api_key: &str, prompt: &str) -> Result<String, String> {
         .map_err(|e| format!("Failed to build HTTP client: {e}"))?;
 
     let req_body = ChatRequest {
-        model: "openai/gpt-oss-120b".to_string(),
+        model: "moonshotai/kimi-k2-instruct".to_string(),
         messages: vec![ChatMessage {
             role: "user".to_string(),
             content: prompt.to_string(),
@@ -87,11 +87,16 @@ pub struct GroqProvider {
     model: String,
 }
 
+/// Default model for the GroqProvider.
+/// `moonshotai/kimi-k2-instruct` has a 131,072 TPM limit on Groq, which is the highest
+/// available on the free tier — far above `openai/gpt-oss-120b`'s 8,000 TPM cap.
+const DEFAULT_GROQ_MODEL: &str = "moonshotai/kimi-k2-instruct";
+
 impl GroqProvider {
     pub fn new(api_key: impl Into<String>) -> Self {
         Self {
             api_key: api_key.into(),
-            model: "openai/gpt-oss-120b".to_string(),
+            model: DEFAULT_GROQ_MODEL.to_string(),
         }
     }
 
@@ -165,18 +170,47 @@ impl Provider for GroqProvider {
             body["tools"] = Value::Array(tools.to_vec());
         }
 
-        let response = client
-            .post("https://api.groq.com/openai/v1/chat/completions")
-            .header("Authorization", format!("Bearer {}", self.api_key.trim()))
-            .header("Content-Type", "application/json")
-            .json(&body)
-            .send()
-            .map_err(|e| ProviderError::Network(e.to_string()))?;
+        // Send the request with 429 retry logic.
+        // On a rate-limit response we read the Retry-After header (or default to 6 s) and
+        // sleep before retrying. We try up to 3 times to handle transient spikes.
+        const MAX_RETRIES: u32 = 3;
+        let mut attempts = 0;
+        let (status, resp_text) = loop {
+            let response = client
+                .post("https://api.groq.com/openai/v1/chat/completions")
+                .header("Authorization", format!("Bearer {}", self.api_key.trim()))
+                .header("Content-Type", "application/json")
+                .json(&body)
+                .send()
+                .map_err(|e| ProviderError::Network(e.to_string()))?;
 
-        let status = response.status();
-        let resp_text = response
-            .text()
-            .map_err(|e| ProviderError::Network(e.to_string()))?;
+            let status = response.status();
+
+            // Parse Retry-After before consuming the body
+            let retry_secs: u64 = if status.as_u16() == 429 {
+                response
+                    .headers()
+                    .get("retry-after")
+                    .and_then(|v| v.to_str().ok())
+                    .and_then(|s| s.parse::<f64>().ok())
+                    .map(|f| (f.ceil() as u64).max(1))
+                    .unwrap_or(6)
+            } else {
+                0
+            };
+
+            let resp_text = response
+                .text()
+                .map_err(|e| ProviderError::Network(e.to_string()))?;
+
+            if status.as_u16() == 429 && attempts < MAX_RETRIES {
+                attempts += 1;
+                std::thread::sleep(std::time::Duration::from_secs(retry_secs));
+                continue;
+            }
+
+            break (status, resp_text);
+        };
 
         if !status.is_success() {
             return Err(ProviderError::Malformed(format!(

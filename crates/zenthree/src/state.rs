@@ -1514,11 +1514,33 @@ impl ZenthreeState {
 
         let prompt = trimmed.to_string();
         std::thread::spawn(move || {
-            let res = agent::provider::complete(&prompt);
-            let reply = match res {
-                Ok(content) => content,
-                Err(err) => format!("Error: {}", err),
+            // Try the full Agent orchestrator (with workspace tools) first.
+            // Falls back to the simple one-shot provider if no API key is configured.
+            let reply = if let Some(mut agent) = agent::create_agent() {
+                let mut final_text = String::new();
+                let mut on_event = |ev: agent::types::AgentEvent| {
+                    if let agent::types::AgentEvent::Text(delta) = ev {
+                        final_text.push_str(&delta);
+                    }
+                };
+                let mut ask_approval = |_: agent::types::ApprovalRequest| {
+                    agent::types::ApprovalDecision::Approve
+                };
+
+                match agent.run(&prompt, &mut on_event, &mut ask_approval) {
+                    Ok(text) => {
+                        if text.is_empty() { final_text } else { text }
+                    }
+                    Err(e) => format!("Agent error: {e}"),
+                }
+            } else {
+                // Fallback: no provider key found — try simple completion
+                match agent::provider::complete(&prompt) {
+                    Ok(content) => content,
+                    Err(err) => format!("Error: {err}"),
+                }
             };
+
             let _ = tx.send(reply);
         });
     }

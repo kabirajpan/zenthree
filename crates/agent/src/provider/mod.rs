@@ -5,6 +5,7 @@ use std::fs;
 use std::path::Path;
 use crate::traits::provider::Provider;
 
+pub use gemini::GeminiProvider;
 pub use groq::GroqProvider;
 
 /// Simple helper to get an API key either from environment variables
@@ -83,7 +84,12 @@ pub fn complete(prompt: &str) -> Result<String, String> {
 }
 
 /// Automatically instantiate a Provider trait object from available API keys.
+/// Prefers Gemini (1,000,000 TPM free tier) over Groq to avoid rate limiting.
+/// Falls back to Groq if GEMINI_API_KEY is not set.
 pub fn create_default_provider() -> Option<Box<dyn Provider>> {
+    if let Some(key) = get_key("GEMINI_API_KEY") {
+        return Some(Box::new(GeminiProvider::new(key)));
+    }
     if let Some(key) = get_key("GROQ_API_KEY") {
         return Some(Box::new(GroqProvider::new(key)));
     }
