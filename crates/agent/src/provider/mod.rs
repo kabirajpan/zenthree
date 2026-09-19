@@ -3,6 +3,9 @@ pub mod groq;
 
 use std::fs;
 use std::path::Path;
+use crate::traits::provider::Provider;
+
+pub use groq::GroqProvider;
 
 /// Simple helper to get an API key either from environment variables
 /// or by looking for a `.env` file in current working directory and parent directories.
@@ -77,4 +80,12 @@ pub fn complete(prompt: &str) -> Result<String, String> {
     }
 
     Err("Neither GROQ_API_KEY nor GEMINI_API_KEY found in .env or environment".to_string())
+}
+
+/// Automatically instantiate a Provider trait object from available API keys.
+pub fn create_default_provider() -> Option<Box<dyn Provider>> {
+    if let Some(key) = get_key("GROQ_API_KEY") {
+        return Some(Box::new(GroqProvider::new(key)));
+    }
+    None
 }
