@@ -76,6 +76,14 @@ impl Agent {
         self.conversation.clear();
     }
 
+    /// Prepend a system instruction message to the conversation.
+    /// Call this before the first `run()` on a fresh session to inject
+    /// workspace context (e.g. current directory, IDE info, available tools hint).
+    pub fn push_system_message(&mut self, content: impl Into<String>) {
+        use crate::types::message::Message;
+        self.conversation.insert(0, Message::system(content));
+    }
+
     /// Reference to tool registry.
     pub fn tools(&self) -> &ToolRegistry {
         &self.tools

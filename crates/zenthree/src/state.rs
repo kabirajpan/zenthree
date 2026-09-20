@@ -247,7 +247,11 @@ pub struct ZenthreeState {
     pub tree_clipboard: Option<TreeClipboardAction>,
     #[allow(dead_code)]
     pub groq_api_key: Option<String>,
-    pub ai_response_rx: Option<std::sync::mpsc::Receiver<String>>,
+    /// Serialized agent conversation history (JSON). Persisted across messages so the agent
+    /// remembers previous turns. Reset when the user clears chat.
+    pub ai_session_json: Option<String>,
+    /// Channel to receive (reply_text, new_session_json) from the background agent thread.
+    pub ai_response_rx: Option<std::sync::mpsc::Receiver<(String, Option<String>)>>,
     pub copied_ai_msg: Option<(usize, std::time::Instant)>,
 }
 
@@ -362,6 +366,7 @@ impl ZenthreeState {
             tree_context_menu: None,
             tree_clipboard: None,
             groq_api_key: std::env::var("GROQ_API_KEY").ok(),
+            ai_session_json: None,
             ai_response_rx: None,
             copied_ai_msg: None,
         };
@@ -1509,14 +1514,38 @@ impl ZenthreeState {
 
         self.ai_input.clear();
 
-        let (tx, rx) = std::sync::mpsc::channel();
+        let (tx, rx) = std::sync::mpsc::channel::<(String, Option<String>)>();
         self.ai_response_rx = Some(rx);
 
         let prompt = trimmed.to_string();
+        // Pass workspace dir so tools run on the right project
+        let current_dir = self.current_dir.clone();
+        // Pass existing session JSON so the agent remembers prior conversation
+        let session_json = self.ai_session_json.clone();
+        let is_fresh_session = session_json.is_none();
+
         std::thread::spawn(move || {
-            // Try the full Agent orchestrator (with workspace tools) first.
-            // Falls back to the simple one-shot provider if no API key is configured.
-            let reply = if let Some(mut agent) = agent::create_agent() {
+            // Set CWD so all tools (get_project_structure, search_codebase, etc.)
+            // operate on the user's workspace, not the binary's launch directory.
+            let _ = std::env::set_current_dir(&current_dir);
+
+            let reply_pair = if let Some(mut agent) = agent::create_agent() {
+                // Restore conversation history from previous messages
+                if let Some(ref json) = session_json {
+                    let _ = agent.import_session_json(json);
+                }
+
+                // On the first turn inject a system message with workspace context
+                if is_fresh_session {
+                    agent.push_system_message(format!(
+                        "You are an AI coding assistant embedded in the Zenthra IDE. \
+                        The user's current workspace is: {}. \
+                        Use the available tools to explore the project before answering code questions. \
+                        Always prefer targeted reads (start_line/end_line) over dumping entire files.",
+                        current_dir.display()
+                    ));
+                }
+
                 let mut final_text = String::new();
                 let mut on_event = |ev: agent::types::AgentEvent| {
                     if let agent::types::AgentEvent::Text(delta) = ev {
@@ -1529,26 +1558,29 @@ impl ZenthreeState {
 
                 match agent.run(&prompt, &mut on_event, &mut ask_approval) {
                     Ok(text) => {
-                        if text.is_empty() { final_text } else { text }
+                        let reply = if text.is_empty() { final_text } else { text };
+                        // Export the updated conversation so the next message has full memory
+                        let new_session = agent.export_session_json().ok();
+                        (reply, new_session)
                     }
-                    Err(e) => format!("Agent error: {e}"),
+                    Err(e) => (format!("Agent error: {e}"), session_json),
                 }
             } else {
-                // Fallback: no provider key found — try simple completion
+                // Fallback: no provider key found
                 match agent::provider::complete(&prompt) {
-                    Ok(content) => content,
-                    Err(err) => format!("Error: {err}"),
+                    Ok(content) => (content, None),
+                    Err(err) => (format!("Error: {err}"), None),
                 }
             };
 
-            let _ = tx.send(reply);
+            let _ = tx.send(reply_pair);
         });
     }
 
     pub fn poll_ai_response(&mut self) -> bool {
         if let Some(ref rx) = self.ai_response_rx {
             match rx.try_recv() {
-                Ok(reply) => {
+                Ok((reply, new_session_json)) => {
                     if let Some(last) = self.ai_messages.iter_mut().rev().find(|m| !m.is_user) {
                         last.content = reply;
                     } else {
@@ -1559,6 +1591,10 @@ impl ZenthreeState {
                             thoughts: None,
                             expanded: false,
                         });
+                    }
+                    // Persist updated conversation history for the next message
+                    if new_session_json.is_some() {
+                        self.ai_session_json = new_session_json;
                     }
                     self.ai_response_rx = None;
                     true

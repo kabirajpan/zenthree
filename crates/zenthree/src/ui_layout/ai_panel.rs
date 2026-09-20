@@ -149,6 +149,7 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
 
                             if reset_btn.clicked {
                                 state.ai_messages.clear();
+                                state.ai_session_json = None;
                                 ui.needs_redraw = true;
                             }
 
