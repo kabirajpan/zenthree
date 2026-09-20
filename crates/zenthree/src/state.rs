@@ -106,6 +106,15 @@ pub struct AiMessage {
     pub expanded: bool,
 }
 
+#[derive(Debug, Clone)]
+pub enum AiUiUpdate {
+    Status(String),
+    Done {
+        reply: String,
+        session_json: Option<String>,
+    },
+}
+
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct PersistentState {
     #[serde(default)]
@@ -250,8 +259,8 @@ pub struct ZenthreeState {
     /// Serialized agent conversation history (JSON). Persisted across messages so the agent
     /// remembers previous turns. Reset when the user clears chat.
     pub ai_session_json: Option<String>,
-    /// Channel to receive (reply_text, new_session_json) from the background agent thread.
-    pub ai_response_rx: Option<std::sync::mpsc::Receiver<(String, Option<String>)>>,
+    /// Channel to receive status updates and final reply from the background agent thread.
+    pub ai_response_rx: Option<std::sync::mpsc::Receiver<AiUiUpdate>>,
     pub copied_ai_msg: Option<(usize, std::time::Instant)>,
 }
 
@@ -1514,7 +1523,7 @@ impl ZenthreeState {
 
         self.ai_input.clear();
 
-        let (tx, rx) = std::sync::mpsc::channel::<(String, Option<String>)>();
+        let (tx, rx) = std::sync::mpsc::channel::<AiUiUpdate>();
         self.ai_response_rx = Some(rx);
 
         let prompt = trimmed.to_string();
@@ -1529,7 +1538,7 @@ impl ZenthreeState {
             // operate on the user's workspace, not the binary's launch directory.
             let _ = std::env::set_current_dir(&current_dir);
 
-            let reply_pair = if let Some(mut agent) = agent::create_agent() {
+            if let Some(mut agent) = agent::create_agent() {
                 // Restore conversation history from previous messages
                 if let Some(ref json) = session_json {
                     let _ = agent.import_session_json(json);
@@ -1548,8 +1557,17 @@ impl ZenthreeState {
 
                 let mut final_text = String::new();
                 let mut on_event = |ev: agent::types::AgentEvent| {
-                    if let agent::types::AgentEvent::Text(delta) = ev {
-                        final_text.push_str(&delta);
+                    match ev {
+                        agent::types::AgentEvent::ToolStarted { name } => {
+                            let _ = tx.send(AiUiUpdate::Status(format!("🔧 Calling {name}...")));
+                        }
+                        agent::types::AgentEvent::ToolFinished { name, .. } => {
+                            let _ = tx.send(AiUiUpdate::Status(format!("🔧 Finished {name}, analyzing...")));
+                        }
+                        agent::types::AgentEvent::Text(delta) => {
+                            final_text.push_str(&delta);
+                        }
+                        _ => {}
                     }
                 };
                 let mut ask_approval = |_: agent::types::ApprovalRequest| {
@@ -1561,58 +1579,87 @@ impl ZenthreeState {
                         let reply = if text.is_empty() { final_text } else { text };
                         // Export the updated conversation so the next message has full memory
                         let new_session = agent.export_session_json().ok();
-                        (reply, new_session)
+                        let _ = tx.send(AiUiUpdate::Done {
+                            reply,
+                            session_json: new_session,
+                        });
                     }
-                    Err(e) => (format!("Agent error: {e}"), session_json),
+                    Err(e) => {
+                        let _ = tx.send(AiUiUpdate::Done {
+                            reply: format!("Agent error: {e}"),
+                            session_json,
+                        });
+                    }
                 }
             } else {
                 // Fallback: no provider key found
                 match agent::provider::complete(&prompt) {
-                    Ok(content) => (content, None),
-                    Err(err) => (format!("Error: {err}"), None),
+                    Ok(content) => {
+                        let _ = tx.send(AiUiUpdate::Done {
+                            reply: content,
+                            session_json: None,
+                        });
+                    }
+                    Err(err) => {
+                        let _ = tx.send(AiUiUpdate::Done {
+                            reply: format!("Error: {err}"),
+                            session_json: None,
+                        });
+                    }
                 }
             };
-
-            let _ = tx.send(reply_pair);
         });
     }
 
     pub fn poll_ai_response(&mut self) -> bool {
+        let mut changed = false;
         if let Some(ref rx) = self.ai_response_rx {
-            match rx.try_recv() {
-                Ok((reply, new_session_json)) => {
-                    if let Some(last) = self.ai_messages.iter_mut().rev().find(|m| !m.is_user) {
-                        last.content = reply;
-                    } else {
-                        self.ai_messages.push(AiMessage {
-                            is_user: false,
-                            content: reply,
-                            code_snippet: None,
-                            thoughts: None,
-                            expanded: false,
-                        });
-                    }
-                    // Persist updated conversation history for the next message
-                    if new_session_json.is_some() {
-                        self.ai_session_json = new_session_json;
-                    }
-                    self.ai_response_rx = None;
-                    true
-                }
-                Err(std::sync::mpsc::TryRecvError::Disconnected) => {
-                    if let Some(last) = self.ai_messages.iter_mut().rev().find(|m| !m.is_user) {
-                        if last.content == "Thinking..." {
-                            last.content = "Connection closed without response.".to_string();
+            loop {
+                match rx.try_recv() {
+                    Ok(update) => {
+                        changed = true;
+                        match update {
+                            AiUiUpdate::Status(status) => {
+                                if let Some(last) = self.ai_messages.iter_mut().rev().find(|m| !m.is_user) {
+                                    last.content = status;
+                                }
+                            }
+                            AiUiUpdate::Done { reply, session_json } => {
+                                if let Some(last) = self.ai_messages.iter_mut().rev().find(|m| !m.is_user) {
+                                    last.content = reply;
+                                } else {
+                                    self.ai_messages.push(AiMessage {
+                                        is_user: false,
+                                        content: reply,
+                                        code_snippet: None,
+                                        thoughts: None,
+                                        expanded: false,
+                                    });
+                                }
+                                // Persist updated conversation history for the next message
+                                if session_json.is_some() {
+                                    self.ai_session_json = session_json;
+                                }
+                                self.ai_response_rx = None;
+                                return true;
+                            }
                         }
                     }
-                    self.ai_response_rx = None;
-                    true
+                    Err(std::sync::mpsc::TryRecvError::Disconnected) => {
+                        if let Some(last) = self.ai_messages.iter_mut().rev().find(|m| !m.is_user) {
+                            if last.content == "Thinking..." || last.content.starts_with("🔧") {
+                                last.content = "Connection closed without response.".to_string();
+                            }
+                        }
+                        self.ai_response_rx = None;
+                        changed = true;
+                        break;
+                    }
+                    Err(std::sync::mpsc::TryRecvError::Empty) => break,
                 }
-                Err(std::sync::mpsc::TryRecvError::Empty) => false,
             }
-        } else {
-            false
         }
+        changed
     }
 }
 

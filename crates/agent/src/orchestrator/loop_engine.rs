@@ -150,8 +150,18 @@ impl Agent {
                             assistant_text.push_str(&delta);
                             on_event(AgentEvent::Text(delta));
                         }
-                        ProviderEvent::ToolCallComplete { id, name, args } => {
-                            pending_tool_calls.push(ToolCall { id, name, args });
+                        ProviderEvent::ToolCallComplete {
+                            id,
+                            name,
+                            args,
+                            thought_signature,
+                        } => {
+                            pending_tool_calls.push(ToolCall {
+                                id,
+                                name,
+                                args,
+                                thought_signature,
+                            });
                         }
                         ProviderEvent::Error(err) => {
                             provider_error = Some(ProviderError::Malformed(err));

@@ -110,7 +110,7 @@ pub fn generate_content(api_key: &str, prompt: &str) -> Result<String, String> {
 
 /// Default model for GeminiProvider.
 /// `gemini-2.5-flash` has a 1,000,000 TPM free-tier limit and full tool-calling support.
-const DEFAULT_GEMINI_MODEL: &str = "gemini-2.5-flash";
+const DEFAULT_GEMINI_MODEL: &str = "gemini-3.6-flash";
 
 /// Gemini LLM backend implementing the unified `Provider` trait.
 /// Uses the Gemini `generateContent` endpoint with `tools` + `functionDeclarations`
@@ -186,12 +186,16 @@ impl Provider for GeminiProvider {
                     }
                     if let Some(tool_calls) = &m.tool_calls {
                         for tc in tool_calls {
-                            parts.push(json!({
+                            let mut fc_part = json!({
                                 "functionCall": {
                                     "name": tc.name,
                                     "args": tc.args
                                 }
-                            }));
+                            });
+                            if let Some(ref sig) = tc.thought_signature {
+                                fc_part["thoughtSignature"] = json!(sig);
+                            }
+                            parts.push(fc_part);
                         }
                     }
                     if !parts.is_empty() {
@@ -307,9 +311,21 @@ impl Provider for GeminiProvider {
                                 .unwrap_or("")
                                 .to_string();
                             let args = fc.get("args").cloned().unwrap_or(json!({}));
-                            // Use the function name as the call ID (Gemini doesn't give one)
-                            let id = name.clone();
-                            on_event(ProviderEvent::ToolCallComplete { id, name, args });
+                            let id = fc
+                                .get("id")
+                                .and_then(|v| v.as_str())
+                                .map(|s| s.to_string())
+                                .unwrap_or_else(|| name.clone());
+                            let thought_signature = part
+                                .get("thoughtSignature")
+                                .and_then(|v| v.as_str())
+                                .map(|s| s.to_string());
+                            on_event(ProviderEvent::ToolCallComplete {
+                                id,
+                                name,
+                                args,
+                                thought_signature,
+                            });
                         }
                     }
                 }

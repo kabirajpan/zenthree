@@ -647,7 +647,7 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                             // Cancel ongoing AI request
                                             state.ai_response_rx = None;
                                             if let Some(last) = state.ai_messages.iter_mut().rev().find(|m| !m.is_user) {
-                                                if last.content == "Thinking..." {
+                                                if last.content == "Thinking..." || last.content.starts_with("🔧") {
                                                     last.content = "Request stopped.".to_string();
                                                 }
                                             }

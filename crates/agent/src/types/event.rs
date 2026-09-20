@@ -11,7 +11,12 @@ pub enum ProviderEvent {
     /// Incremental JSON argument fragment.
     ToolCallArgsDelta { id: String, fragment: String },
     /// Tool call arguments assembled and ready to execute.
-    ToolCallComplete { id: String, name: String, args: Value },
+    ToolCallComplete {
+        id: String,
+        name: String,
+        args: Value,
+        thought_signature: Option<String>,
+    },
     /// Provider finished this turn.
     Done,
     /// Provider error encountered mid-turn.

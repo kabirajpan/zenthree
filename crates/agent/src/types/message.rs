@@ -16,6 +16,8 @@ pub struct ToolCall {
     pub id: String,
     pub name: String,
     pub args: Value,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub thought_signature: Option<String>,
 }
 
 /// A single message in the agent's conversation history.

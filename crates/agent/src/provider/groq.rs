@@ -251,7 +251,12 @@ impl Provider for GroqProvider {
                             let args: Value =
                                 serde_json::from_str(args_raw).unwrap_or(json!({}));
 
-                            on_event(ProviderEvent::ToolCallComplete { id, name, args });
+                            on_event(ProviderEvent::ToolCallComplete {
+                                id,
+                                name,
+                                args,
+                                thought_signature: None,
+                            });
                         }
                     }
                 }

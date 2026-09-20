@@ -53,6 +53,7 @@ mod tests {
                     id: "call_123".into(),
                     name: "read_file".into(),
                     args: json!({ "path": "Cargo.toml", "start_line": 1, "end_line": 2 }),
+                    thought_signature: None,
                 });
                 on_event(ProviderEvent::Done);
             } else {
