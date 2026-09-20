@@ -262,6 +262,7 @@ pub struct ZenthreeState {
     /// Channel to receive status updates and final reply from the background agent thread.
     pub ai_response_rx: Option<std::sync::mpsc::Receiver<AiUiUpdate>>,
     pub copied_ai_msg: Option<(usize, std::time::Instant)>,
+    pub copied_ai_code_id: Option<(u64, std::time::Instant)>,
 }
 
 impl ZenthreeState {
@@ -378,6 +379,7 @@ impl ZenthreeState {
             ai_session_json: None,
             ai_response_rx: None,
             copied_ai_msg: None,
+            copied_ai_code_id: None,
         };
 
         // Restore previous session preferences (theme, accent, extensions, etc.)

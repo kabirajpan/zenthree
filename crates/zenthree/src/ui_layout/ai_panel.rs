@@ -259,6 +259,7 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                     } else {
                         let mut toggle_expand_idx: Option<usize> = None;
                         let mut copy_target_idx: Option<usize> = None;
+                        let mut copy_code_snippet: Option<(u64, String)> = None;
 
                         for (msg_idx, msg) in state.ai_messages.iter().enumerate() {
                             let is_copied = state.copied_ai_msg
@@ -271,43 +272,26 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                             let mut copy_clicked = false;
 
                             let full_text: &str = &msg.content;
-                            let is_thinking = !msg.is_user && full_text == "Thinking...";
-
-                            // Fast byte check for long text - zero heap allocation
-                            let newline_count = full_text.as_bytes().iter().filter(|&&b| b == b'\n').count();
-                            let is_long = !is_thinking && (newline_count >= 4 || full_text.len() > 200);
-                            let is_expanded = msg.expanded;
-
-                            // Truncate to first 4 lines directly for collapsed view - saves 95% text shaping overhead
-                            let display_text: &str = if is_long && !is_expanded {
-                                let mut end = full_text.len();
-                                let mut lines = 0;
-                                for (i, b) in full_text.bytes().enumerate() {
-                                    if b == b'\n' {
-                                        lines += 1;
-                                        if lines >= 4 {
-                                            end = i;
-                                            break;
-                                        }
-                                    }
-                                    if i >= 240 && lines >= 2 {
-                                        end = i;
-                                        break;
-                                    }
-                                }
-                                let mut safe_end = end.min(full_text.len());
-                                while !full_text.is_char_boundary(safe_end) {
-                                    safe_end -= 1;
-                                }
-                                &full_text[..safe_end]
-                            } else {
-                                full_text
-                            };
+                            let is_thinking = !msg.is_user && (full_text == "Thinking..." || full_text.starts_with("🔧"));
 
                             if msg.is_user {
                                 // ─── User Message (Right-aligned, accent tint) ───
                                 let bubble_max_w = (ai_panel_w - 36.0).max(80.0);
                                 let user_text_w = (bubble_max_w - 20.0).max(60.0);
+
+                                let newline_count = full_text.as_bytes().iter().filter(|&&b| b == b'\n').count();
+                                let is_long = newline_count >= 5 || full_text.len() > 300;
+                                let is_expanded = msg.expanded;
+
+                                let display_text: &str = if is_long && !is_expanded {
+                                    let mut end = full_text.len().min(240);
+                                    while !full_text.is_char_boundary(end) {
+                                        end -= 1;
+                                    }
+                                    &full_text[..end]
+                                } else {
+                                    full_text
+                                };
 
                                 ui.container()
                                     .full_width()
@@ -387,7 +371,7 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                         }
                                     });
                             } else {
-                                // ─── Assistant Message (Left-aligned, matching card) ───
+                                // ─── Assistant Message (Left-aligned, rich markdown preview) ───
                                 let bubble_max_w = (ai_panel_w - 28.0).max(80.0);
                                 let ai_text_w = (bubble_max_w - 20.0).max(60.0);
 
@@ -396,33 +380,202 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                     .row()
                                     .halign(Align::Left)
                                     .show(|ui| {
-                                        let bubble_res = ui.container()
+                                        ui.container()
                                             .id(bubble_id)
                                             .max_width(bubble_max_w)
                                             .padding(8.0, 10.0, 6.0, 10.0)
                                             .bg(colors.bg_sidebar.with_alpha(0.55))
-                                            .hover_bg(colors.bg_sidebar.with_alpha(0.75))
                                             .border(colors.border.with_alpha(0.5), 0.5)
                                             .radius_all(10.0)
                                             .column()
-                                            .gap(4.0)
+                                            .gap(6.0)
                                             .show(|ui| {
                                                 if is_thinking {
-                                                    ui.text("Thinking...")
-                                                        .size(11.0)
-                                                        .italic()
-                                                        .color(colors.accent)
-                                                        .show();
+                                                    let status_label = if full_text.starts_with("🔧") {
+                                                        full_text.trim_start_matches("🔧").trim()
+                                                    } else {
+                                                        "Thinking..."
+                                                    };
+                                                    let icon = if full_text.starts_with("🔧") { "\u{f0ad}" } else { "\u{f110}" };
+                                                    ui.container()
+                                                        .row()
+                                                        .valign(Align::Center)
+                                                        .gap(6.0)
+                                                        .padding(3.0, 8.0, 3.0, 8.0)
+                                                        .radius_all(6.0)
+                                                        .bg(colors.accent.with_alpha(0.08))
+                                                        .border(colors.accent.with_alpha(0.2), 0.5)
+                                                        .show(|ui| {
+                                                            ui.text(icon)
+                                                                .size(10.0)
+                                                                .color(colors.accent)
+                                                                .show();
+                                                            ui.text(status_label)
+                                                                .size(10.5)
+                                                                .italic()
+                                                                .color(colors.accent)
+                                                                .show();
+                                                        });
                                                 } else {
-                                                    ui.text(display_text)
-                                                        .size(11.0)
-                                                        .line_height(1.35)
-                                                        .color(colors.text_primary)
-                                                        .max_width(ai_text_w)
-                                                        .wrap(zenthra_text::prelude::TextWrap::Word)
-                                                        .show();
+                                                    let blocks = parse_markdown_blocks(full_text);
+                                                    for (block_idx, block) in blocks.iter().enumerate() {
+                                                        match block {
+                                                            MarkdownBlock::Heading { level, text } => {
+                                                                let (font_size, pad_t) = match level {
+                                                                    1 => (13.0, 4.0),
+                                                                    2 => (12.0, 3.0),
+                                                                    _ => (11.5, 2.0),
+                                                                };
+                                                                let clean_text = strip_markdown_stars(text);
+                                                                ui.container()
+                                                                    .padding_top(pad_t)
+                                                                    .padding_bottom(1.0)
+                                                                    .show(|ui| {
+                                                                        ui.text(&clean_text)
+                                                                            .size(font_size)
+                                                                            .weight(FontWeight::Bold)
+                                                                            .color(colors.text_primary)
+                                                                            .max_width(ai_text_w)
+                                                                            .wrap(zenthra_text::prelude::TextWrap::Word)
+                                                                            .show();
+                                                                    });
+                                                            }
+                                                            MarkdownBlock::BulletItem { text } => {
+                                                                let clean_text = strip_markdown_stars(text);
+                                                                ui.container()
+                                                                    .full_width()
+                                                                    .row()
+                                                                    .valign(Align::Top)
+                                                                    .gap(6.0)
+                                                                    .padding_left(2.0)
+                                                                    .show(|ui| {
+                                                                        ui.text("•")
+                                                                            .size(11.0)
+                                                                            .color(colors.accent)
+                                                                            .show();
+                                                                        ui.text(&clean_text)
+                                                                            .size(11.0)
+                                                                            .line_height(1.35)
+                                                                            .color(colors.text_primary)
+                                                                            .max_width(ai_text_w - 14.0)
+                                                                            .wrap(zenthra_text::prelude::TextWrap::Word)
+                                                                            .show();
+                                                                    });
+                                                            }
+                                                            MarkdownBlock::NumberedItem { num, text } => {
+                                                                let clean_text = strip_markdown_stars(text);
+                                                                ui.container()
+                                                                    .full_width()
+                                                                    .row()
+                                                                    .valign(Align::Top)
+                                                                    .gap(6.0)
+                                                                    .padding_left(2.0)
+                                                                    .show(|ui| {
+                                                                        ui.text(&format!("{}.", num))
+                                                                            .size(10.5)
+                                                                            .weight(FontWeight::Medium)
+                                                                            .color(colors.accent)
+                                                                            .show();
+                                                                        ui.text(&clean_text)
+                                                                            .size(11.0)
+                                                                            .line_height(1.35)
+                                                                            .color(colors.text_primary)
+                                                                            .max_width(ai_text_w - 18.0)
+                                                                            .wrap(zenthra_text::prelude::TextWrap::Word)
+                                                                            .show();
+                                                                    });
+                                                            }
+                                                            MarkdownBlock::CodeBlock { lang, code } => {
+                                                                let code_btn_id = Id::from_u64(999990000 + (msg_idx as u64) * 1000 + (block_idx as u64) * 2 + 1);
+                                                                let is_code_copied = state.copied_ai_code_id.as_ref()
+                                                                    .map(|(id, t)| *id == code_btn_id.raw() && t.elapsed().as_secs_f32() < 2.0)
+                                                                    .unwrap_or(false);
+
+                                                                let lang_display = lang.as_deref().unwrap_or("code").to_uppercase();
+                                                                let code_box_w = ai_text_w.max(50.0);
+
+                                                                ui.container()
+                                                                    .width(code_box_w)
+                                                                    .radius_all(6.0)
+                                                                    .bg(colors.bg_base.with_alpha(0.85))
+                                                                    .border(colors.border.with_alpha(0.5), 0.5)
+                                                                    .column()
+                                                                    .show(|ui| {
+                                                                        // Code card header: language badge + Copy Code button
+                                                                        ui.container()
+                                                                            .full_width()
+                                                                            .height(22.0)
+                                                                            .padding(0.0, 8.0, 0.0, 8.0)
+                                                                            .bg(colors.bg_sidebar.with_alpha(0.6))
+                                                                            .radius_top(6.0)
+                                                                            .row()
+                                                                            .halign(Align::SpaceBetween)
+                                                                            .valign(Align::Center)
+                                                                            .show(|ui| {
+                                                                                ui.text(&lang_display)
+                                                                                    .size(9.0)
+                                                                                    .weight(FontWeight::Bold)
+                                                                                    .color(colors.text_muted)
+                                                                                    .show();
+
+                                                                                let copy_code_btn = ui.container()
+                                                                                    .id(code_btn_id)
+                                                                                    .padding(1.0, 5.0, 1.0, 5.0)
+                                                                                    .radius_all(3.0)
+                                                                                    .hover_bg(colors.highlight)
+                                                                                    .row()
+                                                                                    .valign(Align::Center)
+                                                                                    .gap(4.0)
+                                                                                    .show(|ui| {
+                                                                                        ui.text(if is_code_copied { "\u{f00c}" } else { "\u{f0c5}" })
+                                                                                            .size(9.0)
+                                                                                            .color(if is_code_copied { colors.accent } else { colors.text_muted })
+                                                                                            .show();
+                                                                                        ui.text(if is_code_copied { "Copied" } else { "Copy" })
+                                                                                            .size(9.0)
+                                                                                            .color(if is_code_copied { colors.accent } else { colors.text_muted })
+                                                                                            .show();
+                                                                                    });
+
+                                                                                if copy_code_btn.hovered {
+                                                                                    ui.cursor_icon = CursorIcon::Pointer;
+                                                                                }
+                                                                                if copy_code_btn.clicked {
+                                                                                    copy_code_snippet = Some((code_btn_id.raw(), code.clone()));
+                                                                                }
+                                                                            });
+
+                                                                        // Code content area
+                                                                        ui.container()
+                                                                            .padding(6.0, 8.0, 6.0, 8.0)
+                                                                            .full_width()
+                                                                            .show(|ui| {
+                                                                                ui.text(code)
+                                                                                    .size(10.0)
+                                                                                    .monospace()
+                                                                                    .line_height(1.35)
+                                                                                    .color(colors.text_primary)
+                                                                                    .max_width(code_box_w - 16.0)
+                                                                                    .wrap(zenthra_text::prelude::TextWrap::Word)
+                                                                                    .show();
+                                                                            });
+                                                                    });
+                                                            }
+                                                            MarkdownBlock::Paragraph(text) => {
+                                                                let clean_text = strip_markdown_stars(text);
+                                                                ui.text(&clean_text)
+                                                                    .size(11.0)
+                                                                    .line_height(1.35)
+                                                                    .color(colors.text_primary)
+                                                                    .max_width(ai_text_w)
+                                                                    .wrap(zenthra_text::prelude::TextWrap::Word)
+                                                                    .show();
+                                                            }
+                                                        }
+                                                    }
                                                 }
 
+                                                // Footer row with message copy button
                                                 if !is_thinking {
                                                     ui.container()
                                                         .width(ai_text_w)
@@ -431,13 +584,6 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                                         .valign(Align::Center)
                                                         .gap(6.0)
                                                         .show(|ui| {
-                                                            if is_long {
-                                                                ui.text(if is_expanded { "Show less" } else { "Show more" })
-                                                                    .size(9.0)
-                                                                    .color(colors.accent.with_alpha(0.85))
-                                                                    .show();
-                                                            }
-
                                                             let copy_btn = ui.container()
                                                                 .id(copy_btn_id)
                                                                 .padding(2.0, 4.0, 2.0, 4.0)
@@ -471,11 +617,6 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
 
                                         if copy_clicked {
                                             copy_target_idx = Some(msg_idx);
-                                        } else if bubble_res.clicked && is_long {
-                                            toggle_expand_idx = Some(msg_idx);
-                                        }
-                                        if bubble_res.hovered && is_long {
-                                            ui.cursor_icon = CursorIcon::Pointer;
                                         }
                                     });
                             }
@@ -486,6 +627,15 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                 m.expanded = !m.expanded;
                                 ui.needs_redraw = true;
                             }
+                        }
+
+                        if let Some((btn_id, snippet)) = copy_code_snippet {
+                            if let Ok(mut cb) = arboard::Clipboard::new() {
+                                let _ = cb.set_text(snippet);
+                            }
+                            state.copied_ai_code_id = Some((btn_id, std::time::Instant::now()));
+                            state.status_message = "Code snippet copied to clipboard".to_string();
+                            ui.needs_redraw = true;
                         }
 
                         if let Some(idx) = copy_target_idx {
@@ -671,4 +821,169 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                     }
                 });
         });
+}
+
+use pulldown_cmark::{Event, HeadingLevel, Options, Parser, Tag, TagEnd};
+
+#[derive(Debug, Clone, PartialEq)]
+enum MarkdownBlock {
+    Heading { level: u8, text: String },
+    CodeBlock { lang: Option<String>, code: String },
+    BulletItem { text: String },
+    NumberedItem { num: String, text: String },
+    Paragraph(String),
+}
+
+/// Strip bold/italic markdown markers so we can show clean text in non-rich text widgets.
+fn strip_markdown_stars(s: &str) -> String {
+    s.replace("**", "").replace("__", "")
+}
+
+/// Parse a markdown string into a flat list of [`MarkdownBlock`]s using pulldown-cmark.
+fn parse_markdown_blocks(content: &str) -> Vec<MarkdownBlock> {
+    let mut blocks = Vec::new();
+
+    let opts = Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TASKLISTS;
+    let parser = Parser::new_ext(content, opts);
+
+    // We accumulate inline text here while inside a block-level element.
+    let mut text_buf = String::new();
+
+    // Ordered list tracking: when Some(n) we are inside an ordered list and n is the next number.
+    let mut ordered_start: Option<u64> = None;
+    // Counter for ordered items actually emitted so far in the current ordered list.
+    let mut ordered_counter: u64 = 0;
+
+    // Current heading level (0 = not in a heading)
+    let mut heading_level: u8 = 0;
+
+    // Are we inside an unordered list item?
+    let mut in_bullet: bool = false;
+
+    // Current code fence language
+    let mut code_lang: Option<String> = None;
+
+    for event in parser {
+        match event {
+            // ── Block-open ──────────────────────────────────────────────────
+            Event::Start(Tag::Heading { level, .. }) => {
+                text_buf.clear();
+                heading_level = match level {
+                    HeadingLevel::H1 => 1,
+                    HeadingLevel::H2 => 2,
+                    HeadingLevel::H3 => 3,
+                    HeadingLevel::H4 => 4,
+                    HeadingLevel::H5 => 5,
+                    HeadingLevel::H6 => 6,
+                };
+            }
+            Event::End(TagEnd::Heading(_)) => {
+                let text = std::mem::take(&mut text_buf).trim().to_string();
+                if !text.is_empty() {
+                    blocks.push(MarkdownBlock::Heading { level: heading_level, text });
+                }
+                heading_level = 0;
+            }
+
+            Event::Start(Tag::Paragraph) => {
+                text_buf.clear();
+            }
+            Event::End(TagEnd::Paragraph) => {
+                let text = std::mem::take(&mut text_buf).trim().to_string();
+                if !text.is_empty() {
+                    blocks.push(MarkdownBlock::Paragraph(text));
+                }
+            }
+
+            // ── Lists ───────────────────────────────────────────────────────
+            Event::Start(Tag::List(start_num)) => {
+                ordered_start = start_num;
+                ordered_counter = start_num.unwrap_or(0);
+            }
+            Event::End(TagEnd::List(_)) => {
+                ordered_start = None;
+                ordered_counter = 0;
+            }
+            Event::Start(Tag::Item) => {
+                text_buf.clear();
+                in_bullet = ordered_start.is_none();
+            }
+            Event::End(TagEnd::Item) => {
+                let text = std::mem::take(&mut text_buf).trim().to_string();
+                if !text.is_empty() {
+                    if in_bullet {
+                        blocks.push(MarkdownBlock::BulletItem { text });
+                    } else {
+                        blocks.push(MarkdownBlock::NumberedItem {
+                            num: ordered_counter.to_string(),
+                            text,
+                        });
+                        ordered_counter += 1;
+                    }
+                }
+                in_bullet = false;
+            }
+
+            // ── Fenced code blocks ──────────────────────────────────────────
+            Event::Start(Tag::CodeBlock(kind)) => {
+                text_buf.clear();
+                code_lang = match kind {
+                    pulldown_cmark::CodeBlockKind::Fenced(lang) => {
+                        let l = lang.trim().to_string();
+                        if l.is_empty() { None } else { Some(l) }
+                    }
+                    pulldown_cmark::CodeBlockKind::Indented => None,
+                };
+            }
+            Event::End(TagEnd::CodeBlock) => {
+                let code = std::mem::take(&mut text_buf);
+                // pulldown-cmark appends a trailing newline; trim it.
+                let code = code.trim_end_matches('\n').to_string();
+                blocks.push(MarkdownBlock::CodeBlock { lang: code_lang.take(), code });
+            }
+
+            // ── Inline text & code ──────────────────────────────────────────
+            Event::Text(t) | Event::Code(t) => {
+                text_buf.push_str(&t);
+            }
+            Event::SoftBreak => {
+                text_buf.push(' ');
+            }
+            Event::HardBreak => {
+                text_buf.push('\n');
+            }
+
+            _ => {}
+        }
+    }
+
+    blocks
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_parse_markdown_blocks_comprehensive() {
+        let md = "I have inspected the project.\n\n## Diagnostics Summary\n- Errors: 0\n- Warnings: 0\n\n```rust\nfn main() {\n    println!(\"Hello Zenthra!\");\n}\n```\n\n1. First step\n2. Second step\n\nAll systems operational.";
+        let blocks = parse_markdown_blocks(md);
+
+        // paragraph, heading, 2 bullets, code block, 2 numbered, paragraph
+        assert_eq!(blocks.len(), 8, "got: {:#?}", blocks);
+        assert_eq!(blocks[0], MarkdownBlock::Paragraph("I have inspected the project.".into()));
+        assert_eq!(blocks[1], MarkdownBlock::Heading { level: 2, text: "Diagnostics Summary".into() });
+        assert_eq!(blocks[2], MarkdownBlock::BulletItem { text: "Errors: 0".into() });
+        assert_eq!(blocks[3], MarkdownBlock::BulletItem { text: "Warnings: 0".into() });
+        match &blocks[4] {
+            MarkdownBlock::CodeBlock { lang, code } => {
+                assert_eq!(lang.as_deref(), Some("rust"));
+                assert!(code.contains("fn main()"));
+            }
+            other => panic!("Expected CodeBlock, got {:?}", other),
+        }
+        assert_eq!(blocks[5], MarkdownBlock::NumberedItem { num: "1".into(), text: "First step".into() });
+        assert_eq!(blocks[6], MarkdownBlock::NumberedItem { num: "2".into(), text: "Second step".into() });
+        assert_eq!(blocks[7], MarkdownBlock::Paragraph("All systems operational.".into()));
+    }
 }
