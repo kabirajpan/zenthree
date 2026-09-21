@@ -1,16 +1,15 @@
 pub mod config;
-pub mod context;
-pub mod loop_engine;
-pub mod state;
+pub mod session;
 
 pub use config::AgentConfig;
-pub use context::ContextManager;
-pub use loop_engine::Agent;
-pub use state::AgentSession;
+pub use session::AgentSession;
+
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::agentic_loop::Agent;
+    use crate::context::pruner::ContextManager;
     use crate::tools::registry::ToolRegistry;
     use crate::traits::provider::Provider;
     use crate::types::approval::{ApprovalDecision, ApprovalRequest};

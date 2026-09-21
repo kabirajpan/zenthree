@@ -17,6 +17,10 @@ pub struct AgentConfig {
     pub max_tool_output_chars: usize,
     /// Optional cancellation token checked between execution steps.
     pub cancellation_token: Option<Arc<AtomicBool>>,
+    /// Optional shell command to run after the agent completes (e.g. `"cargo build"`).
+    /// If the command fails, the error is fed back into the loop for the agent to fix.
+    /// Fully dynamic — the caller sets whatever command fits the project.
+    pub verification_command: Option<String>,
 }
 
 impl Default for AgentConfig {
@@ -28,6 +32,7 @@ impl Default for AgentConfig {
             max_history_messages: 50,
             max_tool_output_chars: 8000,
             cancellation_token: None,
+            verification_command: None,
         }
     }
 }

@@ -1,11 +1,16 @@
+pub mod agentic_loop;
+pub mod context;
 pub mod orchestrator;
 pub mod provider;
 pub mod tools;
 pub mod traits;
 pub mod types;
+pub mod verification;
 
-pub use orchestrator::{Agent, AgentConfig};
+pub use agentic_loop::Agent;
+pub use orchestrator::AgentConfig;
 pub use tools::ToolRegistry;
+
 
 /// Constructs an `Agent` initialized with the default provider and the full essential toolset.
 pub fn create_agent() -> Option<Agent> {

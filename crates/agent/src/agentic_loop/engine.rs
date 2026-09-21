@@ -1,4 +1,4 @@
-//! Agent Orchestrator Loop Engine
+//! Agentic Loop Engine
 //!
 //! Implements the complete execution specification from `docs/agent/Orchestrator.md`:
 //! - Situations A & B: Normal completion & single tool execution.
@@ -15,9 +15,9 @@
 use std::sync::atomic::Ordering;
 use serde_json::Value;
 
-use super::config::AgentConfig;
-use super::context::ContextManager;
-use super::state::AgentSession;
+use crate::orchestrator::config::AgentConfig;
+use crate::context::pruner::ContextManager;
+use crate::orchestrator::session::AgentSession;
 use crate::tools::registry::ToolRegistry;
 use crate::traits::provider::Provider;
 use crate::traits::tool::ToolRisk;
@@ -25,6 +25,7 @@ use crate::types::approval::{ApprovalDecision, ApprovalRequest};
 use crate::types::error::ProviderError;
 use crate::types::event::{AgentEvent, ProviderEvent};
 use crate::types::message::{Message, ToolCall};
+use crate::verification::VerificationRunner;
 
 /// The main autonomous agent orchestrator tying Provider, Tools, and Conversation together.
 pub struct Agent {
@@ -196,6 +197,33 @@ impl Agent {
             // Situation A: Plain text output with no tool calls -> Done!
             if pending_tool_calls.is_empty() {
                 self.conversation.push(Message::assistant(&assistant_text));
+
+                // ── Verification step ────────────────────────────────────────
+                // If a verification command is configured, run it now.
+                // On failure: inject the error back as a new user turn so the
+                // agent can fix the issue and the loop continues.
+                if let Some(ref cmd) = self.config.verification_command.clone() {
+                    let cwd = std::env::current_dir()
+                        .ok()
+                        .and_then(|p| p.to_str().map(|s| s.to_string()));
+
+                    on_event(AgentEvent::Text(format!("\n🔍 Verifying: `{}`\n", cmd)));
+
+                    let result = VerificationRunner::run(cmd, cwd.as_deref());
+                    if result.is_pass() {
+                        on_event(AgentEvent::Finished);
+                        return Ok(assistant_text);
+                    } else {
+                        // Feed failure back into the loop as a new user message
+                        let feedback = result.as_feedback(cmd);
+                        on_event(AgentEvent::Text(format!("\n⚠️ Verification failed, asking agent to fix...\n")));
+                        self.conversation.push(Message::user(&feedback));
+                        // Continue the outer for loop — agent gets another turn
+                        continue;
+                    }
+                }
+                // ── End verification ─────────────────────────────────────────
+
                 on_event(AgentEvent::Finished);
                 return Ok(assistant_text);
             }
