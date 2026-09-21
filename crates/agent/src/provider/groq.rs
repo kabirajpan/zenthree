@@ -161,6 +161,31 @@ impl Provider for GroqProvider {
             req_messages.push(Value::Object(msg_obj));
         }
 
+        // Safeguard for models using MiniJinja chat templates (e.g. Qwen):
+        // Jinja templates raise an exception if there is no message with role 'user'.
+        let has_user_msg = req_messages
+            .iter()
+            .any(|m| m.get("role").and_then(|r| r.as_str()) == Some("user"));
+        if !has_user_msg {
+            let mut fallback = serde_json::Map::new();
+            fallback.insert("role".to_string(), json!("user"));
+            fallback.insert(
+                "content".to_string(),
+                json!("Proceed with the task using the provided context."),
+            );
+            let insert_pos = if req_messages
+                .first()
+                .and_then(|m| m.get("role"))
+                .and_then(|r| r.as_str())
+                == Some("system")
+            {
+                1
+            } else {
+                0
+            };
+            req_messages.insert(insert_pos, Value::Object(fallback));
+        }
+
         let mut body = json!({
             "model": self.model,
             "messages": req_messages,

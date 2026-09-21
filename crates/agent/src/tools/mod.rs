@@ -4,6 +4,7 @@ pub mod git;
 pub mod plan;
 pub mod registry;
 pub mod search;
+pub mod skill;
 pub mod terminal;
 pub mod traits;
 
@@ -14,6 +15,7 @@ pub use git::{GitDiffTool, GitStatusTool};
 pub use plan::{CreatePlanTool, PlanState, PlanStep, UpdatePlanStepTool};
 pub use registry::ToolRegistry;
 pub use search::{FindFilesTool, SearchCodebaseTool};
+pub use skill::ActivateSkillTool;
 pub use terminal::RunTerminalTool;
 pub use traits::Tool;
 

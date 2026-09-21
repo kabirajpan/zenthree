@@ -1,12 +1,33 @@
 use std::fmt;
 use std::path::PathBuf;
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, serde::Serialize, serde::Deserialize)]
+pub enum SkillScope {
+    /// Built-in core skills compiled directly into the binary.
+    Global = 0,
+    /// User personal skills located in user home ~/.zenthree/skills/.
+    User = 1,
+    /// Project-specific skills located in <workspace>/.zenthree/skills/.
+    Project = 2,
+}
+
+impl fmt::Display for SkillScope {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Global => write!(f, "global"),
+            Self::User => write!(f, "user"),
+            Self::Project => write!(f, "project"),
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub struct SkillMetadata {
     pub name: String,
     pub description: String,
     pub version: Option<String>,
     pub tags: Vec<String>,
+    pub scope: SkillScope,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -17,6 +38,7 @@ pub struct Skill {
     pub tags: Vec<String>,
     pub path: PathBuf,
     pub instructions: String,
+    pub scope: SkillScope,
 }
 
 impl Skill {
@@ -26,6 +48,7 @@ impl Skill {
             description: self.description.clone(),
             version: self.version.clone(),
             tags: self.tags.clone(),
+            scope: self.scope,
         }
     }
 }

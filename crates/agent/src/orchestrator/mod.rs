@@ -7,7 +7,6 @@ pub use session::AgentSession;
 
 #[cfg(test)]
 mod tests {
-    use super::*;
     use crate::agentic_loop::Agent;
     use crate::context::pruner::ContextManager;
     use crate::tools::registry::ToolRegistry;

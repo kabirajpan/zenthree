@@ -60,26 +60,33 @@ impl ZenthreeState {
             // operate on the user's workspace, not the binary's launch directory.
             let _ = std::env::set_current_dir(&current_dir);
 
-            if let Some(mut agent) = agent::create_agent_for_model(
+            if let Some(mut agent) = agent::create_agent_for_model_and_workspace(
                 match selected_model.provider() {
                     crate::state::AiProvider::Gemini => "gemini",
                     crate::state::AiProvider::Groq => "groq",
                 },
                 selected_model.model_id(),
+                &current_dir,
             ) {
                 // Restore conversation history from previous messages
                 if let Some(ref json) = session_json {
                     let _ = agent.import_session_json(json);
                 }
 
-                // On the first turn inject a system message with workspace context
+                // On the first turn inject a system message with workspace context and ZENE skills
                 if is_fresh_session {
+                    let skills_summary = agent.skills().prompt_summary();
                     agent.push_system_message(format!(
-                        "You are an AI coding assistant embedded in the Zenthra IDE. \
-                        The user's current workspace is: {}. \
-                        Use the available tools to explore the project before answering code questions. \
-                        Always prefer targeted reads (start_line/end_line) over dumping entire files.",
-                        current_dir.display()
+                        "You are ZENE, an advanced AI coding assistant embedded in the Zenthree IDE.\n\
+                        Workspace: {}\n\
+                        Guidelines:\n\
+                        - Use available tools to explore the codebase before editing.\n\
+                        - Prefer surgical edits using `edit_file` rather than rewriting whole files.\n\
+                        - Run `get_diagnostics` or test suites via `run_terminal` to verify your changes.\n\
+                        - Activate workflow skills on demand via `activate_skill(name: \"...\")` for step-by-step guidance.\n\n\
+                        Available Workflow Skills:\n{}",
+                        current_dir.display(),
+                        skills_summary
                     ));
                 }
 

@@ -5,13 +5,22 @@ pub struct ContextManager;
 
 impl ContextManager {
     /// Prune older intermediate messages if history exceeds the configured cap,
-    /// while preserving the initial user request and the latest tool/assistant context.
+    /// while preserving the initial user request, system prompt (if present),
+    /// and the latest tool/assistant context.
     pub fn prune_history(conversation: &mut Vec<Message>, max_messages: usize) {
         if conversation.len() > max_messages {
             let overflow = conversation.len() - max_messages;
-            if overflow > 0 && conversation.len() > 2 {
-                let remove_count = overflow.min(conversation.len() - 2);
-                conversation.drain(1..=remove_count);
+            let has_system = conversation
+                .first()
+                .map(|m| m.role == crate::types::message::Role::System)
+                .unwrap_or(false);
+            let start_idx = if has_system { 2 } else { 1 };
+            if conversation.len() > start_idx + 2 {
+                let max_drainable = conversation.len().saturating_sub(start_idx + 2);
+                let remove_count = overflow.min(max_drainable);
+                if remove_count > 0 {
+                    conversation.drain(start_idx..start_idx + remove_count);
+                }
             }
         }
     }
@@ -69,12 +78,68 @@ impl ContextManager {
     }
 
     /// Emergency compaction when a 413 Payload Too Large or token rate limit is encountered.
-    /// Retains only the initial setup and the immediate active turn.
+    /// Retains the initial system & user setup and the immediate active turn, avoiding
+    /// removing user queries which causes Jinja chat template exceptions.
     pub fn emergency_prune(conversation: &mut Vec<Message>) {
-        if conversation.len() > 3 {
+        let has_system = conversation
+            .first()
+            .map(|m| m.role == crate::types::message::Role::System)
+            .unwrap_or(false);
+        let start_idx = if has_system { 2 } else { 1 };
+        if conversation.len() > start_idx + 2 {
             let drain_end = conversation.len() - 2;
-            conversation.drain(1..drain_end);
+            conversation.drain(start_idx..drain_end);
         }
         Self::compact_prior_tool_results(conversation);
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::types::message::Role;
+
+    #[test]
+    fn test_emergency_prune_preserves_system_and_user() {
+        let mut conv = vec![
+            Message::system("system instructions"),
+            Message::user("initial user prompt"),
+            Message::assistant("old assistant"),
+            Message::tool_result("call_1", "old tool output"),
+            Message::assistant("current assistant"),
+            Message::tool_result("call_2", "current tool output"),
+        ];
+
+        ContextManager::emergency_prune(&mut conv);
+
+        // Must still have system AND user messages
+        assert_eq!(conv[0].role, Role::System);
+        assert_eq!(conv[1].role, Role::User);
+        assert_eq!(conv[1].content, "initial user prompt");
+        // Must have current assistant & tool
+        assert_eq!(conv[2].role, Role::Assistant);
+        assert_eq!(conv[2].content, "current assistant");
+        assert_eq!(conv[3].role, Role::Tool);
+        assert_eq!(conv[3].content, "current tool output");
+        assert_eq!(conv.len(), 4);
+    }
+
+    #[test]
+    fn test_prune_history_preserves_user_message() {
+        let mut conv = vec![
+            Message::system("sys"),
+            Message::user("user query"),
+            Message::assistant("a1"),
+            Message::tool_result("t1", "res1"),
+            Message::assistant("a2"),
+            Message::tool_result("t2", "res2"),
+        ];
+
+        ContextManager::prune_history(&mut conv, 4);
+
+        assert_eq!(conv[0].role, Role::System);
+        assert_eq!(conv[1].role, Role::User);
+        assert_eq!(conv.len(), 4);
+        assert!(conv.iter().any(|m| m.role == Role::User));
     }
 }

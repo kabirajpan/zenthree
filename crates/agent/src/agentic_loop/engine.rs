@@ -27,23 +27,47 @@ use crate::types::event::{AgentEvent, ProviderEvent};
 use crate::types::message::{Message, ToolCall};
 use crate::verification::VerificationRunner;
 
+use std::sync::Arc;
+use crate::skills::SkillRegistry;
+
 /// The main autonomous agent orchestrator tying Provider, Tools, and Conversation together.
 pub struct Agent {
     provider: Box<dyn Provider>,
     tools: ToolRegistry,
     conversation: Vec<Message>,
     config: AgentConfig,
+    skills: Arc<SkillRegistry>,
 }
 
 impl Agent {
     /// Create a new agent with a provider and tool registry.
+    /// Automatically discovers built-in and workspace skills.
     pub fn new(provider: Box<dyn Provider>, tools: ToolRegistry) -> Self {
+        let cwd = std::env::current_dir().unwrap_or_default();
+        Self::with_workspace(provider, tools, cwd)
+    }
+
+    /// Create an agent initialized for a specific workspace root, discovering project skills.
+    pub fn with_workspace(
+        provider: Box<dyn Provider>,
+        mut tools: ToolRegistry,
+        workspace: impl AsRef<std::path::Path>,
+    ) -> Self {
+        let skills_report = crate::skills::discover(workspace).unwrap_or_default();
+        let skills = Arc::new(skills_report.registry);
+        tools.register(crate::tools::ActivateSkillTool::new(skills.clone()));
         Self {
             provider,
             tools,
             conversation: Vec::new(),
             config: AgentConfig::default(),
+            skills,
         }
+    }
+
+    /// Read-only reference to the discovered skill registry.
+    pub fn skills(&self) -> &SkillRegistry {
+        &self.skills
     }
 
     /// Set a custom configuration for this agent.
