@@ -9,9 +9,7 @@ pub mod extensions;
 pub mod lsp;
 
 use state::ZenthreeState;
-use theme::ThemeMode;
 use zenthra::prelude::*;
-use zenthra::Id;
 
 fn main() {
     dotenvy::dotenv().ok();
@@ -76,11 +74,10 @@ fn main() {
                 ui.request_redraw_after(std::time::Duration::from_millis(50));
             }
 
-            // Expose the active theme flag to interaction_state so widgets can read it
-            let theme_val = if state.theme == ThemeMode::Light { 1.0 } else { 0.0 };
-            ui.interaction_state.insert(Id::from_u64(999999999), theme_val);
-
             let colors = state.colors();
+
+            // Sync full ThemeColors into UI interaction_state so menus, dropdowns, and widgets match active theme
+            crate::theme::sync_theme_to_ui(ui, state.theme, &colors);
 
             // Provide reactive ThemeColors to the UI tree via Context API
             provide_context(colors);

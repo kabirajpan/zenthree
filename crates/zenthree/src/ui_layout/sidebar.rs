@@ -64,8 +64,8 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
             ui.request_redraw();
         }
 
-        // Keep cursor blinking smoothly
-        ui.request_redraw();
+        // Keep cursor blinking smoothly without spinning the CPU
+        ui.request_redraw_after(std::time::Duration::from_millis(500));
     } else if state.tree_context_menu.is_none() {
         // F2 shortcut for rename on selected item
         if let Some(ref selected_path) = state.selected_sidebar_path.clone() {

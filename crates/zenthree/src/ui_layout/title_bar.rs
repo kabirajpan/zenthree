@@ -4,6 +4,7 @@ use zenthra::{Color, Ui, FontWeight, Align, Id};
 
 pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
     let colors = state.colors();
+    crate::theme::sync_theme_to_ui(ui, state.theme, &colors);
 
     // Reset hover flag for menus in title bar since we do not use menu_bar wrapper
     let hover_flag_key = Id::from_u64(999999902);

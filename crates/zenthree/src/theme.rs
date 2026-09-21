@@ -1,4 +1,4 @@
-use zenthra::{Color, ImageSource};
+use zenthra::{Color, ImageSource, Id, Ui};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum ThemeMode {
@@ -91,6 +91,38 @@ impl ThemeColors {
             },
         }
     }
+}
+
+/// Syncs full ThemeColors into `ui.interaction_state` so all framework widgets (including menus, dropdowns, and submenus)
+/// reflect the active theme, background panels, borders, and accent highlights without defaulting to black or yellow.
+pub fn sync_theme_to_ui(ui: &mut Ui, mode: ThemeMode, colors: &ThemeColors) {
+    let is_light = mode == ThemeMode::Light;
+
+    // Theme mode flag (1.0 = Light, 0.0 = Dark) for zenthra-widgets
+    ui.interaction_state.insert(Id::from_u64(999999999), if is_light { 1.0 } else { 0.0 });
+    // Glassmorphism flag (0.0 = solid, crisp menu dropdown panels)
+    ui.interaction_state.insert(Id::from_u64(999999998), 0.0);
+
+    let mut set_color = |base_id: u64, color: Color| {
+        let [r, g, b, a] = color.to_array();
+        ui.interaction_state.insert(Id::from_u64(base_id), r);
+        ui.interaction_state.insert(Id::from_u64(base_id + 1), g);
+        ui.interaction_state.insert(Id::from_u64(base_id + 2), b);
+        ui.interaction_state.insert(Id::from_u64(base_id + 3), a);
+    };
+
+    // 999999980: theme_accent (e.g. blue, green, red, purple, orange, etc.)
+    set_color(999999980, colors.accent);
+    // 999999970: theme_highlight (hover background on menu items and top menu bar)
+    set_color(999999970, colors.highlight);
+    // 999999960: theme_text_primary
+    set_color(999999960, colors.text_primary);
+    // 999999950: theme_text_muted (shortcuts, secondary text)
+    set_color(999999950, colors.text_muted);
+    // 999999940: theme_bg_panel (dropdown popup panel background)
+    set_color(999999940, if is_light { Color::WHITE } else { colors.bg_sidebar });
+    // 999999930: theme_border (dropdown popup panel border)
+    set_color(999999930, colors.border);
 }
 
 pub const ICON_THEME_OPTIONS: &[(&str, &str)] = &[
