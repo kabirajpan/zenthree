@@ -31,6 +31,7 @@ dependencies = [
  "reqwest",
  "serde",
  "serde_json",
+ "serde_yaml",
 ]
 
 [[package]]
@@ -3597,6 +3598,19 @@ dependencies = [
 ]
 
 [[package]]
+name = "serde_yaml"
+version = "0.9.34+deprecated"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "6a8b1a1a2ebf674015cc02edccce75287f1a0130d394307b36743c2f5d504b47"
+dependencies = [
+ "indexmap",
+ "itoa",
+ "ryu",
+ "serde",
+ "unsafe-libyaml",
+]
+
+[[package]]
 name = "serial2"
 version = "0.2.38"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -4406,6 +4420,12 @@ name = "unicode-width"
 version = "0.2.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "b4ac048d71ede7ee76d585517add45da530660ef4390e49b098733c6e897f254"
+
+[[package]]
+name = "unsafe-libyaml"
+version = "0.2.11"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "673aac59facbab8a9007c7f6108d11f63b603f7cabff99fabf650fea5c32b861"
 
 [[package]]
 name = "untrusted"
@@ -5463,7 +5483,7 @@ checksum = "6df3dc4292935e51816d896edcd52aa30bc297907c26167fec31e2b0c6a32524"
 
 [[package]]
 name = "zenthra"
-version = "0.2.4"
+version = "0.2.3"
 dependencies = [
  "bytemuck",
  "log",
@@ -5483,7 +5503,7 @@ dependencies = [
 
 [[package]]
 name = "zenthra-animation"
-version = "0.2.4"
+version = "0.2.3"
 dependencies = [
  "glam",
  "zenthra-core",
@@ -5492,7 +5512,7 @@ dependencies = [
 
 [[package]]
 name = "zenthra-core"
-version = "0.2.4"
+version = "0.2.3"
 dependencies = [
  "bytemuck",
  "glam",
@@ -5503,7 +5523,7 @@ dependencies = [
 
 [[package]]
 name = "zenthra-input"
-version = "0.2.4"
+version = "0.2.3"
 dependencies = [
  "glam",
  "winit",
@@ -5512,7 +5532,7 @@ dependencies = [
 
 [[package]]
 name = "zenthra-layout"
-version = "0.2.4"
+version = "0.2.3"
 dependencies = [
  "glam",
  "taffy",
@@ -5521,7 +5541,7 @@ dependencies = [
 
 [[package]]
 name = "zenthra-platform"
-version = "0.2.4"
+version = "0.2.3"
 dependencies = [
  "android-activity",
  "glam",
@@ -5536,7 +5556,7 @@ dependencies = [
 
 [[package]]
 name = "zenthra-render"
-version = "0.2.4"
+version = "0.2.3"
 dependencies = [
  "bytemuck",
  "glam",
@@ -5550,7 +5570,7 @@ dependencies = [
 
 [[package]]
 name = "zenthra-state"
-version = "0.2.4"
+version = "0.2.3"
 dependencies = [
  "log",
  "zenthra-core",
@@ -5558,7 +5578,7 @@ dependencies = [
 
 [[package]]
 name = "zenthra-text"
-version = "0.2.4"
+version = "0.2.3"
 dependencies = [
  "bytemuck",
  "cosmic-text",
@@ -5574,7 +5594,7 @@ dependencies = [
 
 [[package]]
 name = "zenthra-theme"
-version = "0.2.4"
+version = "0.2.3"
 dependencies = [
  "glam",
  "zenthra-core",
@@ -5582,7 +5602,7 @@ dependencies = [
 
 [[package]]
 name = "zenthra-widgets"
-version = "0.2.4"
+version = "0.2.3"
 dependencies = [
  "arboard",
  "glam",

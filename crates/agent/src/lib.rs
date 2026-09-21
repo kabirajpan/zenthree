@@ -2,6 +2,7 @@ pub mod agentic_loop;
 pub mod context;
 pub mod orchestrator;
 pub mod provider;
+pub mod skills;
 pub mod tools;
 pub mod traits;
 pub mod types;
