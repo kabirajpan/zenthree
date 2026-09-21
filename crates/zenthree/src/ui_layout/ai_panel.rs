@@ -150,6 +150,7 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                             if reset_btn.clicked {
                                 state.ai_messages.clear();
                                 state.ai_session_json = None;
+                                state.ai_block_cache.clear();
                                 ui.needs_redraw = true;
                             }
 
@@ -371,25 +372,17 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                         }
                                     });
                             } else {
-                                // ─── Assistant Message (Left-aligned, rich markdown preview) ───
-                                let bubble_max_w = (ai_panel_w - 28.0).max(80.0);
-                                let ai_text_w = (bubble_max_w - 20.0).max(60.0);
+                                // ─── Assistant Message (full-width, native background, no bubble) ───
+                                let ai_text_w = (ai_panel_w - 24.0).max(60.0);
+                                let code_box_w = ai_text_w.max(50.0);
 
                                 ui.container()
                                     .full_width()
-                                    .row()
-                                    .halign(Align::Left)
+                                    .id(bubble_id)
+                                    .padding(6.0, 12.0, 4.0, 12.0)
+                                    .column()
+                                    .gap(5.0)
                                     .show(|ui| {
-                                        ui.container()
-                                            .id(bubble_id)
-                                            .max_width(bubble_max_w)
-                                            .padding(8.0, 10.0, 6.0, 10.0)
-                                            .bg(colors.bg_sidebar.with_alpha(0.55))
-                                            .border(colors.border.with_alpha(0.5), 0.5)
-                                            .radius_all(10.0)
-                                            .column()
-                                            .gap(6.0)
-                                            .show(|ui| {
                                                 if is_thinking {
                                                     let status_label = if full_text.starts_with("🔧") {
                                                         full_text.trim_start_matches("🔧").trim()
@@ -417,7 +410,22 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                                                 .show();
                                                         });
                                                 } else {
-                                                    let blocks = parse_markdown_blocks(full_text);
+                                                    // ── Cache: parse once, reuse every frame ──────────────
+                                                    let content_hash = {
+                                                        use std::hash::{Hash, Hasher};
+                                                        let mut h = std::collections::hash_map::DefaultHasher::new();
+                                                        full_text.hash(&mut h);
+                                                        h.finish()
+                                                    };
+                                                    if !state.ai_block_cache.contains_key(&content_hash) {
+                                                        let parsed = parse_markdown_blocks(full_text);
+                                                        state.ai_block_cache.insert(content_hash, Box::new(parsed));
+                                                    }
+                                                    let blocks = state.ai_block_cache
+                                                        .get(&content_hash)
+                                                        .and_then(|b| b.downcast_ref::<Vec<MarkdownBlock>>())
+                                                        .map(|v| v.as_slice())
+                                                        .unwrap_or(&[]);
                                                     for (block_idx, block) in blocks.iter().enumerate() {
                                                         match block {
                                                             MarkdownBlock::Heading { level, text } => {
@@ -492,7 +500,6 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                                                     .unwrap_or(false);
 
                                                                 let lang_display = lang.as_deref().unwrap_or("code").to_uppercase();
-                                                                let code_box_w = ai_text_w.max(50.0);
 
                                                                 ui.container()
                                                                     .width(code_box_w)
@@ -573,20 +580,18 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                                             }
                                                         }
                                                     }
-                                                }
 
-                                                // Footer row with message copy button
-                                                if !is_thinking {
+                                                    // ── Footer: copy button pinned right ──────────────
                                                     ui.container()
-                                                        .width(ai_text_w)
+                                                        .full_width()
                                                         .row()
                                                         .halign(Align::Right)
                                                         .valign(Align::Center)
-                                                        .gap(6.0)
+                                                        .padding_top(2.0)
                                                         .show(|ui| {
                                                             let copy_btn = ui.container()
                                                                 .id(copy_btn_id)
-                                                                .padding(2.0, 4.0, 2.0, 4.0)
+                                                                .padding(2.0, 5.0, 2.0, 5.0)
                                                                 .radius_all(4.0)
                                                                 .hover_bg(colors.highlight)
                                                                 .row()
@@ -594,8 +599,8 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                                                 .gap(3.0)
                                                                 .show(|ui| {
                                                                     ui.text(if is_copied { "\u{f00c}" } else { "\u{f0c5}" })
-                                                                        .size(9.5)
-                                                                        .color(if is_copied { colors.accent } else { colors.text_muted })
+                                                                        .size(9.0)
+                                                                        .color(if is_copied { colors.accent } else { colors.text_muted.with_alpha(0.6) })
                                                                         .show();
                                                                     if is_copied {
                                                                         ui.text("Copied")
@@ -615,10 +620,9 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                                 }
                                             });
 
-                                        if copy_clicked {
-                                            copy_target_idx = Some(msg_idx);
-                                        }
-                                    });
+                                if copy_clicked {
+                                    copy_target_idx = Some(msg_idx);
+                                }
                             }
                         }
 

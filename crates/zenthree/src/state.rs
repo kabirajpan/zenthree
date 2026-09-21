@@ -263,6 +263,9 @@ pub struct ZenthreeState {
     pub ai_response_rx: Option<std::sync::mpsc::Receiver<AiUiUpdate>>,
     pub copied_ai_msg: Option<(usize, std::time::Instant)>,
     pub copied_ai_code_id: Option<(u64, std::time::Instant)>,
+    /// Render-side markdown parse cache: maps a FNV hash of message content → pre-parsed blocks.
+    /// Stored as `Box<dyn Any>` so this module stays free of the `MarkdownBlock` type.
+    pub ai_block_cache: std::collections::HashMap<u64, Box<dyn std::any::Any + Send + Sync>>,
 }
 
 impl ZenthreeState {
@@ -380,6 +383,7 @@ impl ZenthreeState {
             ai_response_rx: None,
             copied_ai_msg: None,
             copied_ai_code_id: None,
+            ai_block_cache: std::collections::HashMap::new(),
         };
 
         // Restore previous session preferences (theme, accent, extensions, etc.)
@@ -1623,11 +1627,27 @@ impl ZenthreeState {
                         match update {
                             AiUiUpdate::Status(status) => {
                                 if let Some(last) = self.ai_messages.iter_mut().rev().find(|m| !m.is_user) {
+                                    // Evict old cached blocks before overwriting content
+                                    let old_hash = {
+                                        use std::hash::{Hash, Hasher};
+                                        let mut h = std::collections::hash_map::DefaultHasher::new();
+                                        last.content.hash(&mut h);
+                                        h.finish()
+                                    };
+                                    self.ai_block_cache.remove(&old_hash);
                                     last.content = status;
                                 }
                             }
                             AiUiUpdate::Done { reply, session_json } => {
                                 if let Some(last) = self.ai_messages.iter_mut().rev().find(|m| !m.is_user) {
+                                    // Evict stale cache entry
+                                    let old_hash = {
+                                        use std::hash::{Hash, Hasher};
+                                        let mut h = std::collections::hash_map::DefaultHasher::new();
+                                        last.content.hash(&mut h);
+                                        h.finish()
+                                    };
+                                    self.ai_block_cache.remove(&old_hash);
                                     last.content = reply;
                                 } else {
                                     self.ai_messages.push(AiMessage {
