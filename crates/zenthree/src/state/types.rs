@@ -11,6 +11,24 @@ pub struct EditorTab {
     pub shaping_cache:
         std::collections::HashMap<usize, (String, zenthra_text::prelude::ShapedBuffer)>,
     pub version: u64,
+    pub lines_added: usize,
+    pub lines_removed: usize,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DiffHunk {
+    pub start_line: usize,          // 0-indexed line where hunk starts in new buffer
+    pub removed_lines: Vec<String>, // Old lines that were replaced
+    pub added_lines_count: usize,   // Number of new lines in current buffer
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FileDiffReview {
+    pub path: PathBuf,
+    pub original_content: String,
+    pub is_new_file: bool,
+    pub hunks: Vec<DiffHunk>,
+    pub active_hunk_idx: usize,
 }
 
 #[derive(Debug, Clone, PartialEq)]

@@ -305,8 +305,8 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                 estimated_h
             };
 
-            // Dock height: inner padding (12) + gap (4) + send row (22) + outer dock padding (14) = prompt_box_h + 52.0
-            let dock_total_h = prompt_box_h + 52.0;
+            // Dock height: inner padding (12) + gap (4) + send row (22) + top toolbar (24) + outer dock padding (14) = prompt_box_h + 76.0
+            let dock_total_h = prompt_box_h + 76.0;
             let msgs_h = (height - HEADER_H - 1.0 - dock_total_h).max(30.0);
 
             // ─── Messages Scroll Area ────────────────────────────────────
@@ -1069,6 +1069,118 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                         colors.border.with_alpha(0.4)
                     };
 
+                    // ─── Top Toolbar: Left (File, Terminal, Inbox, Chrome) + Right (Review Changes) ──
+                    ui.container()
+                        .full_width()
+                        .height(20.0)
+                        .padding(0.0, 2.0, 4.0, 2.0)
+                        .row()
+                        .halign(Align::SpaceBetween)
+                        .valign(Align::Center)
+                        .show(|ui| {
+                            // Left quick icons
+                            ui.container()
+                                .row()
+                                .valign(Align::Center)
+                                .gap(8.0)
+                                .show(|ui| {
+                                    // 1. File icon
+                                    let file_id = Id::from_u64(999999860);
+                                    ui.container()
+                                        .id(file_id)
+                                        .clickable(true)
+                                        .padding(2.0, 3.0, 2.0, 3.0)
+                                        .radius_all(3.0)
+                                        .hover_bg(colors.highlight)
+                                        .show(|ui| {
+                                            ui.text("\u{f15c}") // File text icon
+                                                .size(12.5)
+                                                .color(colors.text_muted)
+                                                .show();
+                                        });
+
+                                    // 2. Terminal icon
+                                    let term_id = Id::from_u64(999999861);
+                                    ui.container()
+                                        .id(term_id)
+                                        .clickable(true)
+                                        .padding(2.0, 3.0, 2.0, 3.0)
+                                        .radius_all(3.0)
+                                        .hover_bg(colors.highlight)
+                                        .show(|ui| {
+                                            ui.text("\u{f120}") // Terminal prompt
+                                                .size(11.5)
+                                                .color(colors.text_muted)
+                                                .show();
+                                        });
+
+                                    // 3. Inbox / context icon with blue indicator dot
+                                    let inbox_id = Id::from_u64(999999862);
+                                    ui.container()
+                                        .id(inbox_id)
+                                        .clickable(true)
+                                        .padding(2.0, 3.0, 2.0, 3.0)
+                                        .radius_all(3.0)
+                                        .hover_bg(colors.highlight)
+                                        .row()
+                                        .valign(Align::Center)
+                                        .gap(1.0)
+                                        .show(|ui| {
+                                            ui.text("\u{f2d0}") // Window / inbox icon
+                                                .size(12.0)
+                                                .color(colors.text_muted)
+                                                .show();
+                                            // Blue indicator dot
+                                            ui.container()
+                                                .width(4.5)
+                                                .height(4.5)
+                                                .radius_all(2.25)
+                                                .bg(Color { r: 59.0 / 255.0, g: 130.0 / 255.0, b: 246.0 / 255.0, a: 1.0 })
+                                                .show(|_| {});
+                                        });
+
+                                    // 4. Chrome / Browser icon
+                                    let chrome_id = Id::from_u64(999999863);
+                                    ui.container()
+                                        .id(chrome_id)
+                                        .clickable(true)
+                                        .padding(2.0, 3.0, 2.0, 3.0)
+                                        .radius_all(3.0)
+                                        .hover_bg(colors.highlight)
+                                        .show(|ui| {
+                                            ui.text("\u{f268}") // Chrome logo
+                                                .size(12.5)
+                                                .color(colors.text_muted)
+                                                .show();
+                                        });
+                                });
+
+                            // Right: Review Changes pill button
+                            let review_id = Id::from_u64(999999864);
+                            ui.container()
+                                .id(review_id)
+                                .clickable(true)
+                                .padding(2.5, 8.0, 2.5, 8.0)
+                                .radius_all(5.0)
+                                .bg(colors.bg_sidebar)
+                                .border(colors.border.with_alpha(0.6), 1.0)
+                                .hover_bg(colors.highlight)
+                                .row()
+                                .valign(Align::Center)
+                                .gap(5.0)
+                                .show(|ui| {
+                                    ui.text("\u{f0c5}")
+                                        .size(10.0)
+                                        .color(colors.text_muted)
+                                        .show();
+                                    ui.text("Review Changes")
+                                        .size(10.5)
+                                        .weight(FontWeight::Medium)
+                                        .color(colors.text_primary)
+                                        .show();
+                                });
+                        });
+
                     let input_box = ui.container()
                         .full_width()
                         .bg(colors.bg_base)
@@ -1107,8 +1219,8 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                             }
 
                             // Text area
-                            let placeholder = if ai_panel_w >= 280.0 {
-                                "Ask assistant... (Enter to send)"
+                            let placeholder = if ai_panel_w >= 240.0 {
+                                "Ask anything, @ to mention, / for actions"
                             } else {
                                 "Ask..."
                             };

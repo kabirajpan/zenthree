@@ -40,6 +40,8 @@ impl ZenthreeState {
                 scroll_y: 0.0,
                 shaping_cache: std::collections::HashMap::new(),
                 version: 0,
+                lines_added: 0,
+                lines_removed: 0,
             });
             self.active_tab = Some(self.tabs.len() - 1);
             self.status_message = format!("Opened file: {}", path.display());
@@ -323,6 +325,8 @@ impl ZenthreeState {
             scroll_y: 0.0,
             shaping_cache: std::collections::HashMap::new(),
             version: 0,
+            lines_added: 0,
+            lines_removed: 0,
         });
         self.active_tab = Some(self.tabs.len() - 1);
         self.status_message = "New untitled file created".to_string();

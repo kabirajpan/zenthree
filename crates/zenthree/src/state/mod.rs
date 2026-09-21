@@ -91,6 +91,8 @@ pub struct ZenthreeState {
 
     pub selected_ai_model: AiModel,
     pub ai_model_menu_open: bool,
+    pub pending_reviews: Vec<FileDiffReview>,
+    pub active_review_idx: Option<usize>,
 }
 
 impl ZenthreeState {
@@ -208,6 +210,8 @@ impl ZenthreeState {
             ai_block_cache: std::collections::HashMap::new(),
             selected_ai_model: AiModel::default(),
             ai_model_menu_open: false,
+            pending_reviews: Vec::new(),
+            active_review_idx: None,
         };
 
         // Restore previous session preferences (theme, accent, extensions, etc.)
@@ -242,6 +246,92 @@ impl ZenthreeState {
             state.rebuild_tree();
         }
         state
+    }
+
+    pub fn active_review(&self) -> Option<&FileDiffReview> {
+        self.active_review_idx.and_then(|idx| self.pending_reviews.get(idx))
+    }
+
+    pub fn accept_current_review(&mut self) {
+        if let Some(idx) = self.active_review_idx {
+            if idx < self.pending_reviews.len() {
+                let rev = self.pending_reviews.remove(idx);
+                for tab in &mut self.tabs {
+                    if tab.path.as_ref() == Some(&rev.path) {
+                        tab.lines_added = 0;
+                        tab.lines_removed = 0;
+                        tab.is_dirty = false;
+                    }
+                }
+                if self.pending_reviews.is_empty() {
+                    self.active_review_idx = None;
+                } else {
+                    let next_idx = idx.min(self.pending_reviews.len() - 1);
+                    self.active_review_idx = Some(next_idx);
+                    let next_path = self.pending_reviews[next_idx].path.clone();
+                    self.open_file(&next_path);
+                }
+            }
+        }
+    }
+
+    pub fn reject_current_review(&mut self) {
+        if let Some(idx) = self.active_review_idx {
+            if idx < self.pending_reviews.len() {
+                let rev = self.pending_reviews.remove(idx);
+                if rev.is_new_file {
+                    let _ = std::fs::remove_file(&rev.path);
+                    if let Some(tab_idx) = self.tabs.iter().position(|t| t.path.as_ref() == Some(&rev.path)) {
+                        self.close_tab(tab_idx);
+                    }
+                } else {
+                    let _ = std::fs::write(&rev.path, &rev.original_content);
+                    for tab in &mut self.tabs {
+                        if tab.path.as_ref() == Some(&rev.path) {
+                            tab.editor = ::editor::editor::Editor::new(::editor::buffer::Buffer::from_text(&rev.original_content));
+                            tab.shaping_cache.clear();
+                            tab.lines_added = 0;
+                            tab.lines_removed = 0;
+                            tab.is_dirty = false;
+                            tab.version += 1;
+                        }
+                    }
+                }
+                if self.pending_reviews.is_empty() {
+                    self.active_review_idx = None;
+                } else {
+                    let next_idx = idx.min(self.pending_reviews.len() - 1);
+                    self.active_review_idx = Some(next_idx);
+                    let next_path = self.pending_reviews[next_idx].path.clone();
+                    self.open_file(&next_path);
+                }
+            }
+        }
+    }
+
+    pub fn next_review_file(&mut self) {
+        if !self.pending_reviews.is_empty() {
+            let next = match self.active_review_idx {
+                Some(idx) => (idx + 1) % self.pending_reviews.len(),
+                None => 0,
+            };
+            self.active_review_idx = Some(next);
+            let path = self.pending_reviews[next].path.clone();
+            self.open_file(&path);
+        }
+    }
+
+    pub fn prev_review_file(&mut self) {
+        if !self.pending_reviews.is_empty() {
+            let prev = match self.active_review_idx {
+                Some(0) => self.pending_reviews.len() - 1,
+                Some(idx) => idx - 1,
+                None => 0,
+            };
+            self.active_review_idx = Some(prev);
+            let path = self.pending_reviews[prev].path.clone();
+            self.open_file(&path);
+        }
     }
 
     pub fn colors(&self) -> ThemeColors {
@@ -509,4 +599,106 @@ mod tests {
             _ => panic!("Expected FileEdit"),
         }
     }
+
+    #[test]
+    fn test_editor_tab_diff_line_tracking() {
+        let mut state = ZenthreeState::default();
+        state.tabs.clear();
+        state.new_untitled_file();
+        assert_eq!(state.tabs.len(), 1);
+        assert_eq!(state.tabs[0].lines_added, 0);
+        assert_eq!(state.tabs[0].lines_removed, 0);
+
+        // Simulate file edit with grouped diff
+        let diff = agent::context::GroupedDiff::from_replacement(
+            "old line 1\nold line 2\nold line 3",
+            "new line 1\nnew line 2\nnew line 3",
+        );
+        assert_eq!(diff.lines_removed, 3);
+        assert_eq!(diff.lines_added, 3);
+        assert_eq!(
+            diff.formatted,
+            "- old line 1\n- old line 2\n- old line 3\n+ new line 1\n+ new line 2\n+ new line 3\n"
+        );
+
+        state.tabs[0].lines_added += diff.lines_added;
+        state.tabs[0].lines_removed += diff.lines_removed;
+
+        assert_eq!(state.tabs[0].lines_added, 3);
+        assert_eq!(state.tabs[0].lines_removed, 3);
+    }
+
+    #[test]
+    fn test_file_diff_review_lifecycle() {
+        let mut state = ZenthreeState::default();
+        state.tabs.clear();
+
+        let path1 = std::path::PathBuf::from("/tmp/test1.rs");
+        let path2 = std::path::PathBuf::from("/tmp/test2.rs");
+
+        // Set up tab 1 with original content
+        state.tabs.push(crate::state::EditorTab {
+            name: "test1.rs".to_string(),
+            path: Some(path1.clone()),
+            editor: ::editor::editor::Editor::new(::editor::buffer::Buffer::from_text("line 1\nnew edited line 2\nline 3")),
+            is_dirty: false,
+            version: 1,
+            scroll_y: 0.0,
+            shaping_cache: std::collections::HashMap::new(),
+            lines_added: 1,
+            lines_removed: 1,
+        });
+        state.active_tab = Some(0);
+
+        // Add pending review 1
+        state.pending_reviews.push(crate::state::FileDiffReview {
+            path: path1.clone(),
+            original_content: "line 1\nold line 2\nline 3".to_string(),
+            is_new_file: false,
+            hunks: vec![crate::state::DiffHunk {
+                start_line: 1,
+                removed_lines: vec!["old line 2".to_string()],
+                added_lines_count: 1,
+            }],
+            active_hunk_idx: 0,
+        });
+
+        // Add pending review 2 (new file)
+        state.pending_reviews.push(crate::state::FileDiffReview {
+            path: path2.clone(),
+            original_content: String::new(),
+            is_new_file: true,
+            hunks: vec![crate::state::DiffHunk {
+                start_line: 0,
+                removed_lines: Vec::new(),
+                added_lines_count: 2,
+            }],
+            active_hunk_idx: 0,
+        });
+        state.active_review_idx = Some(0);
+
+        assert_eq!(state.pending_reviews.len(), 2);
+        assert_eq!(state.active_review().unwrap().path, path1);
+
+        // Test review navigation
+        state.next_review_file();
+        assert_eq!(state.active_review_idx, Some(1));
+        assert_eq!(state.active_review().unwrap().path, path2);
+
+        state.prev_review_file();
+        assert_eq!(state.active_review_idx, Some(0));
+        assert_eq!(state.active_review().unwrap().path, path1);
+
+        // Test Reject on review 1: restores original content
+        state.reject_current_review();
+        assert_eq!(state.tabs[0].editor.buffer.to_string(), "line 1\nold line 2\nline 3");
+        assert_eq!(state.pending_reviews.len(), 1);
+        assert_eq!(state.pending_reviews[0].path, path2);
+
+        // Test Accept on remaining review
+        state.accept_current_review();
+        assert_eq!(state.pending_reviews.len(), 0);
+        assert_eq!(state.active_review_idx, None);
+    }
 }
+

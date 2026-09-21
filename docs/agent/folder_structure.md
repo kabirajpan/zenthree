@@ -83,7 +83,7 @@ crates/agent/src/
 | Flow Node | Status | Progress / Details |
 |---|---|---|
 | **Request** | ✅ COMPLETED | Entry via `lib.rs` (`create_agent`, `create_agent_for_model`, `create_agent_for_model_and_workspace`). |
-| **Context Engine** | ⚠️ IN PROGRESS | `context/pruner.rs` completed (prune, sanitize, historical compaction, 413 auto-prune, user query preservation). Next: `workspace.rs`, `git_context.rs`. |
+| **Context Engine** | ✅ COMPLETED | `context/pruner.rs` (prune, sanitize, historical compaction, 413 auto-prune, user query preservation), `context/workspace.rs` (open files, active cursor slice, tab injection), `context/git_context.rs` (branch, status, diff stat), and `context/diff.rs` (grouped block diffs). |
 | **Orchestrator** | ✅ COMPLETED | `orchestrator/` + `agentic_loop/engine.rs` completed with non-blocking stream and cancellation tokens. |
 | **Skills** | ✅ COMPLETED | 3-tier language-agnostic skill engine (`Global` built-in, `User` home, `Project` workspace). 6 core skills in `assets/agent/zene/skills/` embedded into binary via `include_str!`, plus `activate_skill` tool and IDE chat runtime wiring. |
 | **Model (API call)** | ✅ COMPLETED | Gemini & Groq streaming with tool schemas. |
@@ -108,11 +108,12 @@ crates/agent/src/
 │   ├── mod.rs
 │   └── engine.rs                  ← core run() loop with cancellation, 413 retry & workspace skills
 │
-├── context/                       ← [IN PROGRESS]
+├── context/                       ← [COMPLETED]
 │   ├── mod.rs
 │   ├── pruner.rs                  ← [COMPLETED] history pruning, sanitize_tool_result, compaction, 413 auto-prune, user query preservation
-│   ├── workspace.rs               ← [PENDING - NEXT] open files, active cursor slice, project directory injection
-│   └── git_context.rs             ← [PENDING - NEXT] git status/diff injected into system prompt
+│   ├── workspace.rs               ← [COMPLETED] open files, active cursor slice, project directory injection
+│   ├── git_context.rs             ← [COMPLETED] git status/diff injected into system prompt
+│   └── diff.rs                    ← [COMPLETED] grouped block diff formatter (- chunk then + chunk)
 │
 ├── orchestrator/                  ← [COMPLETED]
 │   ├── mod.rs

@@ -233,6 +233,8 @@ impl ZenthreeState {
                                     scroll_y: 0.0,
                                     shaping_cache: std::collections::HashMap::new(),
                                     version: 0,
+                                    lines_added: 0,
+                                    lines_removed: 0,
                                     });
                             }
                         }

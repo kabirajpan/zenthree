@@ -139,6 +139,21 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                                         .color(text_color)
                                         .show();
 
+                                    let lines_added = state.tabs[idx].lines_added;
+                                    let lines_removed = state.tabs[idx].lines_removed;
+                                    if lines_added > 0 {
+                                        ui.text(&format!("+{}", lines_added))
+                                            .size(9.5)
+                                            .color(Color { r: 74.0 / 255.0, g: 222.0 / 255.0, b: 128.0 / 255.0, a: 1.0 })
+                                            .show();
+                                    }
+                                    if lines_removed > 0 {
+                                        ui.text(&format!("-{}", lines_removed))
+                                            .size(9.5)
+                                            .color(Color { r: 248.0 / 255.0, g: 113.0 / 255.0, b: 113.0 / 255.0, a: 1.0 })
+                                            .show();
+                                    }
+
                                     if tab_is_dirty {
                                         ui.container()
                                             .width(5.0)
@@ -426,6 +441,11 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                     let mut paste_action = false;
                     let mut undo_action = false;
                     let mut redo_action = false;
+                    let mut accept_review_action = false;
+                    let mut reject_review_action = false;
+                    let mut next_hunk_action = false;
+                    let mut prev_hunk_action = false;
+                    let has_active_review = state.active_review().is_some();
                     let is_focused = ui.focused_id == Some(editor_id);
                     if is_focused {
                         ui.request_redraw_after(std::time::Duration::from_millis(250));
@@ -580,15 +600,23 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                                                 }
                                             }
                                             winit::keyboard::KeyCode::Backspace => {
-                                                tab.editor.backspace();
-                                                changed = true;
+                                                if state.ctrl_pressed && has_active_review {
+                                                    reject_review_action = true;
+                                                    changed = true;
+                                                } else {
+                                                    tab.editor.backspace();
+                                                    changed = true;
+                                                }
                                             }
                                             winit::keyboard::KeyCode::Delete => {
                                                 tab.editor.delete();
                                                 changed = true;
                                             }
                                             winit::keyboard::KeyCode::Enter => {
-                                                if state.completion_active && !state.completion_items.is_empty() {
+                                                if state.ctrl_pressed && has_active_review {
+                                                    accept_review_action = true;
+                                                    changed = true;
+                                                } else if state.completion_active && !state.completion_items.is_empty() {
                                                     if let Some(item) = state.completion_items.get(state.completion_selected_idx) {
                                                         let to_insert = item.insert_text.as_deref().unwrap_or(&item.label);
                                                         tab.editor.insert(to_insert, tab.path.as_deref(), Some(&state.indent_calc));
@@ -600,6 +628,14 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                                                     tab.editor.insert("\n", tab.path.as_deref(), Some(&state.indent_calc));
                                                     changed = true;
                                                 }
+                                            }
+                                            winit::keyboard::KeyCode::KeyJ if state.alt_pressed => {
+                                                next_hunk_action = true;
+                                                changed = true;
+                                            }
+                                            winit::keyboard::KeyCode::KeyK if state.alt_pressed => {
+                                                prev_hunk_action = true;
+                                                changed = true;
                                             }
                                             winit::keyboard::KeyCode::Tab => {
                                                 if state.completion_active && !state.completion_items.is_empty() {
@@ -772,6 +808,32 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                         state.format_active_tab();
                         ui.request_redraw();
                     }
+                    if accept_review_action {
+                        state.accept_current_review();
+                        ui.request_redraw();
+                    } else if reject_review_action {
+                        state.reject_current_review();
+                        ui.request_redraw();
+                    } else if next_hunk_action || prev_hunk_action {
+                        if let Some(rev_idx) = state.active_review_idx {
+                            if let Some(rev) = state.pending_reviews.get_mut(rev_idx) {
+                                if !rev.hunks.is_empty() {
+                                    let target_idx = if prev_hunk_action {
+                                        if rev.active_hunk_idx == 0 { rev.hunks.len() - 1 } else { rev.active_hunk_idx - 1 }
+                                    } else {
+                                        (rev.active_hunk_idx + 1) % rev.hunks.len()
+                                    };
+                                    rev.active_hunk_idx = target_idx;
+                                    let target_line = rev.hunks[target_idx].start_line;
+                                    if let Some(tab) = state.tabs.get_mut(active_tab_idx) {
+                                        tab.editor.set_cursor(Point::new(target_line, 0));
+                                    }
+                                    auto_scroll_to_cursor = true;
+                                    ui.request_redraw();
+                                }
+                            }
+                        }
+                    }
 
                     // Layout positions
                     let editor_x = ui.cursor_x;
@@ -856,6 +918,17 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                     }
 
                     let mut active_cursor_screen_pos: Option<[f32; 2]> = None;
+                    let mut trigger_accept_hunk = false;
+                    let mut trigger_reject_hunk = false;
+                    let active_review_info = if let Some(rev) = state.active_review() {
+                        if state.tabs.get(active_tab_idx).and_then(|t| t.path.as_ref()) == Some(&rev.path) {
+                            Some((rev.hunks.clone(), rev.is_new_file))
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    };
 
                     // Container wrapper - not scrollable, but clips
                     ui.container()
@@ -888,13 +961,158 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                                 }));
                             }
 
-                            // 3. Draw lines of text, selection, and cursor
+
+
                             if let Some(fs) = ui.font_system.as_ref() {
                                 let mut adapter = CosmicFontProvider::new_with_system(fs.clone());
                                 adapter.set_layout_size(10000.0, 10000.0);
 
                                 for i in visible_start..visible_end {
                                     let line_y = editor_y + (i as f32) * line_height_pixels - scroll_y;
+
+                                    let mut is_hunk_line = false;
+                                    let mut hunk_header_info: Option<usize> = None;
+
+                                    if let Some((ref hunks, is_new_file)) = active_review_info {
+                                        if is_new_file {
+                                            is_hunk_line = true;
+                                            if i == 0 {
+                                                hunk_header_info = Some(0);
+                                            }
+                                        } else {
+                                            for (h_idx, hunk) in hunks.iter().enumerate() {
+                                                if i >= hunk.start_line && i < hunk.start_line + hunk.added_lines_count {
+                                                    is_hunk_line = true;
+                                                    if i == hunk.start_line {
+                                                        hunk_header_info = Some(h_idx);
+                                                    }
+                                                    break;
+                                                }
+                                            }
+                                        }
+                                    }
+
+                                    if is_hunk_line {
+                                        // Green background for added/modified line
+                                        ui.draws.push(DrawCommand::Rect(RectDraw {
+                                            instance: RectInstance {
+                                                pos: [editor_x + gutter_w, line_y],
+                                                size: [editor_w - gutter_w, line_height_pixels],
+                                                color: Color::rgba(34.0 / 255.0, 197.0 / 255.0, 94.0 / 255.0, 0.20).to_array(),
+                                                radius: [0.0; 4],
+                                                clip_rect: clip,
+                                                ..Default::default()
+                                            }
+                                        }));
+                                        // Gutter cyan/green stripe
+                                        ui.draws.push(DrawCommand::Rect(RectDraw {
+                                            instance: RectInstance {
+                                                pos: [editor_x + gutter_w - 3.5, line_y],
+                                                size: [3.0, line_height_pixels],
+                                                color: Color::rgb(34.0 / 255.0, 197.0 / 255.0, 94.0 / 255.0).to_array(),
+                                                radius: [1.5; 4],
+                                                clip_rect: clip,
+                                                ..Default::default()
+                                            }
+                                        }));
+                                    }
+
+                                    if let Some(h_idx) = hunk_header_info {
+                                        if let Some((ref hunks, _)) = active_review_info {
+                                            if let Some(hunk) = hunks.get(h_idx) {
+                                                let r_count = hunk.removed_lines.len();
+                                                for (r_idx, r_text) in hunk.removed_lines.iter().enumerate() {
+                                                    let r_y = line_y - ((r_count - r_idx) as f32 * line_height_pixels);
+                                                    if r_y >= editor_y - line_height_pixels && r_y <= editor_y + editor_h {
+                                                        ui.draws.push(DrawCommand::Rect(RectDraw {
+                                                            instance: RectInstance {
+                                                                pos: [editor_x + gutter_w, r_y],
+                                                                size: [editor_w - gutter_w, line_height_pixels],
+                                                                color: Color::rgba(185.0 / 255.0, 28.0 / 255.0, 28.0 / 255.0, 0.28).to_array(),
+                                                                radius: [0.0; 4],
+                                                                clip_rect: clip,
+                                                                ..Default::default()
+                                                            }
+                                                        }));
+                                                        ui.draws.push(DrawCommand::Rect(RectDraw {
+                                                            instance: RectInstance {
+                                                                pos: [editor_x + gutter_w - 3.5, r_y],
+                                                                size: [3.0, line_height_pixels],
+                                                                color: Color::rgb(220.0 / 255.0, 38.0 / 255.0, 38.0 / 255.0).to_array(),
+                                                                radius: [1.5; 4],
+                                                                clip_rect: clip,
+                                                                ..Default::default()
+                                                            }
+                                                        }));
+                                                        ui.draws.push(DrawCommand::Text(TextDraw {
+                                                            text: r_text.clone(),
+                                                            pos: [editor_x + gutter_w + 6.0, r_y + 3.0],
+                                                            options: TextOptions::new().font_size(13.0).font_family("monospace").color(colors.text_muted),
+                                                            clip,
+                                                        }));
+                                                    }
+                                                }
+                                            }
+                                        }
+
+                                        // Floating hunk action buttons on the right side of the hunk: [✓] [✕]
+                                        let btn_box_w = 46.0;
+                                        let _btn_box_h = 18.0;
+                                        let btn_x = editor_x + editor_w - btn_box_w - 20.0;
+                                        let btn_y = line_y + 1.0;
+
+                                        let check_hover = ui.mouse_in_rect(btn_x, btn_y, 20.0, 18.0);
+                                        ui.draws.push(DrawCommand::Rect(RectDraw {
+                                            instance: RectInstance {
+                                                pos: [btn_x, btn_y],
+                                                size: [20.0, 18.0],
+                                                color: if check_hover {
+                                                    Color::rgb(29.0 / 255.0, 78.0 / 255.0, 216.0 / 255.0).to_array()
+                                                } else {
+                                                    Color::rgb(37.0 / 255.0, 99.0 / 255.0, 235.0 / 255.0).to_array()
+                                                },
+                                                radius: [3.0; 4],
+                                                clip_rect: clip,
+                                                ..Default::default()
+                                            }
+                                        }));
+                                        ui.draws.push(DrawCommand::Text(TextDraw {
+                                            text: "\u{f00c}".to_string(),
+                                            pos: [btn_x + 5.5, btn_y + 2.5],
+                                            options: TextOptions::new().font_size(9.5).color(Color::WHITE),
+                                            clip,
+                                        }));
+
+                                        let cross_hover = ui.mouse_in_rect(btn_x + 23.0, btn_y, 20.0, 18.0);
+                                        ui.draws.push(DrawCommand::Rect(RectDraw {
+                                            instance: RectInstance {
+                                                pos: [btn_x + 23.0, btn_y],
+                                                size: [20.0, 18.0],
+                                                color: if cross_hover {
+                                                    Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, 0.16).to_array()
+                                                } else {
+                                                    Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, 0.08).to_array()
+                                                },
+                                                radius: [3.0; 4],
+                                                clip_rect: clip,
+                                                ..Default::default()
+                                            }
+                                        }));
+                                        ui.draws.push(DrawCommand::Text(TextDraw {
+                                            text: "\u{f00d}".to_string(),
+                                            pos: [btn_x + 28.5, btn_y + 2.5],
+                                            options: TextOptions::new().font_size(9.5).color(colors.text_muted),
+                                            clip,
+                                        }));
+
+                                        if ui.clicked {
+                                            if check_hover {
+                                                trigger_accept_hunk = true;
+                                            } else if cross_hover {
+                                                trigger_reject_hunk = true;
+                                            }
+                                        }
+                                    }
 
                                     // Line highlighting for cursor line
                                     let cursor_p = tab.editor.cursor();
@@ -1107,6 +1325,14 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                             ui.advance(editor_w, editor_h, draw_start);
                         });
 
+                    if trigger_accept_hunk {
+                        state.accept_current_review();
+                        ui.request_redraw();
+                    } else if trigger_reject_hunk {
+                        state.reject_current_review();
+                        ui.request_redraw();
+                    }
+
                     let gutter_w = if state.line_numbers_visible { 44.0 } else { 8.0 };
                     cursor_screen_pos = active_cursor_screen_pos.or_else(|| {
                         let cur = state.tabs.get(active_tab_idx)?.editor.cursor();
@@ -1176,9 +1402,242 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                             state.last_cursor_activity = std::time::Instant::now();
                         }
                     }
-                }
 
-                // ─── Render Breadcrumb Dropdown Popup Overlay ─────────────────
+                // ─── Render Floating Diff Review Bar ──────────────────────────
+                let show_review_bar = if let Some(rev) = state.active_review() {
+                    state.tabs.get(active_tab_idx).and_then(|t| t.path.as_ref()) == Some(&rev.path)
+                } else {
+                    false
+                };
+
+                if show_review_bar {
+                    let total_reviews = state.pending_reviews.len();
+                    let current_review_num = state.active_review_idx.map(|i| i + 1).unwrap_or(1);
+
+                    let bar_w = 460.0;
+                    let bar_h = 36.0;
+                    let bar_x = (editor_x + (editor_w - bar_w) / 2.0).max(editor_x + 16.0);
+                    let bar_y = (editor_y + editor_h - bar_h - 14.0).max(editor_y);
+
+                    let bar_id = Id::from_u64(999999600);
+
+                    let mut action_accept = false;
+                    let mut action_reject = false;
+                    let mut action_prev_hunk = false;
+                    let mut action_next_hunk = false;
+                    let mut action_prev_file = false;
+                    let mut action_next_file = false;
+
+                    ui.overlay(|ui| {
+                        ui.container()
+                            .raw_id(bar_id)
+                            .absolute(bar_x, bar_y)
+                            .overlay()
+                            .width(bar_w)
+                            .height(bar_h)
+                            .bg(Color::rgb(24.0 / 255.0, 24.0 / 255.0, 30.0 / 255.0))
+                            .border(Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, 0.14), 1.0)
+                            .radius_all(18.0)
+                            .shadow(Color::rgba(0.0, 0.0, 0.0, 0.55), 0.0, 6.0, 16.0)
+                            .padding(4.0, 8.0, 4.0, 8.0)
+                            .row()
+                            .valign(Align::Center)
+                            .gap(6.0)
+                            .show(|ui| {
+                                // 1. Accept Changes Button (Blue pill)
+                                let btn_acc_id = Id::from_u64(999999601);
+                                let acc_resp = ui.container()
+                                    .id(btn_acc_id)
+                                    .height(26.0)
+                                    .padding(4.0, 10.0, 4.0, 10.0)
+                                    .radius_all(13.0)
+                                    .bg(Color::rgb(37.0 / 255.0, 99.0 / 255.0, 235.0 / 255.0))
+                                    .hover_bg(Color::rgb(29.0 / 255.0, 78.0 / 255.0, 216.0 / 255.0))
+                                    .row()
+                                    .valign(Align::Center)
+                                    .gap(5.0)
+                                    .show(|ui| {
+                                        ui.text("\u{f00c} Accept Changes")
+                                            .size(11.0)
+                                            .color(Color::WHITE)
+                                            .bold()
+                                            .show();
+                                        ui.text("Ctrl+↵")
+                                            .size(9.5)
+                                            .color(Color::rgba(1.0, 1.0, 1.0, 0.72))
+                                            .show();
+                                    });
+                                if acc_resp.clicked {
+                                    action_accept = true;
+                                }
+
+                                // 2. Reject Button
+                                let btn_rej_id = Id::from_u64(999999602);
+                                let rej_resp = ui.container()
+                                    .id(btn_rej_id)
+                                    .height(26.0)
+                                    .padding(4.0, 8.0, 4.0, 8.0)
+                                    .radius_all(13.0)
+                                    .bg(Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, 0.06))
+                                    .hover_bg(Color::rgba(239.0 / 255.0, 68.0 / 255.0, 68.0 / 255.0, 0.22))
+                                    .row()
+                                    .valign(Align::Center)
+                                    .gap(4.0)
+                                    .show(|ui| {
+                                        ui.text("\u{f00d} Reject")
+                                            .size(11.0)
+                                            .color(colors.text_primary)
+                                            .show();
+                                        ui.text("Ctrl+⌫")
+                                            .size(9.5)
+                                            .color(colors.text_muted)
+                                            .show();
+                                    });
+                                if rej_resp.clicked {
+                                    action_reject = true;
+                                }
+
+                                // Separator
+                                ui.container()
+                                    .width(1.0)
+                                    .height(16.0)
+                                    .bg(Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, 0.12))
+                                    .show(|_| {});
+
+                                // 3. Hunk Navigation: Prev (↑ Alt+K)
+                                let btn_prev_hunk = ui.container()
+                                    .id(Id::from_u64(999999603))
+                                    .height(24.0)
+                                    .padding(3.0, 5.0, 3.0, 5.0)
+                                    .radius_all(4.0)
+                                    .hover_bg(Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, 0.08))
+                                    .row()
+                                    .valign(Align::Center)
+                                    .gap(3.0)
+                                    .show(|ui| {
+                                        ui.text("↑")
+                                            .size(11.0)
+                                            .color(colors.text_muted)
+                                            .show();
+                                        ui.text("Alt+K")
+                                            .size(9.5)
+                                            .color(colors.text_dim)
+                                            .show();
+                                    });
+                                if btn_prev_hunk.clicked {
+                                    action_prev_hunk = true;
+                                }
+
+                                // 4. Hunk Navigation: Next (↓ Alt+J)
+                                let btn_next_hunk = ui.container()
+                                    .id(Id::from_u64(999999604))
+                                    .height(24.0)
+                                    .padding(3.0, 5.0, 3.0, 5.0)
+                                    .radius_all(4.0)
+                                    .hover_bg(Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, 0.08))
+                                    .row()
+                                    .valign(Align::Center)
+                                    .gap(3.0)
+                                    .show(|ui| {
+                                        ui.text("↓")
+                                            .size(11.0)
+                                            .color(colors.text_muted)
+                                            .show();
+                                        ui.text("Alt+J")
+                                            .size(9.5)
+                                            .color(colors.text_dim)
+                                            .show();
+                                    });
+                                if btn_next_hunk.clicked {
+                                    action_next_hunk = true;
+                                }
+
+                                // Separator
+                                ui.container()
+                                    .width(1.0)
+                                    .height(16.0)
+                                    .bg(Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, 0.12))
+                                    .show(|_| {});
+
+                                // 5. Edited files counter with < and > arrows
+                                let btn_prev_file = ui.container()
+                                    .id(Id::from_u64(999999605))
+                                    .width(18.0)
+                                    .height(24.0)
+                                    .radius_all(4.0)
+                                    .hover_bg(Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, 0.08))
+                                    .valign(Align::Center)
+                                    .show(|ui| {
+                                        ui.text("<")
+                                            .size(11.5)
+                                            .color(colors.text_muted)
+                                            .show();
+                                    });
+                                if btn_prev_file.clicked {
+                                    action_prev_file = true;
+                                }
+
+                                ui.text(&format!("Edited files {}/{}", current_review_num, total_reviews))
+                                    .size(10.5)
+                                    .color(colors.text_muted)
+                                    .show();
+
+                                let btn_next_file = ui.container()
+                                    .id(Id::from_u64(999999606))
+                                    .width(18.0)
+                                    .height(24.0)
+                                    .radius_all(4.0)
+                                    .hover_bg(Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, 0.08))
+                                    .valign(Align::Center)
+                                    .show(|ui| {
+                                        ui.text(">")
+                                            .size(11.5)
+                                            .color(colors.text_muted)
+                                            .show();
+                                    });
+                                if btn_next_file.clicked {
+                                    action_next_file = true;
+                                }
+                            });
+                    });
+
+                    if action_accept {
+                        state.accept_current_review();
+                        ui.request_redraw();
+                    } else if action_reject {
+                        state.reject_current_review();
+                        ui.request_redraw();
+                    } else if action_prev_file {
+                        state.prev_review_file();
+                        ui.request_redraw();
+                    } else if action_next_file {
+                        state.next_review_file();
+                        ui.request_redraw();
+                    } else if action_prev_hunk || action_next_hunk {
+                        if let Some(rev_idx) = state.active_review_idx {
+                            if let Some(rev) = state.pending_reviews.get_mut(rev_idx) {
+                                if !rev.hunks.is_empty() {
+                                    let target_idx = if action_prev_hunk {
+                                        if rev.active_hunk_idx == 0 { rev.hunks.len() - 1 } else { rev.active_hunk_idx - 1 }
+                                    } else {
+                                        (rev.active_hunk_idx + 1) % rev.hunks.len()
+                                    };
+                                    rev.active_hunk_idx = target_idx;
+                                    let target_line = rev.hunks[target_idx].start_line;
+                                    if let Some(tab) = state.tabs.get_mut(active_tab_idx) {
+                                        tab.editor.set_cursor(Point::new(target_line, 0));
+                                        let line_y = (target_line as f32) * line_height_pixels;
+                                        tab.scroll_y = (line_y - editor_h / 2.0).max(0.0);
+                                    }
+                                    ui.request_redraw();
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+
+            // ─── Render Breadcrumb Dropdown Popup Overlay ─────────────────
                 if let Some(popup) = state.active_breadcrumb_popup.clone() {
                     let mut file_to_open = None;
                     let mut toggle_dir_path = None;
