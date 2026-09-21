@@ -1,85 +1,97 @@
-# Skills
+# Skills Subsystem — ZENE
 
 ## What is a Skill?
 
-A Skill is a reusable set of instructions and metadata describing how an AI agent should approach a class of software-development tasks. A Skill is passive data: it is not a tool, subagent, model, or execution loop.
+A Skill is a reusable set of instructions, workflow rules, and tool guidance describing how **ZENE** (the Zenthree AI coding assistant) should approach specific classes of software engineering tasks.
 
-All Skills in the initial library are language-agnostic. Skills must not encode a specific programming language, framework, build system, package manager, or project convention. Those details must be discovered dynamically from the workspace and the current context before a Skill is applied.
+Skills are passive, structured Markdown documents with YAML frontmatter. They do not pollute the prompt with thousands of tokens; instead, they are loaded **on-demand** via the `activate_skill` tool when ZENE needs specific workflow guidance.
 
-The initial library contains:
+---
 
-1. `repository-exploration`
-2. `task-planning`
-3. `implementation`
-4. `debugging`
-5. `testing`
-6. `code-review`
-7. `refactoring`
-8. `verification`
-9. `security-review`
-10. `git-workflow`
-11. `failure-recovery`
-12. `dependency-analysis`
-13. `performance-analysis`
-14. `documentation`
-15. `codebase-migration`
+## The 3-Tier Architecture
 
-## Where Skills live
-
-Workspace Skills are discovered from:
+Skills are organized into a 3-tier hierarchy where higher scopes override lower scopes:
 
 ```text
-<workspace>/.zenthree/agent/zene/skills/<skill-name>/SKILL.md
+┌────────────────────────────────────────────────────────────────────────┐
+│ 1. Global (Built-in)                                                   │
+│    • Ships directly inside the binary from assets/agent/zene/skills/   │
+│    • Embedded at compile time via include_str!                         │
+│    • 6 core skills: explore, plan, implement, debug, verify, review    │
+│    • Available out-of-the-box anywhere with ZERO files required.       │
+├────────────────────────────────────────────────────────────────────────┤
+│ 2. User Base (~/.zenthree/agent/zene/skills/)                          │
+│    • Lives in the user's home directory.                               │
+│    • Follows the user across all projects on their machine.            │
+│    • Overrides Global skills if the same name is defined.              │
+├────────────────────────────────────────────────────────────────────────┤
+│ 3. Project Base (<workspace>/.zenthree/agent/zene/skills/)             │
+│    • Lives inside a specific project repository.                       │
+│    • Checked into git for team or repository-specific workflows.       │
+│    • Highest precedence: overrides User and Global skills.             │
+└────────────────────────────────────────────────────────────────────────┘
 ```
 
-Each skill directory must contain one `SKILL.md` file. Future support may add `references/`, `scripts/`, `examples/`, or `assets/`, but those are not executed or interpreted by the current subsystem.
+---
 
-The Skill subsystem is platform-neutral and is intended to work on Linux, macOS, and Windows. Skill paths are resolved with Rust's cross-platform `Path` APIs; do not hardcode `/` or `\` in Skill implementations or documentation examples.
+## The 6 Core Built-in Skills
 
-## `SKILL.md` structure
+Located in `assets/agent/zene/skills/`:
+
+| Skill | Primary Tools | Purpose |
+|---|---|---|
+| **`explore`** | `get_project_structure`, `find_files`, `search_codebase`, `read_file` | Orient in an unfamiliar project or locate definitions. |
+| **`plan`** | `create_plan`, `update_plan_step` | Formulate phased execution plans with verification gates. |
+| **`implement`** | `read_file`, `edit_file`, `write_file`, `get_diagnostics` | Surgical, minimal code edits with diff discipline. |
+| **`debug`** | `get_diagnostics`, `search_codebase`, `read_file`, `edit_file`, `run_terminal` | Diagnose and resolve errors using concrete evidence. |
+| **`verify`** | `run_terminal`, `get_diagnostics` | Dynamic checks, test suite execution, and compiler validation. |
+| **`review`** | `git_status`, `git_diff`, `get_diagnostics` | Diff review, security checks, and code cleanliness before done. |
+
+---
+
+## `SKILL.md` File Structure
+
+Custom user or workspace skills follow this exact format:
 
 ```markdown
 ---
-name: debugging
-description: Diagnose and fix software bugs systematically.
+name: database-migration
+description: Safe practices for schema changes and rollbacks.
 version: "1.0.0"
 tags:
-  - debugging
-  - testing
+  - database
+  - sql
 ---
-# Debugging
+# Database Migration
 
-Instructions written in Markdown.
+## Purpose
+Use this skill when modifying SQL tables or running database migrations.
+
+## Tools
+- `run_terminal`: Run migration scripts and validation checks.
+- `read_file`: Inspect migration schema files.
+
+## Workflow
+1. Inspect existing table schemas before altering columns.
+2. Ensure every migration has a corresponding reversible rollback step.
+3. Test migrations against the local test database first.
+
+## Rules
+- Never drop columns without a migration grace period.
+- Never hardcode production database credentials.
 ```
 
-`name` and `description` are required. `version` and `tags` are optional. The Markdown body is retained as the Skill's `instructions`.
-
-## Discovery and validation
-
-Call `agent::skills::discover(workspace)` to scan `.zenthree/agent/zene/skills/`. Each child directory is checked for `SKILL.md`, parsed, validated, and registered. Invalid Skills are reported in `DiscoveryReport::errors`; valid Skills continue loading.
-
-Missing `.zenthree/agent/zene/skills/` is an empty successful discovery. A directory without `SKILL.md`, malformed YAML, missing required metadata, or a duplicate name is reported without preventing other Skills from loading.
-
-## Registry and loading
-
-`SkillRegistry` manages registered Skills with `register`, `get`, `list`, `contains`, and `unregister`. `SkillLoader::load(path)` loads and validates one `SKILL.md`. The registry does not execute instructions or interact with tools, providers, orchestration, or the agent loop.
-
-## Example
-
-Create `.zenthree/agent/zene/skills/testing/SKILL.md`:
-
-```markdown
 ---
-name: testing
-description: Design focused regression tests.
-tags:
-  - testing
----
-# Testing
 
-Reproduce the behavior, add a focused test, and run the smallest relevant suite.
-```
+## On-Demand Activation (`activate_skill`)
 
-## Current limitations and future extensions
-
-The current subsystem only discovers, parses, validates, registers, and loads passive Skill data. It does not select Skills, rank them, activate them automatically, inject instructions into prompts, execute scripts, or change permissions.
+Rather than bloating system prompts with every skill's full text:
+1. The system prompt contains a compact 6-line summary of available skills.
+2. When ZENE begins a phase of work, it invokes the tool:
+   ```json
+   {
+     "name": "activate_skill",
+     "arguments": { "name": "debug" }
+   }
+   ```
+3. The tool dynamically injects the full markdown workflow and rules into the active conversation.
