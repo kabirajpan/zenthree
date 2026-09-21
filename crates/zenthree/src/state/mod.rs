@@ -174,6 +174,8 @@ impl ZenthreeState {
                 code_snippet: None,
                 thoughts: None,
                 expanded: false,
+                trajectory: Vec::new(),
+                is_working: false,
             }],
             ai_input: String::new(),
             user_profile_open: false,
@@ -417,5 +419,94 @@ mod tests {
         assert_eq!(state.tabs[0].name, "Untitled-1");
         assert!(state.tabs[0].path.is_none());
         assert_eq!(state.tabs[0].editor.buffer.to_string(), "");
+    }
+
+    #[test]
+    fn test_trajectory_exploration_summary() {
+        let mut grp = ExplorationGroup {
+            expanded: false,
+            items: Vec::new(),
+            is_active: false,
+        };
+
+        // 1. Single file
+        grp.items.push(ExplorationItem::AnalyzedFile {
+            path: "crates/zenthree/src/theme.rs".to_string(),
+            start_line: Some(150),
+            end_line: Some(300),
+        });
+        assert_eq!(grp.summary_label(), "Explored 1 file");
+
+        // 2. Add folders and searches
+        for i in 0..12 {
+            grp.items.push(ExplorationItem::AnalyzedFile {
+                path: format!("file_{}.rs", i),
+                start_line: None,
+                end_line: None,
+            });
+        }
+        grp.items.push(ExplorationItem::ExploredDirectory { path: "src".into() });
+        grp.items.push(ExplorationItem::ExploredDirectory { path: "crates".into() });
+        for i in 0..11 {
+            grp.items.push(ExplorationItem::Searched { query: format!("q{}", i) });
+        }
+        assert_eq!(grp.summary_label(), "Explored 13 files, 2 folders, 11 searches");
+
+        // 3. Thought only
+        let thought_grp = ExplorationGroup {
+            expanded: false,
+            items: vec![ExplorationItem::Thought {
+                summary: "Planning approach...".to_string(),
+                duration_secs: Some(1),
+            }],
+            is_active: false,
+        };
+        assert_eq!(thought_grp.summary_label(), "Thought for 1s");
+    }
+
+    #[test]
+    fn test_ai_message_trajectory_serialization_roundtrip() {
+        let msg = AiMessage {
+            is_user: false,
+            content: "## Done\nFixed the bug.".to_string(),
+            code_snippet: None,
+            thoughts: None,
+            expanded: false,
+            trajectory: vec![
+                TrajectoryStep::Exploration(ExplorationGroup {
+                    expanded: false,
+                    items: vec![
+                        ExplorationItem::AnalyzedFile {
+                            path: "crates/zenthree/src/theme.rs".into(),
+                            start_line: Some(1),
+                            end_line: Some(50),
+                        }
+                    ],
+                    is_active: false,
+                }),
+                TrajectoryStep::FileEdit {
+                    path: "crates/zenthree/src/theme.rs".into(),
+                    lines_added: 32,
+                    lines_removed: 1,
+                },
+                TrajectoryStep::Command {
+                    command: "cargo check".into(),
+                },
+            ],
+            is_working: false,
+        };
+
+        let json = serde_json::to_string(&msg).expect("serialization failed");
+        let restored: AiMessage = serde_json::from_str(&json).expect("deserialization failed");
+
+        assert_eq!(restored.trajectory.len(), 3);
+        match &restored.trajectory[1] {
+            TrajectoryStep::FileEdit { path, lines_added, lines_removed } => {
+                assert_eq!(path, "crates/zenthree/src/theme.rs");
+                assert_eq!(*lines_added, 32);
+                assert_eq!(*lines_removed, 1);
+            }
+            _ => panic!("Expected FileEdit"),
+        }
     }
 }

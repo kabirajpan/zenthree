@@ -161,6 +161,93 @@ pub struct TerminalLine {
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub enum ExplorationItem {
+    AnalyzedFile {
+        path: String,
+        start_line: Option<usize>,
+        end_line: Option<usize>,
+    },
+    Searched {
+        query: String,
+    },
+    ExploredDirectory {
+        path: String,
+    },
+    Thought {
+        summary: String,
+        duration_secs: Option<u64>,
+    },
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct ExplorationGroup {
+    #[serde(default)]
+    pub expanded: bool,
+    #[serde(default)]
+    pub items: Vec<ExplorationItem>,
+    #[serde(default)]
+    pub is_active: bool,
+}
+
+impl ExplorationGroup {
+    pub fn summary_label(&self) -> String {
+        let mut files = 0;
+        let mut folders = 0;
+        let mut searches = 0;
+        let mut thoughts = 0;
+
+        for item in &self.items {
+            match item {
+                ExplorationItem::AnalyzedFile { .. } => files += 1,
+                ExplorationItem::ExploredDirectory { .. } => folders += 1,
+                ExplorationItem::Searched { .. } => searches += 1,
+                ExplorationItem::Thought { .. } => thoughts += 1,
+            }
+        }
+
+        let mut parts = Vec::new();
+        if files > 0 {
+            parts.push(format!("{} file{}", files, if files == 1 { "" } else { "s" }));
+        }
+        if folders > 0 {
+            parts.push(format!("{} folder{}", folders, if folders == 1 { "" } else { "s" }));
+        }
+        if searches > 0 {
+            parts.push(format!("{} search{}", searches, if searches == 1 { "" } else { "es" }));
+        }
+
+        if !parts.is_empty() {
+            format!("Explored {}", parts.join(", "))
+        } else if thoughts > 0 {
+            "Thought for 1s".to_string()
+        } else if self.is_active {
+            "Exploring codebase...".to_string()
+        } else {
+            "Exploration".to_string()
+        }
+    }
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub enum TrajectoryStep {
+    Exploration(ExplorationGroup),
+    FileEdit {
+        path: String,
+        lines_added: usize,
+        lines_removed: usize,
+    },
+    Command {
+        command: String,
+    },
+    Plan {
+        title: String,
+        steps: Vec<String>,
+        #[serde(default)]
+        expanded: bool,
+    },
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 pub struct AiMessage {
     pub is_user: bool,
     pub content: String,
@@ -168,11 +255,23 @@ pub struct AiMessage {
     pub thoughts: Option<String>,
     #[serde(default)]
     pub expanded: bool,
+    #[serde(default)]
+    pub trajectory: Vec<TrajectoryStep>,
+    #[serde(default)]
+    pub is_working: bool,
 }
 
+#[allow(dead_code)]
 #[derive(Debug, Clone)]
 pub enum AiUiUpdate {
     Status(String),
+    ToolStart {
+        name: String,
+        args: serde_json::Value,
+    },
+    ToolDone {
+        name: String,
+    },
     Done {
         reply: String,
         session_json: Option<String>,

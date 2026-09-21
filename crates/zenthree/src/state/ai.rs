@@ -20,14 +20,25 @@ impl ZenthreeState {
             code_snippet: None,
             thoughts: None,
             expanded: false,
+            trajectory: Vec::new(),
+            is_working: false,
         });
 
         self.ai_messages.push(AiMessage {
             is_user: false,
-            content: "Thinking...".to_string(),
+            content: String::new(),
             code_snippet: None,
             thoughts: None,
             expanded: false,
+            trajectory: vec![TrajectoryStep::Exploration(ExplorationGroup {
+                expanded: false,
+                items: vec![ExplorationItem::Thought {
+                    summary: "Planning approach...".to_string(),
+                    duration_secs: None,
+                }],
+                is_active: true,
+            })],
+            is_working: true,
         });
 
         self.ai_input.clear();
@@ -74,13 +85,11 @@ impl ZenthreeState {
 
                 let mut final_text = String::new();
                 let mut on_event = |ev: agent::types::AgentEvent| match ev {
-                    agent::types::AgentEvent::ToolStarted { name } => {
-                        let _ = tx.send(AiUiUpdate::Status(format!("🔧 Calling {name}...")));
+                    agent::types::AgentEvent::ToolStarted { name, args } => {
+                        let _ = tx.send(AiUiUpdate::ToolStart { name, args });
                     }
                     agent::types::AgentEvent::ToolFinished { name, .. } => {
-                        let _ = tx.send(AiUiUpdate::Status(format!(
-                            "🔧 Finished {name}, analyzing..."
-                        )));
+                        let _ = tx.send(AiUiUpdate::ToolDone { name });
                     }
                     agent::types::AgentEvent::Text(delta) => {
                         final_text.push_str(&delta);
@@ -139,17 +148,169 @@ impl ZenthreeState {
                                 if let Some(last) =
                                     self.ai_messages.iter_mut().rev().find(|m| !m.is_user)
                                 {
-                                    // Evict old cached blocks before overwriting content
-                                    let old_hash = {
-                                        use std::hash::{Hash, Hasher};
-                                        let mut h =
-                                            std::collections::hash_map::DefaultHasher::new();
-                                        last.content.hash(&mut h);
-                                        h.finish()
-                                    };
-                                    self.ai_block_cache.remove(&old_hash);
                                     last.content = status;
                                 }
+                            }
+                            AiUiUpdate::ToolStart { name, args } => {
+                                if let Some(last) =
+                                    self.ai_messages.iter_mut().rev().find(|m| !m.is_user)
+                                {
+                                    match name.as_str() {
+                                        "edit_file" => {
+                                            if let Some(TrajectoryStep::Exploration(ref mut grp)) =
+                                                last.trajectory.last_mut()
+                                            {
+                                                grp.is_active = false;
+                                            }
+                                            let path = args
+                                                .get("path")
+                                                .and_then(|v| v.as_str())
+                                                .unwrap_or("file")
+                                                .to_string();
+                                            let target = args
+                                                .get("target")
+                                                .and_then(|v| v.as_str())
+                                                .unwrap_or("");
+                                            let replacement = args
+                                                .get("replacement")
+                                                .and_then(|v| v.as_str())
+                                                .unwrap_or("");
+                                            let lines_removed = target.lines().count().max(1);
+                                            let lines_added = replacement.lines().count().max(1);
+                                            last.trajectory.push(TrajectoryStep::FileEdit {
+                                                path,
+                                                lines_added,
+                                                lines_removed,
+                                            });
+                                        }
+                                        "write_file" => {
+                                            if let Some(TrajectoryStep::Exploration(ref mut grp)) =
+                                                last.trajectory.last_mut()
+                                            {
+                                                grp.is_active = false;
+                                            }
+                                            let path = args
+                                                .get("path")
+                                                .and_then(|v| v.as_str())
+                                                .unwrap_or("file")
+                                                .to_string();
+                                            let content = args
+                                                .get("content")
+                                                .and_then(|v| v.as_str())
+                                                .unwrap_or("");
+                                            let lines_added = content.lines().count().max(1);
+                                            last.trajectory.push(TrajectoryStep::FileEdit {
+                                                path,
+                                                lines_added,
+                                                lines_removed: 0,
+                                            });
+                                        }
+                                        "run_terminal" => {
+                                            if let Some(TrajectoryStep::Exploration(ref mut grp)) =
+                                                last.trajectory.last_mut()
+                                            {
+                                                grp.is_active = false;
+                                            }
+                                            let command = args
+                                                .get("command")
+                                                .and_then(|v| v.as_str())
+                                                .unwrap_or("")
+                                                .to_string();
+                                            last.trajectory.push(TrajectoryStep::Command { command });
+                                        }
+                                        "create_plan" => {
+                                            let title = args
+                                                .get("title")
+                                                .and_then(|v| v.as_str())
+                                                .unwrap_or("Execution Plan")
+                                                .to_string();
+                                            let steps = args
+                                                .get("steps")
+                                                .and_then(|v| v.as_array())
+                                                .map(|arr| {
+                                                    arr.iter()
+                                                        .filter_map(|s| s.as_str().map(|str_v| str_v.to_string()))
+                                                        .collect()
+                                                })
+                                                .unwrap_or_default();
+                                            last.trajectory.push(TrajectoryStep::Plan {
+                                                title,
+                                                steps,
+                                                expanded: true,
+                                            });
+                                        }
+                                        _ => {
+                                            let item = match name.as_str() {
+                                                "read_file" => {
+                                                    let path = args
+                                                        .get("path")
+                                                        .and_then(|v| v.as_str())
+                                                        .unwrap_or("")
+                                                        .to_string();
+                                                    let start_line = args
+                                                        .get("start_line")
+                                                        .and_then(|v| v.as_u64())
+                                                        .map(|u| u as usize);
+                                                    let end_line = args
+                                                        .get("end_line")
+                                                        .and_then(|v| v.as_u64())
+                                                        .map(|u| u as usize);
+                                                    ExplorationItem::AnalyzedFile {
+                                                        path,
+                                                        start_line,
+                                                        end_line,
+                                                    }
+                                                }
+                                                "search_codebase" | "find_files" => {
+                                                    let query = args
+                                                        .get("query")
+                                                        .or_else(|| args.get("pattern"))
+                                                        .and_then(|v| v.as_str())
+                                                        .unwrap_or("")
+                                                        .to_string();
+                                                    ExplorationItem::Searched { query }
+                                                }
+                                                "list_directory" | "get_project_structure" => {
+                                                    let path = args
+                                                        .get("path")
+                                                        .and_then(|v| v.as_str())
+                                                        .unwrap_or(".")
+                                                        .to_string();
+                                                    ExplorationItem::ExploredDirectory { path }
+                                                }
+                                                "get_diagnostics" => {
+                                                    ExplorationItem::AnalyzedFile {
+                                                        path: "diagnostics".to_string(),
+                                                        start_line: None,
+                                                        end_line: None,
+                                                    }
+                                                }
+                                                _ => ExplorationItem::Thought {
+                                                    summary: format!("Calling {}...", name),
+                                                    duration_secs: None,
+                                                },
+                                            };
+
+                                            if let Some(TrajectoryStep::Exploration(ref mut grp)) =
+                                                last.trajectory.last_mut()
+                                            {
+                                                grp.items.push(item);
+                                                grp.is_active = true;
+                                            } else {
+                                                last.trajectory.push(TrajectoryStep::Exploration(
+                                                    ExplorationGroup {
+                                                        expanded: false,
+                                                        items: vec![item],
+                                                        is_active: true,
+                                                    },
+                                                ));
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                            AiUiUpdate::ToolDone { name: _ } => {
+                                // Tool done
                             }
                             AiUiUpdate::Done {
                                 reply,
@@ -158,6 +319,14 @@ impl ZenthreeState {
                                 if let Some(last) =
                                     self.ai_messages.iter_mut().rev().find(|m| !m.is_user)
                                 {
+                                    // Deactivate all exploration groups
+                                    for step in &mut last.trajectory {
+                                        if let TrajectoryStep::Exploration(ref mut grp) = step {
+                                            grp.is_active = false;
+                                        }
+                                    }
+                                    last.is_working = false;
+
                                     // Evict stale cache entry
                                     let old_hash = {
                                         use std::hash::{Hash, Hasher};
@@ -175,6 +344,8 @@ impl ZenthreeState {
                                         code_snippet: None,
                                         thoughts: None,
                                         expanded: false,
+                                        trajectory: Vec::new(),
+                                        is_working: false,
                                     });
                                 }
                                 // Persist updated conversation history for the next message
@@ -188,7 +359,13 @@ impl ZenthreeState {
                     }
                     Err(std::sync::mpsc::TryRecvError::Disconnected) => {
                         if let Some(last) = self.ai_messages.iter_mut().rev().find(|m| !m.is_user) {
-                            if last.content == "Thinking..." || last.content.starts_with("🔧") {
+                            last.is_working = false;
+                            for step in &mut last.trajectory {
+                                if let TrajectoryStep::Exploration(ref mut grp) = step {
+                                    grp.is_active = false;
+                                }
+                            }
+                            if last.content.is_empty() {
                                 last.content = "Connection closed without response.".to_string();
                             }
                         }

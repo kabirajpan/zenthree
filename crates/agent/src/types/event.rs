@@ -29,7 +29,7 @@ pub enum AgentEvent {
     /// Streaming text delta.
     Text(String),
     /// Agent started executing a tool.
-    ToolStarted { name: String },
+    ToolStarted { name: String, args: Value },
     /// Agent needs user approval (when approval gate is active).
     NeedsApproval(ApprovalRequest),
     /// Tool completed execution with result.

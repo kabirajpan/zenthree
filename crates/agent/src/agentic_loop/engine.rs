@@ -130,13 +130,14 @@ impl Agent {
 
             // Situation L: Context window overflow management
             ContextManager::prune_history(&mut self.conversation, self.config.max_history_messages);
+            ContextManager::compact_prior_tool_results(&mut self.conversation);
 
             let mut assistant_text = String::new();
             let mut pending_tool_calls: Vec<ToolCall> = Vec::new();
 
             let tool_schemas = self.tools.openai_schemas();
 
-            // Situation G: Stream response with bounded network retries
+            // Situation G: Stream response with bounded network retries and 413 auto-recovery
             let mut retries = 0;
             loop {
                 assistant_text.clear();
@@ -171,17 +172,21 @@ impl Agent {
                     },
                 );
 
-                if let Some(err) = provider_error.clone() {
-                    if retries < self.config.max_provider_retries {
+                let active_err = provider_error.clone().or_else(|| stream_res.as_ref().err().cloned());
+                if let Some(err) = active_err {
+                    let err_str = err.to_string();
+                    let is_payload_too_large = err_str.contains("413")
+                        || err_str.contains("Payload Too Large")
+                        || err_str.contains("Request too large")
+                        || err_str.contains("rate_limit_exceeded");
+
+                    if is_payload_too_large && retries < self.config.max_provider_retries + 1 {
                         retries += 1;
-                        std::thread::sleep(std::time::Duration::from_millis(200 * retries as u64));
+                        // Emergency compact conversation down to essentials and retry immediately
+                        ContextManager::emergency_prune(&mut self.conversation);
                         continue;
                     }
-                    on_event(AgentEvent::Failed(err.to_string()));
-                    return Err(err);
-                }
 
-                if let Err(err) = stream_res {
                     if retries < self.config.max_provider_retries {
                         retries += 1;
                         std::thread::sleep(std::time::Duration::from_millis(200 * retries as u64));
@@ -295,6 +300,7 @@ impl Agent {
 
                 on_event(AgentEvent::ToolStarted {
                     name: tool_name.clone(),
+                    args: tool_args.clone(),
                 });
 
                 // Situation D: Tool execution (failures feed back to model as data, never crash loop)

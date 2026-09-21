@@ -1,4 +1,4 @@
-use crate::state::{ZenthreeState, AiModel, AiProvider};
+use crate::state::{ZenthreeState, AiModel, AiProvider, TrajectoryStep, ExplorationItem};
 use zenthra::{Color, Ui, Align, FontWeight, Id, CursorIcon};
 
 pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height: f32) {
@@ -359,6 +359,7 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                             });
                     } else {
                         let mut toggle_expand_idx: Option<usize> = None;
+                        let mut toggle_trajectory_group: Option<(usize, usize)> = None;
                         let mut copy_target_idx: Option<usize> = None;
                         let mut copy_code_snippet: Option<(u64, String)> = None;
 
@@ -373,7 +374,6 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                             let mut copy_clicked = false;
 
                             let full_text: &str = &msg.content;
-                            let is_thinking = !msg.is_user && (full_text == "Thinking..." || full_text.starts_with("🔧"));
 
                             if msg.is_user {
                                 // ─── User Message (Right-aligned, accent tint) ───
@@ -483,34 +483,322 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                     .column()
                                     .gap(5.0)
                                     .show(|ui| {
-                                                if is_thinking {
-                                                    let status_label = if full_text.starts_with("🔧") {
-                                                        full_text.trim_start_matches("🔧").trim()
-                                                    } else {
-                                                        "Thinking..."
-                                                    };
-                                                    let icon = if full_text.starts_with("🔧") { "\u{f0ad}" } else { "\u{f110}" };
-                                                    ui.container()
+                                        // ── Sibling 1: Trajectory Steps ─────────────────────
+                                        for (step_idx, step) in msg.trajectory.iter().enumerate() {
+                                            let step_id = Id::from_u64(999990000 + (msg_idx as u64) * 10000 + (step_idx as u64) * 10 + 1);
+                                            match step {
+                                                TrajectoryStep::Exploration(grp) => {
+                                                    let chevron = if grp.expanded { "\u{f078}" } else { "\u{f054}" };
+                                                    let summary = grp.summary_label();
+
+                                                    let header_row = ui.container()
+                                                        .id(step_id)
+                                                        .full_width()
+                                                        .padding(3.0, 4.0, 3.0, 4.0)
+                                                        .radius_all(4.0)
+                                                        .hover_bg(colors.highlight.with_alpha(0.5))
                                                         .row()
                                                         .valign(Align::Center)
                                                         .gap(6.0)
-                                                        .padding(3.0, 8.0, 3.0, 8.0)
-                                                        .radius_all(6.0)
-                                                        .bg(colors.accent.with_alpha(0.08))
-                                                        .border(colors.accent.with_alpha(0.2), 0.5)
                                                         .show(|ui| {
-                                                            ui.text(icon)
-                                                                .size(10.0)
-                                                                .color(colors.accent)
-                                                                .show();
-                                                            ui.text(status_label)
+                                                            if grp.is_active {
+                                                                ui.container()
+                                                                    .width(5.0)
+                                                                    .height(5.0)
+                                                                    .radius_all(2.5)
+                                                                    .bg(colors.accent)
+                                                                    .show(|_| {});
+                                                            }
+                                                            ui.text(&summary)
                                                                 .size(10.5)
-                                                                .italic()
-                                                                .color(colors.accent)
+                                                                .color(if grp.is_active { colors.text_primary } else { colors.text_muted })
+                                                                .show();
+
+                                                            ui.text(chevron)
+                                                                .size(7.5)
+                                                                .color(colors.text_muted.with_alpha(0.7))
                                                                 .show();
                                                         });
-                                                } else {
-                                                    // ── Cache: parse once, reuse every frame ──────────────
+
+                                                    if header_row.hovered {
+                                                        ui.cursor_icon = CursorIcon::Pointer;
+                                                    }
+                                                    if header_row.clicked {
+                                                        toggle_trajectory_group = Some((msg_idx, step_idx));
+                                                    }
+
+                                                    if grp.expanded {
+                                                        ui.container()
+                                                            .full_width()
+                                                            .padding_left(14.0)
+                                                            .column()
+                                                            .gap(4.0)
+                                                            .show(|ui| {
+                                                                for item in &grp.items {
+                                                                    match item {
+                                                                        ExplorationItem::AnalyzedFile { path, start_line, end_line } => {
+                                                                            let path_obj = std::path::Path::new(path);
+                                                                            let fname = path_obj.file_name().and_then(|s| s.to_str()).unwrap_or(path.as_str());
+                                                                            let ext = path_obj.extension().and_then(|s| s.to_str()).unwrap_or("");
+                                                                            let (icon_glyph, icon_color) = crate::mini_icons::get_mini_file_icon(&fname.to_lowercase(), &ext.to_lowercase());
+
+                                                                            let line_str = match (start_line, end_line) {
+                                                                                (Some(s), Some(e)) => format!(" #L{}-{}", s, e),
+                                                                                (Some(s), None) => format!(" #L{}", s),
+                                                                                _ => String::new(),
+                                                                            };
+
+                                                                            ui.container()
+                                                                                .full_width()
+                                                                                .row()
+                                                                                .valign(Align::Center)
+                                                                                .gap(5.0)
+                                                                                .show(|ui| {
+                                                                                    ui.text("Analyzed")
+                                                                                        .size(10.0)
+                                                                                        .color(colors.text_muted)
+                                                                                        .show();
+                                                                                    ui.text(icon_glyph)
+                                                                                        .size(10.0)
+                                                                                        .color(icon_color)
+                                                                                        .show();
+                                                                                    ui.text(fname)
+                                                                                        .size(10.5)
+                                                                                        .color(colors.text_primary)
+                                                                                        .show();
+                                                                                    if !line_str.is_empty() {
+                                                                                        ui.text(&line_str)
+                                                                                            .size(9.5)
+                                                                                            .color(colors.text_muted.with_alpha(0.8))
+                                                                                            .show();
+                                                                                    }
+                                                                                });
+                                                                        }
+                                                                        ExplorationItem::Searched { query } => {
+                                                                            ui.container()
+                                                                                .full_width()
+                                                                                .row()
+                                                                                .valign(Align::Center)
+                                                                                .gap(5.0)
+                                                                                .show(|ui| {
+                                                                                    ui.text("Searched")
+                                                                                        .size(10.0)
+                                                                                        .color(colors.text_muted)
+                                                                                        .show();
+                                                                                    ui.text("\u{f002}")
+                                                                                        .size(9.0)
+                                                                                        .color(colors.accent)
+                                                                                        .show();
+                                                                                    ui.text(&format!("\"{}\"", query))
+                                                                                        .size(10.0)
+                                                                                        .color(colors.text_primary)
+                                                                                        .show();
+                                                                                });
+                                                                        }
+                                                                        ExplorationItem::ExploredDirectory { path } => {
+                                                                            let path_obj = std::path::Path::new(path);
+                                                                            let dname = path_obj.file_name().and_then(|s| s.to_str()).unwrap_or(path.as_str());
+                                                                            ui.container()
+                                                                                .full_width()
+                                                                                .row()
+                                                                                .valign(Align::Center)
+                                                                                .gap(5.0)
+                                                                                .show(|ui| {
+                                                                                    ui.text("Explored")
+                                                                                        .size(10.0)
+                                                                                        .color(colors.text_muted)
+                                                                                        .show();
+                                                                                    ui.text("\u{f07b}")
+                                                                                        .size(9.5)
+                                                                                        .color(colors.accent)
+                                                                                        .show();
+                                                                                    ui.text(dname)
+                                                                                        .size(10.5)
+                                                                                        .color(colors.text_primary)
+                                                                                        .show();
+                                                                                });
+                                                                        }
+                                                                        ExplorationItem::Thought { summary, duration_secs } => {
+                                                                            let thought_label = if let Some(secs) = duration_secs {
+                                                                                format!("Thought for {}s", secs)
+                                                                            } else {
+                                                                                summary.clone()
+                                                                            };
+                                                                            ui.container()
+                                                                                .full_width()
+                                                                                .row()
+                                                                                .valign(Align::Center)
+                                                                                .gap(4.0)
+                                                                                .show(|ui| {
+                                                                                    ui.text(&thought_label)
+                                                                                        .size(10.0)
+                                                                                        .italic()
+                                                                                        .color(colors.text_muted)
+                                                                                        .show();
+                                                                                    ui.text("\u{f054}")
+                                                                                        .size(7.5)
+                                                                                        .color(colors.text_muted.with_alpha(0.6))
+                                                                                        .show();
+                                                                                });
+                                                                        }
+                                                                    }
+                                                                }
+                                                            });
+                                                    }
+                                                }
+                                                TrajectoryStep::FileEdit { path, lines_added, lines_removed } => {
+                                                    let path_obj = std::path::Path::new(path);
+                                                    let fname = path_obj.file_name().and_then(|s| s.to_str()).unwrap_or(path.as_str());
+                                                    let ext = path_obj.extension().and_then(|s| s.to_str()).unwrap_or("");
+                                                    let (icon_glyph, icon_color) = crate::mini_icons::get_mini_file_icon(&fname.to_lowercase(), &ext.to_lowercase());
+
+                                                    ui.container()
+                                                        .id(step_id)
+                                                        .full_width()
+                                                        .padding(2.0, 4.0, 2.0, 4.0)
+                                                        .row()
+                                                        .valign(Align::Center)
+                                                        .gap(5.0)
+                                                        .show(|ui| {
+                                                            ui.text("Edited")
+                                                                .size(10.5)
+                                                                .color(colors.text_muted)
+                                                                .show();
+                                                            ui.text(icon_glyph)
+                                                                .size(10.5)
+                                                                .color(icon_color)
+                                                                .show();
+                                                            ui.text(fname)
+                                                                .size(10.5)
+                                                                .color(colors.text_primary)
+                                                                .show();
+                                                            if *lines_added > 0 {
+                                                                ui.text(&format!("+{}", lines_added))
+                                                                    .size(9.5)
+                                                                    .color(Color { r: 74.0 / 255.0, g: 222.0 / 255.0, b: 128.0 / 255.0, a: 1.0 })
+                                                                    .show();
+                                                            }
+                                                            if *lines_removed > 0 {
+                                                                ui.text(&format!("-{}", lines_removed))
+                                                                    .size(9.5)
+                                                                    .color(Color { r: 248.0 / 255.0, g: 113.0 / 255.0, b: 113.0 / 255.0, a: 1.0 })
+                                                                    .show();
+                                                            }
+                                                        });
+                                                }
+                                                TrajectoryStep::Command { command } => {
+                                                    ui.container()
+                                                        .id(step_id)
+                                                        .full_width()
+                                                        .padding(2.0, 4.0, 2.0, 4.0)
+                                                        .row()
+                                                        .valign(Align::Center)
+                                                        .gap(5.0)
+                                                        .show(|ui| {
+                                                            ui.text("Ran")
+                                                                .size(10.5)
+                                                                .color(colors.text_muted)
+                                                                .show();
+                                                            ui.text("\u{f120}")
+                                                                .size(9.5)
+                                                                .color(colors.accent)
+                                                                .show();
+                                                            ui.text(&format!("$ {}", command))
+                                                                .size(10.0)
+                                                                .monospace()
+                                                                .color(colors.text_primary)
+                                                                .show();
+                                                        });
+                                                }
+                                                TrajectoryStep::Plan { title, steps, expanded } => {
+                                                    let chevron = if *expanded { "\u{f078}" } else { "\u{f054}" };
+                                                    let plan_header = ui.container()
+                                                        .id(step_id)
+                                                        .full_width()
+                                                        .padding(2.0, 4.0, 2.0, 4.0)
+                                                        .radius_all(4.0)
+                                                        .hover_bg(colors.highlight.with_alpha(0.5))
+                                                        .row()
+                                                        .valign(Align::Center)
+                                                        .gap(6.0)
+                                                        .show(|ui| {
+                                                            ui.text("\u{f0ca}")
+                                                                .size(9.5)
+                                                                .color(colors.accent)
+                                                                .show();
+                                                            ui.text(title)
+                                                                .size(10.5)
+                                                                .weight(FontWeight::Medium)
+                                                                .color(colors.text_primary)
+                                                                .show();
+                                                            ui.text(chevron)
+                                                                .size(8.0)
+                                                                .color(colors.text_muted)
+                                                                .show();
+                                                        });
+
+                                                    if plan_header.hovered {
+                                                        ui.cursor_icon = CursorIcon::Pointer;
+                                                    }
+                                                    if plan_header.clicked {
+                                                        toggle_trajectory_group = Some((msg_idx, step_idx));
+                                                    }
+
+                                                    if *expanded {
+                                                        ui.container()
+                                                            .full_width()
+                                                            .padding_left(16.0)
+                                                            .column()
+                                                            .gap(3.0)
+                                                            .show(|ui| {
+                                                                for (p_idx, p_step) in steps.iter().enumerate() {
+                                                                    ui.container()
+                                                                        .row()
+                                                                        .valign(Align::Center)
+                                                                        .gap(4.0)
+                                                                        .show(|ui| {
+                                                                            ui.text(&format!("{}.", p_idx + 1))
+                                                                                .size(9.5)
+                                                                                .color(colors.accent)
+                                                                                .show();
+                                                                            ui.text(p_step)
+                                                                                .size(10.0)
+                                                                                .color(colors.text_muted)
+                                                                                .show();
+                                                                        });
+                                                                }
+                                                            });
+                                                    }
+                                                }
+                                            }
+                                        }
+
+                                        // Fallback active status when working without trajectory steps yet
+                                        if msg.is_working && full_text.is_empty() && msg.trajectory.is_empty() {
+                                            ui.container()
+                                                .row()
+                                                .valign(Align::Center)
+                                                .gap(6.0)
+                                                .padding(3.0, 8.0, 3.0, 8.0)
+                                                .radius_all(6.0)
+                                                .bg(colors.accent.with_alpha(0.08))
+                                                .border(colors.accent.with_alpha(0.2), 0.5)
+                                                .show(|ui| {
+                                                    ui.text("\u{f110}")
+                                                        .size(10.0)
+                                                        .color(colors.accent)
+                                                        .show();
+                                                    ui.text("Planning approach...")
+                                                        .size(10.5)
+                                                        .italic()
+                                                        .color(colors.accent)
+                                                        .show();
+                                                });
+                                        }
+
+                                        // ── Sibling 2: Final Summary / Markdown Answer ──────
+                                        if !full_text.is_empty() {
+                                            // ── Cache: parse once, reuse every frame ──────────────
                                                     let content_hash = {
                                                         use std::hash::{Hash, Hasher};
                                                         let mut h = std::collections::hash_map::DefaultHasher::new();
@@ -730,6 +1018,18 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                             if let Some(m) = state.ai_messages.get_mut(idx) {
                                 m.expanded = !m.expanded;
                                 ui.needs_redraw = true;
+                            }
+                        }
+                        if let Some((m_idx, s_idx)) = toggle_trajectory_group {
+                            if let Some(m) = state.ai_messages.get_mut(m_idx) {
+                                if let Some(step) = m.trajectory.get_mut(s_idx) {
+                                    match step {
+                                        TrajectoryStep::Exploration(ref mut grp) => grp.expanded = !grp.expanded,
+                                        TrajectoryStep::Plan { ref mut expanded, .. } => *expanded = !*expanded,
+                                        _ => {}
+                                    }
+                                    ui.needs_redraw = true;
+                                }
                             }
                         }
 

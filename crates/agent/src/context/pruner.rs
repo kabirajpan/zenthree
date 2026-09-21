@@ -48,4 +48,33 @@ impl ContextManager {
             tail.trim_start()
         )
     }
+
+    /// Compact historical tool outputs in older turns so they do not consume context window tokens
+    /// on subsequent turns, while preserving the recent tool output intact.
+    pub fn compact_prior_tool_results(conversation: &mut [Message]) {
+        let len = conversation.len();
+        if len <= 2 {
+            return;
+        }
+        for msg in &mut conversation[..len.saturating_sub(2)] {
+            if msg.role == crate::types::message::Role::Tool && msg.content.len() > 250 {
+                let preview: String = msg.content.chars().take(80).collect();
+                msg.content = format!(
+                    "[Prior output ({} chars) compacted: {}...]",
+                    msg.content.len(),
+                    preview
+                );
+            }
+        }
+    }
+
+    /// Emergency compaction when a 413 Payload Too Large or token rate limit is encountered.
+    /// Retains only the initial setup and the immediate active turn.
+    pub fn emergency_prune(conversation: &mut Vec<Message>) {
+        if conversation.len() > 3 {
+            let drain_end = conversation.len() - 2;
+            conversation.drain(1..drain_end);
+        }
+        Self::compact_prior_tool_results(conversation);
+    }
 }

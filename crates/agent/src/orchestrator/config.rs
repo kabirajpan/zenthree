@@ -29,8 +29,8 @@ impl Default for AgentConfig {
             max_iterations: 10,
             auto_approve_all: true,
             max_provider_retries: 2,
-            max_history_messages: 50,
-            max_tool_output_chars: 8000,
+            max_history_messages: 12,
+            max_tool_output_chars: 2500,
             cancellation_token: None,
             verification_command: None,
         }

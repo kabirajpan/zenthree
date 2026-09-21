@@ -79,7 +79,7 @@ mod tests {
 
             let mut tools_executed = Vec::new();
             let mut on_event = |ev| {
-                if let types::AgentEvent::ToolStarted { name } = &ev {
+                if let types::AgentEvent::ToolStarted { name, .. } = &ev {
                     println!("[Agent executing tool: {}]", name);
                     tools_executed.push(name.clone());
                 }
