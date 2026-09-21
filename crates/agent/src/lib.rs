@@ -14,6 +14,15 @@ pub fn create_agent() -> Option<Agent> {
     Some(Agent::new(provider, tools))
 }
 
+/// Constructs an `Agent` for a specific provider + model ID.
+/// `provider_name` is `"gemini"` or `"groq"` (case-insensitive).
+/// `model_id` is the raw model string (e.g. `"gemini-2.5-flash"`, `"qwen/qwen3-32b"`).
+pub fn create_agent_for_model(provider_name: &str, model_id: &str) -> Option<Agent> {
+    let provider = provider::create_provider_for(provider_name, model_id)?;
+    let tools = ToolRegistry::essentials();
+    Some(Agent::new(provider, tools))
+}
+
 /// Constructs an `Agent` initialized with ONLY the 2 read-only tools:
 /// `read_file` and `get_diagnostics`.
 ///

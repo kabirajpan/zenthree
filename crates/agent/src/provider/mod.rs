@@ -95,3 +95,20 @@ pub fn create_default_provider() -> Option<Box<dyn Provider>> {
     }
     None
 }
+
+/// Instantiate a specific provider by name + model ID.
+/// `provider_name`: `"gemini"` or `"groq"` (case-insensitive).
+/// Falls back to `create_default_provider()` if the requested key is missing.
+pub fn create_provider_for(provider_name: &str, model_id: &str) -> Option<Box<dyn Provider>> {
+    match provider_name.to_lowercase().as_str() {
+        "gemini" => {
+            let key = get_key("GEMINI_API_KEY")?;
+            Some(Box::new(GeminiProvider::with_model(key, model_id)))
+        }
+        "groq" => {
+            let key = get_key("GROQ_API_KEY")?;
+            Some(Box::new(GroqProvider::with_model(key, model_id)))
+        }
+        _ => create_default_provider(),
+    }
+}

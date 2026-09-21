@@ -1,8 +1,8 @@
-use std::path::{Path, PathBuf};
-use std::collections::HashMap;
-use crate::theme::{ThemeMode, ThemeColors};
+use crate::theme::{ThemeColors, ThemeMode};
 use editor::buffer::Buffer;
 use editor::editor::Editor;
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 
 #[derive(Clone)]
 pub struct EditorTab {
@@ -11,7 +11,8 @@ pub struct EditorTab {
     pub editor: Editor,
     pub is_dirty: bool,
     pub scroll_y: f32,
-    pub shaping_cache: std::collections::HashMap<usize, (String, zenthra_text::prelude::ShapedBuffer)>,
+    pub shaping_cache:
+        std::collections::HashMap<usize, (String, zenthra_text::prelude::ShapedBuffer)>,
     pub version: u64,
 }
 
@@ -19,6 +20,72 @@ pub struct EditorTab {
 pub enum GitStatus {
     Modified,
     Untracked,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum AiProvider {
+    Groq,
+    Gemini,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum AiModel {
+    GroqGptOss120b,
+    GroqGptOss20b,
+    GroqQwen3_8_27b,
+    GeminiFlashLatest,
+    GeminiProLatest,
+    Gemini25Flash,
+}
+
+impl AiModel {
+    pub const ALL: [AiModel; 6] = [
+        AiModel::GroqGptOss120b,
+        AiModel::GroqGptOss20b,
+        AiModel::GroqQwen3_8_27b,
+        AiModel::GeminiFlashLatest,
+        AiModel::GeminiProLatest,
+        AiModel::Gemini25Flash,
+    ];
+
+    pub fn provider(&self) -> AiProvider {
+        match self {
+            AiModel::GroqGptOss120b | AiModel::GroqGptOss20b | AiModel::GroqQwen3_8_27b => {
+                AiProvider::Groq
+            }
+            AiModel::GeminiFlashLatest | AiModel::GeminiProLatest | AiModel::Gemini25Flash => {
+                AiProvider::Gemini
+            }
+        }
+    }
+
+    pub fn model_id(&self) -> &'static str {
+        match self {
+            AiModel::GroqGptOss120b => "openai/gpt-oss-120b",
+            AiModel::GroqGptOss20b => "openai/gpt-oss-20b",
+            AiModel::GroqQwen3_8_27b => "qwen/qwen3.8-27b",
+            AiModel::GeminiFlashLatest => "gemini-flash-latest",
+            AiModel::GeminiProLatest => "gemini-pro-latest",
+            AiModel::Gemini25Flash => "gemini-2.5-flash",
+        }
+    }
+
+    pub fn display_name(&self) -> &'static str {
+        match self {
+            AiModel::GroqGptOss120b => "GPT-OSS 120B",
+            AiModel::GroqGptOss20b => "GPT-OSS 20B",
+            AiModel::GroqQwen3_8_27b => "Qwen3.8 27B",
+            AiModel::GeminiFlashLatest => "Gemini Flash",
+            AiModel::GeminiProLatest => "Gemini Pro",
+            AiModel::Gemini25Flash => "Gemini 2.5 Flash",
+        }
+    }
+}
+
+impl Default for AiModel {
+    fn default() -> Self {
+        AiModel::GroqGptOss120b
+    }
 }
 
 #[derive(Debug, Clone)]
@@ -165,6 +232,8 @@ pub struct PersistentState {
     pub installed_extensions: Vec<String>,
     #[serde(default)]
     pub ignored_language_prompts: Vec<String>,
+    #[serde(default)]
+    pub selected_ai_model: Option<AiModel>,
 }
 
 pub fn get_config_path() -> PathBuf {
@@ -266,15 +335,17 @@ pub struct ZenthreeState {
     /// Render-side markdown parse cache: maps a FNV hash of message content → pre-parsed blocks.
     /// Stored as `Box<dyn Any>` so this module stays free of the `MarkdownBlock` type.
     pub ai_block_cache: std::collections::HashMap<u64, Box<dyn std::any::Any + Send + Sync>>,
+
+    pub selected_ai_model: AiModel,
+    pub ai_model_menu_open: bool,
 }
 
 impl ZenthreeState {
     pub fn new() -> Self {
         // Try workspace argument, fallback to std::env::current_dir(), fallback to home dir
         let args: Vec<String> = std::env::args().collect();
-        let mut current_dir = std::env::current_dir().unwrap_or_else(|_| {
-            dirs::home_dir().unwrap_or_else(|| PathBuf::from("."))
-        });
+        let mut current_dir = std::env::current_dir()
+            .unwrap_or_else(|_| dirs::home_dir().unwrap_or_else(|| PathBuf::from(".")));
         let mut has_workspace = false;
 
         if args.len() > 1 {
@@ -333,28 +404,24 @@ impl ZenthreeState {
             terminal_visible: false,
             terminal_height: 200.0,
             active_resize_terminal: false,
-            terminal_lines: vec![
-                TerminalLine {
-                    text: "Zenthree Native Terminal v0.1.0".to_string(),
-                    is_command: false,
-                    is_error: false,
-                },
-            ],
+            terminal_lines: vec![TerminalLine {
+                text: "Zenthree Native Terminal v0.1.0".to_string(),
+                is_command: false,
+                is_error: false,
+            }],
             terminal_input: String::new(),
             terminal_history: Vec::new(),
             terminal_history_idx: None,
             ai_panel_visible: false,
             ai_panel_width: 340.0,
             active_resize_ai_panel: false,
-            ai_messages: vec![
-                AiMessage {
-                    is_user: false,
-                    content: "Hello! I am your assistant. How can I help you today?".to_string(),
-                    code_snippet: None,
-                    thoughts: None,
-                    expanded: false,
-                },
-            ],
+            ai_messages: vec![AiMessage {
+                is_user: false,
+                content: "Hello! I am your assistant. How can I help you today?".to_string(),
+                code_snippet: None,
+                thoughts: None,
+                expanded: false,
+            }],
             ai_input: String::new(),
             user_profile_open: false,
             terminal_session: None,
@@ -384,6 +451,8 @@ impl ZenthreeState {
             copied_ai_msg: None,
             copied_ai_code_id: None,
             ai_block_cache: std::collections::HashMap::new(),
+            selected_ai_model: AiModel::default(),
+            ai_model_menu_open: false,
         };
 
         // Restore previous session preferences (theme, accent, extensions, etc.)
@@ -428,9 +497,7 @@ impl ZenthreeState {
             None
         };
         let open_tabs: Vec<PathBuf> = if self.has_workspace {
-            self.tabs.iter()
-                .filter_map(|t| t.path.clone())
-                .collect()
+            self.tabs.iter().filter_map(|t| t.path.clone()).collect()
         } else {
             Vec::new()
         };
@@ -456,7 +523,11 @@ impl ZenthreeState {
             line_numbers_visible: Some(self.line_numbers_visible),
             zoom_level: Some(self.zoom_level),
             current_dir,
-            expanded_dirs: if self.has_workspace { self.expanded_dirs.iter().cloned().collect() } else { Vec::new() },
+            expanded_dirs: if self.has_workspace {
+                self.expanded_dirs.iter().cloned().collect()
+            } else {
+                Vec::new()
+            },
             open_tabs,
             active_tab_path,
             recent_files: self.recent_files.clone(),
@@ -467,6 +538,7 @@ impl ZenthreeState {
             sidebar_view: Some(self.sidebar_view),
             installed_extensions: self.installed_extensions.iter().cloned().collect(),
             ignored_language_prompts: self.ignored_language_prompts.iter().cloned().collect(),
+            selected_ai_model: Some(self.selected_ai_model),
         };
 
         if let Ok(json) = serde_json::to_string_pretty(&state) {
@@ -479,29 +551,69 @@ impl ZenthreeState {
         let path = get_config_path();
         if let Ok(content) = std::fs::read_to_string(&path) {
             if let Ok(saved) = serde_json::from_str::<PersistentState>(&content) {
-                if let Some(theme) = saved.theme { self.theme = theme; }
-                if let Some(accent) = saved.accent_color { self.accent_color = accent; }
-                if let Some(icon) = saved.icon_theme { self.icon_theme = icon; }
-                if let Some(preset) = saved.explorer_preset { self.explorer_preset = preset; }
-                if let Some(guides) = saved.explorer_tree_guides { self.explorer_tree_guides = guides; }
-                if let Some(git) = saved.explorer_git_status { self.explorer_git_status = git; }
-                if let Some(hidden) = saved.explorer_show_hidden { self.explorer_show_hidden = hidden; }
-                if let Some(sb_vis) = saved.sidebar_visible { self.sidebar_visible = sb_vis; }
-                if let Some(sb_w) = saved.sidebar_width { self.sidebar_width = sb_w; }
-                if let Some(st_vis) = saved.status_bar_visible { self.status_bar_visible = st_vis; }
-                if let Some(ln_vis) = saved.line_numbers_visible { self.line_numbers_visible = ln_vis; }
-                if let Some(zoom) = saved.zoom_level { self.zoom_level = zoom; }
-                if !saved.recent_files.is_empty() { self.recent_files = saved.recent_files; }
-                if let Some(tv) = saved.terminal_visible { self.terminal_visible = tv; }
-                if let Some(th) = saved.terminal_height { self.terminal_height = th; }
-                if let Some(aiv) = saved.ai_panel_visible { self.ai_panel_visible = aiv; }
-                if let Some(aiw) = saved.ai_panel_width { self.ai_panel_width = aiw; }
-                if let Some(sv) = saved.sidebar_view { self.sidebar_view = sv; }
+                if let Some(theme) = saved.theme {
+                    self.theme = theme;
+                }
+                if let Some(accent) = saved.accent_color {
+                    self.accent_color = accent;
+                }
+                if let Some(icon) = saved.icon_theme {
+                    self.icon_theme = icon;
+                }
+                if let Some(preset) = saved.explorer_preset {
+                    self.explorer_preset = preset;
+                }
+                if let Some(guides) = saved.explorer_tree_guides {
+                    self.explorer_tree_guides = guides;
+                }
+                if let Some(git) = saved.explorer_git_status {
+                    self.explorer_git_status = git;
+                }
+                if let Some(hidden) = saved.explorer_show_hidden {
+                    self.explorer_show_hidden = hidden;
+                }
+                if let Some(sb_vis) = saved.sidebar_visible {
+                    self.sidebar_visible = sb_vis;
+                }
+                if let Some(sb_w) = saved.sidebar_width {
+                    self.sidebar_width = sb_w;
+                }
+                if let Some(st_vis) = saved.status_bar_visible {
+                    self.status_bar_visible = st_vis;
+                }
+                if let Some(ln_vis) = saved.line_numbers_visible {
+                    self.line_numbers_visible = ln_vis;
+                }
+                if let Some(zoom) = saved.zoom_level {
+                    self.zoom_level = zoom;
+                }
+                if !saved.recent_files.is_empty() {
+                    self.recent_files = saved.recent_files;
+                }
+                if let Some(tv) = saved.terminal_visible {
+                    self.terminal_visible = tv;
+                }
+                if let Some(th) = saved.terminal_height {
+                    self.terminal_height = th;
+                }
+                if let Some(aiv) = saved.ai_panel_visible {
+                    self.ai_panel_visible = aiv;
+                }
+                if let Some(aiw) = saved.ai_panel_width {
+                    self.ai_panel_width = aiw;
+                }
+                if let Some(sv) = saved.sidebar_view {
+                    self.sidebar_view = sv;
+                }
                 if !saved.installed_extensions.is_empty() {
                     self.installed_extensions = saved.installed_extensions.into_iter().collect();
                 }
                 if !saved.ignored_language_prompts.is_empty() {
-                    self.ignored_language_prompts = saved.ignored_language_prompts.into_iter().collect();
+                    self.ignored_language_prompts =
+                        saved.ignored_language_prompts.into_iter().collect();
+                }
+                if let Some(m) = saved.selected_ai_model {
+                    self.selected_ai_model = m;
                 }
 
                 let args: Vec<String> = std::env::args().collect();
@@ -522,7 +634,8 @@ impl ZenthreeState {
                     for tab_path in saved.open_tabs {
                         if tab_path.exists() && tab_path.is_file() {
                             if let Ok(content) = std::fs::read_to_string(&tab_path) {
-                                let name = tab_path.file_name()
+                                let name = tab_path
+                                    .file_name()
                                     .and_then(|n| n.to_str())
                                     .unwrap_or("Untitled")
                                     .to_string();
@@ -552,7 +665,8 @@ impl ZenthreeState {
                         }
 
                         // On IDE startup: check if the restored active tab needs language support
-                        let startup_path = self.active_tab
+                        let startup_path = self
+                            .active_tab
                             .and_then(|idx| self.tabs.get(idx))
                             .and_then(|t| t.path.clone())
                             .or_else(|| self.tabs.first().and_then(|t| t.path.clone()));
@@ -628,7 +742,7 @@ impl ZenthreeState {
                     } else {
                         GitStatus::Modified
                     };
-                    
+
                     map.insert(full_path.clone(), status);
 
                     let mut current = full_path.parent();
@@ -636,7 +750,8 @@ impl ZenthreeState {
                         if parent == root || !parent.starts_with(root) {
                             break;
                         }
-                        map.entry(parent.to_path_buf()).or_insert(GitStatus::Modified);
+                        map.entry(parent.to_path_buf())
+                            .or_insert(GitStatus::Modified);
                         current = parent.parent();
                     }
                 }
@@ -677,7 +792,8 @@ impl ZenthreeState {
 
             let total = paths.len();
             for (i, path) in paths.into_iter().enumerate() {
-                let name = path.file_name()
+                let name = path
+                    .file_name()
                     .and_then(|n| n.to_str())
                     .unwrap_or("Unknown")
                     .to_string();
@@ -729,7 +845,11 @@ impl ZenthreeState {
     }
 
     pub fn expand_all_folders(&mut self) {
-        fn collect_dirs(dir: &Path, acc: &mut std::collections::HashSet<PathBuf>, show_hidden: bool) {
+        fn collect_dirs(
+            dir: &Path,
+            acc: &mut std::collections::HashSet<PathBuf>,
+            show_hidden: bool,
+        ) {
             if let Ok(entries) = std::fs::read_dir(dir) {
                 for entry in entries.filter_map(Result::ok) {
                     let path = entry.path();
@@ -748,7 +868,11 @@ impl ZenthreeState {
                 }
             }
         }
-        collect_dirs(&self.current_dir, &mut self.expanded_dirs, self.explorer_show_hidden);
+        collect_dirs(
+            &self.current_dir,
+            &mut self.expanded_dirs,
+            self.explorer_show_hidden,
+        );
         self.rebuild_tree();
         self.save_persistent_state();
     }
@@ -816,7 +940,8 @@ impl ZenthreeState {
     }
 
     pub fn start_rename_inline(&mut self, target_path: PathBuf) {
-        let initial_name = target_path.file_name()
+        let initial_name = target_path
+            .file_name()
             .and_then(|n| n.to_str())
             .unwrap_or("")
             .to_string();
@@ -929,7 +1054,11 @@ impl ZenthreeState {
     }
 
     pub fn delete_tree_path(&mut self, path: &Path) {
-        let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("item").to_string();
+        let name = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("item")
+            .to_string();
         let res = if path.is_dir() {
             std::fs::remove_dir_all(path)
         } else {
@@ -940,7 +1069,11 @@ impl ZenthreeState {
             Ok(_) => {
                 let mut i = 0;
                 while i < self.tabs.len() {
-                    let should_close = self.tabs[i].path.as_ref().map(|p| p == path || p.starts_with(path)).unwrap_or(false);
+                    let should_close = self.tabs[i]
+                        .path
+                        .as_ref()
+                        .map(|p| p == path || p.starts_with(path))
+                        .unwrap_or(false);
                     if should_close {
                         self.close_tab(i);
                     } else {
@@ -964,13 +1097,19 @@ impl ZenthreeState {
 
     pub fn copy_tree_path(&mut self, path: &Path) {
         self.tree_clipboard = Some(TreeClipboardAction::Copy(path.to_path_buf()));
-        self.status_message = format!("Copied {}", path.file_name().and_then(|n| n.to_str()).unwrap_or(""));
+        self.status_message = format!(
+            "Copied {}",
+            path.file_name().and_then(|n| n.to_str()).unwrap_or("")
+        );
         self.tree_context_menu = None;
     }
 
     pub fn cut_tree_path(&mut self, path: &Path) {
         self.tree_clipboard = Some(TreeClipboardAction::Cut(path.to_path_buf()));
-        self.status_message = format!("Cut {}", path.file_name().and_then(|n| n.to_str()).unwrap_or(""));
+        self.status_message = format!(
+            "Cut {}",
+            path.file_name().and_then(|n| n.to_str()).unwrap_or("")
+        );
         self.tree_context_menu = None;
     }
 
@@ -994,10 +1133,15 @@ impl ZenthreeState {
 
                     if dest.exists() {
                         let stem = src.file_stem().and_then(|s| s.to_str()).unwrap_or("copy");
-                        let ext = src.extension().and_then(|e| e.to_str()).map(|e| format!(".{}", e)).unwrap_or_default();
+                        let ext = src
+                            .extension()
+                            .and_then(|e| e.to_str())
+                            .map(|e| format!(".{}", e))
+                            .unwrap_or_default();
                         let mut count = 1;
                         loop {
-                            let candidate = target_dir.join(format!("{}_copy{}{}", stem, count, ext));
+                            let candidate =
+                                target_dir.join(format!("{}_copy{}{}", stem, count, ext));
                             if !candidate.exists() {
                                 dest = candidate;
                                 break;
@@ -1014,7 +1158,13 @@ impl ZenthreeState {
 
                     if res.is_ok() {
                         self.rebuild_tree();
-                        self.status_message = format!("Pasted into {}", target_dir.file_name().and_then(|n| n.to_str()).unwrap_or(""));
+                        self.status_message = format!(
+                            "Pasted into {}",
+                            target_dir
+                                .file_name()
+                                .and_then(|n| n.to_str())
+                                .unwrap_or("")
+                        );
                     } else {
                         self.status_message = "Failed to paste item".to_string();
                     }
@@ -1037,7 +1187,13 @@ impl ZenthreeState {
                                 }
                             }
                             self.rebuild_tree();
-                            self.status_message = format!("Moved to {}", target_dir.file_name().and_then(|n| n.to_str()).unwrap_or(""));
+                            self.status_message = format!(
+                                "Moved to {}",
+                                target_dir
+                                    .file_name()
+                                    .and_then(|n| n.to_str())
+                                    .unwrap_or("")
+                            );
                         }
                     } else {
                         self.status_message = "Destination already exists".to_string();
@@ -1049,14 +1205,21 @@ impl ZenthreeState {
     }
 
     pub fn reveal_in_file_manager(&self, path: &Path) {
-        let dir = if path.is_dir() { path } else { path.parent().unwrap_or(&self.current_dir) };
+        let dir = if path.is_dir() {
+            path
+        } else {
+            path.parent().unwrap_or(&self.current_dir)
+        };
         #[cfg(target_os = "windows")]
         {
             let _ = std::process::Command::new("explorer").arg(dir).spawn();
         }
         #[cfg(target_os = "macos")]
         {
-            let _ = std::process::Command::new("open").arg("-R").arg(path).spawn();
+            let _ = std::process::Command::new("open")
+                .arg("-R")
+                .arg(path)
+                .spawn();
         }
         #[cfg(not(any(target_os = "windows", target_os = "macos")))]
         {
@@ -1067,7 +1230,8 @@ impl ZenthreeState {
     pub fn open_file(&mut self, path: &Path) {
         self.selected_sidebar_path = Some(path.to_path_buf());
         if let Ok(content) = std::fs::read_to_string(path) {
-            let name = path.file_name()
+            let name = path
+                .file_name()
                 .and_then(|n| n.to_str())
                 .unwrap_or("Untitled")
                 .to_string();
@@ -1101,7 +1265,11 @@ impl ZenthreeState {
             });
             self.active_tab = Some(self.tabs.len() - 1);
             self.status_message = format!("Opened file: {}", path.display());
-            let ws_root = if self.has_workspace { Some(self.current_dir.as_path()) } else { None };
+            let ws_root = if self.has_workspace {
+                Some(self.current_dir.as_path())
+            } else {
+                None
+            };
             self.lsp_manager.on_document_open(path, &content, ws_root);
             self.check_language_support_prompt(path);
             self.save_persistent_state();
@@ -1113,8 +1281,11 @@ impl ZenthreeState {
     pub fn check_language_support_prompt(&mut self, path: &Path) {
         if let Some(ext) = crate::extensions::ExtensionCatalog::find_by_path(path) {
             // Check if installed or explicitly ignored
-            if !self.installed_extensions.contains(ext.id) && !self.ignored_language_prompts.contains(ext.id) {
-                let file_name = path.file_name()
+            if !self.installed_extensions.contains(ext.id)
+                && !self.ignored_language_prompts.contains(ext.id)
+            {
+                let file_name = path
+                    .file_name()
                     .and_then(|n| n.to_str())
                     .unwrap_or("file")
                     .to_string();
@@ -1162,7 +1333,8 @@ impl ZenthreeState {
     pub fn dismiss_language_prompt(&mut self, save_dont_show_again: bool) {
         if let Some(ref dialog) = self.active_language_prompt {
             if save_dont_show_again || dialog.dont_show_again_checked {
-                self.ignored_language_prompts.insert(dialog.extension_id.clone());
+                self.ignored_language_prompts
+                    .insert(dialog.extension_id.clone());
                 self.save_persistent_state();
             }
         }
@@ -1192,7 +1364,9 @@ impl ZenthreeState {
     pub fn save_active_tab_as(&mut self) {
         if let Some(idx) = self.active_tab {
             if idx < self.tabs.len() {
-                let initial_dir = self.tabs[idx].path.as_ref()
+                let initial_dir = self.tabs[idx]
+                    .path
+                    .as_ref()
                     .and_then(|p| p.parent())
                     .unwrap_or(&self.current_dir);
                 let mut dialog = rfd::FileDialog::new().set_directory(initial_dir);
@@ -1207,7 +1381,11 @@ impl ZenthreeState {
                 if let Some(path) = dialog.save_file() {
                     let tab = &mut self.tabs[idx];
                     if std::fs::write(&path, tab.editor.buffer.to_string()).is_ok() {
-                        tab.name = path.file_name().and_then(|n| n.to_str()).unwrap_or("Unknown").to_string();
+                        tab.name = path
+                            .file_name()
+                            .and_then(|n| n.to_str())
+                            .unwrap_or("Unknown")
+                            .to_string();
                         tab.path = Some(path.clone());
                         tab.is_dirty = false;
                         if !self.recent_files.contains(&path) {
@@ -1352,9 +1530,12 @@ impl ZenthreeState {
     }
 
     pub fn new_untitled_file(&mut self) {
-        let count = self.tabs.iter()
+        let count = self
+            .tabs
+            .iter()
             .filter(|t| t.name.starts_with("Untitled"))
-            .count() + 1;
+            .count()
+            + 1;
         let name = format!("Untitled-{}", count);
         self.tabs.push(EditorTab {
             name,
@@ -1397,7 +1578,9 @@ impl ZenthreeState {
 
     pub fn ensure_terminal_session(&mut self) {
         if self.terminal_session.is_none() {
-            if let Some(sess) = crate::native_terminal::NativeTerminalSession::new(&self.current_dir) {
+            if let Some(sess) =
+                crate::native_terminal::NativeTerminalSession::new(&self.current_dir)
+            {
                 self.terminal_session = Some(sess);
             } else {
                 self.terminal_lines.push(TerminalLine {
@@ -1538,13 +1721,21 @@ impl ZenthreeState {
         // Pass existing session JSON so the agent remembers prior conversation
         let session_json = self.ai_session_json.clone();
         let is_fresh_session = session_json.is_none();
+        // Pass selected model so the thread uses the right provider
+        let selected_model = self.selected_ai_model;
 
         std::thread::spawn(move || {
             // Set CWD so all tools (get_project_structure, search_codebase, etc.)
             // operate on the user's workspace, not the binary's launch directory.
             let _ = std::env::set_current_dir(&current_dir);
 
-            if let Some(mut agent) = agent::create_agent() {
+            if let Some(mut agent) = agent::create_agent_for_model(
+                match selected_model.provider() {
+                    crate::state::AiProvider::Gemini => "gemini",
+                    crate::state::AiProvider::Groq => "groq",
+                },
+                selected_model.model_id(),
+            ) {
                 // Restore conversation history from previous messages
                 if let Some(ref json) = session_json {
                     let _ = agent.import_session_json(json);
@@ -1562,23 +1753,22 @@ impl ZenthreeState {
                 }
 
                 let mut final_text = String::new();
-                let mut on_event = |ev: agent::types::AgentEvent| {
-                    match ev {
-                        agent::types::AgentEvent::ToolStarted { name } => {
-                            let _ = tx.send(AiUiUpdate::Status(format!("🔧 Calling {name}...")));
-                        }
-                        agent::types::AgentEvent::ToolFinished { name, .. } => {
-                            let _ = tx.send(AiUiUpdate::Status(format!("🔧 Finished {name}, analyzing...")));
-                        }
-                        agent::types::AgentEvent::Text(delta) => {
-                            final_text.push_str(&delta);
-                        }
-                        _ => {}
+                let mut on_event = |ev: agent::types::AgentEvent| match ev {
+                    agent::types::AgentEvent::ToolStarted { name } => {
+                        let _ = tx.send(AiUiUpdate::Status(format!("🔧 Calling {name}...")));
                     }
+                    agent::types::AgentEvent::ToolFinished { name, .. } => {
+                        let _ = tx.send(AiUiUpdate::Status(format!(
+                            "🔧 Finished {name}, analyzing..."
+                        )));
+                    }
+                    agent::types::AgentEvent::Text(delta) => {
+                        final_text.push_str(&delta);
+                    }
+                    _ => {}
                 };
-                let mut ask_approval = |_: agent::types::ApprovalRequest| {
-                    agent::types::ApprovalDecision::Approve
-                };
+                let mut ask_approval =
+                    |_: agent::types::ApprovalRequest| agent::types::ApprovalDecision::Approve;
 
                 match agent.run(&prompt, &mut on_event, &mut ask_approval) {
                     Ok(text) => {
@@ -1626,11 +1816,14 @@ impl ZenthreeState {
                         changed = true;
                         match update {
                             AiUiUpdate::Status(status) => {
-                                if let Some(last) = self.ai_messages.iter_mut().rev().find(|m| !m.is_user) {
+                                if let Some(last) =
+                                    self.ai_messages.iter_mut().rev().find(|m| !m.is_user)
+                                {
                                     // Evict old cached blocks before overwriting content
                                     let old_hash = {
                                         use std::hash::{Hash, Hasher};
-                                        let mut h = std::collections::hash_map::DefaultHasher::new();
+                                        let mut h =
+                                            std::collections::hash_map::DefaultHasher::new();
                                         last.content.hash(&mut h);
                                         h.finish()
                                     };
@@ -1638,12 +1831,18 @@ impl ZenthreeState {
                                     last.content = status;
                                 }
                             }
-                            AiUiUpdate::Done { reply, session_json } => {
-                                if let Some(last) = self.ai_messages.iter_mut().rev().find(|m| !m.is_user) {
+                            AiUiUpdate::Done {
+                                reply,
+                                session_json,
+                            } => {
+                                if let Some(last) =
+                                    self.ai_messages.iter_mut().rev().find(|m| !m.is_user)
+                                {
                                     // Evict stale cache entry
                                     let old_hash = {
                                         use std::hash::{Hash, Hasher};
-                                        let mut h = std::collections::hash_map::DefaultHasher::new();
+                                        let mut h =
+                                            std::collections::hash_map::DefaultHasher::new();
                                         last.content.hash(&mut h);
                                         h.finish()
                                     };
@@ -1753,7 +1952,10 @@ mod tests {
 
         assert_eq!(state.icon_theme, "catppuccin");
         assert_eq!(state.explorer_preset, ExplorerPreset::ClassicTree);
-        assert!(state.tabs.iter().any(|t| t.path.as_ref() == Some(&test_file)));
+        assert!(state
+            .tabs
+            .iter()
+            .any(|t| t.path.as_ref() == Some(&test_file)));
 
         // Clean up
         let _ = std::fs::remove_dir_all(tmp_dir);
@@ -1773,7 +1975,10 @@ mod tests {
         // Toggle AI panel & send prompt
         state.ai_panel_visible = true;
         state.send_ai_message("Explain the workspace");
-        assert!(state.ai_messages.iter().any(|m| m.is_user && m.content == "Explain the workspace"));
+        assert!(state
+            .ai_messages
+            .iter()
+            .any(|m| m.is_user && m.content == "Explain the workspace"));
         assert!(state.ai_messages.iter().any(|m| !m.is_user));
     }
 
@@ -1828,15 +2033,18 @@ mod tests {
         let catalog = crate::extensions::ExtensionCatalog::all();
         assert!(!catalog.is_empty());
 
-        let go_ext = crate::extensions::ExtensionCatalog::find_by_path(std::path::Path::new("app.go"));
+        let go_ext =
+            crate::extensions::ExtensionCatalog::find_by_path(std::path::Path::new("app.go"));
         assert!(go_ext.is_some());
         assert_eq!(go_ext.unwrap().id, "go");
 
-        let ts_ext = crate::extensions::ExtensionCatalog::find_by_path(std::path::Path::new("index.ts"));
+        let ts_ext =
+            crate::extensions::ExtensionCatalog::find_by_path(std::path::Path::new("index.ts"));
         assert!(ts_ext.is_some());
         assert_eq!(ts_ext.unwrap().id, "typescript");
 
-        let cpp_ext = crate::extensions::ExtensionCatalog::find_by_path(std::path::Path::new("main.cpp"));
+        let cpp_ext =
+            crate::extensions::ExtensionCatalog::find_by_path(std::path::Path::new("main.cpp"));
         assert!(cpp_ext.is_some());
         assert_eq!(cpp_ext.unwrap().id, "cpp");
     }
@@ -1852,4 +2060,3 @@ mod tests {
         assert_eq!(state.tabs[0].editor.buffer.to_string(), "");
     }
 }
-

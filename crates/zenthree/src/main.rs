@@ -14,6 +14,7 @@ use zenthra::prelude::*;
 use zenthra::Id;
 
 fn main() {
+    dotenvy::dotenv().ok();
     env_logger::init();
 
     // Initialize the modular state (loads persistent state from disk)

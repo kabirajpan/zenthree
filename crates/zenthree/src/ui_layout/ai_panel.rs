@@ -1,4 +1,4 @@
-use crate::state::ZenthreeState;
+use crate::state::{ZenthreeState, AiModel, AiProvider};
 use zenthra::{Color, Ui, Align, FontWeight, Id, CursorIcon};
 
 pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height: f32) {
@@ -105,7 +105,7 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                 .halign(Align::SpaceBetween)
                 .no_wrap()
                 .show(|ui| {
-                    // Left Brand & Status
+                    // Left: dot + "Assistant" label + model badge
                     ui.container()
                         .row()
                         .valign(Align::Center)
@@ -124,6 +124,36 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                 .weight(FontWeight::Bold)
                                 .color(colors.text_primary)
                                 .show();
+
+                            // Model badge (clickable dropdown trigger)
+                            let model_badge_id = ui.id_from("ai_model_badge");
+                            let model_badge = ui.container()
+                                .id(model_badge_id)
+                                .padding(2.0, 6.0, 2.0, 6.0)
+                                .radius_all(4.0)
+                                .bg(colors.highlight.with_alpha(0.6))
+                                .hover_bg(colors.highlight)
+                                .row()
+                                .valign(Align::Center)
+                                .gap(4.0)
+                                .show(|ui| {
+                                    ui.text(state.selected_ai_model.display_name())
+                                        .size(9.5)
+                                        .color(colors.text_muted)
+                                        .show();
+                                    ui.text(if state.ai_model_menu_open { "\u{f0d8}" } else { "\u{f0d7}" })
+                                        .size(8.0)
+                                        .color(colors.text_muted)
+                                        .show();
+                                });
+
+                            if model_badge.hovered {
+                                ui.cursor_icon = CursorIcon::Pointer;
+                            }
+                            if model_badge.clicked {
+                                state.ai_model_menu_open = !state.ai_model_menu_open;
+                                ui.needs_redraw = true;
+                            }
                         });
 
                     // Right Actions (Clear & Close)
@@ -183,6 +213,76 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                 .height(1.0)
                 .bg(colors.border.with_alpha(0.5))
                 .show(|_| {});
+
+            // ─── Model selector dropdown (shown below hairline when open) ────
+            if state.ai_model_menu_open {
+                let mut select_model: Option<AiModel> = None;
+                ui.container()
+                    .width(ai_panel_w)
+                    .padding(4.0, 10.0, 4.0, 10.0)
+                    .bg(colors.bg_sidebar)
+                    .border(colors.border.with_alpha(0.4), 0.5)
+                    .column()
+                    .gap(2.0)
+                    .show(|ui| {
+                        let mut last_provider: Option<AiProvider> = None;
+                        for model in AiModel::ALL {
+                            if last_provider != Some(model.provider()) {
+                                let label = match model.provider() {
+                                    AiProvider::Groq => "GROQ",
+                                    AiProvider::Gemini => "GEMINI",
+                                };
+                                // Section gap before second group
+                                if last_provider.is_some() {
+                                    ui.container().height(4.0).show(|_| {});
+                                }
+                                ui.text(label)
+                                    .size(8.5)
+                                    .weight(FontWeight::Bold)
+                                    .color(colors.text_muted.with_alpha(0.6))
+                                    .show();
+                                last_provider = Some(model.provider());
+                            }
+
+                            let is_selected = state.selected_ai_model == model;
+                            let row_id = ui.id_from(&format!("ai_model_opt_{}", model.model_id()));
+                            let row = ui.container()
+                                .id(row_id)
+                                .full_width()
+                                .padding(4.0, 6.0, 4.0, 6.0)
+                                .radius_all(4.0)
+                                .bg(if is_selected { colors.accent.with_alpha(0.08) } else { colors.bg_sidebar })
+                                .hover_bg(colors.highlight)
+                                .row()
+                                .valign(Align::Center)
+                                .halign(Align::SpaceBetween)
+                                .show(|ui| {
+                                    ui.text(model.display_name())
+                                        .size(10.5)
+                                        .color(if is_selected { colors.accent } else { colors.text_primary })
+                                        .show();
+                                    if is_selected {
+                                        ui.text("\u{f00c}")
+                                            .size(9.0)
+                                            .color(colors.accent)
+                                            .show();
+                                    }
+                                });
+
+                            if row.hovered { ui.cursor_icon = CursorIcon::Pointer; }
+                            if row.clicked { select_model = Some(model); }
+                        }
+                    });
+
+                if let Some(model) = select_model {
+                    state.selected_ai_model = model;
+                    state.ai_model_menu_open = false;
+                    // Reset conversation so the new model gets a fresh session
+                    state.ai_session_json = None;
+                    state.save_persistent_state();
+                    ui.needs_redraw = true;
+                }
+            }
 
             // ─── Dynamic Height Calculations ─────────────────────────────
             let is_input_focused = ui.focused_id == Some(ai_input_id);
