@@ -9,21 +9,28 @@
 ```
 crates/agent/src/
 ├── lib.rs                         ← create_agent(), create_agent_for_model()
-├── orchestrator/
+├── agentic_loop/                  ← [COMPLETED] Core multi-turn autonomous execution
 │   ├── mod.rs
-│   ├── config.rs                  ← AgentConfig (max_iterations, retry limits, etc.)
-│   ├── context.rs                 ← ContextManager (prune_history, sanitize_tool_result)
-│   ├── loop_engine.rs             ← Agent struct + full agentic loop (run, tool dispatch, approval)
-│   └── state.rs                   ← AgentSession (conversation persistence, export/import)
-├── provider/
+│   └── engine.rs                  ← Agent struct, streaming event loop, cancellation checkpoints
+├── context/                       ← [COMPLETED] Context window pruning & token guardrails
+│   ├── mod.rs
+│   └── pruner.rs                  ← History pruning, sanitize_tool_result, tool compaction & 413 auto-prune
+├── orchestrator/                  ← [COMPLETED] Orchestration configuration & sessions
+│   ├── mod.rs
+│   ├── config.rs                  ← AgentConfig (max_iterations, token budgets, retries, verification)
+│   └── session.rs                 ← AgentSession (JSON conversation export/import)
+├── verification/                  ← [COMPLETED] Dynamic post-loop compiler / lint verification
+│   ├── mod.rs
+│   └── runner.rs                  ← VerificationRunner (100% dynamic: NO static whitelists or hardcoded commands; feeds errors back to loop)
+├── provider/                      ← [COMPLETED] LLM Provider Streaming Adapters
 │   ├── mod.rs                     ← create_default_provider(), create_provider_for()
 │   ├── gemini.rs                  ← GeminiProvider (streaming, tool schema)
 │   └── groq.rs                    ← GroqProvider (streaming, tool schema)
-├── tools/
+├── tools/                         ← [COMPLETED] 15 Built-in IDE Tools
 │   ├── mod.rs
 │   ├── registry.rs                ← ToolRegistry (minimal / essentials / all)
 │   ├── traits.rs
-│   ├── diagnostics.rs             ← get_diagnostics
+│   ├── diagnostics.rs             ← get_diagnostics (LSP & compiler errors)
 │   ├── fs/
 │   │   ├── read.rs, write.rs, edit.rs
 │   │   ├── delete.rs (ops.rs), rename.rs (ops.rs)
@@ -36,108 +43,121 @@ crates/agent/src/
 │   │   ├── codebase.rs, files.rs
 │   │   └── mod.rs
 │   ├── terminal/
-│   │   ├── exec.rs                ← run_terminal
+│   │   ├── exec.rs                ← run_terminal (dynamic command execution)
 │   │   └── mod.rs
 │   └── plan/
 │       ├── planner.rs             ← create_plan, update_plan_step
 │       └── mod.rs
-├── traits/
+├── traits/                        ← [COMPLETED] Core contracts
 │   ├── mod.rs
 │   ├── provider.rs                ← Provider trait
 │   └── tool.rs                    ← Tool trait + ToolRisk enum
-└── types/
+└── types/                         ← [COMPLETED] Type definitions
     ├── mod.rs
     ├── approval.rs                ← ApprovalRequest, ApprovalDecision
     ├── error.rs                   ← ProviderError, ToolError
-    ├── event.rs                   ← AgentEvent, ProviderEvent
+    ├── event.rs                   ← AgentEvent (with tool args for trajectory), ProviderEvent
     └── message.rs                 ← Message, Role, ToolCall
 ```
 
 ---
 
-## Gap Analysis — What's Missing
+## Architectural Principles & Guarantees
 
-| Flow Node | Status | Missing |
-|---|---|---|
-| **Request** | ✅ exists (entry via `lib.rs`) | — |
-| **Context Engine** | ⚠️ partial | Only prune/sanitize. No code symbol extraction, no git diff injection, no open-file context |
-| **Orchestrator** | ✅ exists (`loop_engine.rs`) | Planning step (picks skills/strategy before loop starts) |
-| **Skills** | ❌ missing | No skill system — the loop has no per-task instruction sets |
-| **Model (API call)** | ✅ exists | — |
-| **Tools** | ✅ exists | — |
-| **Permission gate** | ✅ exists (ToolRisk + approval) | — |
-| **Subagents** | ❌ missing | No mini-loop spawning for isolated sub-tasks |
-| **Sandbox** | ❌ missing | No isolated execution environment for destructive commands |
-| **Verification** | ❌ missing | No post-loop build/lint/test check with retry-back-to-loop |
-| **Memory** | ⚠️ partial | Session JSON persisted but no summary compression across sessions |
-| **Evaluation** | ❌ missing | No offline task replay harness |
+> [!IMPORTANT]
+> 1. **No Static Command Whitelists / No Hardcoded Predefined Commands**:
+>    - Verification (`VerificationRunner`) and terminal execution are **100% dynamic**.
+>    - We **never** hardcode static whitelists (e.g. hardcoding only `cargo test` or `npm build`).
+>    - The caller, workspace configuration, or user dynamically supplies the verification command (`config.verification_command`), allowing the agent to verify Rust, TypeScript, Go, Python, or any other build system without arbitrary restrictions.
+> 2. **Targeted Reads over Whole-File Dumps**:
+>    - Tools favor 1-indexed slice reads (`start_line`/`end_line`) to avoid blowing token context.
+> 3. **Proactive Compaction & 413 Auto-Recovery**:
+>    - The agent automatically compresses older tool output and self-heals if payload rate limits are reached.
+> 4. **Zero UI Lag**:
+>    - Agent background threads communicate via asynchronous MPSC channels; the UI thread never busy-spins or blocks.
 
 ---
 
-## Proposed Target Structure
+## Gap Analysis — Status & Progress
+
+| Flow Node | Status | Progress / Details |
+|---|---|---|
+| **Request** | ✅ COMPLETED | Entry via `lib.rs` (`create_agent`, `create_agent_for_model`). |
+| **Context Engine** | ⚠️ IN PROGRESS | `context/pruner.rs` completed (prune, sanitize, historical compaction, 413 auto-prune). Next: `workspace.rs`, `git_context.rs`. |
+| **Orchestrator** | ✅ COMPLETED | `orchestrator/` + `agentic_loop/engine.rs` completed with non-blocking stream and cancellation tokens. |
+| **Skills** | ❌ PENDING (NEXT) | No skill system yet — next planned addition in `skills/`. |
+| **Model (API call)** | ✅ COMPLETED | Gemini & Groq streaming with tool schemas. |
+| **Tools** | ✅ COMPLETED | 15 tools across `fs`, `git`, `search`, `terminal`, `plan`, `diagnostics`. |
+| **Permission gate** | ✅ COMPLETED | `ToolRisk` + `ApprovalRequest` / `ApprovalDecision`. |
+| **Subagents** | ❌ PENDING | No mini-loop spawning for isolated sub-tasks yet. |
+| **Sandbox** | ❌ PENDING | No isolated execution environment for destructive commands. |
+| **Verification** | ✅ COMPLETED | `verification/runner.rs` dynamically runs compiler/test checks with error loop retry. **Strictly NO static whitelists or predefined command restrictions.** |
+| **Memory** | ⚠️ PARTIAL | Session JSON persisted; token compaction added; cross-session summary pending. |
+| **Evaluation** | ❌ PENDING | No offline task replay harness yet. |
+| **Trajectory UI** | ✅ COMPLETED | Cursor-style collapsible exploration groups, file edit diff badges, and sibling markdown answer in IDE. |
+
+---
+
+## Target Structure (Roadmap)
 
 ```
 crates/agent/src/
-├── lib.rs
+├── lib.rs                         ← [COMPLETED]
 │
-├── context/                       ← [RENAME from orchestrator/context.rs]
+├── agentic_loop/                  ← [COMPLETED]
 │   ├── mod.rs
-│   ├── pruner.rs                  ← history pruning, sanitize_tool_result
-│   ├── workspace.rs               ← [NEW] open files, symbols, current dir injection
-│   └── git_context.rs             ← [NEW] git status/diff injected into system prompt
+│   └── engine.rs                  ← core run() loop with cancellation & 413 retry
 │
-├── orchestrator/
+├── context/                       ← [IN PROGRESS]
 │   ├── mod.rs
-│   ├── config.rs                  ← (keep)
-│   ├── planner.rs                 ← [NEW] picks skills/strategy before loop runs
-│   └── session.rs                 ← [RENAME from state.rs] conversation export/import
+│   ├── pruner.rs                  ← [COMPLETED] history pruning, sanitize_tool_result, compaction, 413 auto-prune
+│   ├── workspace.rs               ← [PENDING - NEXT] open files, active cursor slice, project directory injection
+│   └── git_context.rs             ← [PENDING - NEXT] git status/diff injected into system prompt
 │
-├── agentic_loop/                  ← [NEW dir — extracted from orchestrator/loop_engine.rs]
+├── orchestrator/                  ← [COMPLETED]
 │   ├── mod.rs
-│   ├── engine.rs                  ← core run() loop (moved from loop_engine.rs)
-│   ├── tool_dispatch.rs           ← [NEW split] tool call execution + error feedback
-│   ├── approval.rs                ← [NEW split] permission gate logic (ToolRisk checks)
-│   └── cancellation.rs           ← [NEW split] cancellation token handling
+│   ├── config.rs                  ← (iterations, token budgets, retries, verification)
+│   ├── planner.rs                 ← [PENDING] picks skills/strategy before loop runs
+│   └── session.rs                 ← conversation export/import JSON
 │
-├── skills/                        ← [NEW]
+├── verification/                  ← [COMPLETED]
+│   ├── mod.rs
+│   └── runner.rs                  ← VerificationRunner: runs build/test, feeds failure back to model
+│
+├── skills/                        ← [PENDING - NEXT IMMEDIATE]
 │   ├── mod.rs
 │   ├── skill.rs                   ← Skill trait (name, system_prompt, tools_override)
 │   ├── coding.rs                  ← "write/edit code" skill
 │   ├── debugging.rs               ← "diagnose and fix" skill
 │   └── explain.rs                 ← "explain codebase" skill
 │
-├── subagent/                      ← [NEW]
+├── subagent/                      ← [PENDING]
 │   ├── mod.rs
-│   └── runner.rs                  ← SpawnedAgent: runs a sub-task, returns result to parent
+│   └── runner.rs                  ← SpawnedAgent: runs isolated sub-tasks, returns summary to parent
 │
-├── verification/                  ← [NEW]
+├── memory/                        ← [PENDING]
 │   ├── mod.rs
-│   ├── runner.rs                  ← runs build/lint/test → Pass | Fail(reason) → retry loop
-│   └── strategies.rs              ← cargo build, cargo test, eslint, etc.
+│   └── summarizer.rs              ← compresses old multi-session conversations into executive summary
 │
-├── memory/                        ← [NEW]
-│   ├── mod.rs
-│   └── summarizer.rs              ← compresses old conversations into a short summary
-│
-├── evaluation/                    ← [NEW] offline task replay harness
+├── evaluation/                    ← [PENDING] offline task replay harness
 │   ├── mod.rs
 │   ├── harness.rs
 │   └── tasks/                     ← .json task definitions
 │
-├── provider/                      ← (keep)
+├── provider/                      ← [COMPLETED]
 │   ├── mod.rs
 │   ├── gemini.rs
 │   └── groq.rs
 │
-├── tools/                         ← (keep)
-│   └── ...
+├── tools/                         ← [COMPLETED]
+│   └── fs/, git/, search/, terminal/, plan/, diagnostics/, registry.rs
 │
-├── traits/                        ← (keep)
+├── traits/                        ← [COMPLETED]
 │   ├── mod.rs
 │   ├── provider.rs
 │   └── tool.rs
 │
-└── types/                         ← (keep)
+└── types/                         ← [COMPLETED]
     ├── mod.rs
     ├── approval.rs
     ├── error.rs
@@ -147,114 +167,27 @@ crates/agent/src/
 
 ---
 
-## Summary of Changes
+## Summary of Completed vs. Pending Items
 
-| Action | Item |
-|---|---|
-| **NEW dir** | `agentic_loop/` — `engine.rs`, `tool_dispatch.rs`, `approval.rs`, `cancellation.rs` |
-| **RENAME** | `orchestrator/loop_engine.rs` → `agentic_loop/engine.rs` |
-| **RENAME** | `orchestrator/context.rs` → `context/pruner.rs` |
-| **RENAME** | `orchestrator/state.rs` → `orchestrator/session.rs` |
-| **NEW dir** | `context/` — `workspace.rs`, `git_context.rs` |
-| **NEW dir** | `skills/` — skill trait + 3 built-ins |
-| **NEW dir** | `subagent/` — mini-loop runner |
-| **NEW dir** | `verification/` — build/test checker + retry |
-| **NEW dir** | `memory/` — cross-session summarizer |
-| **NEW dir** | `evaluation/` — offline harness + task definitions |
-| **KEEP** | `provider/`, `tools/`, `traits/`, `types/` |
-
-> [!IMPORTANT]
-> Recommended implementation order:
-> 1. **Refactor first** — extract `agentic_loop/` from `loop_engine.rs` (no behaviour change, just structure)
-> 2. **verification/** — closes the fail→retry loop (biggest impact)
-> 3. **skills/** — per-task instructions (biggest quality improvement)
-> 4. **context/workspace.rs** — injects open file context into the prompt
-> 5. `subagent/`, `memory/`, `evaluation/` — later, as needed
-
-
-```
-crates/agent/src/
-├── lib.rs
-│
-├── context/                       ← [RENAME from orchestrator/context.rs]
-│   ├── mod.rs
-│   ├── pruner.rs                  ← history pruning, sanitize_tool_result (moved here)
-│   ├── workspace.rs               ← [NEW] reads open files, symbols, current dir for injection
-│   └── git_context.rs             ← [NEW] injects git status/diff into system prompt
-│
-├── orchestrator/
-│   ├── mod.rs
-│   ├── config.rs                  ← (keep)
-│   ├── planner.rs                 ← [NEW] picks skills/strategy before loop runs
-│   ├── loop_engine.rs             ← (keep, rename agentic_loop.rs → loop_engine.rs already done)
-│   └── session.rs                 ← [RENAME from state.rs] conversation export/import
-│
-├── skills/                        ← [NEW] per-task instruction bundles
-│   ├── mod.rs
-│   ├── skill.rs                   ← Skill trait (name, system_prompt, tools_override)
-│   ├── coding.rs                  ← "write/edit code" skill
-│   ├── debugging.rs               ← "diagnose and fix" skill
-│   └── explain.rs                 ← "explain codebase" skill
-│
-├── subagent/                      ← [NEW] mini-loop for isolated sub-tasks
-│   ├── mod.rs
-│   └── runner.rs                  ← SpawnedAgent: runs a sub-task, returns result to parent
-│
-├── verification/                  ← [NEW] post-loop checks
-│   ├── mod.rs
-│   ├── runner.rs                  ← runs build/lint/test, returns Pass | Fail(reason)
-│   └── strategies.rs              ← cargo build, cargo test, eslint, etc.
-│
-├── memory/                        ← [NEW] cross-session summaries
-│   ├── mod.rs
-│   └── summarizer.rs              ← compresses old conversations into a short summary
-│
-├── evaluation/                    ← [NEW] offline task replay harness
-│   ├── mod.rs
-│   ├── harness.rs                 ← runs a fixed task set through the loop
-│   └── tasks/                     ← .json task definitions
-│
-├── provider/                      ← (keep as-is)
-│   ├── mod.rs
-│   ├── gemini.rs
-│   └── groq.rs
-│
-├── tools/                         ← (keep as-is)
-│   ├── ...
-│
-├── traits/                        ← (keep, may add Skill + Verifier traits)
-│   ├── mod.rs
-│   ├── provider.rs
-│   └── tool.rs
-│
-└── types/                         ← (keep, may add VerificationResult)
-    ├── mod.rs
-    ├── approval.rs
-    ├── error.rs
-    ├── event.rs
-    └── message.rs
-```
-
----
-
-## Summary of Changes
-
-| Action | Item |
-|---|---|
-| **RENAME** | `orchestrator/context.rs` → `context/pruner.rs` |
-| **RENAME** | `orchestrator/state.rs` → `orchestrator/session.rs` |
-| **NEW dir** | `context/` with `workspace.rs`, `git_context.rs` |
-| **NEW dir** | `skills/` with skill trait + 3 built-in skills |
-| **NEW dir** | `subagent/` with `runner.rs` |
-| **NEW dir** | `verification/` with `runner.rs` + `strategies.rs` |
-| **NEW dir** | `memory/` with `summarizer.rs` |
-| **NEW dir** | `evaluation/` with `harness.rs` + task definitions |
-| **KEEP** | `orchestrator/loop_engine.rs`, `provider/`, `tools/`, `traits/`, `types/` |
+| Action | Item | Status |
+|---|---|---|
+| **NEW dir** | `agentic_loop/` — `engine.rs` | ✅ COMPLETED |
+| **RENAME** | `orchestrator/context.rs` → `context/pruner.rs` | ✅ COMPLETED |
+| **RENAME** | `orchestrator/state.rs` → `orchestrator/session.rs` | ✅ COMPLETED |
+| **NEW dir** | `verification/` — `runner.rs` (100% dynamic, NO static whitelists or predefined commands) | ✅ COMPLETED |
+| **TOKEN GUARDRAILS** | Compaction & 413 auto-prune in `context/pruner.rs` & `agentic_loop/engine.rs` | ✅ COMPLETED |
+| **TRAJECTORY UI** | Cursor/Antigravity style collapsible groups & diff badges in `zenthree` | ✅ COMPLETED |
+| **NEW dir** | `skills/` — skill trait + 3 built-in skills (`coding.rs`, `debugging.rs`, `explain.rs`) | ⏳ NEXT IMMEDIATE |
+| **NEW files** | `context/workspace.rs`, `context/git_context.rs` | ⏳ NEXT IMMEDIATE |
+| **NEW dir** | `subagent/` — mini-loop runner for isolated tasks | ⏳ PENDING |
+| **NEW dir** | `memory/` — cross-session conversation summarizer | ⏳ PENDING |
+| **NEW dir** | `evaluation/` — offline task replay harness | ⏳ PENDING |
+| **KEEP** | `provider/`, `tools/`, `traits/`, `types/` | ✅ COMPLETED |
 
 > [!IMPORTANT]
-> The three highest-impact additions in order are:
-> 1. **verification/** — closes the fail→retry loop (core of the diagram)
-> 2. **skills/** — gives the agent task-specific instructions (biggest quality improvement)
-> 3. **context/workspace.rs** — injects open file + symbols into prompt (improves relevance)
+> The three highest-impact additions in order:
+> 1. **verification/** — ✅ COMPLETED (closes the fail→retry loop)
+> 2. **skills/** — ⏳ NEXT IMMEDIATE (gives the agent task-specific instructions for coding, debugging, explaining)
+> 3. **context/workspace.rs** — ⏳ NEXT IMMEDIATE (injects open file + symbols into prompt to improve relevance)
 >
-> `subagent/`, `memory/`, and `evaluation/` are lower priority and can come later.
+> `subagent/`, `memory/`, and `evaluation/` will follow in subsequent phases.
