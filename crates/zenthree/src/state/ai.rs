@@ -93,19 +93,23 @@ impl ZenthreeState {
                     let _ = agent.import_session_json(json);
                 }
 
-                // On the first turn inject a system message with workspace context, git context, and ZENE skills
+                // On the first turn inject a system message with workspace context, git context, ZENE skills, and Level 1 Tool Manifest
                 if is_fresh_session {
                     let skills_summary = agent.skills().prompt_summary();
+                    let tools_manifest = agent.tools().manifest();
                     let mut sys_msg = format!(
                         "You are ZENE, an advanced AI coding assistant embedded in the Zenthree IDE.\n\
-                        Workspace: {}\n\
+                        Workspace: {}\n\n\
+                        Available Tools (Level 1 Manifest):\n{}\n\n\
+                        Available Workflow Skills:\n{}\n\n\
                         Guidelines:\n\
-                        - Use available tools to explore the codebase before editing.\n\
+                        - Tools follow lazy loading: use available tools when needed.\n\
+                        - Use `search` and `read_file` to explore before modifying files.\n\
                         - Prefer surgical edits using `edit_file` rather than rewriting whole files.\n\
                         - Run `get_diagnostics` or test suites via `run_terminal` to verify your changes.\n\
-                        - Activate workflow skills on demand via `activate_skill(name: \"...\")` for step-by-step guidance.\n\n\
-                        Available Workflow Skills:\n{}\n\n{}",
+                        - Activate workflow skills on demand via `activate_skill(name: \"...\")` for step-by-step guidance.\n\n{}",
                         current_dir.display(),
+                        tools_manifest,
                         skills_summary,
                         ws_context_prompt
                     );
