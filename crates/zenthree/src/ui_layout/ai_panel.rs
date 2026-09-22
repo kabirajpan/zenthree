@@ -1,6 +1,9 @@
-use crate::state::{ZenthreeState, AiModel, AiProvider, TrajectoryStep, ExplorationItem, path_matches};
-use zenthra::{Color, Ui, Align, FontWeight, Id, CursorIcon, use_context};
+use crate::state::{ZenthreeState, AiModel, AiProvider, AgentMode, TrajectoryStep, ExplorationItem, path_matches};
+use zenthra::{Color, Ui, Align, FontWeight, Id, CursorIcon, use_context, Placement, PopoverAlign};
 use crate::theme::ThemeColors;
+
+const AGENT_MODE_BTN_ID: Id = Id::from_u64(999999885);
+const MODEL_PICKER_BTN_ID: Id = Id::from_u64(999999886);
 
 pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height: f32) {
     let colors = use_context::<ThemeColors>().map(|c| *c).unwrap_or_else(|| state.colors());
@@ -106,7 +109,7 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                 .halign(Align::SpaceBetween)
                 .no_wrap()
                 .show(|ui| {
-                    // Left: dot + "Assistant" label + model badge
+                    // Left: dot + "Assistant" label
                     ui.container()
                         .row()
                         .valign(Align::Center)
@@ -125,36 +128,6 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                 .weight(FontWeight::Bold)
                                 .color(colors.text_primary)
                                 .show();
-
-                            // Model badge (clickable dropdown trigger)
-                            let model_badge_id = ui.id_from("ai_model_badge");
-                            let model_badge = ui.container()
-                                .id(model_badge_id)
-                                .padding(2.0, 6.0, 2.0, 6.0)
-                                .radius_all(4.0)
-                                .bg(colors.highlight.with_alpha(0.6))
-                                .hover_bg(colors.highlight)
-                                .row()
-                                .valign(Align::Center)
-                                .gap(4.0)
-                                .show(|ui| {
-                                    ui.text(state.selected_ai_model.display_name())
-                                        .size(9.5)
-                                        .color(colors.text_muted)
-                                        .show();
-                                    ui.text(if state.ai_model_menu_open { "\u{f0d8}" } else { "\u{f0d7}" })
-                                        .size(8.0)
-                                        .color(colors.text_muted)
-                                        .show();
-                                });
-
-                            if model_badge.hovered {
-                                ui.cursor_icon = CursorIcon::Pointer;
-                            }
-                            if model_badge.clicked {
-                                state.ai_model_menu_open = !state.ai_model_menu_open;
-                                ui.needs_redraw = true;
-                            }
                         });
 
                     // Right Actions (Clear & Close)
@@ -215,75 +188,6 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                 .bg(colors.border.with_alpha(0.5))
                 .show(|_| {});
 
-            // ─── Model selector dropdown (shown below hairline when open) ────
-            if state.ai_model_menu_open {
-                let mut select_model: Option<AiModel> = None;
-                ui.container()
-                    .width(ai_panel_w)
-                    .padding(4.0, 10.0, 4.0, 10.0)
-                    .bg(colors.bg_sidebar)
-                    .border(colors.border.with_alpha(0.4), 0.5)
-                    .column()
-                    .gap(2.0)
-                    .show(|ui| {
-                        let mut last_provider: Option<AiProvider> = None;
-                        for model in AiModel::ALL {
-                            if last_provider != Some(model.provider()) {
-                                let label = match model.provider() {
-                                    AiProvider::Groq => "GROQ",
-                                    AiProvider::Gemini => "GEMINI",
-                                };
-                                // Section gap before second group
-                                if last_provider.is_some() {
-                                    ui.container().height(4.0).show(|_| {});
-                                }
-                                ui.text(label)
-                                    .size(8.5)
-                                    .weight(FontWeight::Bold)
-                                    .color(colors.text_muted.with_alpha(0.6))
-                                    .show();
-                                last_provider = Some(model.provider());
-                            }
-
-                            let is_selected = state.selected_ai_model == model;
-                            let row_id = ui.id_from(&format!("ai_model_opt_{}", model.model_id()));
-                            let row = ui.container()
-                                .id(row_id)
-                                .full_width()
-                                .padding(4.0, 6.0, 4.0, 6.0)
-                                .radius_all(4.0)
-                                .bg(if is_selected { colors.accent.with_alpha(0.08) } else { colors.bg_sidebar })
-                                .hover_bg(colors.highlight)
-                                .row()
-                                .valign(Align::Center)
-                                .halign(Align::SpaceBetween)
-                                .show(|ui| {
-                                    ui.text(model.display_name())
-                                        .size(10.5)
-                                        .color(if is_selected { colors.accent } else { colors.text_primary })
-                                        .show();
-                                    if is_selected {
-                                        ui.text("\u{f00c}")
-                                            .size(9.0)
-                                            .color(colors.accent)
-                                            .show();
-                                    }
-                                });
-
-                            if row.hovered { ui.cursor_icon = CursorIcon::Pointer; }
-                            if row.clicked { select_model = Some(model); }
-                        }
-                    });
-
-                if let Some(model) = select_model {
-                    state.selected_ai_model = model;
-                    state.ai_model_menu_open = false;
-                    // Reset conversation so the new model gets a fresh session
-                    state.ai_session_json = None;
-                    state.save_persistent_state();
-                    ui.needs_redraw = true;
-                }
-            }
 
             // ─── Dynamic Height Calculations ─────────────────────────────
             let is_input_focused = ui.focused_id == Some(ai_input_id);
@@ -364,15 +268,11 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
             }
             let has_modified_files = !modified_files.is_empty();
 
-            let modified_section_h = if has_modified_files {
-                let cards_h = if state.show_modified_files_popup {
-                    (modified_files.len().max(1) as f32 * 26.0 + 12.0).min(180.0) + 4.0
-                } else {
-                    0.0
-                };
-                cards_h + 28.0
+            let modified_section_h = if state.show_modified_files_popup && has_modified_files {
+                let file_list_h = (modified_files.len().max(1) as f32 * 22.0 + 8.0).min(140.0);
+                file_list_h + 6.0 + 20.0
             } else {
-                24.0
+                20.0
             };
 
             // Dock height: prompt box + bottom row/padding + toolbar/modified section
@@ -1231,17 +1131,19 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                     let mut action_accept_all = false;
                     let mut action_reject_all = false;
 
-                    // ─── Modified Files Cards & Review Bar (or Standard Quick Toolbar) ───
-                    if has_modified_files {
-                        // 1. Modified Files Card Container (Single space-saving unified card holding all files)
-                        if state.show_modified_files_popup {
-                            let card_container_h = (modified_files.len().max(1) as f32 * 24.0 + 8.0).min(180.0);
+                    // ─── Modified Files View & Quick Toolbar ────────────────────────
+                    if state.show_modified_files_popup {
+                        if has_modified_files {
+                            // 1. Scrollable file list container (only for the file list) with input background & shadow
+                            let file_list_h = (modified_files.len().max(1) as f32 * 22.0 + 8.0).min(140.0);
                             ui.container()
                                 .full_width()
-                                .height(card_container_h)
-                                .radius_all(6.0)
-                                .bg(colors.bg_sidebar)
-                                .padding(3.0, 6.0, 3.0, 6.0)
+                                .height(file_list_h)
+                                .bg(colors.bg_base)
+                                .border(colors.border.with_alpha(0.4), 0.5)
+                                .radius_all(7.0)
+                                .shadow(Color::rgba(0.0, 0.0, 0.0, 0.45), 0.0, 2.0, 12.0)
+                                .padding(4.0, 6.0, 4.0, 6.0)
                                 .scroll_y(true)
                                 .column()
                                 .gap(2.0)
@@ -1250,7 +1152,7 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                         let ext = item.file_path.extension().and_then(|s| s.to_str()).unwrap_or("");
                                         let (_glyph, icon_color) = crate::mini_icons::get_mini_file_icon(&item.file_name.to_lowercase(), &ext.to_lowercase());
 
-                                        let is_active = state.tabs.get(state.active_tab.unwrap_or(0))
+                                        let _is_active = state.tabs.get(state.active_tab.unwrap_or(0))
                                             .and_then(|t| t.path.as_ref())
                                             .map(|p| path_matches(p, &item.file_path))
                                             .unwrap_or(false);
@@ -1260,81 +1162,81 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                         let row = ui.container()
                                             .id(row_id)
                                             .full_width()
-                                            .height(22.0)
+                                            .height(20.0)
                                             .radius_all(3.0)
-                                            .bg(if is_active { colors.highlight } else { Color::TRANSPARENT })
-                                            .hover_bg(colors.highlight)
+                                            .bg(Color::TRANSPARENT)
+                                            .hover_bg(Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, 0.05))
                                             .padding(0.0, 4.0, 0.0, 4.0)
                                             .clickable(true)
                                             .row()
                                             .valign(Align::Center)
                                             .halign(Align::SpaceBetween)
                                             .show(|ui| {
-                                                // Left side: file icon, file name, file path
-                                                ui.container()
-                                                    .row()
-                                                    .valign(Align::Center)
-                                                    .gap(7.0)
-                                                    .show(|ui| {
-                                                        // 1. Language outline box with centered colored dot
-                                                        ui.container()
-                                                            .width(14.0)
-                                                            .height(14.0)
-                                                            .radius_all(3.0)
-                                                            .border(icon_color, 1.0)
-                                                            .halign(Align::Center)
-                                                            .valign(Align::Center)
-                                                            .show(|ui| {
-                                                                ui.container()
-                                                                    .width(3.5)
-                                                                    .height(3.5)
-                                                                    .radius_all(1.75)
-                                                                    .bg(icon_color)
-                                                                    .show(|_| {});
-                                                            });
-
-                                                        // 2. File name
-                                                        ui.text(&item.file_name)
-                                                            .size(11.5)
-                                                            .weight(FontWeight::Medium)
-                                                            .color(colors.text_primary)
-                                                            .show();
-
-                                                        // 3. File path
-                                                        ui.text(&item.rel_path)
-                                                            .size(10.5)
-                                                            .color(colors.text_dim)
-                                                            .show();
-                                                    });
-
-                                                // Right side: + and - , cross
+                                                // Left: File icon + File name + Relative path (if different)
                                                 ui.container()
                                                     .row()
                                                     .valign(Align::Center)
                                                     .gap(6.0)
                                                     .show(|ui| {
-                                                        // +added diff counter (always formatted +N)
-                                                        ui.text(&format!("+{}", item.lines_added))
-                                                            .size(10.5)
+                                                        ui.container()
+                                                            .width(12.0)
+                                                            .height(12.0)
+                                                            .radius_all(2.5)
+                                                            .border(icon_color, 1.0)
+                                                            .halign(Align::Center)
+                                                            .valign(Align::Center)
+                                                            .show(|ui| {
+                                                                ui.container()
+                                                                    .width(3.0)
+                                                                    .height(3.0)
+                                                                    .radius_all(1.5)
+                                                                    .bg(icon_color)
+                                                                    .show(|_| {});
+                                                            });
+
+                                                        ui.text(&item.file_name)
+                                                            .size(11.0)
                                                             .weight(FontWeight::Medium)
-                                                            .color(Color { r: 74.0 / 255.0, g: 222.0 / 255.0, b: 128.0 / 255.0, a: 1.0 })
+                                                            .color(colors.text_primary)
                                                             .show();
 
-                                                        // -removed diff counter (always formatted -M)
-                                                        ui.text(&format!("-{}", item.lines_removed))
-                                                            .size(10.5)
-                                                            .weight(FontWeight::Medium)
-                                                            .color(Color { r: 248.0 / 255.0, g: 113.0 / 255.0, b: 113.0 / 255.0, a: 1.0 })
-                                                            .show();
+                                                        if item.rel_path != item.file_name && !item.rel_path.is_empty() {
+                                                            ui.text(&item.rel_path)
+                                                                .size(10.0)
+                                                                .color(colors.text_dim)
+                                                                .show();
+                                                        }
+                                                    });
 
-                                                        // cross
+                                                // Right: +added, -removed, cross icon
+                                                ui.container()
+                                                    .row()
+                                                    .valign(Align::Center)
+                                                    .gap(5.0)
+                                                    .show(|ui| {
+                                                        if item.lines_added > 0 {
+                                                            ui.text(&format!("+{}", item.lines_added))
+                                                                .size(10.0)
+                                                                .weight(FontWeight::Medium)
+                                                                .color(Color { r: 74.0 / 255.0, g: 222.0 / 255.0, b: 128.0 / 255.0, a: 1.0 })
+                                                                .show();
+                                                        }
+                                                        if item.lines_removed > 0 {
+                                                            ui.text(&format!("-{}", item.lines_removed))
+                                                                .size(10.0)
+                                                                .weight(FontWeight::Medium)
+                                                                .color(Color { r: 248.0 / 255.0, g: 113.0 / 255.0, b: 113.0 / 255.0, a: 1.0 })
+                                                                .show();
+                                                        }
+
+                                                        // Cross icon to reject this individual file
                                                         let cross_id = ui.id_from(&format!("mod_file_cross_{}_{}", idx, item.file_name));
                                                         let cross_btn = ui.container()
                                                             .id(cross_id)
                                                             .clickable(true)
                                                             .padding(1.0, 3.0, 1.0, 3.0)
                                                             .radius_all(2.5)
-                                                            .hover_bg(colors.highlight)
+                                                            .hover_bg(Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, 0.08))
                                                             .show(|ui| {
                                                                 ui.text("✕")
                                                                     .size(8.5)
@@ -1357,134 +1259,130 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                         }
                                     }
                                 });
+
+                            // 2. Toolbar row (outside container): [📄 N Files] on left, Reject all / Accept all on right
+                            ui.container()
+                                .full_width()
+                                .height(20.0)
+                                .padding(0.0, 2.0, 0.0, 2.0)
+                                .row()
+                                .halign(Align::SpaceBetween)
+                                .valign(Align::Center)
+                                .show(|ui| {
+                                    // Left: [📄 N Files] toggle button (no hover by default; dark hover on mouseover)
+                                    let toggle_btn = ui.container()
+                                        .clickable(true)
+                                        .padding(2.0, 5.0, 2.0, 5.0)
+                                        .radius_all(3.0)
+                                        .bg(Color::TRANSPARENT)
+                                        .hover_bg(Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, 0.05))
+                                        .row()
+                                        .valign(Align::Center)
+                                        .gap(4.0)
+                                        .show(|ui| {
+                                            ui.text("\u{f15c}")
+                                                .size(11.5)
+                                                .color(colors.accent)
+                                                .show();
+                                            let count = modified_files.len();
+                                            let label = format!("{} {}", count, if count == 1 { "File" } else { "Files" });
+                                            ui.text(&label)
+                                                .size(10.5)
+                                                .weight(FontWeight::Medium)
+                                                .color(colors.accent)
+                                                .show();
+                                        });
+                                    if toggle_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
+                                    if toggle_btn.clicked {
+                                        state.show_modified_files_popup = false;
+                                        ui.needs_redraw = true;
+                                    }
+
+                                    // Right: Reject all and Accept all
+                                    ui.container()
+                                        .row()
+                                        .valign(Align::Center)
+                                        .gap(6.0)
+                                        .show(|ui| {
+                                            let rej_btn = ui.container()
+                                                .id(Id::from_u64(999999866))
+                                                .clickable(true)
+                                                .padding(2.0, 6.0, 2.0, 6.0)
+                                                .radius_all(3.0)
+                                                .bg(Color::TRANSPARENT)
+                                                .hover_bg(Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, 0.05))
+                                                .show(|ui| {
+                                                    ui.text("Reject all")
+                                                        .size(11.0)
+                                                        .color(colors.text_muted)
+                                                        .show();
+                                                });
+                                            if rej_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
+                                            if rej_btn.clicked {
+                                                action_reject_all = true;
+                                            }
+
+                                            let acc_btn = ui.container()
+                                                .id(Id::from_u64(999999867))
+                                                .clickable(true)
+                                                .padding(2.0, 8.0, 2.0, 8.0)
+                                                .radius_all(4.0)
+                                                .bg(colors.accent)
+                                                .hover_bg(colors.accent.with_alpha(0.85))
+                                                .show(|ui| {
+                                                    ui.text("Accept all")
+                                                        .size(11.0)
+                                                        .weight(FontWeight::SemiBold)
+                                                        .color(Color::WHITE)
+                                                        .show();
+                                                });
+                                            if acc_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
+                                            if acc_btn.clicked {
+                                                action_accept_all = true;
+                                            }
+                                        });
+                                });
+                        } else {
+                            // Empty state: show inline on toolbar row (no box, other icons hidden)
+                            ui.container()
+                                .full_width()
+                                .height(20.0)
+                                .padding(0.0, 2.0, 0.0, 2.0)
+                                .row()
+                                .valign(Align::Center)
+                                .gap(6.0)
+                                .show(|ui| {
+                                    let toggle_btn = ui.container()
+                                        .clickable(true)
+                                        .padding(2.0, 4.0, 2.0, 4.0)
+                                        .radius_all(3.0)
+                                        .bg(Color::TRANSPARENT)
+                                        .hover_bg(Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, 0.05))
+                                        .show(|ui| {
+                                            ui.text("\u{f15c}")
+                                                .size(11.5)
+                                                .color(colors.accent)
+                                                .show();
+                                        });
+                                    if toggle_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
+                                    if toggle_btn.clicked {
+                                        state.show_modified_files_popup = false;
+                                        ui.needs_redraw = true;
+                                    }
+
+                                    ui.text("No files modified yet")
+                                        .size(10.5)
+                                        .color(colors.text_muted.with_alpha(0.7))
+                                        .show();
+                                });
                         }
-
-                        // 2. Review Bar: ← 📄 N File(s) With Changes               Reject all [Accept all] ⌵
-                        ui.container()
-                            .full_width()
-                            .height(24.0)
-                            .padding(0.0, 2.0, 0.0, 2.0)
-                            .row()
-                            .halign(Align::SpaceBetween)
-                            .valign(Align::Center)
-                            .show(|ui| {
-                                // Left side
-                                ui.container()
-                                    .row()
-                                    .valign(Align::Center)
-                                    .gap(6.0)
-                                    .show(|ui| {
-                                        let arrow_btn = ui.container()
-                                            .id(Id::from_u64(999999865))
-                                            .clickable(true)
-                                            .show(|ui| {
-                                                ui.text("←")
-                                                    .size(13.0)
-                                                    .color(colors.text_muted)
-                                                    .show();
-                                            });
-                                        if arrow_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
-                                        if arrow_btn.clicked {
-                                            state.show_modified_files_popup = !state.show_modified_files_popup;
-                                            ui.needs_redraw = true;
-                                        }
-
-                                        let file_icon_btn = ui.container()
-                                            .clickable(true)
-                                            .show(|ui| {
-                                                ui.text("\u{f15c}")
-                                                    .size(12.0)
-                                                    .color(colors.text_muted)
-                                                    .show();
-                                            });
-                                        if file_icon_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
-                                        if file_icon_btn.clicked {
-                                            state.show_modified_files_popup = !state.show_modified_files_popup;
-                                            ui.needs_redraw = true;
-                                        }
-
-                                        let count = modified_files.len();
-                                        let label = format!("{} {} With Changes", count, if count == 1 { "File" } else { "Files" });
-                                        let label_btn = ui.container()
-                                            .clickable(true)
-                                            .show(|ui| {
-                                                ui.text(&label)
-                                                    .size(12.0)
-                                                    .color(colors.text_muted)
-                                                    .show();
-                                            });
-                                        if label_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
-                                        if label_btn.clicked {
-                                            state.show_modified_files_popup = !state.show_modified_files_popup;
-                                            ui.needs_redraw = true;
-                                        }
-                                    });
-
-                                // Right side
-                                ui.container()
-                                    .row()
-                                    .valign(Align::Center)
-                                    .gap(8.0)
-                                    .show(|ui| {
-                                        let rej_btn = ui.container()
-                                            .id(Id::from_u64(999999866))
-                                            .clickable(true)
-                                            .padding(2.0, 6.0, 2.0, 6.0)
-                                            .radius_all(4.0)
-                                            .hover_bg(colors.highlight)
-                                            .show(|ui| {
-                                                ui.text("Reject all")
-                                                    .size(12.0)
-                                                    .color(colors.text_muted)
-                                                    .show();
-                                            });
-                                        if rej_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
-                                        if rej_btn.clicked {
-                                            action_reject_all = true;
-                                        }
-
-                                        let acc_btn = ui.container()
-                                            .id(Id::from_u64(999999867))
-                                            .clickable(true)
-                                            .padding(3.0, 9.0, 3.0, 9.0)
-                                            .radius_all(5.0)
-                                            .bg(Color { r: 0.0, g: 122.0 / 255.0, b: 255.0 / 255.0, a: 1.0 })
-                                            .hover_bg(Color { r: 24.0 / 255.0, g: 138.0 / 255.0, b: 255.0 / 255.0, a: 1.0 })
-                                            .show(|ui| {
-                                                ui.text("Accept all")
-                                                    .size(12.0)
-                                                    .weight(FontWeight::SemiBold)
-                                                    .color(Color::WHITE)
-                                                    .show();
-                                            });
-                                        if acc_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
-                                        if acc_btn.clicked {
-                                            action_accept_all = true;
-                                        }
-
-                                        let chevron_btn = ui.container()
-                                            .clickable(true)
-                                            .show(|ui| {
-                                                ui.text(if state.show_modified_files_popup { "⌵" } else { "⌃" })
-                                                    .size(11.0)
-                                                    .color(colors.text_muted)
-                                                    .show();
-                                            });
-                                        if chevron_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
-                                        if chevron_btn.clicked {
-                                            state.show_modified_files_popup = !state.show_modified_files_popup;
-                                            ui.needs_redraw = true;
-                                        }
-                                    });
-                            });
                     } else {
-                        // Standard quick toolbar when no modified files
+                        // Standard quick toolbar when closed (all icons visible)
                         ui.container()
                             .full_width()
                             .height(20.0)
-                            .padding(0.0, 2.0, 4.0, 2.0)
+                            .padding(0.0, 2.0, 0.0, 2.0)
                             .row()
-                            .halign(Align::SpaceBetween)
                             .valign(Align::Center)
                             .show(|ui| {
                                 ui.container()
@@ -1492,24 +1390,35 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                     .valign(Align::Center)
                                     .gap(8.0)
                                     .show(|ui| {
-                                        // 1. File icon
+                                        // 1. File icon (with count if > 0)
                                         let file_id = Id::from_u64(999999860);
+                                        let count = modified_files.len();
                                         let file_btn = ui.container()
                                             .id(file_id)
                                             .clickable(true)
-                                            .padding(2.0, 3.0, 2.0, 3.0)
+                                            .padding(2.0, 4.0, 2.0, 4.0)
                                             .radius_all(3.0)
-                                            .bg(if state.show_modified_files_popup { colors.highlight } else { Color::TRANSPARENT })
-                                            .hover_bg(colors.highlight)
+                                            .bg(Color::TRANSPARENT)
+                                            .hover_bg(Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, 0.05))
+                                            .row()
+                                            .valign(Align::Center)
+                                            .gap(3.0)
                                             .show(|ui| {
                                                 ui.text("\u{f15c}")
-                                                    .size(12.5)
-                                                    .color(if state.show_modified_files_popup { colors.accent } else { colors.text_muted })
+                                                    .size(12.0)
+                                                    .color(if count > 0 { colors.accent } else { colors.text_muted })
                                                     .show();
+                                                if count > 0 {
+                                                    ui.text(&format!("{}", count))
+                                                        .size(9.5)
+                                                        .weight(FontWeight::Medium)
+                                                        .color(colors.accent)
+                                                        .show();
+                                                }
                                             });
                                         if file_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
                                         if file_btn.clicked {
-                                            state.show_modified_files_popup = !state.show_modified_files_popup;
+                                            state.show_modified_files_popup = true;
                                             ui.needs_redraw = true;
                                         }
 
@@ -1567,7 +1476,6 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                                     .show();
                                             });
                                     });
-
                             });
                     }
 
@@ -1634,7 +1542,8 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                 .submit_on_enter(true)
                                 .show();
 
-                            // Bottom bar of input dock: Send Button
+
+                            // Bottom bar of input dock: Mode & Model pills on left, Send button on right
                             ui.container()
                                 .full_width()
                                 .height(22.0)
@@ -1642,11 +1551,76 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                 .valign(Align::Center)
                                 .halign(Align::SpaceBetween)
                                 .show(|ui| {
-                                    // Left: Helper hint
-                                    ui.text("Shift+Enter for newline")
-                                        .size(8.5)
-                                        .color(colors.text_muted.with_alpha(0.5))
-                                        .show();
+                                    // Left: Agent Mode pill + Model Selector pill
+                                    ui.container()
+                                        .row()
+                                        .valign(Align::Center)
+                                        .gap(5.0)
+                                        .show(|ui| {
+                                            // 1. Agent Mode button
+                                            let mode_btn = ui.container()
+                                                .raw_id(AGENT_MODE_BTN_ID)
+                                                .clickable(true)
+                                                .padding(2.0, 5.0, 2.0, 5.0)
+                                                .radius_all(4.0)
+                                                .bg(if state.agent_mode_menu_open { colors.highlight } else { colors.bg_sidebar })
+                                                .hover_bg(colors.highlight)
+                                                .row()
+                                                .valign(Align::Center)
+                                                .gap(3.0)
+                                                .show(|ui| {
+                                                    ui.text(state.agent_mode.icon())
+                                                        .size(9.0)
+                                                        .show();
+                                                    ui.text(state.agent_mode.display_name())
+                                                        .size(9.5)
+                                                        .weight(FontWeight::Medium)
+                                                        .color(colors.text_primary)
+                                                        .show();
+                                                    ui.text(if state.agent_mode_menu_open { "▴" } else { "▾" })
+                                                        .size(7.5)
+                                                        .color(colors.text_muted)
+                                                        .show();
+                                                });
+                                            if mode_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
+                                            if mode_btn.clicked {
+                                                state.agent_mode_menu_open = !state.agent_mode_menu_open;
+                                                if state.agent_mode_menu_open {
+                                                    state.ai_model_menu_open = false;
+                                                }
+                                                ui.needs_redraw = true;
+                                            }
+
+                                            // 2. Model Selector button
+                                            let model_btn = ui.container()
+                                                .raw_id(MODEL_PICKER_BTN_ID)
+                                                .clickable(true)
+                                                .padding(2.0, 5.0, 2.0, 5.0)
+                                                .radius_all(4.0)
+                                                .bg(if state.ai_model_menu_open { colors.highlight } else { colors.bg_sidebar })
+                                                .hover_bg(colors.highlight)
+                                                .row()
+                                                .valign(Align::Center)
+                                                .gap(3.0)
+                                                .show(|ui| {
+                                                    ui.text(state.selected_ai_model.display_name())
+                                                        .size(9.5)
+                                                        .color(colors.text_muted)
+                                                        .show();
+                                                    ui.text(if state.ai_model_menu_open { "▴" } else { "▾" })
+                                                        .size(7.5)
+                                                        .color(colors.text_muted)
+                                                        .show();
+                                                });
+                                            if model_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
+                                            if model_btn.clicked {
+                                                state.ai_model_menu_open = !state.ai_model_menu_open;
+                                                if state.ai_model_menu_open {
+                                                    state.agent_mode_menu_open = false;
+                                                }
+                                                ui.needs_redraw = true;
+                                            }
+                                        });
 
                                     // Right: Sleek Send Button (or Stop Button during processing)
                                     let is_processing = state.ai_messages.last().map(|m| m.is_working).unwrap_or(false);
@@ -1733,16 +1707,50 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
 
                     if action_accept_all {
                         state.accept_all_reviews();
+                        for tab in &mut state.tabs {
+                            tab.lines_added = 0;
+                            tab.lines_removed = 0;
+                            tab.is_dirty = false;
+                        }
+                        for msg in &mut state.ai_messages {
+                            msg.trajectory.retain(|step| !matches!(step, TrajectoryStep::FileEdit { .. }));
+                        }
                         state.show_modified_files_popup = false;
                         ui.needs_redraw = true;
                     }
                     if action_reject_all {
                         state.reject_all_reviews();
+                        for tab in &mut state.tabs {
+                            tab.lines_added = 0;
+                            tab.lines_removed = 0;
+                            tab.is_dirty = false;
+                        }
+                        for msg in &mut state.ai_messages {
+                            msg.trajectory.retain(|step| !matches!(step, TrajectoryStep::FileEdit { .. }));
+                        }
                         state.show_modified_files_popup = false;
                         ui.needs_redraw = true;
                     }
                     if let Some(path) = target_reject_file {
                         state.reject_review_for_path(&path);
+                        for tab in &mut state.tabs {
+                            if tab.path.as_ref().map(|p| path_matches(p, &path)).unwrap_or(false) {
+                                tab.lines_added = 0;
+                                tab.lines_removed = 0;
+                                tab.is_dirty = false;
+                            }
+                        }
+                        for msg in &mut state.ai_messages {
+                            msg.trajectory.retain(|step| {
+                                if let TrajectoryStep::FileEdit { path: edit_path, .. } = step {
+                                    let pb = std::path::PathBuf::from(edit_path);
+                                    let full = if pb.is_absolute() { pb } else { state.current_dir.join(&pb) };
+                                    !path_matches(&full, &path) && edit_path != &path.to_string_lossy()
+                                } else {
+                                    true
+                                }
+                            });
+                        }
                         ui.needs_redraw = true;
                     }
                     if let Some(path) = target_open_file {
@@ -1751,6 +1759,187 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                     }
                 });
         });
+
+    // ─── Floating Menu Panel: Agent Mode ─────────────────────────────────
+    if state.agent_mode_menu_open {
+        let menu_w = 130.0;
+        let menu_h = 56.0;
+
+        if let Some(anchor) = ui.next_screen_layout_cache.get(&AGENT_MODE_BTN_ID)
+            .or_else(|| ui.screen_layout_cache.get(&AGENT_MODE_BTN_ID)).copied()
+        {
+            let (mx, my) = zenthra_widgets::compute_placement_pos(
+                anchor,
+                menu_w,
+                menu_h,
+                Placement::Top,
+                PopoverAlign::Start,
+                4.0,
+                false,
+                ui.width,
+                ui.height,
+            );
+            let mouse_in_menu = ui.mouse_in_rect(mx, my, menu_w, menu_h);
+            let mouse_in_trigger = ui.mouse_in_rect(anchor.origin.x, anchor.origin.y, anchor.size.width, anchor.size.height);
+            if ui.clicked && !mouse_in_menu && !mouse_in_trigger {
+                state.agent_mode_menu_open = false;
+                ui.needs_redraw = true;
+            }
+        }
+
+        if state.agent_mode_menu_open {
+            ui.popover(AGENT_MODE_BTN_ID)
+                .placement(Placement::Top)
+                .align(PopoverAlign::Start)
+                .gap(4.0)
+                .auto_flip(false)
+                .width(menu_w)
+                .height(menu_h)
+                .bg(colors.bg_sidebar)
+                .border(colors.border, 1.0)
+                .radius_all(6.0)
+                .shadow(Color::rgba(0.0, 0.0, 0.0, 0.5), 0.0, 4.0, 16.0)
+                .padding(2.0, 3.0, 2.0, 3.0)
+                .show(|ui| {
+                    for mode in AgentMode::ALL {
+                        let is_sel = state.agent_mode == mode;
+                        let row_id = ui.id_from(&format!("pop_agent_mode_{:?}", mode));
+                        let row = ui.container()
+                            .id(row_id)
+                            .full_width()
+                            .padding(2.0, 5.0, 2.0, 5.0)
+                            .radius_all(3.5)
+                            .bg(if is_sel { colors.accent.with_alpha(0.12) } else { Color::TRANSPARENT })
+                            .hover_bg(colors.highlight)
+                            .row()
+                            .valign(Align::Center)
+                            .halign(Align::SpaceBetween)
+                            .show(|ui| {
+                                ui.container().row().gap(5.0).valign(Align::Center).show(|ui| {
+                                    ui.text(mode.icon()).size(9.5).show();
+                                    ui.text(mode.display_name())
+                                        .size(9.5)
+                                        .weight(if is_sel { FontWeight::SemiBold } else { FontWeight::Regular })
+                                        .color(if is_sel { colors.accent } else { colors.text_primary })
+                                        .show();
+                                });
+                                if is_sel {
+                                    ui.text("\u{f00c}").size(8.5).color(colors.accent).show();
+                                }
+                            });
+                        if row.hovered { ui.cursor_icon = CursorIcon::Pointer; }
+                        if row.clicked {
+                            state.agent_mode = mode;
+                            state.agent_mode_menu_open = false;
+                            ui.needs_redraw = true;
+                        }
+                    }
+                });
+        }
+    }
+
+    // ─── Floating Menu Panel: Model Selector ──────────────────────────────
+    if state.ai_model_menu_open {
+        let menu_w = 148.0;
+        let menu_h = 126.0;
+
+        if let Some(anchor) = ui.next_screen_layout_cache.get(&MODEL_PICKER_BTN_ID)
+            .or_else(|| ui.screen_layout_cache.get(&MODEL_PICKER_BTN_ID)).copied()
+        {
+            let (mx, my) = zenthra_widgets::compute_placement_pos(
+                anchor,
+                menu_w,
+                menu_h,
+                Placement::Top,
+                PopoverAlign::Start,
+                4.0,
+                false,
+                ui.width,
+                ui.height,
+            );
+            let mouse_in_menu = ui.mouse_in_rect(mx, my, menu_w, menu_h);
+            let mouse_in_trigger = ui.mouse_in_rect(anchor.origin.x, anchor.origin.y, anchor.size.width, anchor.size.height);
+            if ui.clicked && !mouse_in_menu && !mouse_in_trigger {
+                state.ai_model_menu_open = false;
+                ui.needs_redraw = true;
+            }
+        }
+
+        if state.ai_model_menu_open {
+            let mut select_model: Option<AiModel> = None;
+            ui.popover(MODEL_PICKER_BTN_ID)
+                .placement(Placement::Top)
+                .align(PopoverAlign::Start)
+                .gap(4.0)
+                .auto_flip(false)
+                .width(menu_w)
+                .height(menu_h)
+                .bg(colors.bg_sidebar)
+                .border(colors.border, 1.0)
+                .radius_all(6.0)
+                .shadow(Color::rgba(0.0, 0.0, 0.0, 0.5), 0.0, 4.0, 16.0)
+                .padding(2.0, 3.0, 2.0, 3.0)
+                .show(|ui| {
+                    let mut last_provider: Option<AiProvider> = None;
+                    for model in AiModel::ALL {
+                        if last_provider != Some(model.provider()) {
+                            let label = match model.provider() {
+                                AiProvider::Groq => "GROQ",
+                                AiProvider::Gemini => "GEMINI",
+                            };
+                            if last_provider.is_some() {
+                                ui.container().height(2.0).show(|_| {});
+                            }
+                            ui.container().padding(2.0, 4.0, 1.0, 4.0).show(|ui| {
+                                ui.text(label)
+                                    .size(7.5)
+                                    .weight(FontWeight::Bold)
+                                    .color(colors.text_muted.with_alpha(0.6))
+                                    .show();
+                            });
+                            last_provider = Some(model.provider());
+                        }
+
+                        let is_selected = state.selected_ai_model == model;
+                        let row_id = ui.id_from(&format!("pop_model_opt_{}", model.model_id()));
+                        let row = ui.container()
+                            .id(row_id)
+                            .full_width()
+                            .padding(2.0, 5.0, 2.0, 5.0)
+                            .radius_all(3.5)
+                            .bg(if is_selected { colors.accent.with_alpha(0.08) } else { Color::TRANSPARENT })
+                            .hover_bg(colors.highlight)
+                            .row()
+                            .valign(Align::Center)
+                            .halign(Align::SpaceBetween)
+                            .show(|ui| {
+                                ui.text(model.display_name())
+                                    .size(9.5)
+                                    .weight(if is_selected { FontWeight::Medium } else { FontWeight::Regular })
+                                    .color(if is_selected { colors.accent } else { colors.text_primary })
+                                    .show();
+                                if is_selected {
+                                    ui.text("\u{f00c}")
+                                        .size(8.5)
+                                        .color(colors.accent)
+                                        .show();
+                                }
+                            });
+
+                        if row.hovered { ui.cursor_icon = CursorIcon::Pointer; }
+                        if row.clicked { select_model = Some(model); }
+                    }
+                });
+
+            if let Some(model) = select_model {
+                state.selected_ai_model = model;
+                state.ai_model_menu_open = false;
+                state.ai_session_json = None;
+                state.save_persistent_state();
+                ui.needs_redraw = true;
+            }
+        }
+    }
 }
 
 use pulldown_cmark::{Event, HeadingLevel, Options, Parser, Tag, TagEnd};

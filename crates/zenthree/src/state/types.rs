@@ -162,6 +162,52 @@ impl Default for AiModel {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum AgentMode {
+    Agent,
+    Chat,
+    Plan,
+}
+
+impl AgentMode {
+    pub const ALL: [AgentMode; 3] = [
+        AgentMode::Agent,
+        AgentMode::Chat,
+        AgentMode::Plan,
+    ];
+
+    pub fn display_name(&self) -> &'static str {
+        match self {
+            AgentMode::Agent => "Agent",
+            AgentMode::Chat => "Chat",
+            AgentMode::Plan => "Plan",
+        }
+    }
+
+    pub fn icon(&self) -> &'static str {
+        match self {
+            AgentMode::Agent => "⚡",
+            AgentMode::Chat => "💬",
+            AgentMode::Plan => "📋",
+        }
+    }
+
+    #[allow(dead_code)]
+    pub fn description(&self) -> &'static str {
+        match self {
+            AgentMode::Agent => "Autonomous edits, creates & commands",
+            AgentMode::Chat => "Conversational Q&A, no file edits",
+            AgentMode::Plan => "Step-by-step implementation planning",
+        }
+    }
+}
+
+impl Default for AgentMode {
+    fn default() -> Self {
+        AgentMode::Agent
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct FileTreeNode {
     pub path: PathBuf,

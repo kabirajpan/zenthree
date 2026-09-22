@@ -102,6 +102,8 @@ pub struct ZenthreeState {
 
     pub selected_ai_model: AiModel,
     pub ai_model_menu_open: bool,
+    pub agent_mode: AgentMode,
+    pub agent_mode_menu_open: bool,
     pub pending_reviews: Vec<FileDiffReview>,
     pub active_review_idx: Option<usize>,
     pub show_modified_files_popup: bool,
@@ -232,6 +234,8 @@ impl ZenthreeState {
             ai_block_cache: std::collections::HashMap::new(),
             selected_ai_model: AiModel::default(),
             ai_model_menu_open: false,
+            agent_mode: AgentMode::default(),
+            agent_mode_menu_open: false,
             pending_reviews: Vec::new(),
             active_review_idx: None,
             show_modified_files_popup: false,
