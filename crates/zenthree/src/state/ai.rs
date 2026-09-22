@@ -494,24 +494,29 @@ impl ZenthreeState {
                                         _ => {
                                             let item = match name.as_str() {
                                                 "read_file" => {
-                                                    let path = args
-                                                        .get("path")
-                                                        .and_then(|v| v.as_str())
-                                                        .unwrap_or("")
-                                                        .to_string();
-                                                    let start_line = args
-                                                        .get("start_line")
-                                                        .and_then(|v| v.as_u64())
-                                                        .map(|u| u as usize);
-                                                    let end_line = args
-                                                        .get("end_line")
-                                                        .and_then(|v| v.as_u64())
-                                                        .map(|u| u as usize);
-                                                    ExplorationItem::AnalyzedFile {
-                                                        path,
-                                                        start_line,
-                                                        end_line,
+                                                    let symbol = args.get("symbol").and_then(|v| v.as_str()).map(String::from);
+                                                    let is_peek = args.get("peek").and_then(|v| v.as_bool()).unwrap_or(false);
+                                                    let start_line = args.get("start_line").and_then(|v| v.as_u64()).map(|u| u as usize);
+                                                    let end_line = args.get("end_line").and_then(|v| v.as_u64()).map(|u| u as usize);
+
+                                                    if let Some(paths) = args.get("paths").and_then(|v| v.as_array()) {
+                                                        let path_strings = paths.iter().filter_map(|p| p.as_str().map(String::from)).collect();
+                                                        ExplorationItem::BatchRead { paths: path_strings }
+                                                    } else {
+                                                        let path = args.get("path").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                                                        ExplorationItem::AnalyzedFile {
+                                                            path,
+                                                            start_line,
+                                                            end_line,
+                                                            symbol,
+                                                            is_peek,
+                                                        }
                                                     }
+                                                }
+                                                "search" => {
+                                                    let query = args.get("query").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                                                    let scope = args.get("in").and_then(|v| v.as_str()).map(String::from);
+                                                    ExplorationItem::Searched { query, scope }
                                                 }
                                                 "search_codebase" | "find_files" => {
                                                     let query = args
@@ -520,7 +525,7 @@ impl ZenthreeState {
                                                         .and_then(|v| v.as_str())
                                                         .unwrap_or("")
                                                         .to_string();
-                                                    ExplorationItem::Searched { query }
+                                                    ExplorationItem::Searched { query, scope: None }
                                                 }
                                                 "list_directory" | "get_project_structure" => {
                                                     let path = args
@@ -530,12 +535,24 @@ impl ZenthreeState {
                                                         .to_string();
                                                     ExplorationItem::ExploredDirectory { path }
                                                 }
+                                                "activate_skill" => {
+                                                    let name = args
+                                                        .get("name")
+                                                        .and_then(|v| v.as_str())
+                                                        .unwrap_or("")
+                                                        .to_string();
+                                                    ExplorationItem::ActivatedSkill { name }
+                                                }
                                                 "get_diagnostics" => {
-                                                    ExplorationItem::AnalyzedFile {
-                                                        path: "diagnostics".to_string(),
-                                                        start_line: None,
-                                                        end_line: None,
-                                                    }
+                                                    ExplorationItem::CheckedDiagnostics
+                                                }
+                                                "run_terminal" => {
+                                                    let command = args
+                                                        .get("command")
+                                                        .and_then(|v| v.as_str())
+                                                        .unwrap_or("")
+                                                        .to_string();
+                                                    ExplorationItem::ExecutedCommand { command }
                                                 }
                                                 _ => ExplorationItem::Thought {
                                                     summary: format!("Calling {}...", name),

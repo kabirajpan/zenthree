@@ -241,15 +241,33 @@ pub struct TerminalLine {
 pub enum ExplorationItem {
     AnalyzedFile {
         path: String,
+        #[serde(default)]
         start_line: Option<usize>,
+        #[serde(default)]
         end_line: Option<usize>,
+        #[serde(default)]
+        symbol: Option<String>,
+        #[serde(default)]
+        is_peek: bool,
+    },
+    BatchRead {
+        paths: Vec<String>,
     },
     Searched {
         query: String,
+        #[serde(default)]
+        scope: Option<String>,
     },
     ExploredDirectory {
         path: String,
     },
+    ActivatedSkill {
+        name: String,
+    },
+    ExecutedCommand {
+        command: String,
+    },
+    CheckedDiagnostics,
     Thought {
         summary: String,
         duration_secs: Option<u64>,
@@ -271,13 +289,19 @@ impl ExplorationGroup {
         let mut files = 0;
         let mut folders = 0;
         let mut searches = 0;
+        let mut skills = 0;
+        let mut commands = 0;
         let mut thoughts = 0;
 
         for item in &self.items {
             match item {
                 ExplorationItem::AnalyzedFile { .. } => files += 1,
+                ExplorationItem::BatchRead { paths } => files += paths.len(),
                 ExplorationItem::ExploredDirectory { .. } => folders += 1,
                 ExplorationItem::Searched { .. } => searches += 1,
+                ExplorationItem::ActivatedSkill { .. } => skills += 1,
+                ExplorationItem::ExecutedCommand { .. } => commands += 1,
+                ExplorationItem::CheckedDiagnostics => {},
                 ExplorationItem::Thought { .. } => thoughts += 1,
             }
         }
@@ -292,11 +316,22 @@ impl ExplorationGroup {
         if searches > 0 {
             parts.push(format!("{} search{}", searches, if searches == 1 { "" } else { "es" }));
         }
+        if skills > 0 {
+            parts.push(format!("{} skill{}", skills, if skills == 1 { "" } else { "s" }));
+        }
+        if commands > 0 {
+            parts.push(format!("{} command{}", commands, if commands == 1 { "" } else { "s" }));
+        }
 
         if !parts.is_empty() {
-            format!("Explored {}", parts.join(", "))
+            let verb = if self.is_active { "Exploring" } else { "Explored" };
+            format!("{} {}", verb, parts.join(", "))
         } else if thoughts > 0 {
-            "Thought for 1s".to_string()
+            if self.is_active {
+                "Thinking...".to_string()
+            } else {
+                "Thought for 1s".to_string()
+            }
         } else if self.is_active {
             "Exploring codebase...".to_string()
         } else {

@@ -868,8 +868,13 @@ mod tests {
             path: "crates/zenthree/src/theme.rs".to_string(),
             start_line: Some(150),
             end_line: Some(300),
+            symbol: None,
+            is_peek: false,
         });
         assert_eq!(grp.summary_label(), "Explored 1 file");
+        grp.is_active = true;
+        assert_eq!(grp.summary_label(), "Exploring 1 file");
+        grp.is_active = false;
 
         // 2. Add folders and searches
         for i in 0..12 {
@@ -877,17 +882,21 @@ mod tests {
                 path: format!("file_{}.rs", i),
                 start_line: None,
                 end_line: None,
+                symbol: None,
+                is_peek: false,
             });
         }
         grp.items.push(ExplorationItem::ExploredDirectory { path: "src".into() });
         grp.items.push(ExplorationItem::ExploredDirectory { path: "crates".into() });
         for i in 0..11 {
-            grp.items.push(ExplorationItem::Searched { query: format!("q{}", i) });
+            grp.items.push(ExplorationItem::Searched { query: format!("q{}", i), scope: None });
         }
         assert_eq!(grp.summary_label(), "Explored 13 files, 2 folders, 11 searches");
+        grp.is_active = true;
+        assert_eq!(grp.summary_label(), "Exploring 13 files, 2 folders, 11 searches");
 
         // 3. Thought only
-        let thought_grp = ExplorationGroup {
+        let mut thought_grp = ExplorationGroup {
             expanded: false,
             items: vec![ExplorationItem::Thought {
                 summary: "Planning approach...".to_string(),
@@ -896,6 +905,8 @@ mod tests {
             is_active: false,
         };
         assert_eq!(thought_grp.summary_label(), "Thought for 1s");
+        thought_grp.is_active = true;
+        assert_eq!(thought_grp.summary_label(), "Thinking...");
     }
 
     #[test]
@@ -914,6 +925,8 @@ mod tests {
                             path: "crates/zenthree/src/theme.rs".into(),
                             start_line: Some(1),
                             end_line: Some(50),
+                            symbol: None,
+                            is_peek: false,
                         }
                     ],
                     is_active: false,

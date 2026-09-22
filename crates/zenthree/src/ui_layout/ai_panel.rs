@@ -606,16 +606,28 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                                             .show(|ui| {
                                                                 for item in &grp.items {
                                                                     match item {
-                                                                        ExplorationItem::AnalyzedFile { path, start_line, end_line } => {
+                                                                        ExplorationItem::AnalyzedFile { path, start_line, end_line, symbol, is_peek } => {
                                                                             let path_obj = std::path::Path::new(path);
                                                                             let fname = path_obj.file_name().and_then(|s| s.to_str()).unwrap_or(path.as_str());
                                                                             let ext = path_obj.extension().and_then(|s| s.to_str()).unwrap_or("");
                                                                             let (icon_glyph, icon_color) = crate::mini_icons::get_mini_file_icon(&fname.to_lowercase(), &ext.to_lowercase());
 
-                                                                            let line_str = match (start_line, end_line) {
-                                                                                (Some(s), Some(e)) => format!(" #L{}-{}", s, e),
-                                                                                (Some(s), None) => format!(" #L{}", s),
-                                                                                _ => String::new(),
+                                                                            let action_verb = match (*is_peek, grp.is_active) {
+                                                                                (true, true) => "Peeking",
+                                                                                (true, false) => "Peeked",
+                                                                                (false, true) => "Reading",
+                                                                                (false, false) => "Read",
+                                                                            };
+                                                                            let badge = if *is_peek {
+                                                                                " [outline]".to_string()
+                                                                            } else if let Some(ref sym) = symbol {
+                                                                                format!(" fn {}()", sym)
+                                                                            } else {
+                                                                                match (start_line, end_line) {
+                                                                                    (Some(s), Some(e)) => format!(" #L{}-{}", s, e),
+                                                                                    (Some(s), None) => format!(" #L{}", s),
+                                                                                    _ => String::new(),
+                                                                                }
                                                                             };
 
                                                                             ui.container()
@@ -624,7 +636,7 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                                                                 .valign(Align::Center)
                                                                                 .gap(5.0)
                                                                                 .show(|ui| {
-                                                                                    ui.text("Analyzed")
+                                                                                    ui.text(action_verb)
                                                                                         .size(10.0)
                                                                                         .color(colors.text_muted)
                                                                                         .show();
@@ -636,28 +648,53 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                                                                         .size(10.5)
                                                                                         .color(colors.text_primary)
                                                                                         .show();
-                                                                                    if !line_str.is_empty() {
-                                                                                        ui.text(&line_str)
+                                                                                    if !badge.is_empty() {
+                                                                                        ui.text(&badge)
                                                                                             .size(9.5)
-                                                                                            .color(colors.text_muted.with_alpha(0.8))
+                                                                                            .color(colors.accent)
                                                                                             .show();
                                                                                     }
                                                                                 });
                                                                         }
-                                                                        ExplorationItem::Searched { query } => {
+                                                                        ExplorationItem::BatchRead { paths } => {
+                                                                            let action_verb = if grp.is_active { "Reading batch" } else { "Read batch" };
+                                                                            let list_str = paths
+                                                                                .iter()
+                                                                                .filter_map(|p| std::path::Path::new(p).file_name().and_then(|s| s.to_str()))
+                                                                                .collect::<Vec<_>>()
+                                                                                .join(", ");
                                                                             ui.container()
                                                                                 .full_width()
                                                                                 .row()
                                                                                 .valign(Align::Center)
                                                                                 .gap(5.0)
                                                                                 .show(|ui| {
-                                                                                    ui.text("Searched")
+                                                                                    ui.text(action_verb)
                                                                                         .size(10.0)
                                                                                         .color(colors.text_muted)
                                                                                         .show();
-                                                                                    ui.text("\u{f002}")
-                                                                                        .size(9.0)
-                                                                                        .color(colors.accent)
+                                                                                    ui.text(&format!("[{}]", list_str))
+                                                                                        .size(10.5)
+                                                                                        .color(colors.text_primary)
+                                                                                        .show();
+                                                                                });
+                                                                        }
+                                                                        ExplorationItem::Searched { query, scope } => {
+                                                                            let search_prefix = if grp.is_active { "Searching" } else { "Searched" };
+                                                                            let action_verb = if let Some(ref sc) = scope {
+                                                                                format!("{} {}", search_prefix, sc)
+                                                                            } else {
+                                                                                search_prefix.to_string()
+                                                                            };
+                                                                            ui.container()
+                                                                                .full_width()
+                                                                                .row()
+                                                                                .valign(Align::Center)
+                                                                                .gap(5.0)
+                                                                                .show(|ui| {
+                                                                                    ui.text(&action_verb)
+                                                                                        .size(10.0)
+                                                                                        .color(colors.text_muted)
                                                                                         .show();
                                                                                     ui.text(&format!("\"{}\"", query))
                                                                                         .size(10.0)
@@ -666,6 +703,7 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                                                                 });
                                                                         }
                                                                         ExplorationItem::ExploredDirectory { path } => {
+                                                                            let action_verb = if grp.is_active { "Exploring" } else { "Explored" };
                                                                             let path_obj = std::path::Path::new(path);
                                                                             let dname = path_obj.file_name().and_then(|s| s.to_str()).unwrap_or(path.as_str());
                                                                             ui.container()
@@ -674,13 +712,9 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                                                                 .valign(Align::Center)
                                                                                 .gap(5.0)
                                                                                 .show(|ui| {
-                                                                                    ui.text("Explored")
+                                                                                    ui.text(action_verb)
                                                                                         .size(10.0)
                                                                                         .color(colors.text_muted)
-                                                                                        .show();
-                                                                                    ui.text("\u{f07b}")
-                                                                                        .size(9.5)
-                                                                                        .color(colors.accent)
                                                                                         .show();
                                                                                     ui.text(dname)
                                                                                         .size(10.5)
@@ -688,11 +722,61 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                                                                         .show();
                                                                                 });
                                                                         }
+                                                                        ExplorationItem::ActivatedSkill { name } => {
+                                                                            let action_verb = if grp.is_active { "Activating skill" } else { "Activated skill" };
+                                                                            ui.container()
+                                                                                .full_width()
+                                                                                .row()
+                                                                                .valign(Align::Center)
+                                                                                .gap(5.0)
+                                                                                .show(|ui| {
+                                                                                    ui.text(action_verb)
+                                                                                        .size(10.0)
+                                                                                        .color(colors.text_muted)
+                                                                                        .show();
+                                                                                    ui.text(name)
+                                                                                        .size(10.5)
+                                                                                        .color(colors.accent)
+                                                                                        .show();
+                                                                                });
+                                                                        }
+                                                                        ExplorationItem::ExecutedCommand { command } => {
+                                                                            let action_verb = if grp.is_active { "Running" } else { "Ran" };
+                                                                            ui.container()
+                                                                                .full_width()
+                                                                                .row()
+                                                                                .valign(Align::Center)
+                                                                                .gap(5.0)
+                                                                                .show(|ui| {
+                                                                                    ui.text(action_verb)
+                                                                                        .size(10.0)
+                                                                                        .color(colors.text_muted)
+                                                                                        .show();
+                                                                                    ui.text(command)
+                                                                                        .size(10.0)
+                                                                                        .color(colors.text_primary)
+                                                                                        .show();
+                                                                                });
+                                                                        }
+                                                                        ExplorationItem::CheckedDiagnostics => {
+                                                                            let action_verb = if grp.is_active { "Checking diagnostics" } else { "Checked diagnostics" };
+                                                                            ui.container()
+                                                                                .full_width()
+                                                                                .row()
+                                                                                .valign(Align::Center)
+                                                                                .gap(5.0)
+                                                                                .show(|ui| {
+                                                                                    ui.text(action_verb)
+                                                                                        .size(10.0)
+                                                                                        .color(colors.text_muted)
+                                                                                        .show();
+                                                                                });
+                                                                        }
                                                                         ExplorationItem::Thought { summary, duration_secs } => {
-                                                                            let thought_label = if let Some(secs) = duration_secs {
-                                                                                format!("Thought for {}s", secs)
-                                                                            } else {
-                                                                                summary.clone()
+                                                                            let thought_label = match (duration_secs, grp.is_active) {
+                                                                                (Some(secs), _) => format!("Thought for {}s", secs),
+                                                                                (None, true) => if summary.is_empty() { "Thinking...".to_string() } else { summary.clone() },
+                                                                                (None, false) => if summary.is_empty() { "Thought".to_string() } else { summary.clone() },
                                                                             };
                                                                             ui.container()
                                                                                 .full_width()
@@ -704,10 +788,6 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                                                                         .size(10.0)
                                                                                         .italic()
                                                                                         .color(colors.text_muted)
-                                                                                        .show();
-                                                                                    ui.text("\u{f054}")
-                                                                                        .size(7.5)
-                                                                                        .color(colors.text_muted.with_alpha(0.6))
                                                                                         .show();
                                                                                 });
                                                                         }
