@@ -34,6 +34,10 @@ dependencies = [
  "serde",
  "serde_json",
  "serde_yaml",
+ "tree-sitter",
+ "tree-sitter-javascript",
+ "tree-sitter-python",
+ "tree-sitter-rust",
 ]
 
 [[package]]

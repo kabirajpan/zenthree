@@ -10,8 +10,31 @@ const DEFAULT_LINE_CAP: usize = 500;
 /// Hard limit cap that cannot be exceeded in a single call.
 const HARD_LINE_LIMIT: usize = 700;
 
+use std::sync::Arc;
+
 /// Tool for reading file contents safely, supporting ranges, symbol extraction, peek mode, and batching.
-pub struct ReadFileTool;
+pub struct ReadFileTool {
+    ast: Arc<crate::ast::DynamicAstEngine>,
+}
+
+impl Default for ReadFileTool {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl ReadFileTool {
+    pub fn new() -> Self {
+        Self {
+            ast: Arc::new(crate::ast::DynamicAstEngine::new()),
+        }
+    }
+
+    pub fn with_ast(mut self, ast: Arc<crate::ast::DynamicAstEngine>) -> Self {
+        self.ast = ast;
+        self
+    }
+}
 
 impl Tool for ReadFileTool {
     fn name(&self) -> &str {
@@ -149,6 +172,8 @@ impl ReadFileTool {
         let end_line = args.get("end_line").and_then(|v| v.as_u64()).map(|v| v as usize);
         let show_all = args.get("show_all").and_then(|v| v.as_bool()).unwrap_or(false);
 
+        let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+
         // 2. Peek Mode: Metadata + Outline
         if is_peek {
             let metadata = fs::metadata(path).ok();
@@ -163,6 +188,13 @@ impl ReadFileTool {
                 let trimmed = line.trim();
                 if let Some(item) = format_outline_item(trimmed) {
                     outline_lines.push(format!("    {:4}: {}", idx + 1, item));
+                }
+            }
+
+            if outline_lines.is_empty() {
+                let ast_symbols = self.ast.extract_symbols(&content, ext, None);
+                for sym in ast_symbols {
+                    outline_lines.push(format!("    {:4}: [{}] {}", sym.start_line, sym.kind, sym.name));
                 }
             }
 
@@ -188,7 +220,9 @@ impl ReadFileTool {
 
             let mut out = String::new();
             for sym in &symbols {
-                match extract_symbol(&lines, sym) {
+                let range = self.ast.locate_symbol_range(&content, ext, sym)
+                    .or_else(|| extract_symbol(&lines, sym));
+                match range {
                     Some((start, end)) => {
                         let count = end - start + 1;
                         if count > HARD_LINE_LIMIT {
@@ -236,7 +270,8 @@ impl ReadFileTool {
             let window_len = (end.saturating_sub(start) + 1).min(HARD_LINE_LIMIT);
             let actual_end = (start + window_len - 1).min(total_lines);
 
-            let enclosing = find_enclosing_scope(&lines, start);
+            let enclosing = self.ast.enclosing_scope(&content, ext, start)
+                .or_else(|| find_enclosing_scope(&lines, start));
             let mut formatted = if let Some(ref enc) = enclosing {
                 format!(
                     "[file: {} | lines {}..{} of {} | inside: {}]\n",

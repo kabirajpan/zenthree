@@ -34,7 +34,7 @@ impl ToolRegistry {
     /// read_file and get_diagnostics (both read-only, no approval needed).
     pub fn minimal() -> Self {
         let mut registry = Self::new();
-        registry.register(ReadFileTool);
+        registry.register(ReadFileTool::new());
         registry.register(GetDiagnosticsTool);
         registry
     }

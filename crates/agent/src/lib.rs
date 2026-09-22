@@ -1,4 +1,5 @@
 pub mod agentic_loop;
+pub mod ast;
 pub mod context;
 pub mod orchestrator;
 pub mod provider;

@@ -15,6 +15,7 @@ pub type ToolListProvider = Arc<dyn Fn() -> Vec<(String, String)> + Send + Sync>
 pub struct SearchTool {
     skills: Option<Arc<SkillRegistry>>,
     tools_provider: Option<ToolListProvider>,
+    ast: Arc<crate::ast::DynamicAstEngine>,
 }
 
 impl Default for SearchTool {
@@ -29,7 +30,14 @@ impl SearchTool {
         Self {
             skills: None,
             tools_provider: None,
+            ast: Arc::new(crate::ast::DynamicAstEngine::new()),
         }
+    }
+
+    /// Attach a custom AST engine.
+    pub fn with_ast(mut self, ast: Arc<crate::ast::DynamicAstEngine>) -> Self {
+        self.ast = ast;
+        self
     }
 
     /// Attach a skills registry for `in: "skills"` scope.
@@ -303,27 +311,35 @@ impl Tool for SearchTool {
                                 out_files.push((rel_path.clone(), line_count));
                             }
 
-                            // Scope: Symbols
+                            let ext = current.extension().and_then(|e| e.to_str()).unwrap_or("");
+
+                            // Scope: Symbols (powered by DynamicAstEngine)
                             if scopes.symbols && out_symbols.len() < MAX_SYMBOL_MATCHES {
-                                extract_symbols(&content, &rel_path, &mut out_symbols, &matches_text, MAX_SYMBOL_MATCHES);
+                                let ast_matches = self.ast.extract_symbols(&content, ext, Some(query));
+                                for sym in ast_matches {
+                                    if out_symbols.len() >= MAX_SYMBOL_MATCHES {
+                                        break;
+                                    }
+                                    out_symbols.push(SymbolMatch {
+                                        path: rel_path.clone(),
+                                        line_num: sym.start_line,
+                                        kind: sym.kind,
+                                        signature: sym.signature,
+                                    });
+                                }
                             }
 
-                            // Scope: Content
+                            // Scope: Content (with AST enclosing scope breadcrumbs)
                             if scopes.content && total_content_matches < MAX_CONTENT_MATCHES {
                                 let mut file_match_lines = Vec::new();
-                                let mut current_enclosing: Option<String> = None;
 
                                 for (idx, line) in content.lines().enumerate() {
                                     let trimmed_line = line.trim();
 
-                                    // Detect enclosing function/class
-                                    if let Some(header) = detect_enclosing_header(trimmed_line) {
-                                        current_enclosing = Some(header);
-                                    }
-
                                     if matches_text(line) {
+                                        let enclosing = self.ast.enclosing_scope(&content, ext, idx + 1);
                                         file_match_lines.push(MatchLine {
-                                            enclosing: current_enclosing.clone(),
+                                            enclosing,
                                             line_num: idx + 1,
                                             text: trimmed_line.to_string(),
                                         });
@@ -443,139 +459,6 @@ impl Tool for SearchTool {
     }
 }
 
-/// Helper extracting symbol definitions from source text.
-fn extract_symbols(
-    content: &str,
-    path: &str,
-    results: &mut Vec<SymbolMatch>,
-    matches_text: &dyn Fn(&str) -> bool,
-    max: usize,
-) {
-    for (idx, line) in content.lines().enumerate() {
-        if results.len() >= max {
-            break;
-        }
-
-        let trimmed = line.trim();
-        // Skip comments
-        if trimmed.starts_with("//") || trimmed.starts_with('#') || trimmed.starts_with("/*") || trimmed.starts_with('*') {
-            continue;
-        }
-
-        // Rust definitions
-        if trimmed.starts_with("pub fn ") || trimmed.starts_with("fn ") || trimmed.starts_with("pub async fn ") || trimmed.starts_with("async fn ") {
-            if matches_text(trimmed) {
-                let sig = clean_signature(trimmed);
-                results.push(SymbolMatch {
-                    path: path.to_string(),
-                    line_num: idx + 1,
-                    kind: "fn".to_string(),
-                    signature: sig,
-                });
-            }
-        } else if trimmed.starts_with("pub struct ") || trimmed.starts_with("struct ") {
-            if matches_text(trimmed) {
-                let sig = clean_signature(trimmed);
-                results.push(SymbolMatch {
-                    path: path.to_string(),
-                    line_num: idx + 1,
-                    kind: "struct".to_string(),
-                    signature: sig,
-                });
-            }
-        } else if trimmed.starts_with("pub enum ") || trimmed.starts_with("enum ") {
-            if matches_text(trimmed) {
-                let sig = clean_signature(trimmed);
-                results.push(SymbolMatch {
-                    path: path.to_string(),
-                    line_num: idx + 1,
-                    kind: "enum".to_string(),
-                    signature: sig,
-                });
-            }
-        } else if trimmed.starts_with("pub trait ") || trimmed.starts_with("trait ") {
-            if matches_text(trimmed) {
-                let sig = clean_signature(trimmed);
-                results.push(SymbolMatch {
-                    path: path.to_string(),
-                    line_num: idx + 1,
-                    kind: "trait".to_string(),
-                    signature: sig,
-                });
-            }
-        // Python definitions
-        } else if trimmed.starts_with("def ") || trimmed.starts_with("async def ") {
-            if matches_text(trimmed) {
-                let sig = clean_signature(trimmed);
-                results.push(SymbolMatch {
-                    path: path.to_string(),
-                    line_num: idx + 1,
-                    kind: "def".to_string(),
-                    signature: sig,
-                });
-            }
-        } else if trimmed.starts_with("class ") {
-            if matches_text(trimmed) {
-                let sig = clean_signature(trimmed);
-                results.push(SymbolMatch {
-                    path: path.to_string(),
-                    line_num: idx + 1,
-                    kind: "class".to_string(),
-                    signature: sig,
-                });
-            }
-        // JS/TS definitions
-        } else if trimmed.starts_with("function ") || trimmed.starts_with("export function ") {
-            if matches_text(trimmed) {
-                let sig = clean_signature(trimmed);
-                results.push(SymbolMatch {
-                    path: path.to_string(),
-                    line_num: idx + 1,
-                    kind: "fn".to_string(),
-                    signature: sig,
-                });
-            }
-        } else if trimmed.starts_with("interface ") || trimmed.starts_with("export interface ") {
-            if matches_text(trimmed) {
-                let sig = clean_signature(trimmed);
-                results.push(SymbolMatch {
-                    path: path.to_string(),
-                    line_num: idx + 1,
-                    kind: "interface".to_string(),
-                    signature: sig,
-                });
-            }
-        }
-    }
-}
-
-fn clean_signature(line: &str) -> String {
-    let without_brace = line.trim_end_matches('{').trim_end_matches(':').trim();
-    if without_brace.len() > 80 {
-        format!("{}...", &without_brace[..77])
-    } else {
-        without_brace.to_string()
-    }
-}
-
-fn detect_enclosing_header(line: &str) -> Option<String> {
-    if line.starts_with("pub fn ") || line.starts_with("fn ") || line.starts_with("pub async fn ") || line.starts_with("async fn ") {
-        let name = line.split('(').next()?.trim();
-        Some(format!("fn {}()", name.split_whitespace().last()?))
-    } else if line.starts_with("impl ") {
-        let block = line.trim_end_matches('{').trim();
-        Some(block.to_string())
-    } else if line.starts_with("def ") || line.starts_with("async def ") {
-        let name = line.split('(').next()?.trim();
-        Some(format!("def {}()", name.split_whitespace().last()?))
-    } else if line.starts_with("class ") {
-        let name = line.split('(').next()?.split(':').next()?.trim();
-        Some(name.to_string())
-    } else {
-        None
-    }
-}
-
 fn default_known_tools() -> Vec<(String, String)> {
     vec![
         ("search".into(), "Universal search — tools, skills, folders, files, symbols, or content".into()),
@@ -632,7 +515,8 @@ mod tests {
     }
 
     #[test]
-    fn test_symbol_extraction_and_enclosing() {
+    fn test_ast_symbol_search_and_enclosing() {
+        let ast = crate::ast::DynamicAstEngine::new();
         let code = r#"
 pub struct UserAuth {
     token: String,
@@ -645,14 +529,15 @@ impl UserAuth {
     }
 }
 "#;
-        let mut symbols = Vec::new();
-        extract_symbols(code, "auth.rs", &mut symbols, &|t| t.contains("verify_token"), 10);
+        let symbols = ast.extract_symbols(code, "rs", Some("verify_token"));
         assert_eq!(symbols.len(), 1);
         assert_eq!(symbols[0].kind, "fn");
-        assert!(symbols[0].signature.contains("verify_token"));
+        assert_eq!(symbols[0].name, "verify_token");
 
-        let enc = detect_enclosing_header("    pub fn verify_token(&self) -> bool {".trim());
-        assert_eq!(enc, Some("fn verify_token()".to_string()));
+        let enc = ast.enclosing_scope(code, "rs", 8);
+        assert!(enc.is_some());
+        let enc_str = enc.unwrap();
+        assert!(enc_str.contains("verify_token"));
     }
 }
 
