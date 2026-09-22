@@ -41,6 +41,8 @@ pub struct Agent {
     skills: Arc<SkillRegistry>,
     active_tools: HashSet<String>,
     ast: Arc<crate::ast::DynamicAstEngine>,
+    explicit_intent: Option<AgentIntent>,
+    explicit_tools: Option<HashSet<String>>,
 }
 
 impl Agent {
@@ -75,6 +77,8 @@ impl Agent {
             skills,
             active_tools: HashSet::new(),
             ast,
+            explicit_intent: None,
+            explicit_tools: None,
         }
     }
 
@@ -95,6 +99,8 @@ impl Agent {
 
     /// Set or override the active intent for the next run.
     pub fn set_intent(&mut self, intent: AgentIntent) {
+        self.explicit_intent = Some(intent.clone());
+        self.explicit_tools = None;
         self.active_tools.clear();
         for t in intent.initial_tools() {
             self.active_tools.insert(t.to_string());
@@ -104,13 +110,16 @@ impl Agent {
     /// Add a tool to the session cache dynamically (e.g. via discovery).
     pub fn enable_tool(&mut self, tool_name: &str) {
         self.active_tools.insert(tool_name.to_string());
+        self.explicit_tools.get_or_insert_with(HashSet::new).insert(tool_name.to_string());
     }
 
     /// Enable all tools (fallback mode).
     pub fn enable_all_tools(&mut self) {
+        self.active_tools.clear();
         for name in self.tools.list_names() {
             self.active_tools.insert(name.to_string());
         }
+        self.explicit_tools = Some(self.active_tools.clone());
     }
 
     /// Read-only slice of active tool names in the session cache.
@@ -197,10 +206,18 @@ impl Agent {
     ) -> Result<String, ProviderError> {
         self.conversation.push(Message::user(user_input));
 
-        // Dynamically classify intent if active tools have not been configured
-        if self.active_tools.is_empty() {
-            let intent = AgentIntent::classify_heuristic(user_input);
-            self.set_intent(intent);
+        // Dynamically provision tool schemas per turn based on intent unless explicitly overridden
+        if let Some(tools) = self.explicit_tools.take() {
+            self.active_tools = tools;
+        } else {
+            let intent = self
+                .explicit_intent
+                .take()
+                .unwrap_or_else(|| AgentIntent::classify_heuristic(user_input));
+            self.active_tools.clear();
+            for t in intent.initial_tools() {
+                self.active_tools.insert(t.to_string());
+            }
         }
 
         for _iteration in 0..self.config.max_iterations {

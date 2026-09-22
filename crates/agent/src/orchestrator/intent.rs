@@ -38,54 +38,52 @@ impl AgentIntent {
     pub fn initial_tools(&self) -> Vec<&'static str> {
         match self {
             AgentIntent::Discussion => Vec::new(),
-            AgentIntent::Exploration => vec!["search", "search_codebase", "find_files", "read_file", "list_directory"],
+            AgentIntent::Exploration => vec!["search", "read_file", "activate_skill"],
             AgentIntent::Action(cat) => match cat {
                 ActionCategory::Debug => vec![
                     "search",
-                    "search_codebase",
-                    "find_files",
                     "read_file",
                     "edit_file",
                     "get_diagnostics",
                     "run_terminal",
+                    "activate_skill",
                 ],
                 ActionCategory::Implement => vec![
                     "search",
-                    "search_codebase",
-                    "find_files",
                     "read_file",
                     "edit_file",
                     "write_file",
                     "get_diagnostics",
+                    "activate_skill",
                 ],
                 ActionCategory::Refactor => vec![
                     "search",
-                    "search_codebase",
-                    "find_files",
                     "read_file",
                     "edit_file",
                     "rename_file",
                     "get_diagnostics",
+                    "activate_skill",
                 ],
                 ActionCategory::Verify => vec![
                     "run_terminal",
                     "get_diagnostics",
                     "read_file",
+                    "activate_skill",
                 ],
                 ActionCategory::Review => vec![
                     "git_status",
                     "git_diff",
                     "get_diagnostics",
                     "read_file",
+                    "activate_skill",
                 ],
                 ActionCategory::General => vec![
                     "search",
-                    "search_codebase",
-                    "find_files",
                     "read_file",
                     "edit_file",
                     "get_diagnostics",
                     "run_terminal",
+                    "activate_skill",
                 ],
             },
         }
@@ -173,8 +171,9 @@ mod tests {
     fn test_exploration_intent_tools() {
         let intent = AgentIntent::classify_heuristic("Where is the user session token defined?");
         assert_eq!(intent, AgentIntent::Exploration);
-        assert!(intent.initial_tools().contains(&"search_codebase"));
+        assert!(intent.initial_tools().contains(&"search"));
         assert!(intent.initial_tools().contains(&"read_file"));
+        assert!(intent.initial_tools().contains(&"activate_skill"));
     }
 
     #[test]

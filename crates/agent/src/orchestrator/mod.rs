@@ -164,4 +164,46 @@ mod tests {
         assert!(sanitized.contains("[Output truncated:"));
         assert!(sanitized.contains("🦀 main.rs"));
     }
+
+    #[test]
+    fn test_dynamic_intent_tool_provisioning_per_turn() {
+        struct MockTurnEcho;
+        impl Provider for MockTurnEcho {
+            fn name(&self) -> &str { "MockTurnEcho" }
+            fn complete_stream(
+                &self,
+                _messages: &[Message],
+                _tools: &[Value],
+                on_event: &mut dyn FnMut(ProviderEvent),
+            ) -> Result<(), ProviderError> {
+                on_event(ProviderEvent::TextDelta("Done".into()));
+                on_event(ProviderEvent::Done);
+                Ok(())
+            }
+        }
+
+        let mut agent = Agent::new(Box::new(MockTurnEcho), ToolRegistry::all());
+        let mut on_event = |_| {};
+        let mut ask_approval = |_| ApprovalDecision::Approve;
+
+        // Turn 1: Pure discussion -> 0 active tools
+        let _ = agent.run("Can you explain the difference between mutex and rwlock?", &mut on_event, &mut ask_approval);
+        assert!(agent.active_tools().is_empty());
+
+        // Turn 2: Exploration -> search, read_file, activate_skill
+        let _ = agent.run("Where is the user configuration file located?", &mut on_event, &mut ask_approval);
+        assert!(agent.active_tools().contains("search"));
+        assert!(agent.active_tools().contains("read_file"));
+        assert!(agent.active_tools().contains("activate_skill"));
+        assert!(!agent.active_tools().contains("edit_file"));
+
+        // Turn 3: Action (Debug) -> edit_file, get_diagnostics, etc.
+        let _ = agent.run("Fix the compiler error in main.rs", &mut on_event, &mut ask_approval);
+        assert!(agent.active_tools().contains("edit_file"));
+        assert!(agent.active_tools().contains("get_diagnostics"));
+
+        // Turn 4: Discussion again -> drops back to 0 active tools!
+        let _ = agent.run("Why is that approach better?", &mut on_event, &mut ask_approval);
+        assert!(agent.active_tools().is_empty());
+    }
 }
