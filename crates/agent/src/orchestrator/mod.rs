@@ -20,6 +20,7 @@ mod tests {
     use serde_json::{json, Value};
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     use std::sync::Arc;
+    use crate::orchestrator::AgentIntent;
 
     /// Mock provider simulating a multi-turn tool calling loop
     struct MockEchoProvider {
@@ -205,5 +206,50 @@ mod tests {
         // Turn 4: Discussion again -> drops back to 0 active tools!
         let _ = agent.run("Why is that approach better?", &mut on_event, &mut ask_approval);
         assert!(agent.active_tools().is_empty());
+    }
+
+    #[test]
+    fn test_search_tools_elevates_into_session_cache() {
+        struct SearchEchoProvider {
+            turn: AtomicUsize,
+        }
+        impl Provider for SearchEchoProvider {
+            fn name(&self) -> &str { "SearchEchoProvider" }
+            fn complete_stream(
+                &self,
+                _messages: &[Message],
+                _tools: &[Value],
+                on_event: &mut dyn FnMut(ProviderEvent),
+            ) -> Result<(), ProviderError> {
+                let current = self.turn.fetch_add(1, Ordering::SeqCst);
+                if current == 0 {
+                    on_event(ProviderEvent::ToolCallComplete {
+                        id: "call_search".into(),
+                        name: "search".into(),
+                        args: json!({ "query": "terminal", "in": "tools" }),
+                        thought_signature: None,
+                    });
+                    on_event(ProviderEvent::Done);
+                } else {
+                    on_event(ProviderEvent::TextDelta("Discovered terminal tool".into()));
+                    on_event(ProviderEvent::Done);
+                }
+                Ok(())
+            }
+        }
+
+        let provider = Box::new(SearchEchoProvider { turn: AtomicUsize::new(0) });
+        let mut agent = Agent::new(provider, ToolRegistry::all());
+        // Set explicit intent to Exploration (so run doesn't reclassify "Explore tools" to General Action)
+        agent.set_intent(AgentIntent::Exploration);
+        assert!(!agent.active_tools().contains("run_terminal"));
+
+        let mut on_event = |_| {};
+        let mut ask_approval = |_| ApprovalDecision::Approve;
+
+        let _ = agent.run("Explore tools", &mut on_event, &mut ask_approval);
+
+        // After search returned run_terminal, it must be elevated into active_tools!
+        assert!(agent.active_tools().contains("run_terminal"));
     }
 }

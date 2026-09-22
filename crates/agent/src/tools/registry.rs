@@ -144,6 +144,19 @@ impl ToolRegistry {
         lines.join("\n")
     }
 
+    /// Returns pairs of (tool_name, one_line_description) for all registered tools.
+    pub fn manifest_pairs(&self) -> Vec<(String, String)> {
+        let names = self.list_names();
+        let mut pairs = Vec::new();
+        for name in names {
+            if let Some(tool) = self.tools.get(name) {
+                let desc = tool.description().lines().next().unwrap_or("").trim().to_string();
+                pairs.push((name.to_string(), desc));
+            }
+        }
+        pairs
+    }
+
     /// List of tool schemas formatted for OpenAI / Groq tool calling, filtered to specified tool names.
     pub fn openai_schemas_for(&self, names: &[&str]) -> Vec<Value> {
         let mut schemas = Vec::new();

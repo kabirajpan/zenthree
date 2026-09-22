@@ -63,8 +63,15 @@ impl Agent {
         let skills = Arc::new(skills_report.registry);
         let ast = Arc::new(crate::ast::DynamicAstEngine::new());
         tools.register(crate::tools::ActivateSkillTool::new(skills.clone()));
+        let tools_list = tools.manifest_pairs();
+        let tools_provider: crate::tools::search::ToolListProvider = Arc::new(move || tools_list.clone());
         if tools.find("search").is_some() {
-            tools.register(crate::tools::SearchTool::new().with_ast(ast.clone()).with_skills(skills.clone()));
+            tools.register(
+                crate::tools::SearchTool::new()
+                    .with_ast(ast.clone())
+                    .with_skills(skills.clone())
+                    .with_tools_provider(tools_provider),
+            );
         }
         if tools.find("read_file").is_some() {
             tools.register(crate::tools::ReadFileTool::new().with_ast(ast.clone()));
@@ -425,6 +432,30 @@ impl Agent {
                         };
                         let sanitized_result = ContextManager::sanitize_tool_result(&result_str, self.config.max_tool_output_chars);
                         self.conversation.push(Message::tool_result(tool_id, sanitized_result));
+
+                        // Dynamic mid-task tool discovery: If `search` discovered tools (in: "tools" or "tools+skills"),
+                        // elevate those tool names into `self.active_tools` (the session cache)
+                        // so their full schemas are automatically provisioned in the next turn of the loop.
+                        if tool_name == "search" && result_str.contains("[tools]") {
+                            let mut in_tools_section = false;
+                            for line in result_str.lines() {
+                                let trimmed = line.trim();
+                                if trimmed == "[tools]" {
+                                    in_tools_section = true;
+                                    continue;
+                                } else if trimmed.starts_with('[') && trimmed.ends_with(']') {
+                                    in_tools_section = false;
+                                }
+                                if in_tools_section {
+                                    if let Some((cand, _)) = trimmed.split_once(':') {
+                                        let cand = cand.trim();
+                                        if self.tools.find(cand).is_some() {
+                                            self.active_tools.insert(cand.to_string());
+                                        }
+                                    }
+                                }
+                            }
+                        }
                     }
                     Err(e) => {
                         let err_str = format!("Tool '{}' failed: {}", tool_name, e);
