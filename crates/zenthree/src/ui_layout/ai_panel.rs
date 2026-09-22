@@ -439,8 +439,8 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                 .map(|(idx, t)| *idx == msg_idx && t.elapsed().as_secs_f32() < 2.0)
                                 .unwrap_or(false);
 
-                            let bubble_id = Id::from_u64(999990000 + (msg_idx as u64) * 2);
-                            let copy_btn_id = Id::from_u64(999990000 + (msg_idx as u64) * 2 + 1);
+                            let bubble_id = Id::from_u64(999_100_000 + (msg_idx as u64) * 10);
+                            let copy_btn_id = Id::from_u64(999_100_000 + (msg_idx as u64) * 10 + 1);
                             let mut copy_clicked = false;
 
                             let full_text: &str = &msg.content;
@@ -555,7 +555,7 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                     .show(|ui| {
                                         // ── Sibling 1: Trajectory Steps ─────────────────────
                                         for (step_idx, step) in msg.trajectory.iter().enumerate() {
-                                            let step_id = Id::from_u64(999990000 + (msg_idx as u64) * 10000 + (step_idx as u64) * 10 + 1);
+                                            let step_id = Id::from_u64(999_200_000 + (msg_idx as u64) * 1000 + (step_idx as u64));
                                             match step {
                                                 TrajectoryStep::Exploration(grp) => {
                                                     let chevron = if grp.expanded { "\u{f078}" } else { "\u{f054}" };
@@ -1032,7 +1032,7 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                                                     });
                                                             }
                                                             MarkdownBlock::CodeBlock { lang, code } => {
-                                                                let code_btn_id = Id::from_u64(999990000 + (msg_idx as u64) * 1000 + (block_idx as u64) * 2 + 1);
+                                                                let code_btn_id = Id::from_u64(999_500_000 + (msg_idx as u64) * 1000 + (block_idx as u64));
                                                                 let is_code_copied = state.copied_ai_code_id.as_ref()
                                                                     .map(|(id, t)| *id == code_btn_id.raw() && t.elapsed().as_secs_f32() < 2.0)
                                                                     .unwrap_or(false);
