@@ -219,50 +219,102 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
             }
 
             let mut modified_files: Vec<ModifiedFileItem> = Vec::new();
-            for rev in &state.pending_reviews {
-                let file_name = rev.path.file_name().and_then(|n| n.to_str()).unwrap_or("file").to_string();
-                let rel_path = rev.path.strip_prefix(&state.current_dir).unwrap_or(&rev.path).to_string_lossy().to_string();
-                modified_files.push(ModifiedFileItem {
-                    file_path: rev.path.clone(),
-                    file_name,
-                    rel_path,
-                    lines_added: rev.total_added_lines(),
-                    lines_removed: rev.total_removed_lines(),
-                });
-            }
-            for tab in &state.tabs {
-                if tab.lines_added > 0 || tab.lines_removed > 0 {
-                    if let Some(ref tp) = tab.path {
-                        if !modified_files.iter().any(|m| path_matches(&m.file_path, tp)) {
-                            let file_name = tab.name.clone();
-                            let rel_path = tp.strip_prefix(&state.current_dir).unwrap_or(tp).to_string_lossy().to_string();
-                            modified_files.push(ModifiedFileItem {
-                                file_path: tp.clone(),
-                                file_name,
-                                rel_path,
-                                lines_added: tab.lines_added,
-                                lines_removed: tab.lines_removed,
-                            });
+
+            {
+                let mut upsert_file = |path: std::path::PathBuf, fname: String, rel: String, added: usize, removed: usize| {
+                    if let Some(existing) = modified_files.iter_mut().find(|item| {
+                        path_matches(&item.file_path, &path) || item.file_name == fname
+                    }) {
+                        if added > 0 {
+                            existing.lines_added = existing.lines_added.max(added);
+                        }
+                        if removed > 0 {
+                            existing.lines_removed = existing.lines_removed.max(removed);
+                        }
+                        if existing.rel_path.is_empty() && !rel.is_empty() {
+                            existing.rel_path = rel;
+                        }
+                    } else {
+                        modified_files.push(ModifiedFileItem {
+                            file_path: path,
+                            file_name: fname,
+                            rel_path: rel,
+                            lines_added: added,
+                            lines_removed: removed,
+                        });
+                    }
+                };
+
+                // 1. From pending reviews
+                for rev in &state.pending_reviews {
+                    let fname = rev.path.file_name().and_then(|n| n.to_str()).unwrap_or("file").to_string();
+                    let rel = rev.path.strip_prefix(&state.current_dir).unwrap_or(&rev.path).to_string_lossy().to_string();
+                    let mut added = rev.total_added_lines();
+                    let removed = rev.total_removed_lines();
+                    if added == 0 && (rev.is_new_file || removed == 0) && !rev.proposed_content.is_empty() {
+                        added = rev.proposed_content.lines().count().max(1);
+                    }
+                    upsert_file(rev.path.clone(), fname, rel, added, removed);
+                }
+
+                // 2. From tabs
+                for tab in &state.tabs {
+                    if tab.is_dirty || tab.lines_added > 0 || tab.lines_removed > 0 {
+                        if let Some(ref tp) = tab.path {
+                            let fname = tab.name.clone();
+                            let rel = tp.strip_prefix(&state.current_dir).unwrap_or(tp).to_string_lossy().to_string();
+                            upsert_file(tp.clone(), fname, rel, tab.lines_added, tab.lines_removed);
                         }
                     }
                 }
-            }
-            for msg in state.ai_messages.iter().rev() {
-                for step in &msg.trajectory {
-                    if let TrajectoryStep::FileEdit { path, lines_added, lines_removed } = step {
-                        let pb = std::path::PathBuf::from(path);
-                        let full_p = if pb.is_absolute() { pb.clone() } else { state.current_dir.join(&pb) };
-                        if !modified_files.iter().any(|item| path_matches(&item.file_path, &full_p) || item.file_name == *path) {
+
+                // 3. From AI trajectory steps
+                for msg in state.ai_messages.iter().rev() {
+                    for step in &msg.trajectory {
+                        if let TrajectoryStep::FileEdit { path, lines_added, lines_removed } = step {
+                            let pb = std::path::PathBuf::from(path);
+                            let full_p = if pb.is_absolute() { pb.clone() } else { state.current_dir.join(&pb) };
                             let fname = full_p.file_name().and_then(|n| n.to_str()).unwrap_or(path).to_string();
                             let rel = full_p.strip_prefix(&state.current_dir).unwrap_or(&full_p).to_string_lossy().to_string();
-                            modified_files.push(ModifiedFileItem {
-                                file_path: full_p,
-                                file_name: fname,
-                                rel_path: rel,
-                                lines_added: *lines_added,
-                                lines_removed: *lines_removed,
-                            });
+                            let mut added = *lines_added;
+                            let removed = *lines_removed;
+                            if added == 0 && removed == 0 {
+                                if let Ok(content) = std::fs::read_to_string(&full_p) {
+                                    let count = content.lines().count();
+                                    if count > 0 {
+                                        added = count;
+                                    }
+                                }
+                            }
+                            upsert_file(full_p, fname, rel, added, removed);
                         }
+                    }
+                }
+
+                // 4. Guarantee line counts for any modified file still at 0
+                for item in &mut modified_files {
+                    if item.lines_added == 0 && item.lines_removed == 0 {
+                        if let Some(rev) = state.pending_reviews.iter().find(|r| path_matches(&r.path, &item.file_path)) {
+                            let a = rev.total_added_lines();
+                            let r = rev.total_removed_lines();
+                            if a > 0 || r > 0 {
+                                item.lines_added = a;
+                                item.lines_removed = r;
+                            } else if !rev.proposed_content.is_empty() {
+                                item.lines_added = rev.proposed_content.lines().count().max(1);
+                            }
+                        }
+                    }
+                    if item.lines_added == 0 && item.lines_removed == 0 {
+                        if let Ok(content) = std::fs::read_to_string(&item.file_path) {
+                            let count = content.lines().count();
+                            if count > 0 {
+                                item.lines_added = count;
+                            }
+                        }
+                    }
+                    if item.lines_added == 0 && item.lines_removed == 0 {
+                        item.lines_added = 1;
                     }
                 }
             }
@@ -332,6 +384,7 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                         let mut toggle_trajectory_group: Option<(usize, usize)> = None;
                         let mut copy_target_idx: Option<usize> = None;
                         let mut copy_code_snippet: Option<(u64, String)> = None;
+                        let mut chat_open_file: Option<std::path::PathBuf> = None;
 
                         for (msg_idx, msg) in state.ai_messages.iter().enumerate() {
                             let is_copied = state.copied_ai_msg
@@ -347,7 +400,7 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
 
                             if msg.is_user {
                                 // ─── User Message (Right-aligned, accent tint) ───
-                                let bubble_max_w = (ai_panel_w - 36.0).max(80.0);
+                                let bubble_max_w = (ai_panel_w - 48.0).max(80.0);
                                 let user_text_w = (bubble_max_w - 20.0).max(60.0);
 
                                 let newline_count = full_text.as_bytes().iter().filter(|&&b| b == b'\n').count();
@@ -368,6 +421,7 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                     .full_width()
                                     .row()
                                     .halign(Align::Right)
+                                    .padding(2.0, 0.0, 2.0, 0.0)
                                     .show(|ui| {
                                         let bubble_res = ui.container()
                                             .id(bubble_id)
@@ -389,7 +443,7 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                                     .show();
 
                                                 ui.container()
-                                                    .width(user_text_w)
+                                                    .full_width()
                                                     .row()
                                                     .halign(Align::Right)
                                                     .valign(Align::Center)
@@ -442,14 +496,14 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                         }
                                     });
                             } else {
-                                // ─── Assistant Message (full-width, native background, no bubble) ───
-                                let ai_text_w = (ai_panel_w - 24.0).max(60.0);
+                                // ─── Assistant Message (full-width, clean container) ───
+                                let ai_text_w = (ai_panel_w - 44.0).max(60.0);
                                 let code_box_w = ai_text_w.max(50.0);
 
                                 ui.container()
                                     .full_width()
                                     .id(bubble_id)
-                                    .padding(6.0, 12.0, 4.0, 12.0)
+                                    .padding(4.0, 4.0, 6.0, 4.0)
                                     .column()
                                     .gap(10.0)
                                     .show(|ui| {
@@ -458,7 +512,7 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                             let step_id = Id::from_u64(999_200_000 + (msg_idx as u64) * 1000 + (step_idx as u64));
                                             match step {
                                                 TrajectoryStep::Exploration(grp) => {
-                                                    let chevron = if grp.expanded { "\u{f078}" } else { "\u{f054}" };
+                                                    let chevron = if grp.expanded { "▾" } else { "▸" };
                                                     let summary = grp.summary_label();
 
                                                     let header_row = ui.container()
@@ -485,8 +539,8 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                                                 .show();
 
                                                             ui.text(chevron)
-                                                                .size(7.5)
-                                                                .color(colors.text_muted.with_alpha(0.7))
+                                                                .size(8.5)
+                                                                .color(colors.text_muted.with_alpha(0.8))
                                                                 .show();
                                                         });
 
@@ -702,10 +756,35 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                                     let ext = path_obj.extension().and_then(|s| s.to_str()).unwrap_or("");
                                                     let (icon_glyph, icon_color) = crate::mini_icons::get_mini_file_icon(&fname.to_lowercase(), &ext.to_lowercase());
 
-                                                    ui.container()
+                                                    let mut added = *lines_added;
+                                                    let mut removed = *lines_removed;
+                                                    let pb = std::path::PathBuf::from(path);
+                                                    let full_p = if pb.is_absolute() { pb } else { state.current_dir.join(&pb) };
+                                                    if added == 0 && removed == 0 {
+                                                        if let Some(rev) = state.pending_reviews.iter().find(|r| path_matches(&r.path, &full_p)) {
+                                                            added = rev.diff_lines.iter().filter(|(_, s)| *s == crate::state::DiffLineState::Added).count();
+                                                            removed = rev.diff_lines.iter().filter(|(_, s)| *s == crate::state::DiffLineState::Removed).count();
+                                                            if added == 0 && (rev.is_new_file || removed == 0) {
+                                                                added = rev.proposed_content.lines().count().max(1);
+                                                            }
+                                                        }
+                                                        if added == 0 {
+                                                            if let Ok(content) = std::fs::read_to_string(&full_p) {
+                                                                let count = content.lines().count();
+                                                                if count > 0 {
+                                                                    added = count;
+                                                                }
+                                                            }
+                                                        }
+                                                    }
+
+                                                    let edit_row = ui.container()
                                                         .id(step_id)
                                                         .full_width()
                                                         .padding(2.0, 4.0, 2.0, 4.0)
+                                                        .radius_all(3.0)
+                                                        .clickable(true)
+                                                        .hover_bg(Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, 0.05))
                                                         .row()
                                                         .valign(Align::Center)
                                                         .gap(5.0)
@@ -722,19 +801,23 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                                                 .size(10.5)
                                                                 .color(colors.text_primary)
                                                                 .show();
-                                                            if *lines_added > 0 {
-                                                                ui.text(&format!("+{}", lines_added))
+                                                            if added > 0 {
+                                                                ui.text(&format!("+{}", added))
                                                                     .size(9.5)
                                                                     .color(Color { r: 74.0 / 255.0, g: 222.0 / 255.0, b: 128.0 / 255.0, a: 1.0 })
                                                                     .show();
                                                             }
-                                                            if *lines_removed > 0 {
-                                                                ui.text(&format!("-{}", lines_removed))
+                                                            if removed > 0 {
+                                                                ui.text(&format!("-{}", removed))
                                                                     .size(9.5)
                                                                     .color(Color { r: 248.0 / 255.0, g: 113.0 / 255.0, b: 113.0 / 255.0, a: 1.0 })
                                                                     .show();
                                                             }
                                                         });
+                                                    if edit_row.hovered { ui.cursor_icon = CursorIcon::Pointer; }
+                                                    if edit_row.clicked {
+                                                        chat_open_file = Some(full_p);
+                                                    }
                                                 }
                                                 TrajectoryStep::Command { command } => {
                                                     ui.container()
@@ -761,7 +844,7 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                                         });
                                                 }
                                                 TrajectoryStep::Plan { title, steps, expanded } => {
-                                                    let chevron = if *expanded { "\u{f078}" } else { "\u{f054}" };
+                                                    let chevron = if *expanded { "▾" } else { "▸" };
                                                     let plan_header = ui.container()
                                                         .id(step_id)
                                                         .full_width()
@@ -782,7 +865,7 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                                                 .color(colors.text_primary)
                                                                 .show();
                                                             ui.text(chevron)
-                                                                .size(8.0)
+                                                                .size(8.5)
                                                                 .color(colors.text_muted)
                                                                 .show();
                                                         });
@@ -852,206 +935,144 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                                 .show();
                                         }
 
-                                        // ── Sibling 2: Final Summary / Markdown Answer ──────
-                                        if !full_text.is_empty() {
-                                            // ── Cache: parse once, reuse every frame ──────────────
-                                                    let content_hash = {
-                                                        use std::hash::{Hash, Hasher};
-                                                        let mut h = std::collections::hash_map::DefaultHasher::new();
-                                                        full_text.hash(&mut h);
-                                                        h.finish()
-                                                    };
-                                                    if !state.ai_block_cache.contains_key(&content_hash) {
-                                                        let parsed = parse_markdown_blocks(full_text);
-                                                        state.ai_block_cache.insert(content_hash, Box::new(parsed));
-                                                    }
-                                                    let blocks = state.ai_block_cache
-                                                        .get(&content_hash)
-                                                        .and_then(|b| b.downcast_ref::<Vec<MarkdownBlock>>())
-                                                        .map(|v| v.as_slice())
-                                                        .unwrap_or(&[]);
-                                                    for (block_idx, block) in blocks.iter().enumerate() {
-                                                        match block {
-                                                            MarkdownBlock::Heading { level, text } => {
-                                                                let (font_size, pad_t) = match level {
-                                                                    1 => (13.0, 4.0),
-                                                                    2 => (12.0, 3.0),
-                                                                    _ => (11.5, 2.0),
+                                        // ── Sibling 2: Final Summary / Markdown Answer or Error Card ──────
+                                        if msg.is_error() {
+                                            let (err_title, err_desc, raw_details) = msg.parse_error_details();
+                                            let err_details_id = Id::from_u64(999_350_000 + (msg_idx as u64) * 10);
+                                            let err_copy_id = Id::from_u64(999_350_000 + (msg_idx as u64) * 10 + 1);
+                                            let is_details_expanded = msg.expanded;
+
+                                            ui.container()
+                                                .full_width()
+                                                .radius_all(8.0)
+                                                .bg(Color::rgba(0.95, 0.25, 0.25, 0.08))
+                                                .border(Color::rgba(0.95, 0.30, 0.30, 0.28), 1.0)
+                                                .padding(10.0, 12.0, 10.0, 12.0)
+                                                .column()
+                                                .gap(8.0)
+                                                .show(|ui| {
+                                                    // Header row: Icon + Title + Error Badge
+                                                    ui.container()
+                                                        .full_width()
+                                                        .row()
+                                                        .halign(Align::SpaceBetween)
+                                                        .valign(Align::Center)
+                                                        .show(|ui| {
+                                                            ui.container()
+                                                                .row()
+                                                                .valign(Align::Center)
+                                                                .gap(6.0)
+                                                                .show(|ui| {
+                                                                    ui.text("\u{f071}")
+                                                                        .size(11.5)
+                                                                        .color(Color::rgba(0.98, 0.40, 0.40, 1.0))
+                                                                        .show();
+                                                                    ui.text(&err_title)
+                                                                        .size(11.5)
+                                                                        .weight(FontWeight::Bold)
+                                                                        .color(Color::rgba(0.98, 0.45, 0.45, 1.0))
+                                                                        .show();
+                                                                });
+
+                                                            ui.container()
+                                                                .padding(2.0, 6.0, 2.0, 6.0)
+                                                                .radius_all(4.0)
+                                                                .bg(Color::rgba(0.95, 0.25, 0.25, 0.18))
+                                                                .show(|ui| {
+                                                                    ui.text("Error")
+                                                                        .size(9.0)
+                                                                        .weight(FontWeight::Medium)
+                                                                        .color(Color::rgba(0.98, 0.55, 0.55, 0.95))
+                                                                        .show();
+                                                                });
+                                                        });
+
+                                                    // Friendly Description
+                                                    ui.text(&err_desc)
+                                                        .size(11.0)
+                                                        .line_height(1.6)
+                                                        .color(colors.text_primary.with_alpha(0.9))
+                                                        .max_width((ai_text_w - 24.0).max(60.0))
+                                                        .wrap(zenthra_text::prelude::TextWrap::Word)
+                                                        .show();
+
+                                                    // Collapsible Technical Details (if raw json or full details exist)
+                                                    if let Some(ref raw) = raw_details {
+                                                        let toggle_btn = ui.container()
+                                                            .id(err_details_id)
+                                                            .padding(3.0, 6.0, 3.0, 6.0)
+                                                            .radius_all(4.0)
+                                                            .hover_bg(Color::rgba(1.0, 1.0, 1.0, 0.05))
+                                                            .row()
+                                                            .valign(Align::Center)
+                                                            .gap(4.0)
+                                                            .show(|ui| {
+                                                                let label = if is_details_expanded {
+                                                                    "▾ Hide technical details"
+                                                                } else {
+                                                                    "▸ Show technical details"
                                                                 };
-                                                                let clean_text = strip_markdown_stars(text);
-                                                                ui.container()
-                                                                    .padding_top(pad_t)
-                                                                    .padding_bottom(1.0)
-                                                                    .show(|ui| {
-                                                                        ui.text(&clean_text)
-                                                                            .size(font_size)
-                                                                            .weight(FontWeight::Bold)
-                                                                            .color(colors.text_primary)
-                                                                            .max_width(ai_text_w)
-                                                                            .wrap(zenthra_text::prelude::TextWrap::Word)
-                                                                            .show();
-                                                                    });
-                                                            }
-                                                            MarkdownBlock::BulletItem { text } => {
-                                                                let clean_text = strip_markdown_stars(text);
-                                                                ui.container()
-                                                                    .full_width()
-                                                                    .row()
-                                                                    .valign(Align::Top)
-                                                                    .gap(6.0)
-                                                                    .padding_left(2.0)
-                                                                    .show(|ui| {
-                                                                        ui.text("•")
-                                                                            .size(11.0)
-                                                                            .color(colors.accent)
-                                                                            .show();
-                                                                        ui.text(&clean_text)
-                                                                            .size(11.0)
-                                                                            .line_height(1.65)
-                                                                            .color(colors.text_primary)
-                                                                            .max_width(ai_text_w - 14.0)
-                                                                            .wrap(zenthra_text::prelude::TextWrap::Word)
-                                                                            .show();
-                                                                    });
-                                                            }
-                                                            MarkdownBlock::NumberedItem { num, text } => {
-                                                                let clean_text = strip_markdown_stars(text);
-                                                                ui.container()
-                                                                    .full_width()
-                                                                    .row()
-                                                                    .valign(Align::Top)
-                                                                    .gap(6.0)
-                                                                    .padding_left(2.0)
-                                                                    .show(|ui| {
-                                                                        ui.text(&format!("{}.", num))
-                                                                            .size(10.5)
-                                                                            .weight(FontWeight::Medium)
-                                                                            .color(colors.accent)
-                                                                            .show();
-                                                                        ui.text(&clean_text)
-                                                                            .size(11.0)
-                                                                            .line_height(1.65)
-                                                                            .color(colors.text_primary)
-                                                                            .max_width(ai_text_w - 18.0)
-                                                                            .wrap(zenthra_text::prelude::TextWrap::Word)
-                                                                            .show();
-                                                                    });
-                                                            }
-                                                            MarkdownBlock::CodeBlock { lang, code } => {
-                                                                let code_btn_id = Id::from_u64(999_500_000 + (msg_idx as u64) * 1000 + (block_idx as u64));
-                                                                let is_code_copied = state.copied_ai_code_id.as_ref()
-                                                                    .map(|(id, t)| *id == code_btn_id.raw() && t.elapsed().as_secs_f32() < 2.0)
-                                                                    .unwrap_or(false);
-
-                                                                let lang_display = lang.as_deref().unwrap_or("code").to_uppercase();
-
-                                                                ui.container()
-                                                                    .width(code_box_w)
-                                                                    .radius_all(6.0)
-                                                                    .bg(colors.bg_base.with_alpha(0.85))
-                                                                    .border(colors.border.with_alpha(0.5), 0.5)
-                                                                    .column()
-                                                                    .show(|ui| {
-                                                                        // Code card header: language badge + Copy Code button
-                                                                        ui.container()
-                                                                            .full_width()
-                                                                            .height(22.0)
-                                                                            .padding(0.0, 8.0, 0.0, 8.0)
-                                                                            .bg(colors.bg_sidebar.with_alpha(0.6))
-                                                                            .radius_top(6.0)
-                                                                            .row()
-                                                                            .halign(Align::SpaceBetween)
-                                                                            .valign(Align::Center)
-                                                                            .show(|ui| {
-                                                                                ui.text(&lang_display)
-                                                                                    .size(9.0)
-                                                                                    .weight(FontWeight::Bold)
-                                                                                    .color(colors.text_muted)
-                                                                                    .show();
-
-                                                                                let copy_code_btn = ui.container()
-                                                                                    .id(code_btn_id)
-                                                                                    .padding(1.0, 5.0, 1.0, 5.0)
-                                                                                    .radius_all(3.0)
-                                                                                    .hover_bg(colors.highlight)
-                                                                                    .row()
-                                                                                    .valign(Align::Center)
-                                                                                    .gap(4.0)
-                                                                                    .show(|ui| {
-                                                                                        ui.text(if is_code_copied { "\u{f00c}" } else { "\u{f0c5}" })
-                                                                                            .size(9.0)
-                                                                                            .color(if is_code_copied { colors.accent } else { colors.text_muted })
-                                                                                            .show();
-                                                                                        ui.text(if is_code_copied { "Copied" } else { "Copy" })
-                                                                                            .size(9.0)
-                                                                                            .color(if is_code_copied { colors.accent } else { colors.text_muted })
-                                                                                            .show();
-                                                                                    });
-
-                                                                                if copy_code_btn.hovered {
-                                                                                    ui.cursor_icon = CursorIcon::Pointer;
-                                                                                }
-                                                                                if copy_code_btn.clicked {
-                                                                                    copy_code_snippet = Some((code_btn_id.raw(), code.clone()));
-                                                                                }
-                                                                            });
-
-                                                                        // Code content area
-                                                                        ui.container()
-                                                                            .padding(6.0, 8.0, 6.0, 8.0)
-                                                                            .full_width()
-                                                                            .show(|ui| {
-                                                                                ui.text(code)
-                                                                                    .size(10.0)
-                                                                                    .monospace()
-                                                                                    .line_height(1.65)
-                                                                                    .color(colors.text_primary)
-                                                                                    .max_width(code_box_w - 16.0)
-                                                                                    .wrap(zenthra_text::prelude::TextWrap::Word)
-                                                                                    .show();
-                                                                            });
-                                                                    });
-                                                            }
-                                                            MarkdownBlock::Paragraph(text) => {
-                                                                let clean_text = strip_markdown_stars(text);
-                                                                ui.text(&clean_text)
-                                                                    .size(11.0)
-                                                                    .line_height(1.65)
-                                                                    .color(colors.text_primary)
-                                                                    .max_width(ai_text_w)
-                                                                    .wrap(zenthra_text::prelude::TextWrap::Word)
+                                                                ui.text(label)
+                                                                    .size(9.5)
+                                                                    .color(colors.text_muted)
                                                                     .show();
-                                                            }
+                                                            });
+
+                                                        if toggle_btn.hovered {
+                                                            ui.cursor_icon = CursorIcon::Pointer;
+                                                        }
+                                                        if toggle_btn.clicked {
+                                                            toggle_expand_idx = Some(msg_idx);
+                                                        }
+
+                                                        if is_details_expanded {
+                                                            let raw_w = (ai_text_w - 24.0).max(50.0);
+                                                            ui.container()
+                                                                .width(raw_w)
+                                                                .padding(8.0, 10.0, 8.0, 10.0)
+                                                                .radius_all(6.0)
+                                                                .bg(colors.bg_base.with_alpha(0.85))
+                                                                .border(Color::rgba(0.95, 0.30, 0.30, 0.2), 0.5)
+                                                                .column()
+                                                                .gap(4.0)
+                                                                .show(|ui| {
+                                                                    ui.text(raw)
+                                                                        .size(9.5)
+                                                                        .monospace()
+                                                                        .line_height(1.5)
+                                                                        .color(colors.text_muted)
+                                                                        .max_width((raw_w - 20.0).max(40.0))
+                                                                        .wrap(zenthra_text::prelude::TextWrap::Word)
+                                                                        .show();
+                                                                });
                                                         }
                                                     }
 
-                                                    // ── Footer: copy button pinned right ──────────────
+                                                    // Footer: Copy Button
                                                     ui.container()
                                                         .full_width()
                                                         .row()
                                                         .halign(Align::Right)
                                                         .valign(Align::Center)
-                                                        .padding_top(2.0)
+                                                        .padding_top(4.0)
                                                         .show(|ui| {
                                                             let copy_btn = ui.container()
-                                                                .id(copy_btn_id)
-                                                                .padding(2.0, 5.0, 2.0, 5.0)
+                                                                .id(err_copy_id)
+                                                                .padding(2.0, 6.0, 2.0, 6.0)
                                                                 .radius_all(4.0)
-                                                                .hover_bg(colors.highlight)
+                                                                .hover_bg(Color::rgba(1.0, 1.0, 1.0, 0.08))
                                                                 .row()
                                                                 .valign(Align::Center)
-                                                                .gap(3.0)
+                                                                .gap(4.0)
                                                                 .show(|ui| {
                                                                     ui.text(if is_copied { "\u{f00c}" } else { "\u{f0c5}" })
                                                                         .size(9.0)
-                                                                        .color(if is_copied { colors.accent } else { colors.text_muted.with_alpha(0.6) })
+                                                                        .color(if is_copied { colors.accent } else { colors.text_muted })
                                                                         .show();
-                                                                    if is_copied {
-                                                                        ui.text("Copied")
-                                                                            .size(9.0)
-                                                                            .color(colors.accent)
-                                                                            .show();
-                                                                    }
+                                                                    ui.text(if is_copied { "Copied" } else { "Copy Error" })
+                                                                        .size(9.0)
+                                                                        .color(if is_copied { colors.accent } else { colors.text_muted })
+                                                                        .show();
                                                                 });
 
                                                             if copy_btn.hovered {
@@ -1061,8 +1082,217 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                                                 copy_clicked = true;
                                                             }
                                                         });
+                                                });
+                                        } else if !full_text.is_empty() {
+                                            // ── Cache: parse once, reuse every frame ──────────────
+                                            let content_hash = {
+                                                use std::hash::{Hash, Hasher};
+                                                let mut h = std::collections::hash_map::DefaultHasher::new();
+                                                full_text.hash(&mut h);
+                                                h.finish()
+                                            };
+                                            if !state.ai_block_cache.contains_key(&content_hash) {
+                                                let parsed = parse_markdown_blocks(full_text);
+                                                state.ai_block_cache.insert(content_hash, Box::new(parsed));
+                                            }
+                                            let blocks = state.ai_block_cache
+                                                .get(&content_hash)
+                                                .and_then(|b| b.downcast_ref::<Vec<MarkdownBlock>>())
+                                                .map(|v| v.as_slice())
+                                                .unwrap_or(&[]);
+                                            for (block_idx, block) in blocks.iter().enumerate() {
+                                                match block {
+                                                    MarkdownBlock::Heading { level, text } => {
+                                                        let (font_size, pad_t) = match level {
+                                                            1 => (13.0, 4.0),
+                                                            2 => (12.0, 3.0),
+                                                            _ => (11.5, 2.0),
+                                                        };
+                                                        let clean_text = strip_markdown_stars(text);
+                                                        ui.container()
+                                                            .padding_top(pad_t)
+                                                            .padding_bottom(1.0)
+                                                            .show(|ui| {
+                                                                ui.text(&clean_text)
+                                                                    .size(font_size)
+                                                                    .weight(FontWeight::Bold)
+                                                                    .color(colors.text_primary)
+                                                                    .max_width(ai_text_w)
+                                                                    .wrap(zenthra_text::prelude::TextWrap::Word)
+                                                                    .show();
+                                                            });
+                                                    }
+                                                    MarkdownBlock::BulletItem { text } => {
+                                                        let clean_text = strip_markdown_stars(text);
+                                                        ui.container()
+                                                            .full_width()
+                                                            .row()
+                                                            .valign(Align::Top)
+                                                            .gap(6.0)
+                                                            .padding_left(2.0)
+                                                            .show(|ui| {
+                                                                ui.text("•")
+                                                                    .size(11.0)
+                                                                    .color(colors.accent)
+                                                                    .show();
+                                                                ui.text(&clean_text)
+                                                                    .size(11.0)
+                                                                    .line_height(1.65)
+                                                                    .color(colors.text_primary)
+                                                                    .max_width((ai_text_w - 16.0).max(40.0))
+                                                                    .wrap(zenthra_text::prelude::TextWrap::Word)
+                                                                    .show();
+                                                            });
+                                                    }
+                                                    MarkdownBlock::NumberedItem { num, text } => {
+                                                        let clean_text = strip_markdown_stars(text);
+                                                        ui.container()
+                                                            .full_width()
+                                                            .row()
+                                                            .valign(Align::Top)
+                                                            .gap(6.0)
+                                                            .padding_left(2.0)
+                                                            .show(|ui| {
+                                                                ui.text(&format!("{}.", num))
+                                                                    .size(10.5)
+                                                                    .weight(FontWeight::Medium)
+                                                                    .color(colors.accent)
+                                                                    .show();
+                                                                ui.text(&clean_text)
+                                                                    .size(11.0)
+                                                                    .line_height(1.65)
+                                                                    .color(colors.text_primary)
+                                                                    .max_width((ai_text_w - 20.0).max(40.0))
+                                                                    .wrap(zenthra_text::prelude::TextWrap::Word)
+                                                                    .show();
+                                                            });
+                                                    }
+                                                    MarkdownBlock::CodeBlock { lang, code } => {
+                                                        let code_btn_id = Id::from_u64(999_500_000 + (msg_idx as u64) * 1000 + (block_idx as u64));
+                                                        let is_code_copied = state.copied_ai_code_id.as_ref()
+                                                            .map(|(id, t)| *id == code_btn_id.raw() && t.elapsed().as_secs_f32() < 2.0)
+                                                            .unwrap_or(false);
+
+                                                        let lang_display = lang.as_deref().unwrap_or("code").to_uppercase();
+
+                                                        ui.container()
+                                                            .width(code_box_w)
+                                                            .radius_all(6.0)
+                                                            .bg(colors.bg_base.with_alpha(0.85))
+                                                            .border(colors.border.with_alpha(0.5), 0.5)
+                                                            .column()
+                                                            .show(|ui| {
+                                                                // Code card header: language badge + Copy Code button
+                                                                ui.container()
+                                                                    .full_width()
+                                                                    .height(22.0)
+                                                                    .padding(0.0, 8.0, 0.0, 8.0)
+                                                                    .bg(colors.bg_sidebar.with_alpha(0.6))
+                                                                    .radius_top(6.0)
+                                                                    .row()
+                                                                    .halign(Align::SpaceBetween)
+                                                                    .valign(Align::Center)
+                                                                    .show(|ui| {
+                                                                        ui.text(&lang_display)
+                                                                            .size(9.0)
+                                                                            .weight(FontWeight::Bold)
+                                                                            .color(colors.text_muted)
+                                                                            .show();
+
+                                                                        let copy_code_btn = ui.container()
+                                                                            .id(code_btn_id)
+                                                                            .padding(1.0, 5.0, 1.0, 5.0)
+                                                                            .radius_all(3.0)
+                                                                            .hover_bg(colors.highlight)
+                                                                            .row()
+                                                                            .valign(Align::Center)
+                                                                            .gap(4.0)
+                                                                            .show(|ui| {
+                                                                                ui.text(if is_code_copied { "\u{f00c}" } else { "\u{f0c5}" })
+                                                                                    .size(9.0)
+                                                                                    .color(if is_code_copied { colors.accent } else { colors.text_muted })
+                                                                                    .show();
+                                                                                ui.text(if is_code_copied { "Copied" } else { "Copy" })
+                                                                                    .size(9.0)
+                                                                                    .color(if is_code_copied { colors.accent } else { colors.text_muted })
+                                                                                    .show();
+                                                                            });
+
+                                                                        if copy_code_btn.hovered {
+                                                                            ui.cursor_icon = CursorIcon::Pointer;
+                                                                        }
+                                                                        if copy_code_btn.clicked {
+                                                                            copy_code_snippet = Some((code_btn_id.raw(), code.clone()));
+                                                                        }
+                                                                    });
+
+                                                                // Code content area
+                                                                ui.container()
+                                                                    .padding(6.0, 8.0, 6.0, 8.0)
+                                                                    .full_width()
+                                                                    .show(|ui| {
+                                                                        ui.text(code)
+                                                                            .size(10.0)
+                                                                            .monospace()
+                                                                            .line_height(1.65)
+                                                                            .color(colors.text_primary)
+                                                                            .max_width((code_box_w - 18.0).max(40.0))
+                                                                            .wrap(zenthra_text::prelude::TextWrap::Word)
+                                                                            .show();
+                                                                    });
+                                                            });
+                                                    }
+                                                    MarkdownBlock::Paragraph(text) => {
+                                                        let clean_text = strip_markdown_stars(text);
+                                                        ui.text(&clean_text)
+                                                            .size(11.0)
+                                                            .line_height(1.65)
+                                                            .color(colors.text_primary)
+                                                            .max_width(ai_text_w)
+                                                            .wrap(zenthra_text::prelude::TextWrap::Word)
+                                                            .show();
+                                                    }
                                                 }
-                                            });
+                                            }
+
+                                            // ── Footer: copy button pinned right ──────────────
+                                            ui.container()
+                                                .full_width()
+                                                .row()
+                                                .halign(Align::Right)
+                                                .valign(Align::Center)
+                                                .padding_top(4.0)
+                                                .show(|ui| {
+                                                    let copy_btn = ui.container()
+                                                        .id(copy_btn_id)
+                                                        .padding(2.0, 5.0, 2.0, 5.0)
+                                                        .radius_all(4.0)
+                                                        .hover_bg(colors.highlight)
+                                                        .row()
+                                                        .valign(Align::Center)
+                                                        .gap(3.0)
+                                                        .show(|ui| {
+                                                            ui.text(if is_copied { "\u{f00c}" } else { "\u{f0c5}" })
+                                                                .size(9.0)
+                                                                .color(if is_copied { colors.accent } else { colors.text_muted.with_alpha(0.6) })
+                                                                .show();
+                                                            if is_copied {
+                                                                ui.text("Copied")
+                                                                    .size(9.0)
+                                                                    .color(colors.accent)
+                                                                    .show();
+                                                            }
+                                                        });
+
+                                                    if copy_btn.hovered {
+                                                        ui.cursor_icon = CursorIcon::Pointer;
+                                                    }
+                                                    if copy_btn.clicked {
+                                                        copy_clicked = true;
+                                                    }
+                                                });
+                                        }
+                                    });
 
                                 if copy_clicked {
                                     copy_target_idx = Some(msg_idx);
@@ -1087,6 +1317,11 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                     ui.needs_redraw = true;
                                 }
                             }
+                        }
+
+                        if let Some(path) = chat_open_file {
+                            state.open_file(&path);
+                            ui.needs_redraw = true;
                         }
 
                         if let Some((btn_id, snippet)) = copy_code_snippet {
@@ -1201,7 +1436,12 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                                             .show();
 
                                                         if item.rel_path != item.file_name && !item.rel_path.is_empty() {
-                                                            ui.text(&item.rel_path)
+                                                            let display_rel = if item.rel_path.len() > 32 {
+                                                                format!("...{}", &item.rel_path[item.rel_path.len() - 29..])
+                                                            } else {
+                                                                item.rel_path.clone()
+                                                            };
+                                                            ui.text(&display_rel)
                                                                 .size(10.0)
                                                                 .color(colors.text_dim)
                                                                 .show();
@@ -1260,7 +1500,7 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                     }
                                 });
 
-                            // 2. Toolbar row (outside container): [📄 N Files] on left, Reject all / Accept all on right
+                            // 2. Toolbar row (outside container): [ ‹ 📄 N Files] on left, Reject all / Accept all / ▾ on right
                             ui.container()
                                 .full_width()
                                 .height(20.0)
@@ -1269,7 +1509,7 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                 .halign(Align::SpaceBetween)
                                 .valign(Align::Center)
                                 .show(|ui| {
-                                    // Left: [📄 N Files] toggle button (no hover by default; dark hover on mouseover)
+                                    // Left: [ ‹ 📄 N Files] toggle button (left back icon to close)
                                     let toggle_btn = ui.container()
                                         .clickable(true)
                                         .padding(2.0, 5.0, 2.0, 5.0)
@@ -1278,8 +1518,13 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                         .hover_bg(Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, 0.05))
                                         .row()
                                         .valign(Align::Center)
-                                        .gap(4.0)
+                                        .gap(5.0)
                                         .show(|ui| {
+                                            ui.text("‹")
+                                                .size(13.0)
+                                                .weight(FontWeight::Bold)
+                                                .color(colors.text_muted)
+                                                .show();
                                             ui.text("\u{f15c}")
                                                 .size(11.5)
                                                 .color(colors.accent)
@@ -1298,7 +1543,7 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                         ui.needs_redraw = true;
                                     }
 
-                                    // Right: Reject all and Accept all
+                                    // Right: Reject all, Accept all, and down arrow ▾ to collapse
                                     ui.container()
                                         .row()
                                         .valign(Align::Center)
@@ -1339,6 +1584,26 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                             if acc_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
                                             if acc_btn.clicked {
                                                 action_accept_all = true;
+                                            }
+
+                                            // Down arrow to collapse
+                                            let arrow_btn = ui.container()
+                                                .id(Id::from_u64(999999868))
+                                                .clickable(true)
+                                                .padding(2.0, 5.0, 2.0, 5.0)
+                                                .radius_all(3.0)
+                                                .bg(Color::TRANSPARENT)
+                                                .hover_bg(Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, 0.05))
+                                                .show(|ui| {
+                                                    ui.text("▾")
+                                                        .size(12.0)
+                                                        .color(colors.text_muted)
+                                                        .show();
+                                                });
+                                            if arrow_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
+                                            if arrow_btn.clicked {
+                                                state.show_modified_files_popup = false;
+                                                ui.needs_redraw = true;
                                             }
                                         });
                                 });
@@ -1383,6 +1648,7 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                             .height(20.0)
                             .padding(0.0, 2.0, 0.0, 2.0)
                             .row()
+                            .halign(Align::SpaceBetween)
                             .valign(Align::Center)
                             .show(|ui| {
                                 ui.container()
@@ -1476,6 +1742,72 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                                     .show();
                                             });
                                     });
+
+                                // Right side when closed but has modified files: Reject all, Accept all, and Top Arrow ▴!
+                                if has_modified_files {
+                                    ui.container()
+                                        .row()
+                                        .valign(Align::Center)
+                                        .gap(6.0)
+                                        .show(|ui| {
+                                            let rej_btn = ui.container()
+                                                .id(Id::from_u64(999999866))
+                                                .clickable(true)
+                                                .padding(2.0, 6.0, 2.0, 6.0)
+                                                .radius_all(3.0)
+                                                .bg(Color::TRANSPARENT)
+                                                .hover_bg(Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, 0.05))
+                                                .show(|ui| {
+                                                    ui.text("Reject all")
+                                                        .size(11.0)
+                                                        .color(colors.text_muted)
+                                                        .show();
+                                                });
+                                            if rej_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
+                                            if rej_btn.clicked {
+                                                action_reject_all = true;
+                                            }
+
+                                            let acc_btn = ui.container()
+                                                .id(Id::from_u64(999999867))
+                                                .clickable(true)
+                                                .padding(2.0, 8.0, 2.0, 8.0)
+                                                .radius_all(4.0)
+                                                .bg(colors.accent)
+                                                .hover_bg(colors.accent.with_alpha(0.85))
+                                                .show(|ui| {
+                                                    ui.text("Accept all")
+                                                        .size(11.0)
+                                                        .weight(FontWeight::SemiBold)
+                                                        .color(Color::WHITE)
+                                                        .show();
+                                                });
+                                            if acc_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
+                                            if acc_btn.clicked {
+                                                action_accept_all = true;
+                                            }
+
+                                            // Top arrow button to open/expand
+                                            let arrow_btn = ui.container()
+                                                .id(Id::from_u64(999999868))
+                                                .clickable(true)
+                                                .padding(2.0, 5.0, 2.0, 5.0)
+                                                .radius_all(3.0)
+                                                .bg(Color::TRANSPARENT)
+                                                .hover_bg(Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, 0.05))
+                                                .show(|ui| {
+                                                    ui.text("▴")
+                                                        .size(12.0)
+                                                        .color(colors.text_muted)
+                                                        .show();
+                                                });
+                                            if arrow_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
+                                            if arrow_btn.clicked {
+                                                state.show_modified_files_popup = true;
+                                                ui.needs_redraw = true;
+                                            }
+                                        });
+                                }
                             });
                     }
 
@@ -2104,5 +2436,13 @@ mod tests {
         assert_eq!(blocks[5], MarkdownBlock::NumberedItem { num: "1".into(), text: "First step".into() });
         assert_eq!(blocks[6], MarkdownBlock::NumberedItem { num: "2".into(), text: "Second step".into() });
         assert_eq!(blocks[7], MarkdownBlock::Paragraph("All systems operational.".into()));
+    }
+
+    #[test]
+    fn test_parse_markdown_blocks_quota_error() {
+        let err = r#"Agent error: Gemini api error: 429 Too Many Requests: { "error": { "code": 429, "message": "Resource has been exhausted (e.g. check quota).", "status": "RESOURCE_EXHAUSTED", "details": [ { "@type": "type.googleapis.com/google.rpc.QuotaFailure", "violations": [ { "subject": "project:12345", "description": "GenerateRequestsPerMinutePerProjectPerModel-FreeTier" } ] } ] } }"#;
+        let blocks = parse_markdown_blocks(err);
+        println!("Blocks: {:#?}", blocks);
+        assert_eq!(blocks.len(), 1);
     }
 }

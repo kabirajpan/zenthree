@@ -142,8 +142,15 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                                     let (lines_added, lines_removed) = {
                                         let tab = &state.tabs[idx];
                                         let rev_opt = tab.path.as_ref().and_then(|p| state.pending_reviews.iter().find(|r| path_matches(&r.path, p)));
-                                        let la = rev_opt.map(|r| r.total_added_lines()).unwrap_or(0).max(tab.lines_added);
+                                        let mut la = rev_opt.map(|r| r.total_added_lines()).unwrap_or(0).max(tab.lines_added);
                                         let lr = rev_opt.map(|r| r.total_removed_lines()).unwrap_or(0).max(tab.lines_removed);
+                                        if la == 0 && lr == 0 {
+                                            if let Some(r) = rev_opt {
+                                                if r.is_new_file {
+                                                    la = tab.editor.buffer.line_count().max(1);
+                                                }
+                                            }
+                                        }
                                         (la, lr)
                                     };
                                     if lines_added > 0 {
@@ -838,7 +845,14 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                                 || tab.name == r.path.file_name().and_then(|n| n.to_str()).unwrap_or("")
                         })
                     }).or_else(|| state.active_review())
-                      .map(|r| r.diff_lines.iter().map(|(_, s)| *s).collect());
+                      .map(|r| {
+                          let mut states: Vec<DiffLineState> = r.diff_lines.iter().map(|(_, s)| *s).collect();
+                          if r.is_new_file || (r.total_removed_lines() == 0 && !states.iter().any(|s| *s == DiffLineState::Added)) {
+                              let count = state.tabs.get(active_tab_idx).map(|t| t.editor.buffer.line_count()).unwrap_or(states.len());
+                              states = vec![DiffLineState::Added; count];
+                          }
+                          states
+                      });
 
                     let content_h = total_lines as f32 * line_height_pixels;
 

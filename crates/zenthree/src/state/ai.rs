@@ -14,6 +14,13 @@ impl ZenthreeState {
             self.ai_messages.drain(0..remove_count);
         }
 
+        // Mark any previous assistant working message as finished so turns don't collide
+        for m in &mut self.ai_messages {
+            if !m.is_user && m.is_working {
+                m.is_working = false;
+            }
+        }
+
         self.ai_messages.push(AiMessage {
             is_user: true,
             content: trimmed.to_string(),
@@ -302,8 +309,11 @@ impl ZenthreeState {
                                             }
 
                                             let (diff_lines, preview_text) = crate::state::compute_line_diff(&orig_content, &new_content_str);
-                                            let lines_added = diff_lines.iter().filter(|(_, s)| *s == DiffLineState::Added).count();
+                                            let mut lines_added = diff_lines.iter().filter(|(_, s)| *s == DiffLineState::Added).count();
                                             let lines_removed = diff_lines.iter().filter(|(_, s)| *s == DiffLineState::Removed).count();
+                                            if lines_added == 0 && lines_removed == 0 && !new_content_str.is_empty() {
+                                                lines_added = new_content_str.lines().count().max(1);
+                                            }
                                             last.trajectory.push(TrajectoryStep::FileEdit {
                                                 path: path.clone(),
                                                 lines_added,
@@ -401,17 +411,34 @@ impl ZenthreeState {
                                             let file_existed = effective_path.exists();
                                             let (orig_content, is_new_file) = if let Some(idx) = tab_match_idx {
                                                 let prev = self.tabs[idx].editor.buffer.to_string();
-                                                (prev, false)
+                                                if prev == content || prev.is_empty() {
+                                                    (String::new(), true)
+                                                } else {
+                                                    (prev, false)
+                                                }
                                             } else if file_existed {
                                                 let prev = std::fs::read_to_string(&effective_path).unwrap_or_default();
-                                                (prev, false)
+                                                if prev == content || prev.is_empty() {
+                                                    (String::new(), true)
+                                                } else {
+                                                    (prev, false)
+                                                }
                                             } else {
                                                 (String::new(), true)
                                             };
 
-                                            let (diff_lines, preview_text) = crate::state::compute_line_diff(&orig_content, content);
-                                            let lines_added = diff_lines.iter().filter(|(_, s)| *s == DiffLineState::Added).count();
+                                            let (mut diff_lines, preview_text) = crate::state::compute_line_diff(&orig_content, content);
+                                            if is_new_file && !diff_lines.iter().any(|(_, s)| *s == DiffLineState::Added) {
+                                                diff_lines = content
+                                                    .lines()
+                                                    .map(|l| (l.to_string(), DiffLineState::Added))
+                                                    .collect();
+                                            }
+                                            let mut lines_added = diff_lines.iter().filter(|(_, s)| *s == DiffLineState::Added).count();
                                             let lines_removed = diff_lines.iter().filter(|(_, s)| *s == DiffLineState::Removed).count();
+                                            if lines_added == 0 && (is_new_file || lines_removed == 0) && !content.is_empty() {
+                                                lines_added = content.lines().count().max(1);
+                                            }
                                             last.trajectory.push(TrajectoryStep::FileEdit {
                                                 path: path.clone(),
                                                 lines_added,

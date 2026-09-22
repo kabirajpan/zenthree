@@ -46,7 +46,11 @@ impl FileDiffReview {
     }
 
     pub fn total_added_lines(&self) -> usize {
-        self.diff_lines.iter().filter(|(_, s)| *s == DiffLineState::Added).count()
+        let count = self.diff_lines.iter().filter(|(_, s)| *s == DiffLineState::Added).count();
+        if count == 0 && (self.is_new_file || self.total_removed_lines() == 0) && !self.proposed_content.is_empty() {
+            return self.proposed_content.lines().count().max(1);
+        }
+        count
     }
 
     #[allow(dead_code)]
@@ -417,6 +421,58 @@ pub struct AiMessage {
     pub trajectory: Vec<TrajectoryStep>,
     #[serde(default)]
     pub is_working: bool,
+}
+
+impl AiMessage {
+    pub fn is_error(&self) -> bool {
+        !self.is_user
+            && (self.content.starts_with("Agent error:")
+                || self.content.starts_with("Error:")
+                || self.content.contains("RESOURCE_EXHAUSTED")
+                || self.content.contains("429 Too Many Requests")
+                || self.content.contains("Quota exceeded"))
+    }
+
+    pub fn parse_error_details(&self) -> (String, String, Option<String>) {
+        let text = self.content.trim();
+        let is_quota = text.contains("RESOURCE_EXHAUSTED")
+            || text.contains("429")
+            || text.contains("quota")
+            || text.contains("Quota");
+
+        if is_quota {
+            let retry_delay = if let Some(pos) = text.find("\"retryDelay\":") {
+                let rest = &text[pos + 13..];
+                let end = rest.find('"').and_then(|p1| {
+                    let next = &rest[p1 + 1..];
+                    next.find('"').map(|p2| &rest[p1 + 1..p1 + 1 + p2])
+                });
+                end.map(|s| s.to_string())
+            } else {
+                None
+            };
+
+            let title = "API Quota Exceeded (429)".to_string();
+            let desc = if let Some(delay) = retry_delay {
+                format!(
+                    "Resource quota has been exhausted. Please wait {} before retrying, or switch to another model.",
+                    delay
+                )
+            } else {
+                "Resource quota has been exhausted for this model. Please wait a moment or switch to another model.".to_string()
+            };
+
+            (title, desc, Some(text.to_string()))
+        } else if text.starts_with("Agent error:") {
+            let err_body = text.strip_prefix("Agent error:").unwrap_or(text).trim();
+            ("Agent Error".to_string(), err_body.to_string(), Some(text.to_string()))
+        } else if text.starts_with("Error:") {
+            let err_body = text.strip_prefix("Error:").unwrap_or(text).trim();
+            ("Request Error".to_string(), err_body.to_string(), Some(text.to_string()))
+        } else {
+            ("Error".to_string(), text.to_string(), None)
+        }
+    }
 }
 
 #[allow(dead_code)]
