@@ -342,10 +342,55 @@ fn test_human_message_pure_conversation_calls_zero_tools() {
 }
 
 #[test]
+fn test_human_benchmark_json_specification() {
+    let json_path = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("human_tests.json");
+    assert!(json_path.exists(), "human_tests.json must exist in tests/");
+
+    let data = fs::read_to_string(&json_path).expect("Failed to read human_tests.json");
+    let parsed: serde_json::Value = serde_json::from_str(&data).expect("human_tests.json must be valid JSON");
+
+    assert_eq!(parsed["total"].as_u64(), Some(30));
+    let tests = parsed["tests"].as_array().expect("tests array expected");
+    assert_eq!(tests.len(), 30);
+
+    for (i, t) in tests.iter().enumerate() {
+        assert_eq!(t["id"].as_u64(), Some((i + 1) as u64));
+        assert!(t["human_message"].as_str().is_some());
+        assert!(t["expected_tools"].as_array().is_some());
+        assert!(t["expected_behavior"].as_str().is_some());
+    }
+}
+
+#[test]
+#[ignore = "live provider test: burns quota"]
+fn test_live_groq_snake_game_human_message() {
+    let snake_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("tests")
+        .join("snake_game");
+
+    if let Some(mut agent) = agent::create_agent_for_model_and_workspace("groq", "qwen/qwen3.8-27b", &snake_dir) {
+        let mut on_event = |ev: AgentEvent| {
+            println!("[Agent Event] {:?}", ev);
+        };
+        let mut ask_approval = |_req: ApprovalRequest| ApprovalDecision::Approve;
+
+        let human_prompt = "Where is the snake game loop defined in src/App.jsx and how does it detect collisions?";
+        let res = agent.run(human_prompt, &mut on_event, &mut ask_approval);
+        println!("Live Groq Agent Result: {:?}", res);
+        if let Ok(reply) = res {
+            println!("Agent Reply: {}", reply);
+            assert!(!reply.is_empty(), "Reply must not be empty");
+        }
+    }
+}
+
+#[test]
 #[ignore = "live provider test: requires GROQ_API_KEY or GEMINI_API_KEY"]
 fn test_live_provider_with_tested_environment_project() {
     let (_temp, sandbox) = setup_sandbox();
-    if let Some(mut agent) = agent::create_agent_for_model_and_workspace("gemini", "gemini-2.5-flash", &sandbox) {
+    if let Some(mut agent) = agent::create_agent_for_model_and_workspace("groq", "qwen/qwen3.8-27b", &sandbox) {
         let mut events = Vec::new();
         let mut on_event = |ev: AgentEvent| events.push(ev);
         let mut ask_approval = |_req: ApprovalRequest| ApprovalDecision::Approve;
@@ -358,3 +403,4 @@ fn test_live_provider_with_tested_environment_project() {
         assert!(!reply.is_empty());
     }
 }
+

@@ -41,7 +41,7 @@ pub fn chat_completion(api_key: &str, prompt: &str) -> Result<String, String> {
         .map_err(|e| format!("Failed to build HTTP client: {e}"))?;
 
     let req_body = ChatRequest {
-        model: "qwen/qwen3-32b".to_string(),
+        model: "qwen/qwen3.8-27b".to_string(),
         messages: vec![ChatMessage {
             role: "user".to_string(),
             content: prompt.to_string(),
@@ -88,9 +88,7 @@ pub struct GroqProvider {
 }
 
 /// Default model for the GroqProvider.
-/// `qwen/qwen3-32b` has a 131,072 TPM limit on Groq, which is the highest
-/// available on the free tier — far above `openai/gpt-oss-120b`'s 8,000 TPM cap.
-const DEFAULT_GROQ_MODEL: &str = "qwen/qwen3-32b";
+const DEFAULT_GROQ_MODEL: &str = "qwen/qwen3.8-27b";
 
 impl GroqProvider {
     pub fn new(api_key: impl Into<String>) -> Self {

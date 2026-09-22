@@ -87,11 +87,11 @@ pub fn complete(prompt: &str) -> Result<String, String> {
 /// Prefers Gemini (1,000,000 TPM free tier) over Groq to avoid rate limiting.
 /// Falls back to Groq if GEMINI_API_KEY is not set.
 pub fn create_default_provider() -> Option<Box<dyn Provider>> {
-    if let Some(key) = get_key("GEMINI_API_KEY") {
-        return Some(Box::new(GeminiProvider::new(key)));
-    }
     if let Some(key) = get_key("GROQ_API_KEY") {
         return Some(Box::new(GroqProvider::new(key)));
+    }
+    if let Some(key) = get_key("GEMINI_API_KEY") {
+        return Some(Box::new(GeminiProvider::new(key)));
     }
     None
 }
