@@ -110,7 +110,7 @@ pub fn generate_content(api_key: &str, prompt: &str) -> Result<String, String> {
 
 /// Default model for GeminiProvider.
 /// `gemini-2.5-flash` has a 1,000,000 TPM free-tier limit and full tool-calling support.
-const DEFAULT_GEMINI_MODEL: &str = "gemini-3.6-flash";
+const DEFAULT_GEMINI_MODEL: &str = "gemini-2.5-flash";
 
 /// Gemini LLM backend implementing the unified `Provider` trait.
 /// Uses the Gemini `generateContent` endpoint with `tools` + `functionDeclarations`
@@ -118,6 +118,36 @@ const DEFAULT_GEMINI_MODEL: &str = "gemini-3.6-flash";
 pub struct GeminiProvider {
     api_key: String,
     model: String,
+}
+
+fn parse_gemini_malformed_call(msg: &str) -> Option<(String, Value)> {
+    let clean = msg.strip_prefix("Malformed function call:")
+        .unwrap_or(msg)
+        .trim();
+    let unwrapped = if clean.starts_with("print(") && clean.ends_with(')') {
+        clean[6..clean.len() - 1].trim()
+    } else {
+        clean
+    };
+    // e.g. default_api.run_terminal(command='ls -R') or run_terminal(command='ls -R')
+    let paren_pos = unwrapped.find('(')?;
+    if !unwrapped.ends_with(')') {
+        return None;
+    }
+    let target = unwrapped[..paren_pos].trim();
+    let raw_name = target.split('.').last().unwrap_or(target);
+    let inner_args = unwrapped[paren_pos + 1..unwrapped.len() - 1].trim();
+
+    let mut map = serde_json::Map::new();
+    for part in inner_args.split(',') {
+        let part = part.trim();
+        if let Some((k, v)) = part.split_once('=') {
+            let key = k.trim().to_string();
+            let val_str = v.trim().trim_matches('\'').trim_matches('"');
+            map.insert(key, Value::String(val_str.to_string()));
+        }
+    }
+    Some((raw_name.to_string(), Value::Object(map)))
 }
 
 impl GeminiProvider {
@@ -158,20 +188,14 @@ impl Provider for GeminiProvider {
             self.api_key.trim()
         );
 
-        // ── Convert messages → Gemini `contents` format ──────────────────────
-        // Gemini uses role "user" / "model" (not "assistant"), and tool calls go
-        // in a `functionCall` part while tool results go in a `functionResponse` part.
+        // ── Convert messages → Gemini `contents` format & extract `systemInstruction` ──
+        let mut system_parts: Vec<String> = Vec::new();
         let mut contents: Vec<Value> = Vec::new();
 
         for m in messages {
             match m.role {
                 Role::System => {
-                    // Gemini handles system instructions separately; prepend as a user turn
-                    // so it ends up in context even without the systemInstruction field.
-                    contents.push(json!({
-                        "role": "user",
-                        "parts": [{ "text": format!("[System]: {}", m.content) }]
-                    }));
+                    system_parts.push(m.content.clone());
                 }
                 Role::User => {
                     contents.push(json!({
@@ -220,6 +244,16 @@ impl Provider for GeminiProvider {
         // ── Build request body ────────────────────────────────────────────────
         let mut body = json!({ "contents": contents });
 
+        if !tools.is_empty() {
+            system_parts.push("When calling tools, invoke the provided function declarations directly. Do NOT output Python code or wrap calls in print() or default_api.".to_string());
+        }
+
+        if !system_parts.is_empty() {
+            body["systemInstruction"] = json!({
+                "parts": [{ "text": system_parts.join("\n\n") }]
+            });
+        }
+
         // Convert OpenAI-style tool schemas → Gemini functionDeclarations
         if !tools.is_empty() {
             let function_declarations: Vec<Value> = tools
@@ -240,7 +274,6 @@ impl Provider for GeminiProvider {
             }
         }
 
-        // ── Send request with 429 retry ───────────────────────────────────────
         const MAX_RETRIES: u32 = 3;
         let mut attempts = 0;
         let (status, resp_text) = loop {
@@ -290,6 +323,9 @@ impl Provider for GeminiProvider {
 
         if let Some(candidates) = parsed.get("candidates").and_then(|c| c.as_array()) {
             if let Some(candidate) = candidates.first() {
+                let finish_reason = candidate.get("finishReason").and_then(|r| r.as_str()).unwrap_or("");
+                let mut found_call = false;
+
                 if let Some(parts) = candidate
                     .get("content")
                     .and_then(|c| c.get("parts"))
@@ -305,6 +341,7 @@ impl Provider for GeminiProvider {
 
                         // Function/tool call
                         if let Some(fc) = part.get("functionCall") {
+                            found_call = true;
                             let name = fc
                                 .get("name")
                                 .and_then(|v| v.as_str())
@@ -325,6 +362,20 @@ impl Provider for GeminiProvider {
                                 name,
                                 args,
                                 thought_signature,
+                            });
+                        }
+                    }
+                }
+
+                // Fallback: If Gemini emitted MALFORMED_FUNCTION_CALL e.g. "print(default_api.run_terminal(command='ls -F'))"
+                if !found_call && finish_reason == "MALFORMED_FUNCTION_CALL" {
+                    if let Some(msg) = candidate.get("finishMessage").and_then(|m| m.as_str()) {
+                        if let Some((name, args)) = parse_gemini_malformed_call(msg) {
+                            on_event(ProviderEvent::ToolCallComplete {
+                                id: name.clone(),
+                                name,
+                                args,
+                                thought_signature: None,
                             });
                         }
                     }

@@ -144,7 +144,13 @@ impl ZenthreeState {
 
                 match agent.run(&prompt, &mut on_event, &mut ask_approval) {
                     Ok(text) => {
-                        let reply = if text.is_empty() { final_text } else { text };
+                        let reply = if !text.trim().is_empty() {
+                            text
+                        } else if !final_text.trim().is_empty() {
+                            final_text
+                        } else {
+                            "I received your request, but no response was generated. Please check your selected model or API quota.".to_string()
+                        };
                         // Export the updated conversation so the next message has full memory
                         let new_session = agent.export_session_json().ok();
                         send(AiUiUpdate::Done {

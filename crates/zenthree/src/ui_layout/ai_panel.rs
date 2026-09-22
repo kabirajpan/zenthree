@@ -944,6 +944,12 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                                         .color(colors.accent)
                                                         .show();
                                                 });
+                                        } else if !msg.is_working && full_text.is_empty() && msg.trajectory.is_empty() {
+                                            ui.text("No response generated. Please check your model or API quota.")
+                                                .size(10.5)
+                                                .italic()
+                                                .color(colors.text_muted)
+                                                .show();
                                         }
 
                                         // ── Sibling 2: Final Summary / Markdown Answer ──────
