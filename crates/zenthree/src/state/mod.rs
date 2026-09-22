@@ -6,7 +6,7 @@ pub mod types;
 pub mod workspace;
 
 use crate::theme::{ThemeColors, ThemeMode};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 #[allow(unused_imports)]
 pub use persistent::{get_config_path, PersistentState};
@@ -93,6 +93,8 @@ pub struct ZenthreeState {
     pub ai_model_menu_open: bool,
     pub pending_reviews: Vec<FileDiffReview>,
     pub active_review_idx: Option<usize>,
+    pub show_modified_files_popup: bool,
+    pub font_adapter: Option<zenthra_text::prelude::CosmicFontProvider>,
 }
 
 impl ZenthreeState {
@@ -212,6 +214,8 @@ impl ZenthreeState {
             ai_model_menu_open: false,
             pending_reviews: Vec::new(),
             active_review_idx: None,
+            show_modified_files_popup: false,
+            font_adapter: None,
         };
 
         // Restore previous session preferences (theme, accent, extensions, etc.)
@@ -252,15 +256,46 @@ impl ZenthreeState {
         self.active_review_idx.and_then(|idx| self.pending_reviews.get(idx))
     }
 
+    pub fn review_idx_for_path(&self, path: &Path) -> Option<usize> {
+        self.pending_reviews.iter().position(|r| path_matches(&r.path, path))
+    }
+
+    pub fn sync_active_review_for_tab(&mut self, tab_idx: usize) {
+        if let Some(tab) = self.tabs.get(tab_idx) {
+            if let Some(ref p) = tab.path {
+                if let Some(rev_idx) = self.review_idx_for_path(p) {
+                    self.active_review_idx = Some(rev_idx);
+                }
+            }
+        }
+    }
+
+    #[allow(dead_code)]
+    pub fn accept_hunk(&mut self, _hunk_idx: usize) {
+        self.accept_current_review();
+    }
+
+    #[allow(dead_code)]
+    pub fn reject_hunk(&mut self, _hunk_idx: usize) {
+        self.reject_current_review();
+    }
+
     pub fn accept_current_review(&mut self) {
         if let Some(idx) = self.active_review_idx {
             if idx < self.pending_reviews.len() {
                 let rev = self.pending_reviews.remove(idx);
+                if let Some(parent) = rev.path.parent() {
+                    let _ = std::fs::create_dir_all(parent);
+                }
+                let _ = std::fs::write(&rev.path, &rev.proposed_content);
                 for tab in &mut self.tabs {
-                    if tab.path.as_ref() == Some(&rev.path) {
+                    if tab.path.as_ref().map(|p| path_matches(p, &rev.path)).unwrap_or(false) {
+                        tab.editor = ::editor::editor::Editor::new(::editor::buffer::Buffer::from_text(&rev.proposed_content));
+                        tab.shaping_cache.clear();
                         tab.lines_added = 0;
                         tab.lines_removed = 0;
                         tab.is_dirty = false;
+                        tab.version += 1;
                     }
                 }
                 if self.pending_reviews.is_empty() {
@@ -281,13 +316,13 @@ impl ZenthreeState {
                 let rev = self.pending_reviews.remove(idx);
                 if rev.is_new_file {
                     let _ = std::fs::remove_file(&rev.path);
-                    if let Some(tab_idx) = self.tabs.iter().position(|t| t.path.as_ref() == Some(&rev.path)) {
+                    if let Some(tab_idx) = self.tabs.iter().position(|t| t.path.as_ref().map(|p| path_matches(p, &rev.path)).unwrap_or(false)) {
                         self.close_tab(tab_idx);
                     }
                 } else {
                     let _ = std::fs::write(&rev.path, &rev.original_content);
                     for tab in &mut self.tabs {
-                        if tab.path.as_ref() == Some(&rev.path) {
+                        if tab.path.as_ref().map(|p| path_matches(p, &rev.path)).unwrap_or(false) {
                             tab.editor = ::editor::editor::Editor::new(::editor::buffer::Buffer::from_text(&rev.original_content));
                             tab.shaping_cache.clear();
                             tab.lines_added = 0;
@@ -309,6 +344,8 @@ impl ZenthreeState {
         }
     }
 
+
+    #[allow(dead_code)]
     pub fn next_review_file(&mut self) {
         if !self.pending_reviews.is_empty() {
             let next = match self.active_review_idx {
@@ -321,6 +358,7 @@ impl ZenthreeState {
         }
     }
 
+    #[allow(dead_code)]
     pub fn prev_review_file(&mut self) {
         if !self.pending_reviews.is_empty() {
             let prev = match self.active_review_idx {
@@ -331,6 +369,30 @@ impl ZenthreeState {
             self.active_review_idx = Some(prev);
             let path = self.pending_reviews[prev].path.clone();
             self.open_file(&path);
+        }
+    }
+
+    pub fn accept_all_reviews(&mut self) {
+        while !self.pending_reviews.is_empty() {
+            self.active_review_idx = Some(0);
+            self.accept_current_review();
+        }
+        self.show_modified_files_popup = false;
+    }
+
+    pub fn reject_all_reviews(&mut self) {
+        while !self.pending_reviews.is_empty() {
+            self.active_review_idx = Some(0);
+            self.reject_current_review();
+        }
+        self.show_modified_files_popup = false;
+    }
+
+    #[allow(dead_code)]
+    pub fn reject_review_for_path(&mut self, path: &std::path::Path) {
+        if let Some(pos) = self.pending_reviews.iter().position(|r| path_matches(&r.path, path)) {
+            self.active_review_idx = Some(pos);
+            self.reject_current_review();
         }
     }
 
@@ -354,6 +416,205 @@ impl Drop for ZenthreeState {
         #[cfg(not(test))]
         self.save_persistent_state();
     }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum RawDiffOp<T> {
+    Equal(T),
+    Delete(T),
+    Insert(T),
+}
+
+pub fn compute_line_diff(original: &str, proposed: &str) -> (Vec<(String, DiffLineState)>, String) {
+    if original.is_empty() && proposed.is_empty() {
+        return (Vec::new(), String::new());
+    }
+    if original.is_empty() {
+        let diff: Vec<(String, DiffLineState)> = proposed
+            .lines()
+            .map(|l| (l.to_string(), DiffLineState::Added))
+            .collect();
+        let preview = diff.iter().map(|(l, _)| l.as_str()).collect::<Vec<_>>().join("\n");
+        return (diff, preview);
+    }
+    if proposed.is_empty() {
+        let diff: Vec<(String, DiffLineState)> = original
+            .lines()
+            .map(|l| (l.to_string(), DiffLineState::Removed))
+            .collect();
+        let preview = diff.iter().map(|(l, _)| l.as_str()).collect::<Vec<_>>().join("\n");
+        return (diff, preview);
+    }
+
+    let orig_lines: Vec<&str> = original.lines().collect();
+    let prop_lines: Vec<&str> = proposed.lines().collect();
+
+    // 1. Trim common prefix
+    let mut prefix_len = 0;
+    while prefix_len < orig_lines.len()
+        && prefix_len < prop_lines.len()
+        && orig_lines[prefix_len] == prop_lines[prefix_len]
+    {
+        prefix_len += 1;
+    }
+
+    // 2. Trim common suffix
+    let mut orig_end = orig_lines.len();
+    let mut prop_end = prop_lines.len();
+    while orig_end > prefix_len
+        && prop_end > prefix_len
+        && orig_lines[orig_end - 1] == prop_lines[prop_end - 1]
+    {
+        orig_end -= 1;
+        prop_end -= 1;
+    }
+
+    let orig_mid = &orig_lines[prefix_len..orig_end];
+    let prop_mid = &prop_lines[prefix_len..prop_end];
+
+    let n = orig_mid.len();
+    let m = prop_mid.len();
+
+    let mut raw_ops = Vec::new();
+
+    if n == 0 && m == 0 {
+        // Only identical lines exist
+    } else if n == 0 {
+        for s in prop_mid {
+            raw_ops.push(RawDiffOp::Insert(*s));
+        }
+    } else if m == 0 {
+        for s in orig_mid {
+            raw_ops.push(RawDiffOp::Delete(*s));
+        }
+    } else {
+        // Myers diff algorithm with maximum search cap
+        let max = n + m;
+        let max_d = max.min(2000);
+        let offset = max_d as isize;
+        let mut v = vec![0isize; 2 * max_d + 1];
+        let mut trace: Vec<Vec<isize>> = Vec::new();
+        let mut found = false;
+
+        for d in 0..=max_d {
+            trace.push(v.clone());
+            let d_isize = d as isize;
+            for k in (-d_isize..=d_isize).step_by(2) {
+                let k_idx = (k + offset) as usize;
+                let mut x = if k == -d_isize || (k != d_isize && v[k_idx - 1] < v[k_idx + 1]) {
+                    v[k_idx + 1]
+                } else {
+                    v[k_idx - 1] + 1
+                };
+                let mut y = x - k;
+                while x < n as isize && y < m as isize && orig_mid[x as usize] == prop_mid[y as usize] {
+                    x += 1;
+                    y += 1;
+                }
+                v[k_idx] = x;
+                if x >= n as isize && y >= m as isize {
+                    found = true;
+                    break;
+                }
+            }
+            if found {
+                break;
+            }
+        }
+
+        if !found {
+            // Fallback for massive divergent replacements: all removed, then all added
+            for s in orig_mid {
+                raw_ops.push(RawDiffOp::Delete(*s));
+            }
+            for s in prop_mid {
+                raw_ops.push(RawDiffOp::Insert(*s));
+            }
+        } else {
+            let mut x = n as isize;
+            let mut y = m as isize;
+
+            for d in (1..trace.len()).rev() {
+                let v_prev = &trace[d];
+                let k = x - y;
+                let d_isize = d as isize;
+                let prev_k = if k == -d_isize || (k != d_isize && v_prev[(k - 1 + offset) as usize] < v_prev[(k + 1 + offset) as usize]) {
+                    k + 1
+                } else {
+                    k - 1
+                };
+                let prev_x = v_prev[(prev_k + offset) as usize];
+                let prev_y = prev_x - prev_k;
+
+                while x > prev_x && y > prev_y {
+                    x -= 1;
+                    y -= 1;
+                    raw_ops.push(RawDiffOp::Equal(orig_mid[x as usize]));
+                }
+                if x == prev_x {
+                    y -= 1;
+                    raw_ops.push(RawDiffOp::Insert(prop_mid[y as usize]));
+                } else {
+                    x -= 1;
+                    raw_ops.push(RawDiffOp::Delete(orig_mid[x as usize]));
+                }
+            }
+            while x > 0 && y > 0 {
+                x -= 1;
+                y -= 1;
+                raw_ops.push(RawDiffOp::Equal(orig_mid[x as usize]));
+            }
+            raw_ops.reverse();
+        }
+    }
+
+    let mut diff = Vec::new();
+
+    // 1. Emit common prefix
+    for line in &orig_lines[..prefix_len] {
+        diff.push((line.to_string(), DiffLineState::Unchanged));
+    }
+
+    // 2. Emit middle changes grouped by hunk:
+    // Any sequence of deletions and insertions is grouped so that ALL deletions (-)
+    // appear first in red sequence, followed by ALL additions (+) in green sequence.
+    let mut hunk_removed = Vec::new();
+    let mut hunk_added = Vec::new();
+
+    let flush_hunk = |diff: &mut Vec<(String, DiffLineState)>,
+                      removed: &mut Vec<&str>,
+                      added: &mut Vec<&str>| {
+        for line in removed.drain(..) {
+            diff.push((line.to_string(), DiffLineState::Removed));
+        }
+        for line in added.drain(..) {
+            diff.push((line.to_string(), DiffLineState::Added));
+        }
+    };
+
+    for op in raw_ops {
+        match op {
+            RawDiffOp::Equal(line) => {
+                flush_hunk(&mut diff, &mut hunk_removed, &mut hunk_added);
+                diff.push((line.to_string(), DiffLineState::Unchanged));
+            }
+            RawDiffOp::Delete(line) => {
+                hunk_removed.push(line);
+            }
+            RawDiffOp::Insert(line) => {
+                hunk_added.push(line);
+            }
+        }
+    }
+    flush_hunk(&mut diff, &mut hunk_removed, &mut hunk_added);
+
+    // 3. Emit common suffix
+    for line in &orig_lines[orig_end..] {
+        diff.push((line.to_string(), DiffLineState::Unchanged));
+    }
+
+    let preview_text = diff.iter().map(|(l, _)| l.as_str()).collect::<Vec<_>>().join("\n");
+    (diff, preview_text)
 }
 
 #[cfg(test)]
@@ -651,28 +912,24 @@ mod tests {
         state.active_tab = Some(0);
 
         // Add pending review 1
+        let (diff_lines1, _) = crate::state::compute_line_diff("line 1\nold line 2\nline 3", "line 1\nnew line 2\nline 3");
         state.pending_reviews.push(crate::state::FileDiffReview {
             path: path1.clone(),
             original_content: "line 1\nold line 2\nline 3".to_string(),
+            proposed_content: "line 1\nnew line 2\nline 3".to_string(),
+            diff_lines: diff_lines1,
             is_new_file: false,
-            hunks: vec![crate::state::DiffHunk {
-                start_line: 1,
-                removed_lines: vec!["old line 2".to_string()],
-                added_lines_count: 1,
-            }],
             active_hunk_idx: 0,
         });
 
         // Add pending review 2 (new file)
+        let (diff_lines2, _) = crate::state::compute_line_diff("", "line A\nline B");
         state.pending_reviews.push(crate::state::FileDiffReview {
             path: path2.clone(),
             original_content: String::new(),
+            proposed_content: "line A\nline B".to_string(),
+            diff_lines: diff_lines2,
             is_new_file: true,
-            hunks: vec![crate::state::DiffHunk {
-                start_line: 0,
-                removed_lines: Vec::new(),
-                added_lines_count: 2,
-            }],
             active_hunk_idx: 0,
         });
         state.active_review_idx = Some(0);
@@ -700,5 +957,254 @@ mod tests {
         assert_eq!(state.pending_reviews.len(), 0);
         assert_eq!(state.active_review_idx, None);
     }
+
+    #[test]
+    fn test_accept_and_reject_all_reviews_and_path_rejection() {
+        let mut state = ZenthreeState::default();
+        state.tabs.clear();
+
+        let path1 = std::path::PathBuf::from("/tmp/bulk1.rs");
+        let path2 = std::path::PathBuf::from("/tmp/bulk2.rs");
+
+        state.tabs.push(crate::state::EditorTab {
+            name: "bulk1.rs".to_string(),
+            path: Some(path1.clone()),
+            editor: ::editor::editor::Editor::new(::editor::buffer::Buffer::from_text("new 1")),
+            is_dirty: true,
+            version: 1,
+            scroll_y: 0.0,
+            shaping_cache: std::collections::HashMap::new(),
+            lines_added: 1,
+            lines_removed: 1,
+        });
+        state.tabs.push(crate::state::EditorTab {
+            name: "bulk2.rs".to_string(),
+            path: Some(path2.clone()),
+            editor: ::editor::editor::Editor::new(::editor::buffer::Buffer::from_text("new 2")),
+            is_dirty: true,
+            version: 1,
+            scroll_y: 0.0,
+            shaping_cache: std::collections::HashMap::new(),
+            lines_added: 1,
+            lines_removed: 1,
+        });
+
+        let (d1, _) = crate::state::compute_line_diff("orig 1", "new 1");
+        state.pending_reviews.push(crate::state::FileDiffReview {
+            path: path1.clone(),
+            original_content: "orig 1".to_string(),
+            proposed_content: "new 1".to_string(),
+            diff_lines: d1,
+            is_new_file: false,
+            active_hunk_idx: 0,
+        });
+
+        let (d2, _) = crate::state::compute_line_diff("orig 2", "new 2");
+        state.pending_reviews.push(crate::state::FileDiffReview {
+            path: path2.clone(),
+            original_content: "orig 2".to_string(),
+            proposed_content: "new 2".to_string(),
+            diff_lines: d2,
+            is_new_file: false,
+            active_hunk_idx: 0,
+        });
+
+        assert_eq!(state.pending_reviews.len(), 2);
+
+        // Reject review for specific path (path1)
+        state.reject_review_for_path(&path1);
+        assert_eq!(state.pending_reviews.len(), 1);
+        assert_eq!(state.tabs[0].editor.buffer.to_string(), "orig 1");
+        assert_eq!(state.tabs[0].lines_added, 0);
+        assert_eq!(state.tabs[0].lines_removed, 0);
+
+        // Reject all remaining
+        state.reject_all_reviews();
+        assert_eq!(state.pending_reviews.len(), 0);
+        assert_eq!(state.tabs[1].editor.buffer.to_string(), "orig 2");
+        assert_eq!(state.tabs[1].lines_added, 0);
+        assert_eq!(state.tabs[1].lines_removed, 0);
+    }
+
+    #[test]
+    fn test_hunk_accept_reject_lifecycle() {
+        let mut state = ZenthreeState::default();
+        state.tabs.clear();
+        let path = std::path::PathBuf::from("/tmp/test_hunks_file.rs");
+
+        let orig = "line 1\nold line 2\nline 3\nold line 4\nline 5";
+        let prop = "line 1\nnew line 2\nline 3\nnew line 4\nline 5";
+        let (diff_lines, preview_text) = compute_line_diff(orig, prop);
+
+        state.tabs.push(EditorTab {
+            name: "test_hunks_file.rs".to_string(),
+            path: Some(path.clone()),
+            editor: ::editor::editor::Editor::new(::editor::buffer::Buffer::from_text(&preview_text)),
+            is_dirty: true,
+            version: 1,
+            scroll_y: 0.0,
+            shaping_cache: std::collections::HashMap::new(),
+            lines_added: 2,
+            lines_removed: 2,
+        });
+        state.active_tab = Some(0);
+
+        state.pending_reviews.push(crate::state::FileDiffReview {
+            path: path.clone(),
+            original_content: orig.to_string(),
+            proposed_content: prop.to_string(),
+            diff_lines,
+            is_new_file: false,
+            active_hunk_idx: 0,
+        });
+        state.active_review_idx = Some(0);
+
+        assert_eq!(state.pending_reviews[0].total_removed_lines(), 2);
+        assert_eq!(state.pending_reviews[0].total_added_lines(), 2);
+
+        // Accept review
+        state.accept_current_review();
+        assert_eq!(state.pending_reviews.len(), 0);
+        assert_eq!(state.active_review_idx, None);
+        assert_eq!(state.tabs[0].lines_added, 0);
+        assert_eq!(state.tabs[0].lines_removed, 0);
+    }
+
+    #[test]
+    fn test_compute_line_diff_groups_consecutive_removals_before_additions() {
+        let original = "fn test() {\n    let a = 1;\n    let b = 2;\n    let c = 3;\n    println!(\"done\");\n}";
+        let proposed = "fn test() {\n    let x = 10;\n    let y = 20;\n    let z = 30;\n    println!(\"done\");\n}";
+
+        let (diff, preview) = compute_line_diff(original, proposed);
+
+        // Header: Unchanged "fn test() {"
+        assert_eq!(diff[0], ("fn test() {".to_string(), DiffLineState::Unchanged));
+
+        // 3 consecutive removed lines in sequence (red)
+        assert_eq!(diff[1], ("    let a = 1;".to_string(), DiffLineState::Removed));
+        assert_eq!(diff[2], ("    let b = 2;".to_string(), DiffLineState::Removed));
+        assert_eq!(diff[3], ("    let c = 3;".to_string(), DiffLineState::Removed));
+
+        // 3 consecutive added lines in sequence (green)
+        assert_eq!(diff[4], ("    let x = 10;".to_string(), DiffLineState::Added));
+        assert_eq!(diff[5], ("    let y = 20;".to_string(), DiffLineState::Added));
+        assert_eq!(diff[6], ("    let z = 30;".to_string(), DiffLineState::Added));
+
+        // Footer: Unchanged
+        assert_eq!(diff[7], ("    println!(\"done\");".to_string(), DiffLineState::Unchanged));
+        assert_eq!(diff[8], ("}".to_string(), DiffLineState::Unchanged));
+
+        assert_eq!(preview.lines().count(), diff.len());
+    }
+
+    #[test]
+    fn test_compute_line_diff_pure_addition_and_removal() {
+        let original = "line 1\nline 2";
+        let proposed = "line 1\ninserted\nline 2";
+        let (diff, _) = compute_line_diff(original, proposed);
+        assert_eq!(diff.len(), 3);
+        assert_eq!(diff[0].1, DiffLineState::Unchanged);
+        assert_eq!(diff[1], ("inserted".to_string(), DiffLineState::Added));
+        assert_eq!(diff[2].1, DiffLineState::Unchanged);
+
+        let original_del = "line 1\ndeleted 1\ndeleted 2\nline 2";
+        let proposed_del = "line 1\nline 2";
+        let (diff_del, _) = compute_line_diff(original_del, proposed_del);
+        assert_eq!(diff_del.len(), 4);
+        assert_eq!(diff_del[0].1, DiffLineState::Unchanged);
+        assert_eq!(diff_del[1], ("deleted 1".to_string(), DiffLineState::Removed));
+        assert_eq!(diff_del[2], ("deleted 2".to_string(), DiffLineState::Removed));
+        assert_eq!(diff_del[3].1, DiffLineState::Unchanged);
+    }
+
+    #[test]
+    fn test_compute_line_diff_keeps_gap_lines_unchanged() {
+        let original = "fn main() {\n    let a = 1;\n    // middle comment\n    let b = 2;\n}";
+        let proposed = "fn main() {\n    let a = 10;\n    // middle comment\n    let b = 20;\n}";
+        let (diff, _) = compute_line_diff(original, proposed);
+        // Prefix
+        assert_eq!(diff[0].1, DiffLineState::Unchanged);
+        // Hunk 1: a
+        assert_eq!(diff[1], ("    let a = 1;".to_string(), DiffLineState::Removed));
+        assert_eq!(diff[2], ("    let a = 10;".to_string(), DiffLineState::Added));
+        // Gap: middle comment unchanged!
+        assert_eq!(diff[3], ("    // middle comment".to_string(), DiffLineState::Unchanged));
+        // Hunk 2: b
+        assert_eq!(diff[4], ("    let b = 2;".to_string(), DiffLineState::Removed));
+        assert_eq!(diff[5], ("    let b = 20;".to_string(), DiffLineState::Added));
+        // Suffix
+        assert_eq!(diff[6].1, DiffLineState::Unchanged);
+    }
+
+    #[test]
+    fn test_already_open_tab_path_matching_and_review_sync() {
+        use crate::state::types::path_matches;
+        use std::path::Path;
+
+        // Path matching test
+        assert!(path_matches(Path::new("/workspace/src/lib.rs"), Path::new("/workspace/src/lib.rs")));
+        assert!(path_matches(Path::new("/workspace/src/lib.rs"), Path::new("src/lib.rs")));
+        assert!(path_matches(Path::new("/workspace/src/lib.rs"), Path::new("./src/lib.rs")));
+        assert!(path_matches(Path::new("src/lib.rs"), Path::new("./src/lib.rs")));
+
+        let mut state = ZenthreeState::default();
+        state.tabs.clear();
+        let path_a = std::path::PathBuf::from("/workspace/src/a.rs");
+        let path_b = std::path::PathBuf::from("/workspace/src/b.rs");
+
+        state.tabs.push(crate::state::EditorTab {
+            name: "a.rs".to_string(),
+            path: Some(path_a.clone()),
+            editor: ::editor::editor::Editor::new(::editor::buffer::Buffer::from_text("fn a() {}")),
+            is_dirty: false,
+            version: 0,
+            scroll_y: 0.0,
+            shaping_cache: std::collections::HashMap::new(),
+            lines_added: 0,
+            lines_removed: 0,
+        });
+        state.tabs.push(crate::state::EditorTab {
+            name: "b.rs".to_string(),
+            path: Some(path_b.clone()),
+            editor: ::editor::editor::Editor::new(::editor::buffer::Buffer::from_text("fn b() {}")),
+            is_dirty: false,
+            version: 0,
+            scroll_y: 0.0,
+            shaping_cache: std::collections::HashMap::new(),
+            lines_added: 0,
+            lines_removed: 0,
+        });
+
+        // Add reviews for both files (using relative paths as AI tools would report)
+        state.pending_reviews.push(crate::state::FileDiffReview {
+            path: std::path::PathBuf::from("src/a.rs"),
+            original_content: "fn a() {}".to_string(),
+            proposed_content: "fn a() { 1 }".to_string(),
+            diff_lines: vec![("fn a() { 1 }".to_string(), DiffLineState::Added)],
+            is_new_file: false,
+            active_hunk_idx: 0,
+        });
+        state.pending_reviews.push(crate::state::FileDiffReview {
+            path: std::path::PathBuf::from("./src/b.rs"),
+            original_content: "fn b() {}".to_string(),
+            proposed_content: "fn b() { 2 }".to_string(),
+            diff_lines: vec![("fn b() { 2 }".to_string(), DiffLineState::Added)],
+            is_new_file: false,
+            active_hunk_idx: 0,
+        });
+
+        // Review lookup via review_idx_for_path
+        assert_eq!(state.review_idx_for_path(&path_a), Some(0));
+        assert_eq!(state.review_idx_for_path(&path_b), Some(1));
+
+        // Syncing active review for tab 1
+        state.sync_active_review_for_tab(1);
+        assert_eq!(state.active_review_idx, Some(1));
+
+        // Syncing active review for tab 0
+        state.sync_active_review_for_tab(0);
+        assert_eq!(state.active_review_idx, Some(0));
+    }
 }
+
 

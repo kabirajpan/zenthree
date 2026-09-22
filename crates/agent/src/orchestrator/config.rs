@@ -26,11 +26,11 @@ pub struct AgentConfig {
 impl Default for AgentConfig {
     fn default() -> Self {
         Self {
-            max_iterations: 10,
+            max_iterations: 15,
             auto_approve_all: true,
             max_provider_retries: 2,
-            max_history_messages: 12,
-            max_tool_output_chars: 2500,
+            max_history_messages: 60,
+            max_tool_output_chars: 4000,
             cancellation_token: None,
             verification_command: None,
         }

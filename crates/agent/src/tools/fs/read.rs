@@ -81,7 +81,9 @@ impl Tool for ReadFileTool {
             for (idx, line) in slice.iter().enumerate() {
                 formatted.push_str(&format!("{:4} | {}\n", start + idx + 1, line));
             }
+            formatted.push_str("\n// Note: Line numbers (e.g. '  10 | ') are shown for reference. When calling `edit_file`, provide only the original raw code in `target` without line number prefixes.");
             Ok(Value::String(formatted))
+
         } else if !show_all && total_lines > 300 {
             // Default compact protection: cap at first 300 lines with guidance
             let slice = &lines[0..300];

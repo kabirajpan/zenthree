@@ -15,21 +15,80 @@ pub struct EditorTab {
     pub lines_removed: usize,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum DiffLineState {
+    Unchanged,
+    Added,    // + line in green
+    Removed,  // - line in red
+}
+
+#[allow(dead_code)]
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DiffHunk {
-    pub start_line: usize,          // 0-indexed line where hunk starts in new buffer
-    pub removed_lines: Vec<String>, // Old lines that were replaced
-    pub added_lines_count: usize,   // Number of new lines in current buffer
+    pub start_line: usize,
+    pub removed_lines: Vec<String>,
+    pub added_lines_count: usize,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FileDiffReview {
     pub path: PathBuf,
     pub original_content: String,
+    pub proposed_content: String,
+    pub diff_lines: Vec<(String, DiffLineState)>,
     pub is_new_file: bool,
-    pub hunks: Vec<DiffHunk>,
     pub active_hunk_idx: usize,
 }
+
+impl FileDiffReview {
+    pub fn total_removed_lines(&self) -> usize {
+        self.diff_lines.iter().filter(|(_, s)| *s == DiffLineState::Removed).count()
+    }
+
+    pub fn total_added_lines(&self) -> usize {
+        self.diff_lines.iter().filter(|(_, s)| *s == DiffLineState::Added).count()
+    }
+
+    #[allow(dead_code)]
+    pub fn hunk_start_lines(&self) -> Vec<usize> {
+        let mut starts = Vec::new();
+        let mut in_hunk = false;
+        for (i, (_, s)) in self.diff_lines.iter().enumerate() {
+            if *s != DiffLineState::Unchanged {
+                if !in_hunk {
+                    starts.push(i);
+                    in_hunk = true;
+                }
+            } else {
+                in_hunk = false;
+            }
+        }
+        if starts.is_empty() {
+            starts.push(0);
+        }
+        starts
+    }
+}
+
+pub fn path_matches(p1: &std::path::Path, p2: &std::path::Path) -> bool {
+    if p1 == p2 {
+        return true;
+    }
+    if let (Ok(c1), Ok(c2)) = (p1.canonicalize(), p2.canonicalize()) {
+        if c1 == c2 {
+            return true;
+        }
+    }
+    let s1 = p1.to_string_lossy();
+    let s2 = p2.to_string_lossy();
+    let clean1 = s1.trim_start_matches("./").trim_start_matches('.');
+    let clean2 = s2.trim_start_matches("./").trim_start_matches('.');
+    if clean1 == clean2 || clean1.ends_with(clean2) || clean2.ends_with(clean1) {
+        return true;
+    }
+    p1.ends_with(p2) || p2.ends_with(p1)
+}
+
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum GitStatus {

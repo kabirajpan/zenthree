@@ -436,7 +436,7 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
 
             let scroll_padding_h = 0.0;
 
-            let items = state.sidebar_items.clone();
+            let items = &state.sidebar_items;
 
             // Calculate insertion point for inline file / folder creation
             let inline_insertion = if let Some(ref inline) = state.inline_tree_input {
@@ -728,21 +728,22 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
                 });
 
             if let Some(idx) = clicked_item_idx {
-                if let Some(node) = items.get(idx) {
+                let action = items.get(idx).map(|n| (n.path.clone(), n.is_dir, n.is_expanded));
+                if let Some((path, is_dir, is_expanded)) = action {
                     if state.inline_tree_input.is_some() {
                         state.commit_inline_tree_input();
                     }
-                    state.selected_sidebar_path = Some(node.path.clone());
-                    if node.is_dir {
-                        if node.is_expanded {
-                            state.expanded_dirs.remove(&node.path);
+                    state.selected_sidebar_path = Some(path.clone());
+                    if is_dir {
+                        if is_expanded {
+                            state.expanded_dirs.remove(&path);
                         } else {
-                            state.expanded_dirs.insert(node.path.clone());
+                            state.expanded_dirs.insert(path);
                         }
                         state.rebuild_tree();
                         state.save_persistent_state();
                     } else {
-                        state.open_file(&node.path);
+                        state.open_file(&path);
                     }
                     ui.request_redraw();
                 }

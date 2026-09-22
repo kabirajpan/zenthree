@@ -1,5 +1,5 @@
 use crate::state::types::*;
-use crate::state::ZenthreeState;
+use crate::state::{ZenthreeState, path_matches};
 use ::editor::buffer::Buffer;
 use ::editor::editor::Editor;
 use std::path::Path;
@@ -7,44 +7,78 @@ use std::path::Path;
 impl ZenthreeState {
     pub fn open_file(&mut self, path: &Path) {
         self.selected_sidebar_path = Some(path.to_path_buf());
-        if let Ok(content) = std::fs::read_to_string(path) {
-            let name = path
-                .file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("Untitled")
-                .to_string();
+        let pending = self.pending_reviews.iter().find(|r| path_matches(&r.path, path)).cloned();
 
-            // Track recent files
-            self.recent_files.retain(|p| p != path);
-            self.recent_files.insert(0, path.to_path_buf());
-            if self.recent_files.len() > 10 {
-                self.recent_files.truncate(10);
-            }
+        let disk_content = std::fs::read_to_string(path).ok();
+        let content = if let Some(ref r) = pending {
+            r.diff_lines.iter().map(|(l, _)| l.as_str()).collect::<Vec<_>>().join("\n")
+        } else if let Some(c) = disk_content {
+            c
+        } else {
+            self.status_message = format!("Failed to open file: {}", path.display());
+            return;
+        };
 
-            // Check if already open
-            for (idx, tab) in self.tabs.iter().enumerate() {
-                if tab.path.as_ref() == Some(&path.to_path_buf()) {
-                    self.active_tab = Some(idx);
-                    self.status_message = format!("Switched to {}", name);
-                    self.check_language_support_prompt(path);
-                    self.save_persistent_state();
-                    return;
+        let (lines_added, lines_removed) = if let Some(ref r) = pending {
+            (r.total_added_lines(), r.total_removed_lines())
+        } else {
+            (0, 0)
+        };
+
+        let name = path
+            .file_name()
+            .and_then(|n| n.to_str())
+            .unwrap_or("Untitled")
+            .to_string();
+
+        // Track recent files
+        self.recent_files.retain(|p| p != path);
+        self.recent_files.insert(0, path.to_path_buf());
+        if self.recent_files.len() > 10 {
+            self.recent_files.truncate(10);
+        }
+
+        // Check if already open
+        for (idx, tab) in self.tabs.iter_mut().enumerate() {
+            let is_match = if let Some(ref tp) = tab.path {
+                path_matches(tp, path)
+            } else {
+                tab.name == name
+            };
+            if is_match {
+                self.active_tab = Some(idx);
+                if let Some(ref r) = pending {
+                    tab.lines_added = r.total_added_lines();
+                    tab.lines_removed = r.total_removed_lines();
+                    let preview_text = r.diff_lines.iter().map(|(l, _)| l.as_str()).collect::<Vec<_>>().join("\n");
+                    tab.editor = Editor::new(Buffer::from_text(&preview_text));
+                    tab.shaping_cache.clear();
+                    tab.is_dirty = true;
                 }
+                self.sync_active_review_for_tab(idx);
+                self.status_message = format!("Switched to {}", name);
+                self.check_language_support_prompt(path);
+                self.save_persistent_state();
+                return;
             }
+        }
 
-            self.tabs.push(EditorTab {
-                name,
-                path: Some(path.to_path_buf()),
-                editor: Editor::new(Buffer::from_text(&content)),
-                is_dirty: false,
-                scroll_y: 0.0,
-                shaping_cache: std::collections::HashMap::new(),
-                version: 0,
-                lines_added: 0,
-                lines_removed: 0,
-            });
-            self.active_tab = Some(self.tabs.len() - 1);
-            self.status_message = format!("Opened file: {}", path.display());
+        self.tabs.push(EditorTab {
+            name,
+            path: Some(path.to_path_buf()),
+            editor: Editor::new(Buffer::from_text(&content)),
+            is_dirty: pending.is_some(),
+            scroll_y: 0.0,
+            shaping_cache: std::collections::HashMap::new(),
+            version: 0,
+            lines_added,
+            lines_removed,
+        });
+        let new_tab_idx = self.tabs.len() - 1;
+        self.active_tab = Some(new_tab_idx);
+        self.sync_active_review_for_tab(new_tab_idx);
+        self.status_message = format!("Opened file: {}", path.display());
+
             let ws_root = if self.has_workspace {
                 Some(self.current_dir.as_path())
             } else {
@@ -53,9 +87,6 @@ impl ZenthreeState {
             self.lsp_manager.on_document_open(path, &content, ws_root);
             self.check_language_support_prompt(path);
             self.save_persistent_state();
-        } else {
-            self.status_message = format!("Failed to open file: {}", path.display());
-        }
     }
 
     pub fn check_language_support_prompt(&mut self, path: &Path) {

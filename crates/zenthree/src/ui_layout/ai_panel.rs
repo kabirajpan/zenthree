@@ -1,4 +1,4 @@
-use crate::state::{ZenthreeState, AiModel, AiProvider, TrajectoryStep, ExplorationItem};
+use crate::state::{ZenthreeState, AiModel, AiProvider, TrajectoryStep, ExplorationItem, path_matches};
 use zenthra::{Color, Ui, Align, FontWeight, Id, CursorIcon};
 
 pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height: f32) {
@@ -305,8 +305,77 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                 estimated_h
             };
 
-            // Dock height: inner padding (12) + gap (4) + send row (22) + top toolbar (24) + outer dock padding (14) = prompt_box_h + 76.0
-            let dock_total_h = prompt_box_h + 76.0;
+            struct ModifiedFileItem {
+                file_path: std::path::PathBuf,
+                file_name: String,
+                rel_path: String,
+                lines_added: usize,
+                lines_removed: usize,
+            }
+
+            let mut modified_files: Vec<ModifiedFileItem> = Vec::new();
+            for rev in &state.pending_reviews {
+                let file_name = rev.path.file_name().and_then(|n| n.to_str()).unwrap_or("file").to_string();
+                let rel_path = rev.path.strip_prefix(&state.current_dir).unwrap_or(&rev.path).to_string_lossy().to_string();
+                modified_files.push(ModifiedFileItem {
+                    file_path: rev.path.clone(),
+                    file_name,
+                    rel_path,
+                    lines_added: rev.total_added_lines(),
+                    lines_removed: rev.total_removed_lines(),
+                });
+            }
+            for tab in &state.tabs {
+                if tab.lines_added > 0 || tab.lines_removed > 0 {
+                    if let Some(ref tp) = tab.path {
+                        if !modified_files.iter().any(|m| path_matches(&m.file_path, tp)) {
+                            let file_name = tab.name.clone();
+                            let rel_path = tp.strip_prefix(&state.current_dir).unwrap_or(tp).to_string_lossy().to_string();
+                            modified_files.push(ModifiedFileItem {
+                                file_path: tp.clone(),
+                                file_name,
+                                rel_path,
+                                lines_added: tab.lines_added,
+                                lines_removed: tab.lines_removed,
+                            });
+                        }
+                    }
+                }
+            }
+            for msg in state.ai_messages.iter().rev() {
+                for step in &msg.trajectory {
+                    if let TrajectoryStep::FileEdit { path, lines_added, lines_removed } = step {
+                        let pb = std::path::PathBuf::from(path);
+                        let full_p = if pb.is_absolute() { pb.clone() } else { state.current_dir.join(&pb) };
+                        if !modified_files.iter().any(|item| path_matches(&item.file_path, &full_p) || item.file_name == *path) {
+                            let fname = full_p.file_name().and_then(|n| n.to_str()).unwrap_or(path).to_string();
+                            let rel = full_p.strip_prefix(&state.current_dir).unwrap_or(&full_p).to_string_lossy().to_string();
+                            modified_files.push(ModifiedFileItem {
+                                file_path: full_p,
+                                file_name: fname,
+                                rel_path: rel,
+                                lines_added: *lines_added,
+                                lines_removed: *lines_removed,
+                            });
+                        }
+                    }
+                }
+            }
+            let has_modified_files = !modified_files.is_empty();
+
+            let modified_section_h = if has_modified_files {
+                let cards_h = if state.show_modified_files_popup {
+                    (modified_files.len().max(1) as f32 * 26.0 + 12.0).min(180.0) + 4.0
+                } else {
+                    0.0
+                };
+                cards_h + 28.0
+            } else {
+                24.0
+            };
+
+            // Dock height: prompt box + bottom row/padding + toolbar/modified section
+            let dock_total_h = prompt_box_h + 52.0 + modified_section_h;
             let msgs_h = (height - HEADER_H - 1.0 - dock_total_h).max(30.0);
 
             // ─── Messages Scroll Area ────────────────────────────────────
@@ -319,7 +388,7 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                 .clip(true)
                 .padding(8.0, 12.0, 8.0, 12.0)
                 .column()
-                .gap(12.0)
+                .gap(20.0)
                 .scroll_y(true)
                 .show(|ui| {
                     if state.ai_messages.is_empty() {
@@ -412,7 +481,7 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                             .show(|ui| {
                                                 ui.text(display_text)
                                                     .size(11.0)
-                                                    .line_height(1.35)
+                                                    .line_height(1.65)
                                                     .color(colors.text_primary)
                                                     .max_width(user_text_w)
                                                     .wrap(zenthra_text::prelude::TextWrap::Word)
@@ -481,7 +550,7 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                     .id(bubble_id)
                                     .padding(6.0, 12.0, 4.0, 12.0)
                                     .column()
-                                    .gap(5.0)
+                                    .gap(10.0)
                                     .show(|ui| {
                                         // ── Sibling 1: Trajectory Steps ─────────────────────
                                         for (step_idx, step) in msg.trajectory.iter().enumerate() {
@@ -851,7 +920,7 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                                                             .show();
                                                                         ui.text(&clean_text)
                                                                             .size(11.0)
-                                                                            .line_height(1.35)
+                                                                            .line_height(1.65)
                                                                             .color(colors.text_primary)
                                                                             .max_width(ai_text_w - 14.0)
                                                                             .wrap(zenthra_text::prelude::TextWrap::Word)
@@ -874,7 +943,7 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                                                             .show();
                                                                         ui.text(&clean_text)
                                                                             .size(11.0)
-                                                                            .line_height(1.35)
+                                                                            .line_height(1.65)
                                                                             .color(colors.text_primary)
                                                                             .max_width(ai_text_w - 18.0)
                                                                             .wrap(zenthra_text::prelude::TextWrap::Word)
@@ -948,7 +1017,7 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                                                                 ui.text(code)
                                                                                     .size(10.0)
                                                                                     .monospace()
-                                                                                    .line_height(1.35)
+                                                                                    .line_height(1.65)
                                                                                     .color(colors.text_primary)
                                                                                     .max_width(code_box_w - 16.0)
                                                                                     .wrap(zenthra_text::prelude::TextWrap::Word)
@@ -960,7 +1029,7 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                                                 let clean_text = strip_markdown_stars(text);
                                                                 ui.text(&clean_text)
                                                                     .size(11.0)
-                                                                    .line_height(1.35)
+                                                                    .line_height(1.65)
                                                                     .color(colors.text_primary)
                                                                     .max_width(ai_text_w)
                                                                     .wrap(zenthra_text::prelude::TextWrap::Word)
@@ -1055,131 +1124,365 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                     }
                 });
 
-            // ─── Floating Input Dock (Clean, No Badges, Precise Height) ──
-            ui.container()
-                .width(ai_panel_w)
-                .height(dock_total_h)
-                .max_height(dock_total_h)
-                .padding(6.0, 10.0, 8.0, 10.0)
-                .column()
-                .show(|ui| {
+                // Input box container (docked at the bottom)
+                ui.container()
+                    .width(ai_panel_w)
+                    .height(dock_total_h)
+                    .max_height(dock_total_h)
+                    .padding(6.0, 10.0, 8.0, 10.0)
+                    .column()
+                    .gap(6.0)
+                    .show(|ui| {
                     let dock_border_color = if is_input_focused {
                         colors.accent.with_alpha(0.7)
                     } else {
                         colors.border.with_alpha(0.4)
                     };
 
-                    // ─── Top Toolbar: Left (File, Terminal, Inbox, Chrome) + Right (Review Changes) ──
-                    ui.container()
-                        .full_width()
-                        .height(20.0)
-                        .padding(0.0, 2.0, 4.0, 2.0)
-                        .row()
-                        .halign(Align::SpaceBetween)
-                        .valign(Align::Center)
-                        .show(|ui| {
-                            // Left quick icons
+                    let mut target_open_file: Option<std::path::PathBuf> = None;
+                    let mut target_reject_file: Option<std::path::PathBuf> = None;
+                    let mut action_accept_all = false;
+                    let mut action_reject_all = false;
+
+                    // ─── Modified Files Cards & Review Bar (or Standard Quick Toolbar) ───
+                    if has_modified_files {
+                        // 1. Modified Files Card Container (Single space-saving unified card holding all files)
+                        if state.show_modified_files_popup {
+                            let card_container_h = (modified_files.len().max(1) as f32 * 24.0 + 8.0).min(180.0);
                             ui.container()
-                                .row()
-                                .valign(Align::Center)
-                                .gap(8.0)
-                                .show(|ui| {
-                                    // 1. File icon
-                                    let file_id = Id::from_u64(999999860);
-                                    ui.container()
-                                        .id(file_id)
-                                        .clickable(true)
-                                        .padding(2.0, 3.0, 2.0, 3.0)
-                                        .radius_all(3.0)
-                                        .hover_bg(colors.highlight)
-                                        .show(|ui| {
-                                            ui.text("\u{f15c}") // File text icon
-                                                .size(12.5)
-                                                .color(colors.text_muted)
-                                                .show();
-                                        });
-
-                                    // 2. Terminal icon
-                                    let term_id = Id::from_u64(999999861);
-                                    ui.container()
-                                        .id(term_id)
-                                        .clickable(true)
-                                        .padding(2.0, 3.0, 2.0, 3.0)
-                                        .radius_all(3.0)
-                                        .hover_bg(colors.highlight)
-                                        .show(|ui| {
-                                            ui.text("\u{f120}") // Terminal prompt
-                                                .size(11.5)
-                                                .color(colors.text_muted)
-                                                .show();
-                                        });
-
-                                    // 3. Inbox / context icon with blue indicator dot
-                                    let inbox_id = Id::from_u64(999999862);
-                                    ui.container()
-                                        .id(inbox_id)
-                                        .clickable(true)
-                                        .padding(2.0, 3.0, 2.0, 3.0)
-                                        .radius_all(3.0)
-                                        .hover_bg(colors.highlight)
-                                        .row()
-                                        .valign(Align::Center)
-                                        .gap(1.0)
-                                        .show(|ui| {
-                                            ui.text("\u{f2d0}") // Window / inbox icon
-                                                .size(12.0)
-                                                .color(colors.text_muted)
-                                                .show();
-                                            // Blue indicator dot
-                                            ui.container()
-                                                .width(4.5)
-                                                .height(4.5)
-                                                .radius_all(2.25)
-                                                .bg(Color { r: 59.0 / 255.0, g: 130.0 / 255.0, b: 246.0 / 255.0, a: 1.0 })
-                                                .show(|_| {});
-                                        });
-
-                                    // 4. Chrome / Browser icon
-                                    let chrome_id = Id::from_u64(999999863);
-                                    ui.container()
-                                        .id(chrome_id)
-                                        .clickable(true)
-                                        .padding(2.0, 3.0, 2.0, 3.0)
-                                        .radius_all(3.0)
-                                        .hover_bg(colors.highlight)
-                                        .show(|ui| {
-                                            ui.text("\u{f268}") // Chrome logo
-                                                .size(12.5)
-                                                .color(colors.text_muted)
-                                                .show();
-                                        });
-                                });
-
-                            // Right: Review Changes pill button
-                            let review_id = Id::from_u64(999999864);
-                            ui.container()
-                                .id(review_id)
-                                .clickable(true)
-                                .padding(2.5, 8.0, 2.5, 8.0)
-                                .radius_all(5.0)
+                                .full_width()
+                                .height(card_container_h)
+                                .radius_all(6.0)
                                 .bg(colors.bg_sidebar)
-                                .border(colors.border.with_alpha(0.6), 1.0)
-                                .hover_bg(colors.highlight)
-                                .row()
-                                .valign(Align::Center)
-                                .gap(5.0)
+                                .padding(3.0, 6.0, 3.0, 6.0)
+                                .scroll_y(true)
+                                .column()
+                                .gap(2.0)
                                 .show(|ui| {
-                                    ui.text("\u{f0c5}")
-                                        .size(10.0)
-                                        .color(colors.text_muted)
-                                        .show();
-                                    ui.text("Review Changes")
-                                        .size(10.5)
-                                        .weight(FontWeight::Medium)
-                                        .color(colors.text_primary)
-                                        .show();
+                                    for (idx, item) in modified_files.iter().enumerate() {
+                                        let ext = item.file_path.extension().and_then(|s| s.to_str()).unwrap_or("");
+                                        let (_glyph, icon_color) = crate::mini_icons::get_mini_file_icon(&item.file_name.to_lowercase(), &ext.to_lowercase());
+
+                                        let is_active = state.tabs.get(state.active_tab.unwrap_or(0))
+                                            .and_then(|t| t.path.as_ref())
+                                            .map(|p| path_matches(p, &item.file_path))
+                                            .unwrap_or(false);
+
+                                        let mut reject_this_file = false;
+                                        let row_id = ui.id_from(&format!("mod_file_row_{}_{}", idx, item.file_name));
+                                        let row = ui.container()
+                                            .id(row_id)
+                                            .full_width()
+                                            .height(22.0)
+                                            .radius_all(3.0)
+                                            .bg(if is_active { colors.highlight } else { Color::TRANSPARENT })
+                                            .hover_bg(colors.highlight)
+                                            .padding(0.0, 4.0, 0.0, 4.0)
+                                            .clickable(true)
+                                            .row()
+                                            .valign(Align::Center)
+                                            .halign(Align::SpaceBetween)
+                                            .show(|ui| {
+                                                // Left side: file icon, file name, file path
+                                                ui.container()
+                                                    .row()
+                                                    .valign(Align::Center)
+                                                    .gap(7.0)
+                                                    .show(|ui| {
+                                                        // 1. Language outline box with centered colored dot
+                                                        ui.container()
+                                                            .width(14.0)
+                                                            .height(14.0)
+                                                            .radius_all(3.0)
+                                                            .border(icon_color, 1.0)
+                                                            .halign(Align::Center)
+                                                            .valign(Align::Center)
+                                                            .show(|ui| {
+                                                                ui.container()
+                                                                    .width(3.5)
+                                                                    .height(3.5)
+                                                                    .radius_all(1.75)
+                                                                    .bg(icon_color)
+                                                                    .show(|_| {});
+                                                            });
+
+                                                        // 2. File name
+                                                        ui.text(&item.file_name)
+                                                            .size(11.5)
+                                                            .weight(FontWeight::Medium)
+                                                            .color(colors.text_primary)
+                                                            .show();
+
+                                                        // 3. File path
+                                                        ui.text(&item.rel_path)
+                                                            .size(10.5)
+                                                            .color(colors.text_dim)
+                                                            .show();
+                                                    });
+
+                                                // Right side: + and - , cross
+                                                ui.container()
+                                                    .row()
+                                                    .valign(Align::Center)
+                                                    .gap(6.0)
+                                                    .show(|ui| {
+                                                        // +added diff counter (always formatted +N)
+                                                        ui.text(&format!("+{}", item.lines_added))
+                                                            .size(10.5)
+                                                            .weight(FontWeight::Medium)
+                                                            .color(Color { r: 74.0 / 255.0, g: 222.0 / 255.0, b: 128.0 / 255.0, a: 1.0 })
+                                                            .show();
+
+                                                        // -removed diff counter (always formatted -M)
+                                                        ui.text(&format!("-{}", item.lines_removed))
+                                                            .size(10.5)
+                                                            .weight(FontWeight::Medium)
+                                                            .color(Color { r: 248.0 / 255.0, g: 113.0 / 255.0, b: 113.0 / 255.0, a: 1.0 })
+                                                            .show();
+
+                                                        // cross
+                                                        let cross_id = ui.id_from(&format!("mod_file_cross_{}_{}", idx, item.file_name));
+                                                        let cross_btn = ui.container()
+                                                            .id(cross_id)
+                                                            .clickable(true)
+                                                            .padding(1.0, 3.0, 1.0, 3.0)
+                                                            .radius_all(2.5)
+                                                            .hover_bg(colors.highlight)
+                                                            .show(|ui| {
+                                                                ui.text("✕")
+                                                                    .size(8.5)
+                                                                    .color(colors.text_dim)
+                                                                    .show();
+                                                            });
+                                                        if cross_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
+                                                        if cross_btn.clicked {
+                                                            reject_this_file = true;
+                                                        }
+                                                    });
+                                            });
+
+                                        if row.hovered && !reject_this_file { ui.cursor_icon = CursorIcon::Pointer; }
+                                        if row.clicked && !reject_this_file {
+                                            target_open_file = Some(item.file_path.clone());
+                                        }
+                                        if reject_this_file {
+                                            target_reject_file = Some(item.file_path.clone());
+                                        }
+                                    }
                                 });
-                        });
+                        }
+
+                        // 2. Review Bar: ← 📄 N File(s) With Changes               Reject all [Accept all] ⌵
+                        ui.container()
+                            .full_width()
+                            .height(24.0)
+                            .padding(0.0, 2.0, 0.0, 2.0)
+                            .row()
+                            .halign(Align::SpaceBetween)
+                            .valign(Align::Center)
+                            .show(|ui| {
+                                // Left side
+                                ui.container()
+                                    .row()
+                                    .valign(Align::Center)
+                                    .gap(6.0)
+                                    .show(|ui| {
+                                        let arrow_btn = ui.container()
+                                            .id(Id::from_u64(999999865))
+                                            .clickable(true)
+                                            .show(|ui| {
+                                                ui.text("←")
+                                                    .size(13.0)
+                                                    .color(colors.text_muted)
+                                                    .show();
+                                            });
+                                        if arrow_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
+                                        if arrow_btn.clicked {
+                                            state.show_modified_files_popup = !state.show_modified_files_popup;
+                                            ui.needs_redraw = true;
+                                        }
+
+                                        let file_icon_btn = ui.container()
+                                            .clickable(true)
+                                            .show(|ui| {
+                                                ui.text("\u{f15c}")
+                                                    .size(12.0)
+                                                    .color(colors.text_muted)
+                                                    .show();
+                                            });
+                                        if file_icon_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
+                                        if file_icon_btn.clicked {
+                                            state.show_modified_files_popup = !state.show_modified_files_popup;
+                                            ui.needs_redraw = true;
+                                        }
+
+                                        let count = modified_files.len();
+                                        let label = format!("{} {} With Changes", count, if count == 1 { "File" } else { "Files" });
+                                        let label_btn = ui.container()
+                                            .clickable(true)
+                                            .show(|ui| {
+                                                ui.text(&label)
+                                                    .size(12.0)
+                                                    .color(colors.text_muted)
+                                                    .show();
+                                            });
+                                        if label_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
+                                        if label_btn.clicked {
+                                            state.show_modified_files_popup = !state.show_modified_files_popup;
+                                            ui.needs_redraw = true;
+                                        }
+                                    });
+
+                                // Right side
+                                ui.container()
+                                    .row()
+                                    .valign(Align::Center)
+                                    .gap(8.0)
+                                    .show(|ui| {
+                                        let rej_btn = ui.container()
+                                            .id(Id::from_u64(999999866))
+                                            .clickable(true)
+                                            .padding(2.0, 6.0, 2.0, 6.0)
+                                            .radius_all(4.0)
+                                            .hover_bg(colors.highlight)
+                                            .show(|ui| {
+                                                ui.text("Reject all")
+                                                    .size(12.0)
+                                                    .color(colors.text_muted)
+                                                    .show();
+                                            });
+                                        if rej_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
+                                        if rej_btn.clicked {
+                                            action_reject_all = true;
+                                        }
+
+                                        let acc_btn = ui.container()
+                                            .id(Id::from_u64(999999867))
+                                            .clickable(true)
+                                            .padding(3.0, 9.0, 3.0, 9.0)
+                                            .radius_all(5.0)
+                                            .bg(Color { r: 0.0, g: 122.0 / 255.0, b: 255.0 / 255.0, a: 1.0 })
+                                            .hover_bg(Color { r: 24.0 / 255.0, g: 138.0 / 255.0, b: 255.0 / 255.0, a: 1.0 })
+                                            .show(|ui| {
+                                                ui.text("Accept all")
+                                                    .size(12.0)
+                                                    .weight(FontWeight::SemiBold)
+                                                    .color(Color::WHITE)
+                                                    .show();
+                                            });
+                                        if acc_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
+                                        if acc_btn.clicked {
+                                            action_accept_all = true;
+                                        }
+
+                                        let chevron_btn = ui.container()
+                                            .clickable(true)
+                                            .show(|ui| {
+                                                ui.text(if state.show_modified_files_popup { "⌵" } else { "⌃" })
+                                                    .size(11.0)
+                                                    .color(colors.text_muted)
+                                                    .show();
+                                            });
+                                        if chevron_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
+                                        if chevron_btn.clicked {
+                                            state.show_modified_files_popup = !state.show_modified_files_popup;
+                                            ui.needs_redraw = true;
+                                        }
+                                    });
+                            });
+                    } else {
+                        // Standard quick toolbar when no modified files
+                        ui.container()
+                            .full_width()
+                            .height(20.0)
+                            .padding(0.0, 2.0, 4.0, 2.0)
+                            .row()
+                            .halign(Align::SpaceBetween)
+                            .valign(Align::Center)
+                            .show(|ui| {
+                                ui.container()
+                                    .row()
+                                    .valign(Align::Center)
+                                    .gap(8.0)
+                                    .show(|ui| {
+                                        // 1. File icon
+                                        let file_id = Id::from_u64(999999860);
+                                        let file_btn = ui.container()
+                                            .id(file_id)
+                                            .clickable(true)
+                                            .padding(2.0, 3.0, 2.0, 3.0)
+                                            .radius_all(3.0)
+                                            .bg(if state.show_modified_files_popup { colors.highlight } else { Color::TRANSPARENT })
+                                            .hover_bg(colors.highlight)
+                                            .show(|ui| {
+                                                ui.text("\u{f15c}")
+                                                    .size(12.5)
+                                                    .color(if state.show_modified_files_popup { colors.accent } else { colors.text_muted })
+                                                    .show();
+                                            });
+                                        if file_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
+                                        if file_btn.clicked {
+                                            state.show_modified_files_popup = !state.show_modified_files_popup;
+                                            ui.needs_redraw = true;
+                                        }
+
+                                        // 2. Terminal icon
+                                        let term_id = Id::from_u64(999999861);
+                                        ui.container()
+                                            .id(term_id)
+                                            .clickable(true)
+                                            .padding(2.0, 3.0, 2.0, 3.0)
+                                            .radius_all(3.0)
+                                            .hover_bg(colors.highlight)
+                                            .show(|ui| {
+                                                ui.text("\u{f120}")
+                                                    .size(11.5)
+                                                    .color(colors.text_muted)
+                                                    .show();
+                                            });
+
+                                        // 3. Inbox icon
+                                        let inbox_id = Id::from_u64(999999862);
+                                        ui.container()
+                                            .id(inbox_id)
+                                            .clickable(true)
+                                            .padding(2.0, 3.0, 2.0, 3.0)
+                                            .radius_all(3.0)
+                                            .hover_bg(colors.highlight)
+                                            .row()
+                                            .valign(Align::Center)
+                                            .gap(1.0)
+                                            .show(|ui| {
+                                                ui.text("\u{f2d0}")
+                                                    .size(12.0)
+                                                    .color(colors.text_muted)
+                                                    .show();
+                                                ui.container()
+                                                    .width(4.5)
+                                                    .height(4.5)
+                                                    .radius_all(2.25)
+                                                    .bg(Color { r: 59.0 / 255.0, g: 130.0 / 255.0, b: 246.0 / 255.0, a: 1.0 })
+                                                    .show(|_| {});
+                                            });
+
+                                        // 4. Chrome icon
+                                        let chrome_id = Id::from_u64(999999863);
+                                        ui.container()
+                                            .id(chrome_id)
+                                            .clickable(true)
+                                            .padding(2.0, 3.0, 2.0, 3.0)
+                                            .radius_all(3.0)
+                                            .hover_bg(colors.highlight)
+                                            .show(|ui| {
+                                                ui.text("\u{f268}")
+                                                    .size(12.5)
+                                                    .color(colors.text_muted)
+                                                    .show();
+                                            });
+                                    });
+
+                            });
+                    }
 
                     let input_box = ui.container()
                         .full_width()
@@ -1333,6 +1636,25 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
 
                     if input_box.clicked && ui.focused_id != Some(ai_input_id) {
                         ui.focused_id = Some(ai_input_id);
+                        ui.needs_redraw = true;
+                    }
+
+                    if action_accept_all {
+                        state.accept_all_reviews();
+                        state.show_modified_files_popup = false;
+                        ui.needs_redraw = true;
+                    }
+                    if action_reject_all {
+                        state.reject_all_reviews();
+                        state.show_modified_files_popup = false;
+                        ui.needs_redraw = true;
+                    }
+                    if let Some(path) = target_reject_file {
+                        state.reject_review_for_path(&path);
+                        ui.needs_redraw = true;
+                    }
+                    if let Some(path) = target_open_file {
+                        state.open_file(&path);
                         ui.needs_redraw = true;
                     }
                 });

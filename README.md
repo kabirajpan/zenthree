@@ -30,6 +30,7 @@ Designed for speed, visual clarity, and responsiveness, Zenthree blends the aest
 
 ### 🤖 AI Assistant Panel
 - **Integrated Sidecar**: Collapsible side panel for code explanation, debugging, and drafting snippets.
+- **Space-Saving Diff Review Bar**: Unified modified files container with compact diff badges (`+N` / `-M`), one-click file navigation, and instant `Accept all` / `Reject all` controls.
 - **Structured Output**: Clear separation between thought streams, explanations, and formatted code blocks.
 - **Independent Edge Resizing**: Isolated resize splitter with accent grip handle.
 

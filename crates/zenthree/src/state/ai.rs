@@ -171,7 +171,6 @@ impl ZenthreeState {
 
     pub fn poll_ai_response(&mut self) -> bool {
         let mut changed = false;
-        let mut files_to_open: Vec<std::path::PathBuf> = Vec::new();
         if let Some(ref rx) = self.ai_response_rx {
             loop {
                 match rx.try_recv() {
@@ -209,44 +208,99 @@ impl ZenthreeState {
                                                 .get("replacement")
                                                 .and_then(|v| v.as_str())
                                                 .unwrap_or("");
-                                            let diff = agent::context::GroupedDiff::from_replacement(target, replacement);
-                                            let lines_removed = diff.lines_removed.max(1);
-                                            let lines_added = diff.lines_added.max(1);
+
+                                            let raw_path = std::path::PathBuf::from(&path);
+                                            let path_buf = if raw_path.is_absolute() {
+                                                raw_path.clone()
+                                            } else {
+                                                self.current_dir.join(&raw_path)
+                                            };
+                                            let path_buf = if let Ok(canon) = path_buf.canonicalize() {
+                                                canon
+                                            } else {
+                                                path_buf
+                                            };
+
+                                            let tab_match_idx = self.tabs.iter().position(|t| {
+                                                if let Some(ref tp) = t.path {
+                                                    path_matches(tp, &path_buf) || path_matches(tp, &raw_path)
+                                                } else {
+                                                    t.name == path
+                                                }
+                                            });
+
+                                            let effective_path = if let Some(idx) = tab_match_idx {
+                                                self.tabs[idx].path.clone().unwrap_or_else(|| path_buf.clone())
+                                            } else {
+                                                path_buf.clone()
+                                            };
+
+                                            let mut orig_content = String::new();
+                                            let mut new_content_str = String::new();
+
+                                            if let Some(idx) = tab_match_idx {
+                                                let current_text = self.tabs[idx].editor.buffer.to_string();
+                                                if current_text.contains(target) {
+                                                    orig_content = current_text;
+                                                    new_content_str = orig_content.replacen(target, replacement, 1);
+                                                } else {
+                                                    let norm_current = current_text.replace("\r\n", "\n");
+                                                    let norm_target = target.replace("\r\n", "\n");
+                                                    if norm_current.contains(&norm_target) {
+                                                        orig_content = current_text;
+                                                        let norm_replacement = replacement.replace("\r\n", "\n");
+                                                        new_content_str = norm_current.replacen(&norm_target, &norm_replacement, 1);
+                                                    } else if current_text.contains(replacement) && !replacement.is_empty() {
+                                                        new_content_str = current_text.clone();
+                                                        orig_content = current_text.replacen(replacement, target, 1);
+                                                    }
+                                                }
+                                            }
+
+                                            if orig_content.is_empty() {
+                                                if let Ok(disk_content) = std::fs::read_to_string(&effective_path) {
+                                                    if disk_content.contains(target) {
+                                                        orig_content = disk_content;
+                                                        new_content_str = orig_content.replacen(target, replacement, 1);
+                                                    } else {
+                                                        let norm_disk = disk_content.replace("\r\n", "\n");
+                                                        let norm_target = target.replace("\r\n", "\n");
+                                                        if norm_disk.contains(&norm_target) {
+                                                            orig_content = disk_content;
+                                                            let norm_replacement = replacement.replace("\r\n", "\n");
+                                                            new_content_str = norm_disk.replacen(&norm_target, &norm_replacement, 1);
+                                                        } else if disk_content.contains(replacement) && !replacement.is_empty() {
+                                                            new_content_str = disk_content.clone();
+                                                            orig_content = disk_content.replacen(replacement, target, 1);
+                                                        } else {
+                                                            orig_content = disk_content.clone();
+                                                            new_content_str = disk_content;
+                                                        }
+                                                    }
+                                                }
+                                            }
+
+                                            let (diff_lines, preview_text) = crate::state::compute_line_diff(&orig_content, &new_content_str);
+                                            let lines_added = diff_lines.iter().filter(|(_, s)| *s == DiffLineState::Added).count();
+                                            let lines_removed = diff_lines.iter().filter(|(_, s)| *s == DiffLineState::Removed).count();
                                             last.trajectory.push(TrajectoryStep::FileEdit {
                                                 path: path.clone(),
                                                 lines_added,
                                                 lines_removed,
                                             });
 
-                                            let path_buf = std::path::PathBuf::from(&path);
-                                            let mut orig_content = String::new();
-                                            let mut new_content_str = String::new();
-                                            if let Ok(new_content) = std::fs::read_to_string(&path_buf) {
-                                                new_content_str = new_content.clone();
-                                                orig_content = new_content.replacen(replacement, target, 1);
-                                            }
-
-                                            let start_line = if let Some(idx) = new_content_str.find(replacement) {
-                                                new_content_str[..idx].lines().count()
-                                            } else {
-                                                0
-                                            };
-                                            let removed_lines: Vec<String> = target.lines().map(|s| s.to_string()).collect();
-                                            let added_lines_count = replacement.lines().count().max(1);
-
                                             let review = FileDiffReview {
-                                                path: path_buf.clone(),
+                                                path: effective_path.clone(),
                                                 original_content: orig_content,
+                                                proposed_content: new_content_str,
+                                                diff_lines,
                                                 is_new_file: false,
-                                                hunks: vec![DiffHunk {
-                                                    start_line,
-                                                    removed_lines,
-                                                    added_lines_count,
-                                                }],
                                                 active_hunk_idx: 0,
                                             };
 
-                                            if let Some(existing_idx) = self.pending_reviews.iter().position(|r| r.path == path_buf) {
+                                            if let Some(existing_idx) = self.pending_reviews.iter().position(|r| {
+                                                path_matches(&r.path, &effective_path) || path_matches(&r.path, &path_buf)
+                                            }) {
                                                 self.pending_reviews[existing_idx] = review;
                                                 self.active_review_idx = Some(existing_idx);
                                             } else {
@@ -254,29 +308,36 @@ impl ZenthreeState {
                                                 self.active_review_idx = Some(self.pending_reviews.len() - 1);
                                             }
 
-                                            for tab in &mut self.tabs {
-                                                let matches = if let Some(ref tp) = tab.path {
-                                                    tp == &path_buf || tp.ends_with(&path) || path_buf.ends_with(tp)
-                                                } else {
-                                                    tab.name == path
-                                                };
-                                                if matches {
-                                                    tab.lines_added += lines_added;
-                                                    tab.lines_removed += lines_removed;
-                                                    if let Some(ref p) = tab.path {
-                                                        if let Ok(new_content) = std::fs::read_to_string(p) {
-                                                            tab.editor = ::editor::editor::Editor::new(::editor::buffer::Buffer::from_text(&new_content));
-                                                            tab.shaping_cache.clear();
-                                                            tab.version += 1;
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                            files_to_open.push(path_buf);
+                                            let tab_idx = if let Some(idx) = tab_match_idx {
+                                                let tab = &mut self.tabs[idx];
+                                                tab.path = Some(effective_path.clone());
+                                                tab.lines_added = lines_added;
+                                                tab.lines_removed = lines_removed;
+                                                tab.is_dirty = true;
+                                                tab.editor = ::editor::editor::Editor::new(::editor::buffer::Buffer::from_text(&preview_text));
+                                                tab.shaping_cache.clear();
+                                                tab.version += 1;
+                                                idx
+                                            } else {
+                                                let name = effective_path.file_name().and_then(|n| n.to_str()).unwrap_or("file").to_string();
+                                                self.tabs.push(EditorTab {
+                                                    name,
+                                                    path: Some(effective_path.clone()),
+                                                    editor: ::editor::editor::Editor::new(::editor::buffer::Buffer::from_text(&preview_text)),
+                                                    is_dirty: true,
+                                                    scroll_y: 0.0,
+                                                    shaping_cache: std::collections::HashMap::new(),
+                                                    version: 0,
+                                                    lines_added,
+                                                    lines_removed,
+                                                });
+                                                self.tabs.len() - 1
+                                            };
+                                            self.active_tab = Some(tab_idx);
                                         }
                                         "write_file" => {
                                             if let Some(TrajectoryStep::Exploration(ref mut grp)) =
-                                                last.trajectory.last_mut()
+                                                 last.trajectory.last_mut()
                                             {
                                                 grp.is_active = false;
                                             }
@@ -289,28 +350,65 @@ impl ZenthreeState {
                                                 .get("content")
                                                 .and_then(|v| v.as_str())
                                                 .unwrap_or("");
-                                            let lines_added = content.lines().count().max(1);
+
+                                            let raw_path = std::path::PathBuf::from(&path);
+                                            let path_buf = if raw_path.is_absolute() {
+                                                raw_path.clone()
+                                            } else {
+                                                self.current_dir.join(&raw_path)
+                                            };
+                                            let path_buf = if let Ok(canon) = path_buf.canonicalize() {
+                                                canon
+                                            } else {
+                                                path_buf
+                                            };
+
+                                            let tab_match_idx = self.tabs.iter().position(|t| {
+                                                if let Some(ref tp) = t.path {
+                                                    path_matches(tp, &path_buf) || path_matches(tp, &raw_path)
+                                                } else {
+                                                    t.name == path
+                                                }
+                                            });
+
+                                            let effective_path = if let Some(idx) = tab_match_idx {
+                                                self.tabs[idx].path.clone().unwrap_or_else(|| path_buf.clone())
+                                            } else {
+                                                path_buf.clone()
+                                            };
+
+                                            let file_existed = effective_path.exists();
+                                            let (orig_content, is_new_file) = if let Some(idx) = tab_match_idx {
+                                                let prev = self.tabs[idx].editor.buffer.to_string();
+                                                (prev, false)
+                                            } else if file_existed {
+                                                let prev = std::fs::read_to_string(&effective_path).unwrap_or_default();
+                                                (prev, false)
+                                            } else {
+                                                (String::new(), true)
+                                            };
+
+                                            let (diff_lines, preview_text) = crate::state::compute_line_diff(&orig_content, content);
+                                            let lines_added = diff_lines.iter().filter(|(_, s)| *s == DiffLineState::Added).count();
+                                            let lines_removed = diff_lines.iter().filter(|(_, s)| *s == DiffLineState::Removed).count();
                                             last.trajectory.push(TrajectoryStep::FileEdit {
                                                 path: path.clone(),
                                                 lines_added,
-                                                lines_removed: 0,
+                                                lines_removed,
                                             });
 
-                                            let path_buf = std::path::PathBuf::from(&path);
-                                            let added_lines_count = content.lines().count().max(1);
                                             let review = FileDiffReview {
-                                                path: path_buf.clone(),
-                                                original_content: String::new(),
-                                                is_new_file: true,
-                                                hunks: vec![DiffHunk {
-                                                    start_line: 0,
-                                                    removed_lines: Vec::new(),
-                                                    added_lines_count,
-                                                }],
+                                                path: effective_path.clone(),
+                                                original_content: orig_content,
+                                                proposed_content: content.to_string(),
+                                                diff_lines,
+                                                is_new_file,
                                                 active_hunk_idx: 0,
                                             };
 
-                                            if let Some(existing_idx) = self.pending_reviews.iter().position(|r| r.path == path_buf) {
+                                            if let Some(existing_idx) = self.pending_reviews.iter().position(|r| {
+                                                path_matches(&r.path, &effective_path) || path_matches(&r.path, &path_buf)
+                                            }) {
                                                 self.pending_reviews[existing_idx] = review;
                                                 self.active_review_idx = Some(existing_idx);
                                             } else {
@@ -318,24 +416,32 @@ impl ZenthreeState {
                                                 self.active_review_idx = Some(self.pending_reviews.len() - 1);
                                             }
 
-                                            for tab in &mut self.tabs {
-                                                let matches = if let Some(ref tp) = tab.path {
-                                                    tp == &path_buf || tp.ends_with(&path) || path_buf.ends_with(tp)
-                                                } else {
-                                                    tab.name == path
-                                                };
-                                                if matches {
-                                                    tab.lines_added += lines_added;
-                                                    if let Some(ref p) = tab.path {
-                                                        if let Ok(new_content) = std::fs::read_to_string(p) {
-                                                            tab.editor = ::editor::editor::Editor::new(::editor::buffer::Buffer::from_text(&new_content));
-                                                            tab.shaping_cache.clear();
-                                                            tab.version += 1;
-                                                        }
-                                                    }
-                                                }
-                                            }
-                                            files_to_open.push(path_buf);
+                                            let tab_idx = if let Some(idx) = tab_match_idx {
+                                                let tab = &mut self.tabs[idx];
+                                                tab.path = Some(effective_path.clone());
+                                                tab.lines_added = lines_added;
+                                                tab.lines_removed = lines_removed;
+                                                tab.is_dirty = true;
+                                                tab.editor = ::editor::editor::Editor::new(::editor::buffer::Buffer::from_text(&preview_text));
+                                                tab.shaping_cache.clear();
+                                                tab.version += 1;
+                                                idx
+                                            } else {
+                                                let name = effective_path.file_name().and_then(|n| n.to_str()).unwrap_or("file").to_string();
+                                                self.tabs.push(EditorTab {
+                                                    name,
+                                                    path: Some(effective_path.clone()),
+                                                    editor: ::editor::editor::Editor::new(::editor::buffer::Buffer::from_text(&preview_text)),
+                                                    is_dirty: true,
+                                                    scroll_y: 0.0,
+                                                    shaping_cache: std::collections::HashMap::new(),
+                                                    version: 0,
+                                                    lines_added,
+                                                    lines_removed,
+                                                });
+                                                self.tabs.len() - 1
+                                            };
+                                            self.active_tab = Some(tab_idx);
                                         }
                                         "run_terminal" => {
                                             if let Some(TrajectoryStep::Exploration(ref mut grp)) =
@@ -485,9 +591,6 @@ impl ZenthreeState {
                                     self.ai_session_json = session_json;
                                 }
                                 self.ai_response_rx = None;
-                                for p in &files_to_open {
-                                    self.open_file(p);
-                                }
                                 return true;
                             }
                         }
@@ -511,9 +614,6 @@ impl ZenthreeState {
                     Err(std::sync::mpsc::TryRecvError::Empty) => break,
                 }
             }
-        }
-        for p in files_to_open {
-            self.open_file(&p);
         }
         changed
     }
