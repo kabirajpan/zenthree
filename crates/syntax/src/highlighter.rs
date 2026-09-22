@@ -24,6 +24,9 @@ struct ParseState {
 pub struct SyntaxHighlighter {
     registry: LanguageRegistry,
     theme: SyntaxTheme,
+    /// true = dark, false = light — tracked so we can skip set_theme() calls
+    /// when the theme hasn't actually changed between frames.
+    theme_is_dark: Option<bool>,
     parser: Parser,
     query_cache: HashMap<LanguageId, Query>,
     parse_state: Option<ParseState>,
@@ -35,11 +38,17 @@ impl SyntaxHighlighter {
         Self {
             registry: LanguageRegistry::new(),
             theme,
+            theme_is_dark: None,
             parser: Parser::new(),
             query_cache: HashMap::new(),
             parse_state: None,
             highlight_cache: None,
         }
+    }
+
+    /// Returns true if the current theme is the dark variant.
+    pub fn theme_is_dark(&self) -> Option<bool> {
+        self.theme_is_dark
     }
 
     pub fn tree(&self) -> Option<&Tree> {
@@ -373,8 +382,9 @@ impl SyntaxHighlighter {
         Some(crate::CodeContext::new(&state.tree, byte_offset, &state.text))
     }
 
-    pub fn set_theme(&mut self, theme: SyntaxTheme) {
+    pub fn set_theme(&mut self, theme: SyntaxTheme, is_dark: bool) {
         self.theme = theme;
+        self.theme_is_dark = Some(is_dark);
         self.highlight_cache = None;
     }
 }

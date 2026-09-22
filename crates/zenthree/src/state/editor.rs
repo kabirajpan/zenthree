@@ -231,13 +231,20 @@ impl ZenthreeState {
 
     pub fn set_clipboard(&mut self, text: String) {
         self.clipboard = Some(text.clone());
-        if let Ok(mut cb) = arboard::Clipboard::new() {
+        // Re-use a cached Clipboard handle to avoid opening a new OS socket every call.
+        if let Some(ref mut cb) = self.os_clipboard {
             let _ = cb.set_text(text);
+        } else if let Ok(mut cb) = arboard::Clipboard::new() {
+            let _ = cb.set_text(text);
+            self.os_clipboard = Some(cb);
         }
     }
 
-    pub fn get_clipboard(&self) -> Option<String> {
-        if let Ok(mut cb) = arboard::Clipboard::new() {
+    pub fn get_clipboard(&mut self) -> Option<String> {
+        if self.os_clipboard.is_none() {
+            self.os_clipboard = arboard::Clipboard::new().ok();
+        }
+        if let Some(ref mut cb) = self.os_clipboard {
             if let Ok(text) = cb.get_text() {
                 if !text.is_empty() {
                     return Some(text);

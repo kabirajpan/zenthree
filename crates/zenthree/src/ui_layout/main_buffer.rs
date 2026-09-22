@@ -452,7 +452,21 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                     let has_active_review = state.active_review().is_some();
                     let is_focused = ui.focused_id == Some(editor_id);
                     if is_focused {
-                        ui.request_redraw_after(std::time::Duration::from_millis(250));
+                        // Schedule the next redraw precisely when the cursor blink state changes,
+                        // rather than blindly polling every 250ms every frame.
+                        // The old approach fired a new frame every frame which re-scheduled
+                        // another 250ms wake, creating a continuous 4fps loop at 39% CPU idle.
+                        let elapsed_ms = state.last_cursor_activity.elapsed().as_millis();
+                        let ms_until_next_blink = if elapsed_ms < 500 {
+                            // Cursor is solid-on during initial 500ms grace period
+                            500 - elapsed_ms
+                        } else {
+                            // Blink period is 530ms; calculate ms until next flip
+                            530 - ((elapsed_ms - 500) % 530)
+                        };
+                        ui.request_redraw_after(std::time::Duration::from_millis(
+                            ms_until_next_blink as u64
+                        ));
                     }
 
                     // Handle scrollbar drag and scroll wheel before input events are taken/drained
@@ -854,11 +868,18 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
 
                     tab_mut.editor.buffer.ensure_range_cached(visible_start..(visible_end + 2).min(total_lines + 1));
 
-                    // Sync highlighter theme with current state theme
-                    if state.theme == crate::theme::ThemeMode::Light {
-                        state.highlighter.set_theme(syntax::SyntaxTheme::light());
-                    } else {
-                        state.highlighter.set_theme(syntax::SyntaxTheme::dark());
+                    // Sync highlighter theme — only when theme actually changes.
+                    // Previously this called set_theme() unconditionally every frame, which
+                    // cleared highlight_cache on every render, forcing a full tree-sitter
+                    // reparse + rope-to-String allocation on every single frame.
+                    let want_dark = state.theme != crate::theme::ThemeMode::Light;
+                    if state.highlighter.theme_is_dark() != Some(want_dark) {
+                        let syntax_theme = if want_dark {
+                            syntax::SyntaxTheme::dark()
+                        } else {
+                            syntax::SyntaxTheme::light()
+                        };
+                        state.highlighter.set_theme(syntax_theme, want_dark);
                     }
 
                     let dummy_path = tab_mut.path.clone().unwrap_or_else(|| {
@@ -908,8 +929,14 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                         .clip(true)
                         .show(|ui| {
                             let tab = &mut state.tabs[active_tab_idx];
-                            if tab.shaping_cache.len() > 1000 {
-                                tab.shaping_cache.clear();
+                            // Evict only entries far outside the current viewport instead of
+                            // clearing everything. For a 400-line file scrolled around, the old
+                            // code would nuke all ~50 cached shapes whenever the cache hit 1000
+                            // entries. Now we keep only lines near the visible range.
+                            if tab.shaping_cache.len() > 1500 {
+                                let keep_start = visible_start.saturating_sub(50);
+                                let keep_end = visible_end + 50;
+                                tab.shaping_cache.retain(|line, _| *line >= keep_start && *line < keep_end);
                             }
 
                             let draw_start = ui.draws.len();
@@ -1698,52 +1725,59 @@ fn get_styled_spans(
     shaped: &ShapedBuffer,
 ) -> Vec<StyledSpan> {
     let mut result = Vec::new();
-    let char_indices: Vec<(usize, char)> = line_text.char_indices().collect();
-    let char_count = char_indices.len();
-    
-    let mut last_idx = 0;
-    
+    if spans.is_empty() {
+        if !line_text.is_empty() {
+            result.push(StyledSpan { text: line_text.to_string(), x_offset: 0.0, color: default_color });
+        }
+        return result;
+    }
+
+    // Convert char offset to byte offset without collecting all indices into a Vec.
+    // We iterate char_indices lazily, which avoids a heap allocation per line per frame.
+    let char_to_byte = |char_offset: usize| -> usize {
+        if char_offset == 0 { return 0; }
+        line_text.char_indices()
+            .nth(char_offset)
+            .map(|(b, _)| b)
+            .unwrap_or(line_text.len())
+    };
+
+    let char_count = line_text.chars().count();
+    let mut last_char = 0;
+
     for &(start_char, end_char, color) in spans {
         let start_char = start_char.min(char_count);
         let end_char = end_char.min(char_count);
-        
-        if start_char > last_idx {
-            let gap_start_byte = char_indices[last_idx].0;
-            let gap_end_byte = if start_char < char_count {
-                char_indices[start_char].0
-            } else {
-                line_text.len()
-            };
+
+        if start_char > last_char {
+            let gap_start_byte = char_to_byte(last_char);
+            let gap_end_byte = char_to_byte(start_char);
             let text = line_text[gap_start_byte..gap_end_byte].to_string();
             let x_offset = find_x_for_byte(shaped, line_text, gap_start_byte);
             result.push(StyledSpan { text, x_offset, color: default_color });
         }
-        
+
         if end_char > start_char {
-            let start_byte = char_indices[start_char].0;
-            let end_byte = if end_char < char_count {
-                char_indices[end_char].0
-            } else {
-                line_text.len()
-            };
+            let start_byte = char_to_byte(start_char);
+            let end_byte = char_to_byte(end_char);
             let text = line_text[start_byte..end_byte].to_string();
             let x_offset = find_x_for_byte(shaped, line_text, start_byte);
             result.push(StyledSpan { text, x_offset, color });
         }
-        
-        last_idx = end_char;
+
+        last_char = end_char;
     }
-    
-    if last_idx < char_count {
-        let tail_start_byte = char_indices[last_idx].0;
+
+    if last_char < char_count {
+        let tail_start_byte = char_to_byte(last_char);
         let text = line_text[tail_start_byte..].to_string();
         let x_offset = find_x_for_byte(shaped, line_text, tail_start_byte);
         result.push(StyledSpan { text, x_offset, color: default_color });
     }
-    
+
     if result.is_empty() && !line_text.is_empty() {
         result.push(StyledSpan { text: line_text.to_string(), x_offset: 0.0, color: default_color });
     }
-    
+
     result
 }

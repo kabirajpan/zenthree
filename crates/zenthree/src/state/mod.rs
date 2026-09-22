@@ -106,6 +106,9 @@ pub struct ZenthreeState {
     pub active_review_idx: Option<usize>,
     pub show_modified_files_popup: bool,
     pub font_adapter: Option<zenthra_text::prelude::CosmicFontProvider>,
+    /// Cached OS clipboard handle — lazily initialized to avoid opening a new
+    /// Wayland/X11 socket on every copy/paste operation.
+    pub os_clipboard: Option<arboard::Clipboard>,
 }
 
 impl ZenthreeState {
@@ -233,6 +236,7 @@ impl ZenthreeState {
             active_review_idx: None,
             show_modified_files_popup: false,
             font_adapter: None,
+            os_clipboard: None,
         };
 
         // Restore previous session preferences (theme, accent, extensions, etc.)
@@ -305,8 +309,10 @@ impl ZenthreeState {
         if let Some(set_at) = self.status_set_at {
             if !self.status_message.is_empty() && set_at.elapsed() >= std::time::Duration::from_secs(3) {
                 self.status_message.clear();
-                self.status_signal.set(String::new());
                 self.status_set_at = None;
+                // Use set_if_changed to avoid firing a spurious redraw if the signal
+                // is already empty (guards against tick_status → redraw → tick_status loops).
+                self.status_signal.set_if_changed(String::new());
                 return true;
             }
         }
@@ -346,7 +352,18 @@ impl ZenthreeState {
         }
         self.tabs[tab_idx].is_dirty = true;
         self.tabs[tab_idx].version = self.tabs[tab_idx].version.wrapping_add(1);
-        self.tabs[tab_idx].shaping_cache.clear();
+
+        // Only invalidate lines near the cursor rather than wiping the entire shaping cache.
+        // A single-char insert/delete only changes the cursor line (and possibly the next line
+        // if it wraps). Clearing ALL cached shapes was forcing a full re-shape of every visible
+        // line (~50+) on every keypress.
+        let cursor_row = self.tabs[tab_idx].editor.cursor().row;
+        self.tabs[tab_idx].shaping_cache.remove(&cursor_row);
+        if cursor_row > 0 {
+            self.tabs[tab_idx].shaping_cache.remove(&(cursor_row - 1));
+        }
+        self.tabs[tab_idx].shaping_cache.remove(&(cursor_row + 1));
+
         if let Some(path) = self.tabs[tab_idx].path.clone() {
             let content = self.tabs[tab_idx].editor.buffer.to_string();
             self.lsp_manager.on_document_change(&path, &content);

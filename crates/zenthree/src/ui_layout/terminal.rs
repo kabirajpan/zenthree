@@ -87,9 +87,17 @@ pub fn draw_terminal_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, h
         }));
     }
 
+    // ─── PTY Output Poll ─────────────────────────────────────────
+    // Poll for new PTY output regardless of focus — output from running commands
+    // should appear even while the user is typing in the editor.
+    // Only schedule the next poll when a real PTY session is active; when
+    // there is no session there is nothing to poll and no reason to wake.
+    if state.terminal_session.is_some() {
+        ui.request_redraw_after(std::time::Duration::from_millis(250));
+    }
+
     // ─── Input Event Processing directly inside Terminal ─────────
     if is_focused {
-        ui.request_redraw_after(std::time::Duration::from_millis(250));
         let events = std::mem::take(&mut ui.input_events);
 
         for event in &events {
