@@ -59,6 +59,9 @@ impl Agent {
         let skills_report = crate::skills::discover(workspace).unwrap_or_default();
         let skills = Arc::new(skills_report.registry);
         tools.register(crate::tools::ActivateSkillTool::new(skills.clone()));
+        if tools.find("search").is_some() {
+            tools.register(crate::tools::SearchTool::new().with_skills(skills.clone()));
+        }
         Self {
             provider,
             tools,

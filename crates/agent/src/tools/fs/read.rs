@@ -101,10 +101,17 @@ impl ReadFileTool {
     fn read_single_file(&self, path_str: &str, args: &Value) -> Result<Value, ToolError> {
         let path = Path::new(path_str);
         if !path.exists() {
-            return Err(ToolError::ExecutionFailed(format!("File not found: {}", path_str)));
+            let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or(path_str);
+            return Err(ToolError::ExecutionFailed(format!(
+                "File not found: '{}'. Hint: Use search(query: \"{}\", in: \"files\") to locate the correct file path.",
+                path_str, file_name
+            )));
         }
         if path.is_dir() {
-            return Err(ToolError::ExecutionFailed(format!("Path is a directory, not a file: {}", path_str)));
+            return Err(ToolError::ExecutionFailed(format!(
+                "Path is a directory, not a file: '{}'. Hint: Use search(path: \"{}\", in: \"files\") or list_directory to inspect its contents.",
+                path_str, path_str
+            )));
         }
 
         // 1. Binary Shield: Check extension and raw bytes
@@ -205,8 +212,8 @@ impl ReadFileTool {
                     }
                     None => {
                         return Err(ToolError::ExecutionFailed(format!(
-                            "Symbol '{}' not found in file '{}'",
-                            sym, path_str
+                            "Symbol '{}' not found in file '{}'. Hint: Use read_file(path: \"{}\", peek: true) to inspect available symbols, or search(query: \"{}\", in: \"symbols\") to locate its definition across the codebase.",
+                            sym, path_str, path_str, sym
                         )));
                     }
                 }

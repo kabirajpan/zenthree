@@ -432,7 +432,10 @@ impl Tool for SearchTool {
         }
 
         if summary_parts.is_empty() {
-            return Ok(Value::String(format!("No results found for query: '{}'", query)));
+            return Ok(Value::String(format!(
+                "No results found for query: '{}' (scope: '{}'). Hint: Try broadening the query or search with in: \"all\".",
+                query, in_param
+            )));
         }
 
         output.push_str(&summary_parts.join("  |  "));
