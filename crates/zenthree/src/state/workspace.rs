@@ -24,7 +24,7 @@ impl ZenthreeState {
         self.has_workspace = true;
         self.expanded_dirs.clear();
         self.rebuild_tree();
-        self.status_message = format!("Opened workspace: {}", self.current_dir.display());
+        self.set_status(format!("Opened workspace: {}", self.current_dir.display()));
         self.save_persistent_state();
     }
 
@@ -32,7 +32,7 @@ impl ZenthreeState {
         self.has_workspace = false;
         self.sidebar_items.clear();
         self.expanded_dirs.clear();
-        self.status_message = "Workspace closed".to_string();
+        self.set_status("Workspace closed");
         self.save_persistent_state();
     }
 
@@ -284,7 +284,7 @@ impl ZenthreeState {
         }
 
         if trimmed.contains('/') || trimmed.contains('\\') || trimmed.contains('\0') {
-            self.status_message = "Invalid characters in filename".to_string();
+            self.set_status("Invalid characters in filename");
             self.inline_tree_input = Some(inline);
             return false;
         }
@@ -293,36 +293,36 @@ impl ZenthreeState {
             InlineTreeInputMode::NewFile { ref parent_dir } => {
                 let full_path = parent_dir.join(trimmed);
                 if full_path.exists() {
-                    self.status_message = format!("File '{}' already exists", trimmed);
+                    self.set_status(format!("File '{}' already exists", trimmed));
                     self.inline_tree_input = Some(inline);
                     return false;
                 }
                 if let Err(e) = std::fs::write(&full_path, "") {
-                    self.status_message = format!("Failed to create file: {}", e);
+                    self.set_status(format!("Failed to create file: {}", e));
                     self.inline_tree_input = Some(inline);
                     return false;
                 }
                 self.rebuild_tree();
                 self.open_file(&full_path);
-                self.status_message = format!("Created {}", trimmed);
+                self.set_status(format!("Created {}", trimmed));
                 true
             }
             InlineTreeInputMode::NewFolder { ref parent_dir } => {
                 let full_path = parent_dir.join(trimmed);
                 if full_path.exists() {
-                    self.status_message = format!("Folder '{}' already exists", trimmed);
+                    self.set_status(format!("Folder '{}' already exists", trimmed));
                     self.inline_tree_input = Some(inline);
                     return false;
                 }
                 if let Err(e) = std::fs::create_dir_all(&full_path) {
-                    self.status_message = format!("Failed to create folder: {}", e);
+                    self.set_status(format!("Failed to create folder: {}", e));
                     self.inline_tree_input = Some(inline);
                     return false;
                 }
                 self.expanded_dirs.insert(full_path.clone());
                 self.selected_sidebar_path = Some(full_path);
                 self.rebuild_tree();
-                self.status_message = format!("Created folder {}", trimmed);
+                self.set_status(format!("Created folder {}", trimmed));
                 true
             }
             InlineTreeInputMode::Rename { ref target_path } => {
@@ -332,12 +332,12 @@ impl ZenthreeState {
                     return true;
                 }
                 if new_path.exists() {
-                    self.status_message = format!("'{}' already exists", trimmed);
+                    self.set_status(format!("'{}' already exists", trimmed));
                     self.inline_tree_input = Some(inline);
                     return false;
                 }
                 if let Err(e) = std::fs::rename(target_path, &new_path) {
-                    self.status_message = format!("Failed to rename: {}", e);
+                    self.set_status(format!("Failed to rename: {}", e));
                     self.inline_tree_input = Some(inline);
                     return false;
                 }
@@ -363,7 +363,7 @@ impl ZenthreeState {
                 }
 
                 self.rebuild_tree();
-                self.status_message = format!("Renamed to {}", trimmed);
+                self.set_status(format!("Renamed to {}", trimmed));
                 true
             }
         }
@@ -406,10 +406,10 @@ impl ZenthreeState {
                 }
                 self.expanded_dirs.remove(path);
                 self.rebuild_tree();
-                self.status_message = format!("Deleted {}", name);
+                self.set_status(format!("Deleted {}", name));
             }
             Err(e) => {
-                self.status_message = format!("Failed to delete: {}", e);
+                self.set_status(format!("Failed to delete: {}", e));
             }
         }
         self.tree_context_menu = None;
@@ -417,19 +417,19 @@ impl ZenthreeState {
 
     pub fn copy_tree_path(&mut self, path: &Path) {
         self.tree_clipboard = Some(TreeClipboardAction::Copy(path.to_path_buf()));
-        self.status_message = format!(
+        self.set_status(format!(
             "Copied {}",
             path.file_name().and_then(|n| n.to_str()).unwrap_or("")
-        );
+        ));
         self.tree_context_menu = None;
     }
 
     pub fn cut_tree_path(&mut self, path: &Path) {
         self.tree_clipboard = Some(TreeClipboardAction::Cut(path.to_path_buf()));
-        self.status_message = format!(
+        self.set_status(format!(
             "Cut {}",
             path.file_name().and_then(|n| n.to_str()).unwrap_or("")
-        );
+        ));
         self.tree_context_menu = None;
     }
 
@@ -478,15 +478,15 @@ impl ZenthreeState {
 
                     if res.is_ok() {
                         self.rebuild_tree();
-                        self.status_message = format!(
+                        self.set_status(format!(
                             "Pasted into {}",
                             target_dir
                                 .file_name()
                                 .and_then(|n| n.to_str())
                                 .unwrap_or("")
-                        );
+                        ));
                     } else {
-                        self.status_message = "Failed to paste item".to_string();
+                        self.set_status("Failed to paste item");
                     }
                 }
                 self.tree_clipboard = Some(TreeClipboardAction::Copy(src));
@@ -507,16 +507,16 @@ impl ZenthreeState {
                                 }
                             }
                             self.rebuild_tree();
-                            self.status_message = format!(
+                            self.set_status(format!(
                                 "Moved to {}",
                                 target_dir
                                 .file_name()
                                 .and_then(|n| n.to_str())
                                 .unwrap_or("")
-                            );
+                            ));
                         }
                     } else {
-                        self.status_message = "Destination already exists".to_string();
+                        self.set_status("Destination already exists");
                     }
                 }
             }

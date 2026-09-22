@@ -1,9 +1,10 @@
 use crate::state::{ZenthreeState, ExtensionFilterTab};
 use crate::extensions::ExtensionCatalog;
-use zenthra::{Color, Ui, Align, FontWeight, Id};
+use zenthra::{Color, Ui, Align, FontWeight, Id, use_context};
+use crate::theme::ThemeColors;
 
 pub fn draw_extensions_panel(ui: &mut Ui, state: &mut ZenthreeState, panel_w: f32) {
-    let colors = state.colors();
+    let colors = use_context::<ThemeColors>().map(|c| *c).unwrap_or_else(|| state.colors());
     let all_extensions = ExtensionCatalog::all();
 
     let installed_count = all_extensions.iter().filter(|e| state.is_extension_installed(e.id)).count();

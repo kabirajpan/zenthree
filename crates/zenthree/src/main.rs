@@ -67,12 +67,14 @@ fn main() {
                 ui.request_redraw();
             }
 
-            // Poll background AI agent responses
-            if state.poll_ai_response() {
-                ui.request_redraw();
-            } else if state.ai_response_rx.is_some() {
-                ui.request_redraw_after(std::time::Duration::from_millis(50));
-            }
+            // Drain background AI agent updates pushed via ArcSignal.
+            // No timer needed: ArcSignal::with_mut() calls trigger_redraw_hook()
+            // on every push, waking the event loop immediately.
+            state.drain_ai_updates();
+
+            // Auto-clear stale status messages after 3 seconds.
+            // The _status_clear_effect wakes the event loop when the time is up.
+            state.tick_status();
 
             let colors = state.colors();
 

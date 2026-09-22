@@ -1,9 +1,10 @@
 use crate::state::{ZenthreeState, InlineTreeInputMode, TreeContextMenu};
-use zenthra::{Color, Ui, Align, FontWeight, Id, CursorIcon};
+use zenthra::{Color, Ui, Align, FontWeight, Id, CursorIcon, use_context};
+use crate::theme::ThemeColors;
 use std::path::PathBuf;
 
 pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
-    let colors = state.colors();
+    let colors = use_context::<ThemeColors>().map(|c| *c).unwrap_or_else(|| state.colors());
     let sidebar_w = state.sidebar_width;
 
     // 1. Keyboard event handling for inline file/folder input or tree shortcuts
@@ -857,13 +858,13 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
 
                     if draw_menu_item(ui, Id::from_u64(999996008), "\u{f0c1}", "Copy Path", "", true, false, &colors) {
                         state.set_clipboard(menu.target_path.display().to_string());
-                        state.status_message = "Path copied to clipboard".to_string();
+                        state.set_status("Path copied to clipboard");
                         close_menu = true;
                     }
                     if draw_menu_item(ui, Id::from_u64(999996009), "⎘", "Copy Relative Path", "", true, false, &colors) {
                         let rel = menu.target_path.strip_prefix(&state.current_dir).unwrap_or(&menu.target_path);
                         state.set_clipboard(rel.display().to_string());
-                        state.status_message = "Relative path copied to clipboard".to_string();
+                        state.set_status("Relative path copied to clipboard");
                         close_menu = true;
                     }
                     if draw_menu_item(ui, Id::from_u64(999996010), "\u{f08e}", "Reveal in File Manager", "", true, false, &colors) {
@@ -966,7 +967,7 @@ fn draw_inline_create_row(
     pad_h: f32,
     pad_v: f32,
 ) {
-    let colors = state.colors();
+    let colors = use_context::<ThemeColors>().map(|c| *c).unwrap_or_else(|| state.colors());
 
     let is_folder_mode = matches!(
         state.inline_tree_input.as_ref().map(|i| &i.mode),
@@ -1137,7 +1138,7 @@ fn draw_menu_item(
 }
 
 fn draw_no_folder_view(ui: &mut Ui, state: &mut ZenthreeState, sidebar_w: f32) {
-    let colors = state.colors();
+    let colors = use_context::<ThemeColors>().map(|c| *c).unwrap_or_else(|| state.colors());
     let inner_w = (sidebar_w - 24.0).max(120.0);
 
     // Section header

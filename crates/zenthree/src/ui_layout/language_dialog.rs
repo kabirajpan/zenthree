@@ -1,8 +1,9 @@
 use crate::state::ZenthreeState;
-use zenthra::{Color, Ui, Align, FontWeight, Id};
+use zenthra::{Color, Ui, Align, FontWeight, Id, use_context};
+use crate::theme::ThemeColors;
 
 pub fn draw_language_prompt_dialog(ui: &mut Ui, state: &mut ZenthreeState) {
-    let colors = state.colors();
+    let colors = use_context::<ThemeColors>().map(|c| *c).unwrap_or_else(|| state.colors());
     let dialog = match state.active_language_prompt.as_mut() {
         Some(d) => d,
         None => return,

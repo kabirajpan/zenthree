@@ -1,8 +1,9 @@
 use crate::state::{ZenthreeState, AiModel, AiProvider, TrajectoryStep, ExplorationItem, path_matches};
-use zenthra::{Color, Ui, Align, FontWeight, Id, CursorIcon};
+use zenthra::{Color, Ui, Align, FontWeight, Id, CursorIcon, use_context};
+use crate::theme::ThemeColors;
 
 pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height: f32) {
-    let colors = state.colors();
+    let colors = use_context::<ThemeColors>().map(|c| *c).unwrap_or_else(|| state.colors());
     let ai_panel_w = width;
     let ai_id = Id::from_u64(999999801);
     let ai_input_id = ui.id_from("ai_prompt_text_area");
@@ -1107,7 +1108,7 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                 let _ = cb.set_text(snippet);
                             }
                             state.copied_ai_code_id = Some((btn_id, std::time::Instant::now()));
-                            state.status_message = "Code snippet copied to clipboard".to_string();
+                            state.set_status("Code snippet copied to clipboard");
                             ui.needs_redraw = true;
                         }
 
@@ -1118,7 +1119,7 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                 }
                             }
                             state.copied_ai_msg = Some((idx, std::time::Instant::now()));
-                            state.status_message = "Copied to clipboard".to_string();
+                            state.set_status("Copied to clipboard");
                             ui.needs_redraw = true;
                         }
                     }
@@ -1562,7 +1563,7 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                         .show();
 
                                     // Right: Sleek Send Button (or Stop Button during processing)
-                                    let is_processing = state.ai_response_rx.is_some();
+                                    let is_processing = state.ai_messages.last().map(|m| m.is_working).unwrap_or(false);
                                     let has_text = !state.ai_input.trim().is_empty();
 
                                     let send_bg = if is_processing {
@@ -1613,12 +1614,17 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
 
                                     if is_processing {
                                         if send_btn.clicked {
-                                            // Cancel ongoing AI request
-                                            state.ai_response_rx = None;
-                                            if let Some(last) = state.ai_messages.iter_mut().rev().find(|m| !m.is_user) {
-                                                if last.content == "Thinking..." || last.content.starts_with("🔧") {
-                                                    last.content = "Request stopped.".to_string();
+                                            // Cancel: clear the signal queue so drain_ai_updates stops processing
+                                            state.ai_update_signal.set(Vec::new());
+                                            // Also send a synthetic Done update so is_working is reset on next frame
+                                            state.ai_update_signal.with_mut(|q| q.push(
+                                                crate::state::types::AiUiUpdate::Done {
+                                                    reply: "Request stopped.".to_string(),
+                                                    session_json: None,
                                                 }
+                                            ));
+                                            if let Some(last) = state.ai_messages.iter_mut().rev().find(|m| !m.is_user) {
+                                                last.is_working = false;
                                             }
                                             ui.needs_redraw = true;
                                         }

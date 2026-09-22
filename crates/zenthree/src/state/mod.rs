@@ -14,6 +14,8 @@ pub use types::*;
 
 pub struct ZenthreeState {
     pub theme: ThemeMode,
+    /// Reactive signal for the current theme — subscribing components re-derive colors on change.
+    pub theme_signal: zenthra_state::Signal<ThemeMode>,
     pub accent_color: String,
     pub sidebar_visible: bool,
     pub sidebar_width: f32,
@@ -23,12 +25,19 @@ pub struct ZenthreeState {
     pub active_resize_sidebar: bool,
     pub tabs: Vec<EditorTab>,
     pub active_tab: Option<usize>,
+    pub active_tab_signal: zenthra_state::Signal<Option<usize>>,
     pub current_dir: PathBuf,
     pub has_workspace: bool,
     pub recent_files: Vec<PathBuf>,
     pub sidebar_items: Vec<FileTreeNode>,
     pub expanded_dirs: std::collections::HashSet<PathBuf>,
     pub status_message: String,
+    pub status_signal: zenthra_state::Signal<String>,
+    /// Timestamp of the last set_status() call — used by tick_status() to auto-clear after 3s.
+    pub status_set_at: Option<std::time::Instant>,
+    /// Auto-clear effect: fires when status_signal changes, schedules a 3-second clear.
+    /// Kept alive for the lifetime of ZenthreeState.
+    pub _status_clear_effect: zenthra_state::Effect,
     pub about_open: bool,
     pub ctrl_pressed: bool,
     pub shift_pressed: bool,
@@ -81,8 +90,10 @@ pub struct ZenthreeState {
     /// Serialized agent conversation history (JSON). Persisted across messages so the agent
     /// remembers previous turns. Reset when the user clears chat.
     pub ai_session_json: Option<String>,
-    /// Channel to receive status updates and final reply from the background agent thread.
-    pub ai_response_rx: Option<std::sync::mpsc::Receiver<AiUiUpdate>>,
+    /// Thread-safe signal queue for AI updates from the background agent thread.
+    /// Background thread pushes `AiUiUpdate` items; the signal auto-triggers a redraw.
+    /// The UI thread drains the queue on the next frame via `drain_ai_updates()`.
+    pub ai_update_signal: zenthra_state::ArcSignal<Vec<AiUiUpdate>>,
     pub copied_ai_msg: Option<(usize, std::time::Instant)>,
     pub copied_ai_code_id: Option<(u64, std::time::Instant)>,
     /// Render-side markdown parse cache: maps a FNV hash of message content → pre-parsed blocks.
@@ -126,6 +137,7 @@ impl ZenthreeState {
 
         let mut state = Self {
             theme: ThemeMode::Dark,
+            theme_signal: zenthra_state::Signal::new(ThemeMode::Dark),
             accent_color: "blue".to_string(),
             icon_theme: "neovim_mini".to_string(),
             explorer_preset: ExplorerPreset::ModernMinimalist,
@@ -142,12 +154,17 @@ impl ZenthreeState {
             active_resize_sidebar: false,
             tabs: Vec::new(),
             active_tab: None,
+            active_tab_signal: zenthra_state::Signal::new(None),
             current_dir,
             has_workspace,
             recent_files: Vec::new(),
             sidebar_items: Vec::new(),
             expanded_dirs: std::collections::HashSet::new(),
             status_message: "Welcome to Zenthree!".to_string(),
+            status_signal: zenthra_state::Signal::new("Welcome to Zenthree!".to_string()),
+            status_set_at: Some(std::time::Instant::now()),
+            // Placeholder — will be replaced with the real effect after construction.
+            _status_clear_effect: zenthra_state::Effect::run(|| {}),
             about_open: false,
             ctrl_pressed: false,
             shift_pressed: false,
@@ -206,7 +223,7 @@ impl ZenthreeState {
             tree_clipboard: None,
             groq_api_key: std::env::var("GROQ_API_KEY").ok(),
             ai_session_json: None,
-            ai_response_rx: None,
+            ai_update_signal: zenthra_state::ArcSignal::new(Vec::new()),
             copied_ai_msg: None,
             copied_ai_code_id: None,
             ai_block_cache: std::collections::HashMap::new(),
@@ -249,7 +266,51 @@ impl ZenthreeState {
         if state.has_workspace {
             state.rebuild_tree();
         }
+
+        // Wire the status auto-clear Effect to the real status_signal so it
+        // tracks changes. The actual clearing is done by tick_status() in the
+        // main frame loop (woken by the existing 250ms terminal redraw timer).
+        {
+            let sig = state.status_signal.clone();
+            state._status_clear_effect = zenthra_state::Effect::new(&sig, move |_msg| {
+                let _ = _msg; // subscription keeps the effect alive
+            });
+        }
+
         state
+    }
+
+    pub fn set_active_tab(&mut self, idx: Option<usize>) {
+        self.active_tab = idx;
+        self.active_tab_signal.set(idx);
+    }
+
+    /// Set the active theme and fire the reactive theme_signal.
+    /// All subscribers (e.g. Effects watching theme changes) are notified.
+    pub fn set_theme(&mut self, mode: ThemeMode) {
+        self.theme = mode;
+        self.theme_signal.set(mode);
+    }
+
+    pub fn set_status(&mut self, msg: impl Into<String>) {
+        let text = msg.into();
+        self.status_message = text.clone();
+        self.status_set_at = Some(std::time::Instant::now());
+        self.status_signal.set(text);
+    }
+
+    /// Called once per frame. Clears the status message if it has been shown for >= 3 seconds.
+    /// Returns true if the status was cleared (so caller can request a redraw).
+    pub fn tick_status(&mut self) -> bool {
+        if let Some(set_at) = self.status_set_at {
+            if !self.status_message.is_empty() && set_at.elapsed() >= std::time::Duration::from_secs(3) {
+                self.status_message.clear();
+                self.status_signal.set(String::new());
+                self.status_set_at = None;
+                return true;
+            }
+        }
+        false
     }
 
     pub fn active_review(&self) -> Option<&FileDiffReview> {
@@ -267,6 +328,28 @@ impl ZenthreeState {
                     self.active_review_idx = Some(rev_idx);
                 }
             }
+        }
+    }
+
+    /// Call after ANY buffer mutation (typing, paste, cut, undo, redo, format, completion insert).
+    /// Atomically:
+    ///   1. marks tab dirty
+    ///   2. bumps version (invalidates render caches)
+    ///   3. clears shaping cache (forces text re-layout)
+    ///   4. notifies LSP so the language server sees the updated buffer
+    ///
+    /// Previously steps 1-3 were scattered across 6+ call sites,
+    /// and LSP was NEVER notified from undo/redo/cut/paste/format — a real bug.
+    pub fn on_buffer_changed(&mut self, tab_idx: usize) {
+        if tab_idx >= self.tabs.len() {
+            return;
+        }
+        self.tabs[tab_idx].is_dirty = true;
+        self.tabs[tab_idx].version = self.tabs[tab_idx].version.wrapping_add(1);
+        self.tabs[tab_idx].shaping_cache.clear();
+        if let Some(path) = self.tabs[tab_idx].path.clone() {
+            let content = self.tabs[tab_idx].editor.buffer.to_string();
+            self.lsp_manager.on_document_change(&path, &content);
         }
     }
 

@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use crate::state::{ZenthreeState, path_matches, DiffLineState};
 use crate::lsp::protocol::DiagnosticSeverity;
-use zenthra::{Color, Ui, Align, FontWeight, Id};
+use zenthra::{Color, Ui, Align, FontWeight, Id, use_context};
 use zenthra_widgets::ui::{DrawCommand, TextDraw, RectDraw, ScrollDrag};
 use zenthra_render::RectInstance;
 use zenthra_text::prelude::{CosmicFontProvider, TextOptions, ShapedBuffer};
@@ -9,7 +9,7 @@ use editor::buffer::Point;
 use editor::selection::Selection;
 
 pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height: f32) {
-    let colors = state.colors();
+    let colors = use_context::<crate::theme::ThemeColors>().map(|c| *c).unwrap_or_else(|| state.colors());
 
     // Drain any fresh completions delivered by LSP
     if let Some(items) = state.lsp_manager.latest_completions.take() {
@@ -198,7 +198,7 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                             active_tab_idx = state.active_tab.unwrap_or(0);
                             ui.request_redraw();
                         } else if let Some(idx) = tab_to_activate {
-                            state.active_tab = Some(idx);
+                            state.set_active_tab(Some(idx));
                             active_tab_idx = idx;
                             state.sync_active_review_for_tab(idx);
                             if let Some(ref path) = state.tabs[idx].path.clone() {
@@ -755,12 +755,8 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                                 }
                             }
                             if changed {
-                                tab.is_dirty = true;
-                                tab.version += 1;
-                                tab.shaping_cache.clear();
-                                if let Some(ref p) = tab.path {
-                                    state.lsp_manager.on_document_change(p, &tab.editor.buffer.to_string());
-                                }
+                                let tab_idx = state.active_tab.unwrap_or(0);
+                                state.on_buffer_changed(tab_idx);
                                 auto_scroll_to_cursor = true;
                                 ui.needs_redraw = true;
                             }
@@ -1567,14 +1563,9 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                         });
 
                         if let Some(insert_text) = item_to_insert {
-                            let tab = &mut state.tabs[active_tab_idx];
-                            tab.editor.insert(&insert_text, tab.path.as_deref(), Some(&state.indent_calc));
-                            tab.is_dirty = true;
-                            tab.version += 1;
-                            tab.shaping_cache.clear();
-                            if let Some(ref p) = tab.path {
-                                state.lsp_manager.on_document_change(p, &tab.editor.buffer.to_string());
-                            }
+                            let tab_path = state.tabs[active_tab_idx].path.clone();
+                            state.tabs[active_tab_idx].editor.insert(&insert_text, tab_path.as_deref(), Some(&state.indent_calc));
+                            state.on_buffer_changed(active_tab_idx);
                             state.completion_active = false;
                             state.completion_items.clear();
                             ui.request_redraw();

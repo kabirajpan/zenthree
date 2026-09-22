@@ -1,10 +1,11 @@
 use crate::state::{ZenthreeState, SidebarView};
-use zenthra::{Color, Ui, Align, Id};
+use zenthra::{Color, Ui, Align, Id, use_context};
+use crate::theme::ThemeColors;
 
 pub const ACTIVITY_BAR_WIDTH: f32 = 44.0;
 
 pub fn draw_activity_bar(ui: &mut Ui, state: &mut ZenthreeState, height: f32) {
-    let colors = state.colors();
+    let colors = use_context::<ThemeColors>().map(|c| *c).unwrap_or_else(|| state.colors());
 
     ui.container()
         .width(ACTIVITY_BAR_WIDTH)

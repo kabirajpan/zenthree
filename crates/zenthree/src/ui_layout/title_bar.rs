@@ -1,9 +1,10 @@
 use crate::state::ZenthreeState;
 use crate::theme::{ThemeMode, ACCENT_COLOR_OPTIONS, ICON_THEME_OPTIONS};
-use zenthra::{Color, Ui, FontWeight, Align, Id};
+use zenthra::{Color, Ui, FontWeight, Align, Id, use_context};
+use crate::theme::ThemeColors;
 
 pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
-    let colors = state.colors();
+    let colors = use_context::<ThemeColors>().map(|c| *c).unwrap_or_else(|| state.colors());
     crate::theme::sync_theme_to_ui(ui, state.theme, &colors);
 
     // Reset hover flag for menus in title bar since we do not use menu_bar wrapper
@@ -119,11 +120,11 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                         // Cascading Submenu: Line Endings
                         ui.sub_menu("Line Endings").show(|ui| {
                             if ui.menu_item("● LF (Unix)").show().clicked {
-                                state.status_message = "Line endings set to LF".to_string();
+                                state.set_status("Line endings set to LF");
                                 ui.request_redraw();
                             }
                             if ui.menu_item("  CRLF (Windows)").show().clicked {
-                                state.status_message = "Line endings set to CRLF".to_string();
+                                state.set_status("Line endings set to CRLF");
                                 ui.request_redraw();
                             }
                         });
@@ -162,15 +163,15 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                         // Cascading Submenu: Text Transform
                         ui.sub_menu("Transform").show(|ui| {
                             if ui.menu_item("UPPERCASE").show().clicked {
-                                state.status_message = "Transformed to UPPERCASE".to_string();
+                                state.set_status("Transformed to UPPERCASE");
                                 ui.request_redraw();
                             }
                             if ui.menu_item("lowercase").show().clicked {
-                                state.status_message = "Transformed to lowercase".to_string();
+                                state.set_status("Transformed to lowercase");
                                 ui.request_redraw();
                             }
                             if ui.menu_item("Title Case").show().clicked {
-                                state.status_message = "Transformed to Title Case".to_string();
+                                state.set_status("Transformed to Title Case");
                                 ui.request_redraw();
                             }
                         });
@@ -183,15 +184,15 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                                         state.tabs[idx].editor.select_all();
                                     }
                                 }
-                                state.status_message = "Selected all".to_string();
+                                state.set_status("Selected all");
                                 ui.request_redraw();
                             }
                             if ui.menu_item("Expand Selection").show().clicked {
-                                state.status_message = "Expand Selection".to_string();
+                                state.set_status("Expand Selection");
                                 ui.request_redraw();
                             }
                             if ui.menu_item("Shrink Selection").show().clicked {
-                                state.status_message = "Shrink Selection".to_string();
+                                state.set_status("Shrink Selection");
                                 ui.request_redraw();
                             }
                         });
@@ -337,14 +338,14 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                         ui.sub_menu("Color Mode").show(|ui| {
                             let dark_mark = if state.theme == ThemeMode::Dark { "● " } else { "  " };
                             if ui.menu_item(&format!("{}Dark Theme", dark_mark)).show().clicked {
-                                state.theme = ThemeMode::Dark;
+                                state.set_theme(ThemeMode::Dark);
                                 state.highlighter = syntax::SyntaxHighlighter::new(syntax::SyntaxTheme::dark());
                                 state.save_persistent_state();
                                 ui.request_redraw();
                             }
                             let light_mark = if state.theme == ThemeMode::Light { "● " } else { "  " };
                             if ui.menu_item(&format!("{}Light Theme", light_mark)).show().clicked {
-                                state.theme = ThemeMode::Light;
+                                state.set_theme(ThemeMode::Light);
                                 state.highlighter = syntax::SyntaxHighlighter::new(syntax::SyntaxTheme::light());
                                 state.save_persistent_state();
                                 ui.request_redraw();
@@ -379,7 +380,7 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                                 };
                                 if ui.menu_item(&label).show().clicked {
                                     state.icon_theme = theme_id.to_string();
-                                    state.status_message = format!("Icon theme: {}", theme_name);
+                                    state.set_status(format!("Icon theme: {}", theme_name));
                                     state.save_persistent_state();
                                     ui.request_redraw();
                                 }

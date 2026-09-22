@@ -15,7 +15,7 @@ impl ZenthreeState {
         } else if let Some(c) = disk_content {
             c
         } else {
-            self.status_message = format!("Failed to open file: {}", path.display());
+            self.set_status(format!("Failed to open file: {}", path.display()));
             return;
         };
 
@@ -46,8 +46,13 @@ impl ZenthreeState {
                 tab.name == name
             };
             if is_match {
-                self.active_tab = Some(idx);
+                let name_clone = name.clone();
+                // Drop tab borrow before calling set_active_tab (needs &mut self)
+                let _ = tab;
+                self.set_active_tab(Some(idx));
+                // Re-borrow to apply pending review
                 if let Some(ref r) = pending {
+                    let tab = &mut self.tabs[idx];
                     tab.lines_added = r.total_added_lines();
                     tab.lines_removed = r.total_removed_lines();
                     let preview_text = r.diff_lines.iter().map(|(l, _)| l.as_str()).collect::<Vec<_>>().join("\n");
@@ -56,7 +61,7 @@ impl ZenthreeState {
                     tab.is_dirty = true;
                 }
                 self.sync_active_review_for_tab(idx);
-                self.status_message = format!("Switched to {}", name);
+                self.set_status(format!("Switched to {}", name_clone));
                 self.check_language_support_prompt(path);
                 self.save_persistent_state();
                 return;
@@ -75,9 +80,9 @@ impl ZenthreeState {
             lines_removed,
         });
         let new_tab_idx = self.tabs.len() - 1;
-        self.active_tab = Some(new_tab_idx);
+        self.set_active_tab(Some(new_tab_idx));
         self.sync_active_review_for_tab(new_tab_idx);
-        self.status_message = format!("Opened file: {}", path.display());
+        self.set_status(format!("Opened file: {}", path.display()));
 
             let ws_root = if self.has_workspace {
                 Some(self.current_dir.as_path())
@@ -115,9 +120,9 @@ impl ZenthreeState {
         self.highlighter.reset();
         self.save_persistent_state();
         if let Some(ext) = crate::extensions::ExtensionCatalog::find_by_id(id) {
-            self.status_message = format!("Installed {} successfully!", ext.name);
+            self.set_status(format!("Installed {} successfully!", ext.name));
         } else {
-            self.status_message = format!("Installed extension: {}", id);
+            self.set_status(format!("Installed extension: {}", id));
         }
         if let Some(ref prompt) = self.active_language_prompt {
             if prompt.extension_id == id {
@@ -131,9 +136,9 @@ impl ZenthreeState {
         self.highlighter.reset();
         self.save_persistent_state();
         if let Some(ext) = crate::extensions::ExtensionCatalog::find_by_id(id) {
-            self.status_message = format!("Uninstalled {}", ext.name);
+            self.set_status(format!("Uninstalled {}", ext.name));
         } else {
-            self.status_message = format!("Uninstalled extension: {}", id);
+            self.set_status(format!("Uninstalled extension: {}", id));
         }
     }
 
@@ -159,15 +164,22 @@ impl ZenthreeState {
                     self.save_active_tab_as();
                     return;
                 }
-                let tab = &mut self.tabs[idx];
-                if let Some(ref path) = tab.path {
-                    if std::fs::write(path, tab.editor.buffer.to_string()).is_ok() {
-                        tab.is_dirty = false;
-                        self.status_message = format!("Saved file: {}", tab.name);
+                // Extract name + write result before borrowing self for set_status
+                let (ok, msg) = {
+                    let tab = &mut self.tabs[idx];
+                    if let Some(ref path) = tab.path {
+                        if std::fs::write(path, tab.editor.buffer.to_string()).is_ok() {
+                            tab.is_dirty = false;
+                            (true, format!("Saved file: {}", tab.name))
+                        } else {
+                            (false, format!("Failed to save file: {}", tab.name))
+                        }
                     } else {
-                        self.status_message = format!("Failed to save file: {}", tab.name);
+                        return;
                     }
-                }
+                };
+                let _ = ok; // suppress unused warning
+                self.set_status(msg);
             }
         }
     }
@@ -190,25 +202,28 @@ impl ZenthreeState {
                 }
 
                 if let Some(path) = dialog.save_file() {
-                    let tab = &mut self.tabs[idx];
-                    if std::fs::write(&path, tab.editor.buffer.to_string()).is_ok() {
-                        tab.name = path
-                            .file_name()
-                            .and_then(|n| n.to_str())
-                            .unwrap_or("Unknown")
-                            .to_string();
-                        tab.path = Some(path.clone());
-                        tab.is_dirty = false;
-                        if !self.recent_files.contains(&path) {
-                            self.recent_files.insert(0, path);
-                            if self.recent_files.len() > 10 {
-                                self.recent_files.pop();
+                    let msg = {
+                        let tab = &mut self.tabs[idx];
+                        if std::fs::write(&path, tab.editor.buffer.to_string()).is_ok() {
+                            tab.name = path
+                                .file_name()
+                                .and_then(|n| n.to_str())
+                                .unwrap_or("Unknown")
+                                .to_string();
+                            tab.path = Some(path.clone());
+                            tab.is_dirty = false;
+                            if !self.recent_files.contains(&path) {
+                                self.recent_files.insert(0, path);
+                                if self.recent_files.len() > 10 {
+                                    self.recent_files.pop();
+                                }
                             }
+                            format!("Saved as: {}", tab.name)
+                        } else {
+                            format!("Failed to save file: {}", path.display())
                         }
-                        self.status_message = format!("Saved as: {}", tab.name);
-                    } else {
-                        self.status_message = format!("Failed to save file: {}", path.display());
-                    }
+                    };
+                    self.set_status(msg);
                 }
             }
         }
@@ -238,7 +253,7 @@ impl ZenthreeState {
                 let text = self.tabs[idx].editor.selected_text();
                 if !text.is_empty() {
                     self.set_clipboard(text);
-                    self.status_message = "Copied to clipboard".to_string();
+                    self.set_status("Copied to clipboard");
                 }
             }
         }
@@ -247,19 +262,11 @@ impl ZenthreeState {
     pub fn cut_selection(&mut self) {
         if let Some(idx) = self.active_tab {
             if idx < self.tabs.len() {
-                let text = {
-                    let tab = &mut self.tabs[idx];
-                    let text = tab.editor.cut_selection();
-                    if !text.is_empty() {
-                        tab.is_dirty = true;
-                        tab.version = tab.version.wrapping_add(1);
-                        tab.shaping_cache.clear();
-                    }
-                    text
-                };
+                let text = self.tabs[idx].editor.cut_selection();
                 if !text.is_empty() {
+                    self.on_buffer_changed(idx);
                     self.set_clipboard(text);
-                    self.status_message = "Cut to clipboard".to_string();
+                    self.set_status("Cut to clipboard");
                 }
             }
         }
@@ -271,12 +278,9 @@ impl ZenthreeState {
             if !text.is_empty() {
                 if let Some(idx) = self.active_tab {
                     if idx < self.tabs.len() {
-                        let tab = &mut self.tabs[idx];
-                        tab.editor.paste(&text);
-                        tab.is_dirty = true;
-                        tab.version = tab.version.wrapping_add(1);
-                        tab.shaping_cache.clear();
-                        self.status_message = "Pasted from clipboard".to_string();
+                        self.tabs[idx].editor.paste(&text);
+                        self.on_buffer_changed(idx);
+                        self.set_status("Pasted from clipboard");
                     }
                 }
             }
@@ -286,14 +290,12 @@ impl ZenthreeState {
     pub fn undo_active_tab(&mut self) {
         if let Some(idx) = self.active_tab {
             if idx < self.tabs.len() {
-                let tab = &mut self.tabs[idx];
-                if tab.editor.undo() {
-                    tab.is_dirty = true;
-                    tab.version = tab.version.wrapping_add(1);
-                    tab.shaping_cache.clear();
-                    self.status_message = "Undo".to_string();
+                let did_undo = self.tabs[idx].editor.undo();
+                if did_undo {
+                    self.on_buffer_changed(idx);
+                    self.set_status("Undo");
                 } else {
-                    self.status_message = "Already at oldest change".to_string();
+                    self.set_status("Already at oldest change");
                 }
             }
         }
@@ -302,14 +304,12 @@ impl ZenthreeState {
     pub fn redo_active_tab(&mut self) {
         if let Some(idx) = self.active_tab {
             if idx < self.tabs.len() {
-                let tab = &mut self.tabs[idx];
-                if tab.editor.redo() {
-                    tab.is_dirty = true;
-                    tab.version = tab.version.wrapping_add(1);
-                    tab.shaping_cache.clear();
-                    self.status_message = "Redo".to_string();
+                let did_redo = self.tabs[idx].editor.redo();
+                if did_redo {
+                    self.on_buffer_changed(idx);
+                    self.set_status("Redo");
                 } else {
-                    self.status_message = "Already at newest change".to_string();
+                    self.set_status("Already at newest change");
                 }
             }
         }
@@ -322,7 +322,7 @@ impl ZenthreeState {
                 self.lsp_manager.on_document_close(path);
             }
             if self.tabs.is_empty() {
-                self.active_tab = None;
+                self.set_active_tab(None);
                 self.selected_sidebar_path = None;
             } else if let Some(active) = self.active_tab {
                 let new_active = if active >= self.tabs.len() {
@@ -330,12 +330,12 @@ impl ZenthreeState {
                 } else {
                     active
                 };
-                self.active_tab = Some(new_active);
+                self.set_active_tab(Some(new_active));
                 if let Some(ref path) = self.tabs[new_active].path {
                     self.selected_sidebar_path = Some(path.clone());
                 }
             }
-            self.status_message = "Tab closed".to_string();
+            self.set_status("Tab closed");
             self.save_persistent_state();
         }
     }
@@ -359,32 +359,28 @@ impl ZenthreeState {
             lines_added: 0,
             lines_removed: 0,
         });
-        self.active_tab = Some(self.tabs.len() - 1);
-        self.status_message = "New untitled file created".to_string();
+        self.set_active_tab(Some(self.tabs.len() - 1));
+        self.set_status("New untitled file created");
     }
 
     pub fn format_active_tab(&mut self) {
         if let Some(idx) = self.active_tab {
             if idx < self.tabs.len() {
-                let tab = &mut self.tabs[idx];
-                let path = tab.path.as_deref();
-                let before = tab.editor.buffer.to_string();
-                match self.formatter.format_editor(&mut tab.editor, path) {
+                let path = self.tabs[idx].path.clone();
+                let before = self.tabs[idx].editor.buffer.to_string();
+                let msg = match self.formatter.format_editor(&mut self.tabs[idx].editor, path.as_deref()) {
                     Ok(_) => {
-                        let after = tab.editor.buffer.to_string();
+                        let after = self.tabs[idx].editor.buffer.to_string();
                         if before != after {
-                            tab.is_dirty = true;
-                            tab.version = tab.version.wrapping_add(1);
-                            tab.shaping_cache.clear();
-                            self.status_message = format!("Formatted {}", tab.name);
+                            self.on_buffer_changed(idx);
+                            format!("Formatted {}", self.tabs[idx].name)
                         } else {
-                            self.status_message = format!("{} is already formatted", tab.name);
+                            format!("{} is already formatted", self.tabs[idx].name)
                         }
                     }
-                    Err(err) => {
-                        self.status_message = err;
-                    }
-                }
+                    Err(err) => err,
+                };
+                self.set_status(msg);
             }
         }
     }

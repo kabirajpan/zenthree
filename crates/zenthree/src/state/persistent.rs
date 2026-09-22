@@ -241,11 +241,11 @@ impl ZenthreeState {
                     }
 
                     if !self.tabs.is_empty() {
-                        self.active_tab = Some(0);
+                        self.set_active_tab(Some(0));
                         if let Some(ref active_path) = saved.active_tab_path {
                             for (idx, tab) in self.tabs.iter().enumerate() {
                                 if tab.path.as_ref() == Some(active_path) {
-                                    self.active_tab = Some(idx);
+                                    self.set_active_tab(Some(idx));
                                     break;
                                 }
                             }

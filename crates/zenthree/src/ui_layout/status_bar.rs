@@ -1,8 +1,9 @@
 use crate::state::ZenthreeState;
-use zenthra::{Ui, Align, Color};
+use zenthra::{Ui, Align, Color, use_context};
+use crate::theme::ThemeColors;
 
 pub fn draw_status_bar(ui: &mut Ui, state: &mut ZenthreeState) {
-    let colors = state.colors();
+    let colors = use_context::<ThemeColors>().map(|c| *c).unwrap_or_else(|| state.colors());
     let avail_w = ui.available_width;
 
     ui.container()
@@ -17,18 +18,19 @@ pub fn draw_status_bar(ui: &mut Ui, state: &mut ZenthreeState) {
         .padding_left(12.0)
         .padding_right(8.0)
         .show(|ui| {
-            // Left: status message
+            // Left: status message (reactively tracked via Signal)
             ui.container()
                 .row()
                 .valign(Align::Center)
                 .gap(6.0)
                 .show(|ui| {
-                    if !state.status_message.is_empty() {
+                    let status_text = state.status_signal.with(|s| s.clone());
+                    if !status_text.is_empty() {
                         let max_chars = ((avail_w * 0.35) / 7.0).max(10.0) as usize;
-                        let msg = if state.status_message.len() > max_chars {
-                            format!("{}...", &state.status_message[..max_chars - 3])
+                        let msg = if status_text.len() > max_chars {
+                            format!("{}...", &status_text[..max_chars - 3])
                         } else {
-                            state.status_message.clone()
+                            status_text
                         };
                         ui.text(&msg)
                             .size(11.0)

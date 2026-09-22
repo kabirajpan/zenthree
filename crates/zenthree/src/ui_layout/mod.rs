@@ -19,14 +19,15 @@ pub use extensions_panel::draw_extensions_panel;
 pub use activity_bar::{draw_activity_bar, ACTIVITY_BAR_WIDTH};
 
 use crate::state::ZenthreeState;
-use zenthra::{Color, Ui, Align, FontWeight, Id};
+use zenthra::{Color, Ui, Align, FontWeight, Id, use_context};
+use crate::theme::ThemeColors;
 
 pub fn draw_about_dialog(ui: &mut Ui, state: &mut ZenthreeState) {
     if !state.about_open {
         return;
     }
 
-    let colors = state.colors();
+    let colors = use_context::<ThemeColors>().map(|c| *c).unwrap_or_else(|| state.colors());
     let win_w = 400.0;
     let win_h = 240.0;
 

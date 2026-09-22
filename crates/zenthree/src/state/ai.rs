@@ -43,9 +43,16 @@ impl ZenthreeState {
 
         self.ai_input.clear();
 
-        let (tx, rx) = std::sync::mpsc::channel::<AiUiUpdate>();
-        self.ai_response_rx = Some(rx);
+        // Clone the signal handle so the background thread can push updates.
+        // ArcSignal is Send + Sync, so this is safe to move into the thread.
+        let update_signal = self.ai_update_signal.clone();
+        // Clear any leftover updates from a previous session
+        update_signal.set(Vec::new());
 
+        let send = move |update: AiUiUpdate| {
+            update_signal.with_mut(|queue| queue.push(update));
+            // ArcSignal::with_mut already calls trigger_redraw_hook() — no timer needed
+        };
         let prompt = trimmed.to_string();
         // Pass workspace dir so tools run on the right project
         let current_dir = self.current_dir.clone();
@@ -119,10 +126,10 @@ impl ZenthreeState {
                 let mut final_text = String::new();
                 let mut on_event = |ev: agent::types::AgentEvent| match ev {
                     agent::types::AgentEvent::ToolStarted { name, args } => {
-                        let _ = tx.send(AiUiUpdate::ToolStart { name, args });
+                        send(AiUiUpdate::ToolStart { name, args });
                     }
                     agent::types::AgentEvent::ToolFinished { name, .. } => {
-                        let _ = tx.send(AiUiUpdate::ToolDone { name });
+                        send(AiUiUpdate::ToolDone { name });
                     }
                     agent::types::AgentEvent::Text(delta) => {
                         final_text.push_str(&delta);
@@ -137,13 +144,13 @@ impl ZenthreeState {
                         let reply = if text.is_empty() { final_text } else { text };
                         // Export the updated conversation so the next message has full memory
                         let new_session = agent.export_session_json().ok();
-                        let _ = tx.send(AiUiUpdate::Done {
+                        send(AiUiUpdate::Done {
                             reply,
                             session_json: new_session,
                         });
                     }
                     Err(e) => {
-                        let _ = tx.send(AiUiUpdate::Done {
+                        send(AiUiUpdate::Done {
                             reply: format!("Agent error: {e}"),
                             session_json,
                         });
@@ -153,13 +160,13 @@ impl ZenthreeState {
                 // Fallback: no provider key found
                 match agent::provider::complete(&prompt) {
                     Ok(content) => {
-                        let _ = tx.send(AiUiUpdate::Done {
+                        send(AiUiUpdate::Done {
                             reply: content,
                             session_json: None,
                         });
                     }
                     Err(err) => {
-                        let _ = tx.send(AiUiUpdate::Done {
+                        send(AiUiUpdate::Done {
                             reply: format!("Error: {err}"),
                             session_json: None,
                         });
@@ -169,14 +176,18 @@ impl ZenthreeState {
         });
     }
 
-    pub fn poll_ai_response(&mut self) -> bool {
-        let mut changed = false;
-        if let Some(ref rx) = self.ai_response_rx {
-            loop {
-                match rx.try_recv() {
-                    Ok(update) => {
-                        changed = true;
-                        match update {
+    /// Drain all queued AI updates from the signal and apply them to state.
+    /// Returns `true` if any update was processed (indicating the UI should redraw).
+    /// The signal's `trigger_redraw_hook()` already wakes the event loop, so this
+    /// only needs to be called once per frame — no 50ms timer required.
+    pub fn drain_ai_updates(&mut self) -> bool {
+        // Atomically take the full update queue from the signal.
+        let updates = self.ai_update_signal.with_mut(|queue| std::mem::take(queue));
+        if updates.is_empty() {
+            return false;
+        }
+        for update in updates {
+            match update {
                             AiUiUpdate::Status(status) => {
                                 if let Some(last) =
                                     self.ai_messages.iter_mut().rev().find(|m| !m.is_user)
@@ -333,7 +344,7 @@ impl ZenthreeState {
                                                 });
                                                 self.tabs.len() - 1
                                             };
-                                            self.active_tab = Some(tab_idx);
+                                            self.set_active_tab(Some(tab_idx));
                                         }
                                         "write_file" => {
                                             if let Some(TrajectoryStep::Exploration(ref mut grp)) =
@@ -441,7 +452,7 @@ impl ZenthreeState {
                                                 });
                                                 self.tabs.len() - 1
                                             };
-                                            self.active_tab = Some(tab_idx);
+                                            self.set_active_tab(Some(tab_idx));
                                         }
                                         "run_terminal" => {
                                             if let Some(TrajectoryStep::Exploration(ref mut grp)) =
@@ -590,31 +601,10 @@ impl ZenthreeState {
                                 if session_json.is_some() {
                                     self.ai_session_json = session_json;
                                 }
-                                self.ai_response_rx = None;
-                                return true;
+                                // Done: is_working was already set to false above
                             }
                         }
-                    }
-                    Err(std::sync::mpsc::TryRecvError::Disconnected) => {
-                        if let Some(last) = self.ai_messages.iter_mut().rev().find(|m| !m.is_user) {
-                            last.is_working = false;
-                            for step in &mut last.trajectory {
-                                if let TrajectoryStep::Exploration(ref mut grp) = step {
-                                    grp.is_active = false;
-                                }
-                            }
-                            if last.content.is_empty() {
-                                last.content = "Connection closed without response.".to_string();
-                            }
-                        }
-                        self.ai_response_rx = None;
-                        changed = true;
-                        break;
-                    }
-                    Err(std::sync::mpsc::TryRecvError::Empty) => break,
-                }
-            }
         }
-        changed
+        true
     }
 }
