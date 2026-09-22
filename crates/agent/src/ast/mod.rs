@@ -12,29 +12,10 @@ pub struct AstSymbol {
     pub signature: String,
 }
 
-/// Function pointer type providing a Tree-sitter Language.
-pub type LanguageProvider = fn() -> Language;
-
 /// Dynamic registry mapping file extensions to Tree-sitter language grammars.
-#[derive(Clone)]
+#[derive(Clone, Default)]
 pub struct DynamicGrammarRegistry {
-    grammars: HashMap<String, LanguageProvider>,
-}
-
-impl Default for DynamicGrammarRegistry {
-    fn default() -> Self {
-        let mut registry = Self {
-            grammars: HashMap::new(),
-        };
-        // Register built-in grammars
-        registry.register_extensions(&["rs"], tree_sitter_rust::language);
-        registry.register_extensions(&["py"], tree_sitter_python::language);
-        registry.register_extensions(
-            &["js", "jsx", "mjs", "cjs", "ts", "tsx"],
-            tree_sitter_javascript::language,
-        );
-        registry
-    }
+    grammars: HashMap<String, Language>,
 }
 
 impl DynamicGrammarRegistry {
@@ -44,23 +25,23 @@ impl DynamicGrammarRegistry {
         }
     }
 
-    /// Dynamically register an extension with a language provider.
-    pub fn register(&mut self, ext: &str, provider: LanguageProvider) {
+    /// Dynamically register an extension with a Tree-sitter Language.
+    pub fn register(&mut self, ext: &str, language: Language) {
         let clean = ext.trim().trim_start_matches('.').to_lowercase();
-        self.grammars.insert(clean, provider);
+        self.grammars.insert(clean, language);
     }
 
     /// Dynamically register multiple extensions for the same language.
-    pub fn register_extensions(&mut self, exts: &[&str], provider: LanguageProvider) {
+    pub fn register_extensions(&mut self, exts: &[&str], language: Language) {
         for ext in exts {
-            self.register(ext, provider);
+            self.register(ext, language.clone());
         }
     }
 
-    /// Retrieve the language provider for a given extension.
+    /// Retrieve the language for a given extension.
     pub fn get_language(&self, ext: &str) -> Option<Language> {
         let clean = ext.trim().trim_start_matches('.').to_lowercase();
-        self.grammars.get(&clean).map(|f| f())
+        self.grammars.get(&clean).cloned()
     }
 }
 
@@ -89,10 +70,17 @@ impl DynamicAstEngine {
         }
     }
 
-    /// Dynamically register a language grammar at runtime.
-    pub fn register_language(&self, ext: &str, provider: LanguageProvider) {
+    /// Dynamically register a language grammar at runtime for an extension.
+    pub fn register_language(&self, ext: &str, language: Language) {
         if let Ok(mut lock) = self.registry.lock() {
-            lock.register(ext, provider);
+            lock.register(ext, language);
+        }
+    }
+
+    /// Dynamically register a language grammar at runtime for multiple extensions.
+    pub fn register_extensions(&self, exts: &[&str], language: Language) {
+        if let Ok(mut lock) = self.registry.lock() {
+            lock.register_extensions(exts, language);
         }
     }
 

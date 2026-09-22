@@ -40,6 +40,7 @@ pub struct Agent {
     config: AgentConfig,
     skills: Arc<SkillRegistry>,
     active_tools: HashSet<String>,
+    ast: Arc<crate::ast::DynamicAstEngine>,
 }
 
 impl Agent {
@@ -58,9 +59,13 @@ impl Agent {
     ) -> Self {
         let skills_report = crate::skills::discover(workspace).unwrap_or_default();
         let skills = Arc::new(skills_report.registry);
+        let ast = Arc::new(crate::ast::DynamicAstEngine::new());
         tools.register(crate::tools::ActivateSkillTool::new(skills.clone()));
         if tools.find("search").is_some() {
-            tools.register(crate::tools::SearchTool::new().with_skills(skills.clone()));
+            tools.register(crate::tools::SearchTool::new().with_ast(ast.clone()).with_skills(skills.clone()));
+        }
+        if tools.find("read_file").is_some() {
+            tools.register(crate::tools::ReadFileTool::new().with_ast(ast.clone()));
         }
         Self {
             provider,
@@ -69,7 +74,23 @@ impl Agent {
             config: AgentConfig::default(),
             skills,
             active_tools: HashSet::new(),
+            ast,
         }
+    }
+
+    /// Read-only reference to the dynamic AST engine.
+    pub fn ast(&self) -> &Arc<crate::ast::DynamicAstEngine> {
+        &self.ast
+    }
+
+    /// Dynamically register a Tree-sitter language grammar for an extension.
+    pub fn register_language(&self, ext: &str, language: tree_sitter::Language) {
+        self.ast.register_language(ext, language);
+    }
+
+    /// Dynamically register a Tree-sitter language grammar for multiple extensions.
+    pub fn register_extensions(&self, exts: &[&str], language: tree_sitter::Language) {
+        self.ast.register_extensions(exts, language);
     }
 
     /// Set or override the active intent for the next run.

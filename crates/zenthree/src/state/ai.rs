@@ -88,6 +88,12 @@ impl ZenthreeState {
                 selected_model.model_id(),
                 &current_dir,
             ) {
+                // Dynamically register all IDE languages into the agent's AST engine
+                let lang_reg = syntax::LanguageRegistry::new();
+                for lang in lang_reg.all() {
+                    agent.register_extensions(lang.extensions, lang.language.clone());
+                }
+
                 // Restore conversation history from previous messages
                 if let Some(ref json) = session_json {
                     let _ = agent.import_session_json(json);

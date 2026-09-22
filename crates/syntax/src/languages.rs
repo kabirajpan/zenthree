@@ -79,6 +79,10 @@ impl LanguageRegistry {
         }
     }
 
+    pub fn all(&self) -> &[LanguageConfig] {
+        &self.languages
+    }
+
     pub fn detect_language(&self, path: &Path) -> Option<&LanguageConfig> {
         let extension = path.extension()?.to_str()?;
         self.languages
