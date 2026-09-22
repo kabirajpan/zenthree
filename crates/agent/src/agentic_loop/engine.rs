@@ -27,8 +27,10 @@ use crate::types::event::{AgentEvent, ProviderEvent};
 use crate::types::message::{Message, ToolCall};
 use crate::verification::VerificationRunner;
 
+use std::collections::HashSet;
 use std::sync::Arc;
 use crate::skills::SkillRegistry;
+use crate::orchestrator::AgentIntent;
 
 /// The main autonomous agent orchestrator tying Provider, Tools, and Conversation together.
 pub struct Agent {
@@ -37,6 +39,7 @@ pub struct Agent {
     conversation: Vec<Message>,
     config: AgentConfig,
     skills: Arc<SkillRegistry>,
+    active_tools: HashSet<String>,
 }
 
 impl Agent {
@@ -62,7 +65,33 @@ impl Agent {
             conversation: Vec::new(),
             config: AgentConfig::default(),
             skills,
+            active_tools: HashSet::new(),
         }
+    }
+
+    /// Set or override the active intent for the next run.
+    pub fn set_intent(&mut self, intent: AgentIntent) {
+        self.active_tools.clear();
+        for t in intent.initial_tools() {
+            self.active_tools.insert(t.to_string());
+        }
+    }
+
+    /// Add a tool to the session cache dynamically (e.g. via discovery).
+    pub fn enable_tool(&mut self, tool_name: &str) {
+        self.active_tools.insert(tool_name.to_string());
+    }
+
+    /// Enable all tools (fallback mode).
+    pub fn enable_all_tools(&mut self) {
+        for name in self.tools.list_names() {
+            self.active_tools.insert(name.to_string());
+        }
+    }
+
+    /// Read-only slice of active tool names in the session cache.
+    pub fn active_tools(&self) -> &HashSet<String> {
+        &self.active_tools
     }
 
     /// Read-only reference to the discovered skill registry.
@@ -144,6 +173,12 @@ impl Agent {
     ) -> Result<String, ProviderError> {
         self.conversation.push(Message::user(user_input));
 
+        // Dynamically classify intent if active tools have not been configured
+        if self.active_tools.is_empty() {
+            let intent = AgentIntent::classify_heuristic(user_input);
+            self.set_intent(intent);
+        }
+
         for _iteration in 0..self.config.max_iterations {
             // Situation J: Check for user cancellation at safe checkpoint
             if self.is_cancelled() {
@@ -159,7 +194,13 @@ impl Agent {
             let mut assistant_text = String::new();
             let mut pending_tool_calls: Vec<ToolCall> = Vec::new();
 
-            let tool_schemas = self.tools.openai_schemas();
+            // On-demand tool schemas: 0 in discussion mode, 3-5 in action/explore modes
+            let tool_schemas = if self.active_tools.is_empty() {
+                Vec::new()
+            } else {
+                let active_refs: Vec<&str> = self.active_tools.iter().map(|s| s.as_str()).collect();
+                self.tools.openai_schemas_for(&active_refs)
+            };
 
             // Situation G: Stream response with bounded network retries and 413 auto-recovery
             let mut retries = 0;
@@ -279,7 +320,10 @@ impl Agent {
 
                 // Situation E: Model requested unknown / hallucinated tool
                 let tool = match self.tools.find(tool_name) {
-                    Some(t) => t,
+                    Some(t) => {
+                        self.active_tools.insert(tool_name.clone());
+                        t
+                    }
                     None => {
                         let valid = self.tools.list_names().join(", ");
                         let err_msg = format!(

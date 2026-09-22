@@ -1,7 +1,9 @@
 pub mod config;
+pub mod intent;
 pub mod session;
 
 pub use config::AgentConfig;
+pub use intent::{ActionCategory, AgentIntent};
 pub use session::AgentSession;
 
 

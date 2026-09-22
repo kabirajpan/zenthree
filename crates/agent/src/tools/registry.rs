@@ -8,7 +8,7 @@ use super::diagnostics::GetDiagnosticsTool;
 use super::fs::{DeleteFileTool, EditFileTool, GetProjectStructureTool, ListDirectoryTool, ReadFileTool, RenameFileTool, WriteFileTool};
 use super::git::{GitDiffTool, GitStatusTool};
 use super::plan::{CreatePlanTool, PlanState, UpdatePlanStepTool};
-use super::search::{FindFilesTool, SearchCodebaseTool};
+use super::search::{FindFilesTool, SearchCodebaseTool, SearchTool};
 use super::terminal::RunTerminalTool;
 
 /// Central registry managing agent tools, schema exports, and dynamic execution.
@@ -50,6 +50,7 @@ impl ToolRegistry {
         registry.register(GetProjectStructureTool);
         registry.register(FindFilesTool);
         registry.register(SearchCodebaseTool);
+        registry.register(SearchTool::new());
         registry.register(RunTerminalTool);
         registry
     }
@@ -127,5 +128,41 @@ impl ToolRegistry {
     pub fn to_gemini_tools(&self) -> Value {
         let items: Vec<Value> = self.tools.values().map(|t| t.to_gemini_schema()).collect();
         Value::Array(items)
+    }
+
+    /// Generate a compact 1-line tool manifest (name + one-line description, ~50 tokens total).
+    pub fn manifest(&self) -> String {
+        let names = self.list_names();
+        let mut lines = Vec::new();
+        for name in names {
+            if let Some(tool) = self.tools.get(name) {
+                // First line of description
+                let desc = tool.description().lines().next().unwrap_or("").trim();
+                lines.push(format!("{:20} : {}", name, desc));
+            }
+        }
+        lines.join("\n")
+    }
+
+    /// List of tool schemas formatted for OpenAI / Groq tool calling, filtered to specified tool names.
+    pub fn openai_schemas_for(&self, names: &[&str]) -> Vec<Value> {
+        let mut schemas = Vec::new();
+        for name in names {
+            if let Some(tool) = self.tools.get(*name) {
+                schemas.push(tool.to_openai_schema());
+            }
+        }
+        schemas
+    }
+
+    /// List of tool schemas formatted for Gemini tool calling, filtered to specified tool names.
+    pub fn gemini_schemas_for(&self, names: &[&str]) -> Vec<Value> {
+        let mut schemas = Vec::new();
+        for name in names {
+            if let Some(tool) = self.tools.get(*name) {
+                schemas.push(tool.to_gemini_schema());
+            }
+        }
+        schemas
     }
 }

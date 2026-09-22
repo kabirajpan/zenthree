@@ -14,7 +14,7 @@ pub use fs::{DeleteFileTool, EditFileTool, GetProjectStructureTool, ListDirector
 pub use git::{GitDiffTool, GitStatusTool};
 pub use plan::{CreatePlanTool, PlanState, PlanStep, UpdatePlanStepTool};
 pub use registry::ToolRegistry;
-pub use search::{FindFilesTool, SearchCodebaseTool};
+pub use search::{FindFilesTool, SearchCodebaseTool, SearchTool};
 pub use skill::ActivateSkillTool;
 pub use terminal::RunTerminalTool;
 pub use traits::Tool;
@@ -35,7 +35,7 @@ mod tests {
     #[test]
     fn test_essentials_registry() {
         let reg = ToolRegistry::essentials();
-        assert_eq!(reg.len(), 9);
+        assert_eq!(reg.len(), 10);
         let names = reg.list_names();
         assert!(names.contains(&"read_file"));
         assert!(names.contains(&"get_diagnostics"));
@@ -45,14 +45,16 @@ mod tests {
         assert!(names.contains(&"get_project_structure"));
         assert!(names.contains(&"find_files"));
         assert!(names.contains(&"search_codebase"));
+        assert!(names.contains(&"search"));
         assert!(names.contains(&"run_terminal"));
     }
 
     #[test]
     fn test_all_registry() {
         let reg = ToolRegistry::all();
-        assert_eq!(reg.len(), 15);
+        assert_eq!(reg.len(), 16);
         let names = reg.list_names();
+        assert!(names.contains(&"search"));
         assert!(names.contains(&"create_plan"));
         assert!(names.contains(&"delete_file"));
         assert!(names.contains(&"find_files"));
@@ -196,10 +198,10 @@ mod tests {
 
         let reg = ToolRegistry::essentials();
         let openai = reg.to_openai_tools();
-        assert_eq!(openai.as_array().unwrap().len(), 9);
+        assert_eq!(openai.as_array().unwrap().len(), 10);
 
         let gemini = reg.to_gemini_tools();
-        assert_eq!(gemini.as_array().unwrap().len(), 9);
+        assert_eq!(gemini.as_array().unwrap().len(), 10);
     }
 
     #[test]
