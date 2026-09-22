@@ -120,7 +120,17 @@ impl AgentIntent {
             || trimmed.starts_with("which file")
             || trimmed.starts_with("find")
             || trimmed.starts_with("locate")
-            || trimmed.contains("where does");
+            || trimmed.contains("where does")
+            || trimmed.contains("explain")
+            || trimmed.contains("overview")
+            || trimmed.contains("architecture")
+            || trimmed.contains("how does")
+            || trimmed.contains("what is")
+            || trimmed.contains("what does")
+            || trimmed.contains("walk me through")
+            || trimmed.contains("tell me about")
+            || trimmed.contains("understand")
+            || trimmed.contains("structure");
 
         if is_exploration && !trimmed.contains("fix") && !trimmed.contains("modify") && !trimmed.contains("replace") {
             return AgentIntent::Exploration;

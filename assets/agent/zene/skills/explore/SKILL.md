@@ -30,3 +30,4 @@ Use this skill when orienting in a new or unfamiliar codebase, or when locating 
 - Prefer `search(in: "symbols")` over raw text matching when looking for definitions.
 - Use batch `paths: [...]` to inspect related types/modules in a single roundtrip to save latency.
 - Never make speculative edits during exploration.
+- Never run shell commands (like `ls`, `cat`, `find`) via `run_terminal` to explore files. Use `search` and `read_file`.

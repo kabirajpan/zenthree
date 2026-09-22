@@ -20,7 +20,7 @@ mod tests {
     use serde_json::{json, Value};
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     use std::sync::Arc;
-    use crate::orchestrator::AgentIntent;
+    use crate::orchestrator::{ActionCategory, AgentIntent};
 
     /// Mock provider simulating a multi-turn tool calling loop
     struct MockEchoProvider {
@@ -187,25 +187,35 @@ mod tests {
         let mut on_event = |_| {};
         let mut ask_approval = |_| ApprovalDecision::Approve;
 
-        // Turn 1: Pure discussion -> 0 active tools
+        // Turn 1: Default run -> all tools provisioned, LLM decides autonomously
         let _ = agent.run("Can you explain the difference between mutex and rwlock?", &mut on_event, &mut ask_approval);
+        assert!(agent.active_tools().contains("search"));
+        assert!(agent.active_tools().contains("read_file"));
+        assert!(agent.active_tools().contains("edit_file"));
+
+        // Turn 2: Explicit Discussion intent -> 0 active tools
+        agent.set_intent(AgentIntent::Discussion);
+        let _ = agent.run("Why is that approach better?", &mut on_event, &mut ask_approval);
         assert!(agent.active_tools().is_empty());
 
-        // Turn 2: Exploration -> search, read_file, activate_skill
+        // Turn 3: Explicit Exploration intent -> search, read_file, activate_skill
+        agent.set_intent(AgentIntent::Exploration);
         let _ = agent.run("Where is the user configuration file located?", &mut on_event, &mut ask_approval);
         assert!(agent.active_tools().contains("search"));
         assert!(agent.active_tools().contains("read_file"));
         assert!(agent.active_tools().contains("activate_skill"));
         assert!(!agent.active_tools().contains("edit_file"));
 
-        // Turn 3: Action (Debug) -> edit_file, get_diagnostics, etc.
+        // Turn 4: Explicit Action (Debug) intent -> edit_file, get_diagnostics, etc.
+        agent.set_intent(AgentIntent::Action(ActionCategory::Debug));
         let _ = agent.run("Fix the compiler error in main.rs", &mut on_event, &mut ask_approval);
         assert!(agent.active_tools().contains("edit_file"));
         assert!(agent.active_tools().contains("get_diagnostics"));
 
-        // Turn 4: Discussion again -> drops back to 0 active tools!
-        let _ = agent.run("Why is that approach better?", &mut on_event, &mut ask_approval);
-        assert!(agent.active_tools().is_empty());
+        // Turn 5: Next turn without explicit intent resets back to full toolset for LLM choice
+        let _ = agent.run("Next question", &mut on_event, &mut ask_approval);
+        assert!(agent.active_tools().contains("search"));
+        assert!(agent.active_tools().contains("edit_file"));
     }
 
     #[test]

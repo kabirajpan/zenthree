@@ -213,17 +213,19 @@ impl Agent {
     ) -> Result<String, ProviderError> {
         self.conversation.push(Message::user(user_input));
 
-        // Dynamically provision tool schemas per turn based on intent unless explicitly overridden
+        // Dynamically provision tool schemas per turn: LLM decides autonomously unless explicitly overridden
         if let Some(tools) = self.explicit_tools.take() {
             self.active_tools = tools;
-        } else {
-            let intent = self
-                .explicit_intent
-                .take()
-                .unwrap_or_else(|| AgentIntent::classify_heuristic(user_input));
+        } else if let Some(intent) = self.explicit_intent.take() {
             self.active_tools.clear();
             for t in intent.initial_tools() {
                 self.active_tools.insert(t.to_string());
+            }
+        } else {
+            // Let the LLM decide: provision all tools registered in self.tools
+            self.active_tools.clear();
+            for name in self.tools.list_names() {
+                self.active_tools.insert(name.to_string());
             }
         }
 

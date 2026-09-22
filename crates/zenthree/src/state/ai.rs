@@ -110,7 +110,8 @@ impl ZenthreeState {
                         Available Workflow Skills:\n{}\n\n\
                         Guidelines:\n\
                         - Tools follow lazy loading: use available tools when needed.\n\
-                        - Use `search` and `read_file` to explore before modifying files.\n\
+                        - Use `search` and `read_file` exclusively to explore files, symbols, and directory trees.\n\
+                        - NEVER use `run_terminal` to read files, search code, or view directory trees. Reserve `run_terminal` strictly for compiler tests and build commands.\n\
                         - Prefer surgical edits using `edit_file` rather than rewriting whole files.\n\
                         - Run `get_diagnostics` or test suites via `run_terminal` to verify your changes.\n\
                         - Activate workflow skills on demand via `activate_skill(name: \"...\")` for step-by-step guidance.\n\n{}",

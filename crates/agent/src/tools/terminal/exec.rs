@@ -12,7 +12,7 @@ impl Tool for RunTerminalTool {
     }
 
     fn description(&self) -> &str {
-        "Run a build, test, lint, or shell command in the terminal and capture its exit status, stdout, and stderr."
+        "Run builds, test suites, linters, or package manager commands in the terminal (e.g. 'cargo check', 'cargo test', 'npm install'). DO NOT use this tool to read files, find files, or list directories (use 'read_file' and 'search' instead)."
     }
 
     fn schema(&self) -> Value {

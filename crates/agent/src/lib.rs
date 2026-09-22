@@ -57,6 +57,7 @@ mod tests {
     use super::*;
 
     #[test]
+    #[ignore = "requires live API credentials & quota"]
     fn test_provider_completion() {
         let res = provider::complete("Say 'agent online' and nothing else.");
         assert!(res.is_ok(), "Failed completion: {:?}", res.err());
@@ -66,6 +67,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "requires live API credentials & quota"]
     fn test_create_agent_end_to_end() {
         if let Some(mut agent) = create_agent() {
             let mut events = Vec::new();
@@ -83,6 +85,7 @@ mod tests {
     }
 
     #[test]
+    #[ignore = "requires live API credentials & quota"]
     fn test_two_readonly_tools_loop_proof() {
         if let Some(mut agent) = create_minimal_agent() {
             // Verify registry contains strictly the 3 read-only tools
