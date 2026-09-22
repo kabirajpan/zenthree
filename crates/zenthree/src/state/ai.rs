@@ -30,14 +30,7 @@ impl ZenthreeState {
             code_snippet: None,
             thoughts: None,
             expanded: false,
-            trajectory: vec![TrajectoryStep::Exploration(ExplorationGroup {
-                expanded: false,
-                items: vec![ExplorationItem::Thought {
-                    summary: "Planning approach...".to_string(),
-                    duration_secs: None,
-                }],
-                is_active: true,
-            })],
+            trajectory: Vec::new(),
             is_working: true,
         });
 

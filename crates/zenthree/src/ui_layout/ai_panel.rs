@@ -843,7 +843,7 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                             }
                                         }
 
-                                        // Fallback active status when working without trajectory steps yet
+                                        // "Working..." indicator — shown only when no tool steps have started yet
                                         if msg.is_working && full_text.is_empty() && msg.trajectory.is_empty() {
                                             ui.container()
                                                 .row()
@@ -858,7 +858,7 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                                         .size(10.0)
                                                         .color(colors.accent)
                                                         .show();
-                                                    ui.text("Planning approach...")
+                                                    ui.text("Working...")
                                                         .size(10.5)
                                                         .italic()
                                                         .color(colors.accent)
