@@ -40,10 +40,10 @@ Located in `assets/agent/zene/skills/`:
 
 | Skill | Primary Tools | Purpose |
 |---|---|---|
-| **`explore`** | `get_project_structure`, `find_files`, `search_codebase`, `read_file` | Orient in an unfamiliar project or locate definitions. |
+| **`explore`** | `get_project_structure`, `search`, `read_file` | Orient in an unfamiliar project or locate definitions. |
 | **`plan`** | `create_plan`, `update_plan_step` | Formulate phased execution plans with verification gates. |
 | **`implement`** | `read_file`, `edit_file`, `write_file`, `get_diagnostics` | Surgical, minimal code edits with diff discipline. |
-| **`debug`** | `get_diagnostics`, `search_codebase`, `read_file`, `edit_file`, `run_terminal` | Diagnose and resolve errors using concrete evidence. |
+| **`debug`** | `get_diagnostics`, `search`, `read_file`, `edit_file`, `run_terminal` | Diagnose and resolve errors using concrete evidence. |
 | **`verify`** | `run_terminal`, `get_diagnostics` | Dynamic checks, test suite execution, and compiler validation. |
 | **`review`** | `git_status`, `git_diff`, `get_diagnostics` | Diff review, security checks, and code cleanliness before done. |
 
