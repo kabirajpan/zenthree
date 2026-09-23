@@ -30,6 +30,8 @@ fn main() {
         .title("Zenthree Editor")
         .size(1100, 680)
         .decorations(false)
+        .transparent(true)
+        .blur(true)
         .load_font_data(font_bytes)
         .with_ui(move |ui| {
             // Track global modifier key states from input events
@@ -44,6 +46,13 @@ fn main() {
                         }
                         winit::keyboard::KeyCode::AltLeft | winit::keyboard::KeyCode::AltRight => {
                             state.alt_pressed = true;
+                        }
+                        winit::keyboard::KeyCode::Comma if state.ctrl_pressed => {
+                            state.editor_settings_open = !state.editor_settings_open;
+                            state.editor_settings_just_opened = true;
+                            if state.editor_settings_open {
+                                state.editor_settings_tab = crate::state::EditorSettingsTab::Appearance;
+                            }
                         }
                         _ => {}
                     },
@@ -85,7 +94,7 @@ fn main() {
             let colors = state.colors();
 
             // Sync full ThemeColors into UI interaction_state so menus, dropdowns, and widgets match active theme
-            crate::theme::sync_theme_to_ui(ui, state.theme, &colors);
+            crate::theme::sync_theme_to_ui(ui, state.theme, &colors, state.glassmorphism);
 
             // Provide reactive ThemeColors to the UI tree via Context API
             provide_context(colors);
@@ -93,7 +102,7 @@ fn main() {
             // Main Background Container: vertical layout
             ui.container()
                 .fill()
-                .bg(colors.bg_base)
+                .bg(if state.glassmorphism { Color::TRANSPARENT } else { colors.bg_base })
                 .column()
                 .show(|ui| {
                     // 1. Draw Title Bar
@@ -182,10 +191,11 @@ fn main() {
                         ui_layout::draw_status_bar(ui, &mut state);
                     }
 
-                    // 4. Modal overlays (About dialog, Language installation prompt, AI Settings dialog)
+                    // 4. Modal overlays (About dialog, Language prompt, AI Settings, Editor Settings)
                     ui_layout::draw_about_dialog(ui, &mut state);
                     ui_layout::draw_language_prompt_dialog(ui, &mut state);
                     ui_layout::draw_ai_settings_dialog(ui, &mut state);
+                    ui_layout::draw_editor_settings_dialog(ui, &mut state);
                 });
         })
         .run();

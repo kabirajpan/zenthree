@@ -26,16 +26,27 @@ pub fn draw_language_prompt_dialog(ui: &mut Ui, state: &mut ZenthreeState) {
     let mut toggle_dont_show = false;
 
     // Card container
-    ui.container()
+    let card_bg = if state.glassmorphism {
+        colors.bg_sidebar.with_alpha(0.82)
+    } else {
+        colors.bg_sidebar
+    };
+
+    let mut card = ui.container()
         .id(Id::from_u64(999998100))
         .absolute(card_x, card_y)
         .overlay()
         .width(card_w)
         .height(card_h)
-        .bg(colors.bg_sidebar)
+        .bg(card_bg)
         .border(colors.accent.with_alpha(0.6), 1.5)
-        .radius_all(8.0)
-        .padding(14.0, 16.0, 12.0, 16.0)
+        .radius_all(8.0);
+
+    if state.glassmorphism {
+        card = card.backdrop_blur(20.0);
+    }
+
+    card.padding(14.0, 16.0, 12.0, 16.0)
         .column()
         .show(|ui| {
             // Row 1: Header (Icon + Title + Close button)
@@ -76,7 +87,7 @@ pub fn draw_language_prompt_dialog(ui: &mut Ui, state: &mut ZenthreeState) {
                         .width(20.0)
                         .height(20.0)
                         .bg(Color::TRANSPARENT)
-                        .hover_bg(Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, 0.1))
+                        .hover_bg(colors.highlight)
                         .text_color(colors.text_muted)
                         .radius_all(3.0)
                         .size(11.0)
@@ -114,7 +125,7 @@ pub fn draw_language_prompt_dialog(ui: &mut Ui, state: &mut ZenthreeState) {
                         .width(24.0)
                         .height(18.0)
                         .bg(Color::TRANSPARENT)
-                        .hover_bg(Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, 0.08))
+                        .hover_bg(colors.highlight)
                         .text_color(if dont_show { colors.accent } else { colors.text_muted })
                         .size(10.5)
                         .padding(0.0, 0.0, 0.0, 0.0)
@@ -144,7 +155,7 @@ pub fn draw_language_prompt_dialog(ui: &mut Ui, state: &mut ZenthreeState) {
                         .id(Id::from_u64(999998103))
                         .height(24.0)
                         .bg(Color::TRANSPARENT)
-                        .hover_bg(Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, 0.08))
+                        .hover_bg(colors.highlight)
                         .text_color(colors.text_muted)
                         .radius_all(4.0)
                         .padding_left(10.0)

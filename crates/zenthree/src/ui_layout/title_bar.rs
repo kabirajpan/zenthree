@@ -5,7 +5,7 @@ use crate::theme::ThemeColors;
 
 pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
     let colors = use_context::<ThemeColors>().map(|c| *c).unwrap_or_else(|| state.colors());
-    crate::theme::sync_theme_to_ui(ui, state.theme, &colors);
+    crate::theme::sync_theme_to_ui(ui, state.theme, &colors, state.glassmorphism);
 
     // Reset hover flag for menus in title bar since we do not use menu_bar wrapper
     let hover_flag_key = Id::from_u64(999999902);
@@ -130,6 +130,23 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                         });
 
                         ui.spacing(4.0);
+
+                        // Cascading Submenu: Preferences
+                        ui.sub_menu("Preferences").show(|ui| {
+                            if ui.menu_item("Editor Settings").shortcut("Ctrl+,").show().clicked {
+                                state.editor_settings_open = true;
+                                state.editor_settings_just_opened = true;
+                                state.editor_settings_tab = crate::state::EditorSettingsTab::Appearance;
+                                ui.request_redraw();
+                            }
+                            if ui.menu_item("AI & Agent Settings").show().clicked {
+                                state.ai_settings.open = true;
+                                state.ai_settings.just_opened = true;
+                                ui.request_redraw();
+                            }
+                        });
+
+                        ui.spacing(4.0);
                         if ui.menu_item("Exit").show().clicked {
                             state.cancel_active_ai();
                             state.save_persistent_state();
@@ -237,6 +254,13 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                             let ln_mark = if state.line_numbers_visible { "● " } else { "  " };
                             if ui.menu_item(&format!("{}Line Numbers", ln_mark)).show().clicked {
                                 state.line_numbers_visible = !state.line_numbers_visible;
+                                state.save_persistent_state();
+                                ui.request_redraw();
+                            }
+                            let glass_mark = if state.glassmorphism { "● " } else { "  " };
+                            if ui.menu_item(&format!("{}Window Blur / Glassmorphism", glass_mark)).show().clicked {
+                                state.glassmorphism = !state.glassmorphism;
+                                ui.set_blur(state.glassmorphism);
                                 state.save_persistent_state();
                                 ui.request_redraw();
                             }
@@ -352,6 +376,17 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                                 ui.request_redraw();
                             }
                         });
+
+                        // Glassmorphism Mode Toggle
+                        let glass_mark = if state.glassmorphism { "● " } else { "  " };
+                        if ui.menu_item(&format!("{}Glassmorphism (Frosted Glass)", glass_mark)).show().clicked {
+                            state.glassmorphism = !state.glassmorphism;
+                            ui.set_blur(state.glassmorphism);
+                            state.save_persistent_state();
+                            ui.request_redraw();
+                        }
+
+                        ui.spacing(4.0);
 
                         // Cascading Submenu: Accent Color
                         ui.sub_menu("Accent Color").show(|ui| {

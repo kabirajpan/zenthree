@@ -73,7 +73,7 @@ impl ThemeColors {
                 text_muted: Color::rgb(148.0 / 255.0, 155.0 / 255.0, 168.0 / 255.0),
                 text_dim: Color::rgb(82.0 / 255.0, 88.0 / 255.0, 102.0 / 255.0),
                 accent,
-                highlight: Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, 0.08),
+                highlight: Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, 0.04),
             },
             ThemeMode::Light => Self {
                 bg_base: Color::rgb(240.0 / 255.0, 240.0 / 255.0, 242.0 / 255.0),
@@ -87,21 +87,49 @@ impl ThemeColors {
                 text_muted: Color::rgb(90.0 / 255.0, 90.0 / 255.0, 95.0 / 255.0),
                 text_dim: Color::rgb(190.0 / 255.0, 190.0 / 255.0, 195.0 / 255.0),
                 accent,
-                highlight: Color::rgba(0.0, 0.0, 0.0, 0.08),
+                highlight: Color::rgba(0.0, 0.0, 0.0, 0.04),
             },
         }
+    }
+    pub fn with_glassmorphism(mut self, enabled: bool, mode: ThemeMode, opacity: f32) -> Self {
+        if enabled {
+            let op = opacity.clamp(0.15, 0.95);
+            match mode {
+                ThemeMode::Dark => {
+                    self.bg_base = Color::rgba(12.0 / 255.0, 14.0 / 255.0, 20.0 / 255.0, op * 0.72);
+                    self.bg_sidebar = Color::rgba(18.0 / 255.0, 20.0 / 255.0, 28.0 / 255.0, op * 0.82);
+                    self.bg_editor = Color::rgba(16.0 / 255.0, 18.0 / 255.0, 24.0 / 255.0, op);
+                    self.bg_gutter = Color::rgba(16.0 / 255.0, 18.0 / 255.0, 24.0 / 255.0, op);
+                    self.bg_active_tab = Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, 0.12);
+                    self.bg_inactive_tab = Color::rgba(0.0, 0.0, 0.0, 0.20);
+                    self.border = Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, 0.12);
+                    self.highlight = Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, 0.04);
+                }
+                ThemeMode::Light => {
+                    self.bg_base = Color::rgba(240.0 / 255.0, 242.0 / 255.0, 248.0 / 255.0, op * 0.72);
+                    self.bg_sidebar = Color::rgba(235.0 / 255.0, 238.0 / 255.0, 245.0 / 255.0, op * 0.85);
+                    self.bg_editor = Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, op);
+                    self.bg_gutter = Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, op);
+                    self.bg_active_tab = Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, 0.75);
+                    self.bg_inactive_tab = Color::rgba(230.0 / 255.0, 232.0 / 255.0, 240.0 / 255.0, 0.35);
+                    self.border = Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, 0.25);
+                    self.highlight = Color::rgba(0.0, 0.0, 0.0, 0.04);
+                }
+            }
+        }
+        self
     }
 }
 
 /// Syncs full ThemeColors into `ui.interaction_state` so all framework widgets (including menus, dropdowns, and submenus)
 /// reflect the active theme, background panels, borders, and accent highlights without defaulting to black or yellow.
-pub fn sync_theme_to_ui(ui: &mut Ui, mode: ThemeMode, colors: &ThemeColors) {
+pub fn sync_theme_to_ui(ui: &mut Ui, mode: ThemeMode, colors: &ThemeColors, is_glassmorphism: bool) {
     let is_light = mode == ThemeMode::Light;
 
     // Theme mode flag (1.0 = Light, 0.0 = Dark) for zenthra-widgets
     ui.interaction_state.insert(Id::from_u64(999999999), if is_light { 1.0 } else { 0.0 });
-    // Glassmorphism flag (0.0 = solid, crisp menu dropdown panels)
-    ui.interaction_state.insert(Id::from_u64(999999998), 0.0);
+    // Glassmorphism flag (1.0 = glassmorphic menu dropdown panels, 0.0 = solid)
+    ui.interaction_state.insert(Id::from_u64(999999998), if is_glassmorphism { 1.0 } else { 0.0 });
 
     let mut set_color = |base_id: u64, color: Color| {
         let [r, g, b, a] = color.to_array();

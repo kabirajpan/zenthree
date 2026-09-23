@@ -14,8 +14,9 @@ pub fn draw_ai_settings_dialog(ui: &mut Ui, state: &mut ZenthreeState) {
     let is_light = colors.bg_base.r > 0.5;
 
     // Generous, premium floating window dimensions
-    let win_w = 760.0;
-    let win_h = 520.0;
+    let win_w = 800.0;
+    let win_h = 560.0;
+    let win_radius = 8.0;
 
     let viewport = ui.current_viewport;
     let center_x = viewport.origin.x + (viewport.size.width - win_w) / 2.0;
@@ -26,7 +27,7 @@ pub fn draw_ai_settings_dialog(ui: &mut Ui, state: &mut ZenthreeState) {
         instance: zenthra_render::RectInstance {
             pos: [viewport.origin.x, viewport.origin.y],
             size: [viewport.size.width, viewport.size.height],
-            color: [0.0, 0.0, 0.0, 0.55],
+            color: [0.0, 0.0, 0.0, 0.50],
             radius: [0.0; 4],
             ..Default::default()
         },
@@ -65,17 +66,28 @@ pub fn draw_ai_settings_dialog(ui: &mut Ui, state: &mut ZenthreeState) {
     }
 
     // 2. Centered Floating Dialog Card
-    ui.container()
+    let card_bg = if state.glassmorphism {
+        colors.bg_sidebar.with_alpha((state.glass_opacity * 1.2).clamp(0.40, 0.95))
+    } else {
+        colors.bg_sidebar
+    };
+
+    let mut card = ui.container()
         .id(Id::from_u64(999999711))
         .absolute(center_x, center_y)
         .overlay()
         .width(win_w)
         .height(win_h)
-        .bg(colors.bg_sidebar)
-        .border(colors.border.with_alpha(0.6), 1.0)
-        .radius_all(12.0)
-        .shadow(Color::rgba(0.0, 0.0, 0.0, 0.45), 0.0, 8.0, 16.0)
-        .column()
+        .bg(card_bg)
+        .border(colors.border.with_alpha(0.40), 1.0)
+        .radius_all(win_radius)
+        .shadow(Color::rgba(0.0, 0.0, 0.0, 0.40), 0.0, 10.0, 28.0);
+
+    if state.glassmorphism {
+        card = card.backdrop_blur(state.blur_strength.max(4.0));
+    }
+
+    card.column()
         .clip(true)
         .show(|ui| {
             // Header bar
@@ -86,7 +98,8 @@ pub fn draw_ai_settings_dialog(ui: &mut Ui, state: &mut ZenthreeState) {
                 .row()
                 .valign(Align::Center)
                 .halign(Align::SpaceBetween)
-                .bg(colors.bg_base)
+                .bg(colors.bg_base.with_alpha(0.55))
+                .radius_top(win_radius)
                 .show(|ui| {
                     ui.container()
                         .row()
@@ -98,7 +111,7 @@ pub fn draw_ai_settings_dialog(ui: &mut Ui, state: &mut ZenthreeState) {
                                 .color(colors.accent)
                                 .show();
                             ui.text("AI & Agent Settings")
-                                .size(14.0)
+                                .size(13.5)
                                 .weight(FontWeight::Bold)
                                 .color(colors.text_primary)
                                 .show();
@@ -111,7 +124,7 @@ pub fn draw_ai_settings_dialog(ui: &mut Ui, state: &mut ZenthreeState) {
                         .hover_bg(colors.highlight)
                         .show(|ui| {
                             ui.text("\u{f00d}") // fa-times
-                                .size(13.0)
+                                .size(12.0)
                                 .color(colors.text_muted)
                                 .show();
                         });
@@ -130,12 +143,12 @@ pub fn draw_ai_settings_dialog(ui: &mut Ui, state: &mut ZenthreeState) {
             ui.container()
                 .full_width()
                 .height(1.0)
-                .bg(colors.border.with_alpha(0.4))
+                .bg(colors.border.with_alpha(0.25))
                 .show(|_| {});
 
             // Body: Left Sidebar + Right Content Area
             let body_h = win_h - 45.0;
-            let sidebar_w = 170.0;
+            let sidebar_w = 180.0;
             let content_w = win_w - sidebar_w - 1.0;
 
             ui.container()
@@ -147,23 +160,24 @@ pub fn draw_ai_settings_dialog(ui: &mut Ui, state: &mut ZenthreeState) {
                     ui.container()
                         .width(sidebar_w)
                         .height(body_h)
-                        .bg(colors.bg_base.with_alpha(0.45))
-                        .padding(12.0, 10.0, 12.0, 10.0)
+                        .bg(colors.bg_base.with_alpha(0.35))
+                        .radius_bottom_left(win_radius)
+                        .padding(12.0, 8.0, 12.0, 8.0)
                         .column()
-                        .gap(4.0)
+                        .gap(3.0)
                         .show(|ui| {
                             for tab in &AiSettingsTab::ALL {
                                 let is_active = state.ai_settings.active_tab == *tab;
                                 let tab_btn = ui.container()
                                     .full_width()
                                     .clickable(true)
-                                    .padding(8.0, 12.0, 8.0, 12.0)
-                                    .radius_all(6.0)
-                                    .bg(if is_active { colors.highlight } else { Color::TRANSPARENT })
-                                    .hover_bg(if is_active { colors.highlight } else { colors.highlight.with_alpha(0.5) })
+                                    .padding(5.5, 10.0, 5.5, 10.0)
+                                    .radius_all(5.0)
+                                    .bg(if is_active { colors.highlight.with_alpha(0.06) } else { Color::TRANSPARENT })
+                                    .hover_bg(colors.highlight)
                                     .row()
                                     .valign(Align::Center)
-                                    .gap(10.0)
+                                    .gap(8.0)
                                     .show(|ui| {
                                         ui.text(tab.icon())
                                             .size(12.0)
@@ -190,18 +204,21 @@ pub fn draw_ai_settings_dialog(ui: &mut Ui, state: &mut ZenthreeState) {
                     ui.container()
                         .width(1.0)
                         .height(body_h)
-                        .bg(colors.border.with_alpha(0.4))
+                        .bg(colors.border.with_alpha(0.25))
                         .show(|_| {});
 
                     // Right Content Area
+                    let scroll_id = Id::from_u64(999999715);
                     ui.container()
-                        .id(Id::from_u64(999999715))
+                        .id(scroll_id)
                         .width(content_w)
                         .height(body_h)
-                        .padding(18.0, 24.0, 18.0, 24.0)
+                        .clip(true)
+                        .radius_bottom_right(win_radius)
+                        .padding(16.0, 22.0, 16.0, 22.0)
                         .scroll_y(true)
                         .column()
-                        .gap(14.0)
+                        .gap(12.0)
                         .show(|ui| {
                             match state.ai_settings.active_tab {
                                 AiSettingsTab::Appearance => {
@@ -754,7 +771,7 @@ fn draw_model_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColors) 
 
     draw_settings_divider(ui, colors);
 
-    // Row 2: Temperature Stepper inline
+    // Row 2: Temperature Slider with Steppers
     ui.container()
         .full_width()
         .row()
@@ -780,48 +797,81 @@ fn draw_model_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColors) 
             ui.container()
                 .row()
                 .valign(Align::Center)
-                .gap(6.0)
-                .padding(3.0, 6.0, 3.0, 6.0)
-                .radius_all(6.0)
-                .bg(colors.bg_base)
+                .gap(5.0)
                 .show(|ui| {
                     let minus_btn = ui.container()
                         .clickable(true)
-                        .padding(3.0, 8.0, 3.0, 8.0)
+                        .width(22.0)
+                        .height(22.0)
                         .radius_all(4.0)
+                        .bg(colors.highlight)
                         .hover_bg(colors.highlight)
+                        .valign(Align::Center)
+                        .halign(Align::Center)
                         .show(|ui| {
                             ui.text("-")
-                                .size(12.0)
-                                .color(colors.text_muted)
+                                .size(13.0)
+                                .weight(FontWeight::Bold)
+                                .color(colors.text_primary)
                                 .show();
                         });
+                    if minus_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
                     if minus_btn.clicked {
-                        state.ai_settings.temperature = (state.ai_settings.temperature - 0.1).max(0.0);
+                        state.ai_settings.temperature = ((state.ai_settings.temperature - 0.05) * 100.0).round() / 100.0;
+                        state.ai_settings.temperature = state.ai_settings.temperature.max(0.0);
                         ui.needs_redraw = true;
                     }
 
-                    ui.text(&format!("{:.1}", state.ai_settings.temperature))
-                        .size(11.5)
-                        .weight(FontWeight::Medium)
-                        .color(colors.text_primary)
+                    let mut temp_val = state.ai_settings.temperature;
+                    let slider_resp = ui.slider(&mut temp_val, "ai_temperature_slider")
+                        .range(0.0, 1.0)
+                        .step(0.05)
+                        .track_size(110.0, 4.0)
+                        .track_radius(2.0, 2.0, 2.0, 2.0)
+                        .track_color(colors.highlight)
+                        .thumb_size(12.0, 12.0)
+                        .thumb_radius(6.0, 6.0, 6.0, 6.0)
+                        .thumb_color(colors.accent)
                         .show();
+
+                    if (temp_val - state.ai_settings.temperature).abs() > 0.001 || slider_resp.clicked || slider_resp.pressed {
+                        state.ai_settings.temperature = temp_val;
+                        ui.needs_redraw = true;
+                    }
 
                     let plus_btn = ui.container()
                         .clickable(true)
-                        .padding(3.0, 8.0, 3.0, 8.0)
+                        .width(22.0)
+                        .height(22.0)
                         .radius_all(4.0)
+                        .bg(colors.highlight)
                         .hover_bg(colors.highlight)
+                        .valign(Align::Center)
+                        .halign(Align::Center)
                         .show(|ui| {
                             ui.text("+")
-                                .size(12.0)
-                                .color(colors.text_muted)
+                                .size(13.0)
+                                .weight(FontWeight::Bold)
+                                .color(colors.text_primary)
                                 .show();
                         });
+                    if plus_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
                     if plus_btn.clicked {
-                        state.ai_settings.temperature = (state.ai_settings.temperature + 0.1).min(1.0);
+                        state.ai_settings.temperature = ((state.ai_settings.temperature + 0.05) * 100.0).round() / 100.0;
+                        state.ai_settings.temperature = state.ai_settings.temperature.min(1.0);
                         ui.needs_redraw = true;
                     }
+
+                    ui.container()
+                        .width(36.0)
+                        .halign(Align::Right)
+                        .show(|ui| {
+                            ui.text(&format!("{:.2}", state.ai_settings.temperature))
+                                .size(11.5)
+                                .weight(FontWeight::Bold)
+                                .color(colors.accent)
+                                .show();
+                        });
                 });
         });
 

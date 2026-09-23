@@ -158,10 +158,7 @@ pub fn draw_terminal_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, h
         .id(term_id)
         .width(width)
         .height(height)
-        .bg(match state.theme {
-            crate::theme::ThemeMode::Dark => Color::rgb(22.0 / 255.0, 24.0 / 255.0, 26.0 / 255.0),
-            crate::theme::ThemeMode::Light => Color::rgb(245.0 / 255.0, 243.0 / 255.0, 235.0 / 255.0),
-        })
+        .bg(colors.bg_base)
         .border(colors.border, 1.0)
         .column()
         .show(|ui| {

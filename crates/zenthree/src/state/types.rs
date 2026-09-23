@@ -549,4 +549,44 @@ pub struct SavedAiSession {
 
 pub use super::ai_settings::*;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+pub enum EditorSettingsTab {
+    #[default]
+    Appearance,
+    Editor,
+    Terminal,
+    Agent,
+    Keymaps,
+}
+
+impl EditorSettingsTab {
+    pub const ALL: [Self; 5] = [
+        Self::Appearance,
+        Self::Editor,
+        Self::Terminal,
+        Self::Agent,
+        Self::Keymaps,
+    ];
+
+    pub fn display_name(&self) -> &'static str {
+        match self {
+            Self::Appearance => "Appearance",
+            Self::Editor => "Editor",
+            Self::Terminal => "Terminal",
+            Self::Agent => "AI & Agent",
+            Self::Keymaps => "Keymaps",
+        }
+    }
+
+    pub fn icon(&self) -> &'static str {
+        match self {
+            Self::Appearance => "\u{f53f}", // palette
+            Self::Editor => "\u{f121}",     // code
+            Self::Terminal => "\u{f120}",   // terminal
+            Self::Agent => "\u{f005}",      // star / sparkle
+            Self::Keymaps => "\u{f11c}",    // keyboard
+        }
+    }
+}
+
 

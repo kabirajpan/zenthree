@@ -20,6 +20,7 @@ pub struct ZenthreeState {
     /// Reactive signal for the current theme — subscribing components re-derive colors on change.
     pub theme_signal: zenthra_state::Signal<ThemeMode>,
     pub accent_color: String,
+    pub glassmorphism: bool,
     pub sidebar_visible: bool,
     pub sidebar_width: f32,
     pub status_bar_visible: bool,
@@ -42,6 +43,12 @@ pub struct ZenthreeState {
     /// Kept alive for the lifetime of ZenthreeState.
     pub _status_clear_effect: zenthra_state::Effect,
     pub about_open: bool,
+    pub editor_settings_open: bool,
+    pub editor_settings_tab: EditorSettingsTab,
+    pub editor_settings_just_opened: bool,
+    pub font_size: f32,
+    pub blur_strength: f32,
+    pub glass_opacity: f32,
     pub ctrl_pressed: bool,
     pub shift_pressed: bool,
     pub alt_pressed: bool,
@@ -161,6 +168,7 @@ impl ZenthreeState {
             theme: ThemeMode::Dark,
             theme_signal: zenthra_state::Signal::new(ThemeMode::Dark),
             accent_color: "blue".to_string(),
+            glassmorphism: true,
             icon_theme: "neovim_mini".to_string(),
             explorer_preset: ExplorerPreset::ModernMinimalist,
             explorer_tree_guides: false, // Default: Zed style without guidelines
@@ -188,6 +196,12 @@ impl ZenthreeState {
             // Placeholder — will be replaced with the real effect after construction.
             _status_clear_effect: zenthra_state::Effect::run(|| {}),
             about_open: false,
+            editor_settings_open: false,
+            editor_settings_tab: EditorSettingsTab::Appearance,
+            editor_settings_just_opened: false,
+            font_size: 13.0,
+            blur_strength: 24.0,
+            glass_opacity: 0.55,
             ctrl_pressed: false,
             shift_pressed: false,
             alt_pressed: false,
@@ -524,7 +538,28 @@ impl ZenthreeState {
     }
 
     pub fn colors(&self) -> ThemeColors {
-        ThemeColors::get_custom(self.theme, &self.accent_color)
+        ThemeColors::get_custom(self.theme, &self.accent_color).with_glassmorphism(self.glassmorphism, self.theme, self.glass_opacity)
+    }
+
+    pub fn set_font_size(&mut self, size: f32) {
+        let size = size.clamp(9.0, 32.0);
+        if (self.font_size - size).abs() > 0.001 {
+            self.font_size = size;
+            for tab in &mut self.tabs {
+                tab.shaping_cache.clear();
+            }
+            self.save_persistent_state();
+        }
+    }
+
+    pub fn set_blur_strength(&mut self, strength: f32) {
+        self.blur_strength = strength.clamp(4.0, 64.0);
+        self.save_persistent_state();
+    }
+
+    pub fn set_glass_opacity(&mut self, opacity: f32) {
+        self.glass_opacity = opacity.clamp(0.15, 0.95);
+        self.save_persistent_state();
     }
 
     pub fn is_resizing(&self) -> bool {

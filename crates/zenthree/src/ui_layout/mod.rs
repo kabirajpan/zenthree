@@ -8,6 +8,7 @@ pub mod language_dialog;
 pub mod extensions_panel;
 pub mod activity_bar;
 pub mod ai_settings_dialog;
+pub mod editor_settings_dialog;
 
 pub use title_bar::draw_title_bar;
 pub use sidebar::draw_sidebar;
@@ -19,6 +20,7 @@ pub use language_dialog::draw_language_prompt_dialog;
 pub use extensions_panel::draw_extensions_panel;
 pub use activity_bar::{draw_activity_bar, ACTIVITY_BAR_WIDTH};
 pub use ai_settings_dialog::draw_ai_settings_dialog;
+pub use editor_settings_dialog::draw_editor_settings_dialog;
 
 use crate::state::ZenthreeState;
 use zenthra::{Color, Ui, Align, FontWeight, Id, use_context};
@@ -38,16 +40,27 @@ pub fn draw_about_dialog(ui: &mut Ui, state: &mut ZenthreeState) {
     let center_x = viewport.origin.x + (viewport.size.width - win_w) / 2.0;
     let center_y = viewport.origin.y + (viewport.size.height - win_h) / 2.0;
 
-    ui.container()
+    let card_bg = if state.glassmorphism {
+        colors.bg_sidebar.with_alpha(0.80)
+    } else {
+        colors.bg_sidebar
+    };
+
+    let mut card = ui.container()
         .id(Id::from_u64(999999088))
         .absolute(center_x, center_y)
         .overlay()
         .width(win_w)
         .height(win_h)
-        .bg(colors.bg_sidebar)
+        .bg(card_bg)
         .border(colors.border, 1.0)
-        .radius_all(8.0)
-        .padding(16.0, 16.0, 16.0, 16.0)
+        .radius_all(8.0);
+
+    if state.glassmorphism {
+        card = card.backdrop_blur(24.0);
+    }
+
+    card.padding(16.0, 16.0, 16.0, 16.0)
         .column()
         .halign(Align::Center)
         .valign(Align::Center)

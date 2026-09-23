@@ -7,3 +7,6 @@ members = [
     "crates/agent",
 ]
 resolver = "2"
+
+[patch.crates-io]
+winit = { git = "https://github.com/rust-windowing/winit", rev = "refs/pull/4580/head" }

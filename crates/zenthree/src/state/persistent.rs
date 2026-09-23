@@ -12,6 +12,8 @@ pub struct PersistentState {
     #[serde(default)]
     pub accent_color: Option<String>,
     #[serde(default)]
+    pub glassmorphism: Option<bool>,
+    #[serde(default)]
     pub icon_theme: Option<String>,
     #[serde(default)]
     pub explorer_preset: Option<ExplorerPreset>,
@@ -71,6 +73,12 @@ pub struct PersistentState {
     pub ai_message_bg: Option<AiMessageBg>,
     #[serde(default)]
     pub ai_text_size: Option<AiTextSize>,
+    #[serde(default)]
+    pub font_size: Option<f32>,
+    #[serde(default)]
+    pub blur_strength: Option<f32>,
+    #[serde(default)]
+    pub glass_opacity: Option<f32>,
 }
 
 pub fn get_config_path() -> PathBuf {
@@ -108,6 +116,9 @@ impl ZenthreeState {
                 if let Some(accent) = saved.accent_color {
                     self.accent_color = accent;
                 }
+                if let Some(glass) = saved.glassmorphism {
+                    self.glassmorphism = glass;
+                }
                 if let Some(icon) = saved.icon_theme {
                     self.icon_theme = icon;
                 }
@@ -137,6 +148,15 @@ impl ZenthreeState {
                 }
                 if let Some(zoom) = saved.zoom_level {
                     self.zoom_level = zoom;
+                }
+                if let Some(fs) = saved.font_size {
+                    self.font_size = fs;
+                }
+                if let Some(bs) = saved.blur_strength {
+                    self.blur_strength = bs;
+                }
+                if let Some(go) = saved.glass_opacity {
+                    self.glass_opacity = go;
                 }
                 if !saved.recent_files.is_empty() {
                     self.recent_files = saved.recent_files;
@@ -279,6 +299,7 @@ impl From<&ZenthreeState> for PersistentState {
         PersistentState {
             theme: Some(s.theme),
             accent_color: Some(s.accent_color.clone()),
+            glassmorphism: Some(s.glassmorphism),
             icon_theme: Some(s.icon_theme.clone()),
             explorer_preset: Some(s.explorer_preset),
             explorer_tree_guides: Some(s.explorer_tree_guides),
@@ -313,6 +334,9 @@ impl From<&ZenthreeState> for PersistentState {
             ai_input_tone: Some(s.ai_settings.input_tone),
             ai_message_bg: Some(s.ai_settings.message_bg),
             ai_text_size: Some(s.ai_settings.text_size),
+            font_size: Some(s.font_size),
+            blur_strength: Some(s.blur_strength),
+            glass_opacity: Some(s.glass_opacity),
         }
     }
 }

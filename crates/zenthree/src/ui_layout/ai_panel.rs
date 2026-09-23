@@ -142,10 +142,15 @@ fn draw_ai_chat_header(
     panel_bg: Color,
 ) {
     const HEADER_H: f32 = 36.0;
+    let header_bg = if state.glassmorphism {
+        colors.bg_base.with_alpha((state.glass_opacity * 0.60).clamp(0.20, 0.80))
+    } else {
+        panel_bg
+    };
     ui.container()
         .width(header_w)
         .height(HEADER_H)
-        .bg(panel_bg)
+        .bg(header_bg)
         .padding_left(8.0)
         .padding_right(10.0)
         .row()
@@ -401,9 +406,13 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
     }
 
     // ─── Main AI Agent Panel ──────────────────────────────────────────────
-    let panel_bg = match state.ai_settings.effective_message_bg() {
-        AiMessageBg::DeepDark => colors.bg_base,
-        AiMessageBg::Sidebar => colors.bg_sidebar,
+    let panel_bg = if state.glassmorphism {
+        colors.bg_sidebar.with_alpha((state.glass_opacity * 0.90).clamp(0.30, 0.90))
+    } else {
+        match state.ai_settings.effective_message_bg() {
+            AiMessageBg::DeepDark => colors.bg_base,
+            AiMessageBg::Sidebar => colors.bg_sidebar,
+        }
     };
 
     const HEADER_H: f32 = 36.0;
@@ -414,13 +423,19 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
         let hist_w = HISTORY_SIDEBAR_W.min(ai_panel_w * 0.45);
         let chat_w = (ai_panel_w - hist_w).max(200.0);
 
-        ui.container()
+        let mut panel_container = ui.container()
             .id(ai_id)
             .width(ai_panel_w)
             .height(height)
             .max_height(height)
             .clip(true)
-            .bg(panel_bg)
+            .bg(panel_bg);
+
+        if state.glassmorphism {
+            panel_container = panel_container.backdrop_blur(state.blur_strength.max(4.0));
+        }
+
+        panel_container
             .row()
             .show(|ui| {
                 // Left: Active Chat Area
@@ -458,13 +473,19 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
         draw_session_history_panel(ui, state, ai_panel_w, height, &colors);
     } else {
         // History CLOSED (Docked or Expanded): Chat takes full panel width
-        ui.container()
+        let mut panel_container = ui.container()
             .id(ai_id)
             .width(ai_panel_w)
             .height(height)
             .max_height(height)
             .clip(true)
-            .bg(panel_bg)
+            .bg(panel_bg);
+
+        if state.glassmorphism {
+            panel_container = panel_container.backdrop_blur(state.blur_strength.max(4.0));
+        }
+
+        panel_container
             .column()
             .show(|ui| {
                 draw_ai_chat_header(ui, state, ai_panel_w, &colors, panel_bg);
@@ -508,19 +529,29 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
         }
 
         if state.ai_menu_open {
-            ui.popover(AI_MORE_BTN_ID)
+            let popover_bg = if state.glassmorphism {
+                colors.bg_sidebar.with_alpha((state.glass_opacity * 0.90).clamp(0.40, 0.95))
+            } else {
+                colors.bg_sidebar
+            };
+            let mut popover_builder = ui.popover(AI_MORE_BTN_ID)
                 .placement(Placement::Bottom)
                 .align(PopoverAlign::End)
                 .gap(4.0)
                 .auto_flip(false)
                 .width(menu_w)
                 .height(menu_h)
-                .bg(colors.bg_sidebar)
+                .bg(popover_bg)
                 .border(colors.border.with_alpha(0.8), 1.0)
                 .radius_all(6.0)
                 .shadow(Color::rgba(0.0, 0.0, 0.0, 0.5), 0.0, 4.0, 16.0)
-                .padding(3.0, 3.0, 3.0, 3.0)
-                .show(|ui| {
+                .padding(3.0, 3.0, 3.0, 3.0);
+
+            if state.glassmorphism {
+                popover_builder = popover_builder.backdrop_blur(state.blur_strength.max(4.0));
+            }
+
+            popover_builder.show(|ui| {
                     // Option 1: MCP Servers (UI only)
                     let mcp_btn = ui.container()
                         .full_width()
@@ -955,7 +986,7 @@ fn draw_ai_chat_content(
                 .height(msgs_h)
                 .max_height(msgs_h)
                 .clip(true)
-                .bg(panel_bg)
+                .bg(if state.glassmorphism { Color::TRANSPARENT } else { panel_bg })
                 .padding(8.0, 12.0, 8.0, 12.0)
                 .column()
                 .gap(20.0)
@@ -1189,7 +1220,7 @@ fn draw_ai_chat_content(
                                                         .full_width()
                                                         .padding(3.0, 4.0, 3.0, 4.0)
                                                         .radius_all(4.0)
-                                                        .hover_bg(colors.highlight.with_alpha(0.5))
+                                                        .hover_bg(colors.highlight)
                                                         .row()
                                                         .valign(Align::Center)
                                                         .gap(6.0)
@@ -1519,7 +1550,7 @@ fn draw_ai_chat_content(
                                                         .full_width()
                                                         .padding(2.0, 4.0, 2.0, 4.0)
                                                         .radius_all(4.0)
-                                                        .hover_bg(colors.highlight.with_alpha(0.5))
+                                                        .hover_bg(colors.highlight)
                                                         .row()
                                                         .valign(Align::Center)
                                                         .gap(6.0)
@@ -2161,7 +2192,9 @@ fn draw_ai_chat_content(
                         .gap(6.0)
                         .show(|ui| {
                     let is_light = colors.bg_base.r > 0.5;
-                    let input_box_bg = if is_light {
+                    let input_box_bg = if state.glassmorphism {
+                        colors.bg_base.with_alpha((state.glass_opacity * 0.75).clamp(0.25, 0.90))
+                    } else if is_light {
                         Color::rgb(248.0 / 255.0, 248.0 / 255.0, 250.0 / 255.0)
                     } else {
                         match state.ai_settings.effective_input_tone() {
@@ -2180,11 +2213,7 @@ fn draw_ai_chat_content(
                     } else {
                         Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, 0.06)
                     };
-                    let pill_hover_bg = if is_light {
-                        Color::rgba(0.0, 0.0, 0.0, 0.08)
-                    } else {
-                        Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, 0.12)
-                    };
+                    let pill_hover_bg = colors.highlight;
 
                     let mut target_open_file: Option<std::path::PathBuf> = None;
                     let mut target_reject_file: Option<std::path::PathBuf> = None;
@@ -2211,6 +2240,9 @@ fn draw_ai_chat_content(
                             }
                             if state.ai_settings.effective_input_outline() {
                                 mod_files_builder = mod_files_builder.border(colors.border.with_alpha(0.6), 0.75);
+                            }
+                            if state.glassmorphism {
+                                mod_files_builder = mod_files_builder.backdrop_blur(state.blur_strength.max(4.0));
                             }
 
                             mod_files_builder.show(|ui| {
@@ -2661,6 +2693,10 @@ fn draw_ai_chat_content(
                             colors.border.with_alpha(0.6)
                         };
                         input_box_builder = input_box_builder.border(outline_col, 0.75);
+                    }
+
+                    if state.glassmorphism {
+                        input_box_builder = input_box_builder.backdrop_blur(state.blur_strength.max(4.0));
                     }
 
                     let prompt_text_size = state.ai_settings.effective_text_size().pt();
@@ -3472,14 +3508,30 @@ fn draw_session_history_panel(
     let mut delete_session_id: Option<String> = None;
     let mut toggle_project_path: Option<String> = None;
 
-    ui.container()
+    let hist_bg = if state.glassmorphism {
+        colors.bg_sidebar.with_alpha((state.glass_opacity * 0.90).clamp(0.30, 0.90))
+    } else {
+        colors.bg_sidebar
+    };
+    let header_bg = if state.glassmorphism {
+        colors.bg_base.with_alpha((state.glass_opacity * 0.60).clamp(0.20, 0.80))
+    } else {
+        colors.bg_sidebar
+    };
+
+    let mut hist_builder = ui.container()
         .width(panel_w)
         .height(panel_h)
         .max_height(panel_h)
-        .bg(colors.bg_sidebar)
+        .bg(hist_bg)
         .column()
-        .clip(true)
-        .show(|ui| {
+        .clip(true);
+
+    if state.glassmorphism {
+        hist_builder = hist_builder.backdrop_blur(state.blur_strength.max(4.0));
+    }
+
+    hist_builder.show(|ui| {
             // ── Top Header Bar (Full height aligned with chat header) ────────
             const HEADER_H: f32 = 36.0;
             ui.container()
@@ -3490,7 +3542,7 @@ fn draw_session_history_panel(
                 .row()
                 .valign(Align::Center)
                 .halign(Align::SpaceBetween)
-                .bg(colors.bg_sidebar)
+                .bg(header_bg)
                 .show(|ui| {
                     if !state.ai_panel_expanded {
                         // Docked mode: Back button with chevron + "Chat"
