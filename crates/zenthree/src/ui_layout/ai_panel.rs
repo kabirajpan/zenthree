@@ -275,6 +275,36 @@ fn draw_ai_chat_header(
                         ui.needs_redraw = true;
                     }
 
+                    // Floating Thinking Orb Window Toggle Button
+                    let is_orb_active = state.orb_window_open;
+                    let orb_btn = ui.container()
+                        .clickable(true)
+                        .width(22.0)
+                        .height(22.0)
+                        .radius_all(4.0)
+                        .bg(if is_orb_active { colors.highlight } else { Color::TRANSPARENT })
+                        .hover_bg(colors.highlight)
+                        .halign(Align::Center)
+                        .valign(Align::Center)
+                        .show(|ui| {
+                            ui.text("\u{f111}") // fa-circle
+                                .size(9.0)
+                                .color(if is_orb_active {
+                                    colors.accent
+                                } else {
+                                    colors.text_muted
+                                })
+                                .show();
+                        });
+                    if orb_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
+                    if orb_btn.clicked {
+                        state.orb_window_open = !state.orb_window_open;
+                        if state.orb_window_open {
+                            state.set_status("Thinking Orb Window activated");
+                        }
+                        ui.needs_redraw = true;
+                    }
+
                     let more_btn = ui.container()
                         .raw_id(AI_MORE_BTN_ID)
                         .clickable(true)

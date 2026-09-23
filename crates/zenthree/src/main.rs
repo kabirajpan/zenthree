@@ -140,7 +140,10 @@ fn main() {
                         state.sidebar_width = actual_sb_w;
                     }
 
-                    let center_w = (ui_width - activity_bar_w - actual_sb_w - if state.ai_panel_visible && !state.ai_panel_expanded { actual_ai_w } else { 0.0 }).max(min_editor_w);
+                    // Orb side panel width (only visible when orb is open AND AI panel is docked)
+                    let orb_panel_w = if state.orb_window_open && state.ai_panel_visible && !state.ai_panel_expanded { 80.0 } else { 0.0 };
+
+                    let center_w = (ui_width - activity_bar_w - actual_sb_w - if state.ai_panel_visible && !state.ai_panel_expanded { actual_ai_w } else { 0.0 } - orb_panel_w).max(min_editor_w);
 
                     let term_h = if state.terminal_visible {
                         state.terminal_height.min(middle_h - 80.0).max(60.0)
@@ -166,6 +169,9 @@ fn main() {
                                 // When expanded, the AI Agent Panel sits in the buffer area
                                 let expanded_w = (ui_width - activity_bar_w - actual_sb_w).max(200.0);
                                 ui_layout::draw_ai_panel(ui, &mut state, expanded_w, middle_h);
+                                if state.orb_window_open {
+                                    ui_layout::draw_orb_side_panel(ui, &mut state, middle_h);
+                                }
                             } else {
                                 ui.container()
                                     .width(center_w)
@@ -182,6 +188,9 @@ fn main() {
                                 // Right: AI Agent Panel (docked mode)
                                 if state.ai_panel_visible {
                                     ui_layout::draw_ai_panel(ui, &mut state, actual_ai_w, middle_h);
+                                    if state.orb_window_open {
+                                        ui_layout::draw_orb_side_panel(ui, &mut state, middle_h);
+                                    }
                                 }
                             }
                         });
@@ -191,7 +200,8 @@ fn main() {
                         ui_layout::draw_status_bar(ui, &mut state);
                     }
 
-                    // 4. Modal overlays (About dialog, Language prompt, AI Settings, Editor Settings)
+                    // 4. Modal overlays (dialogs — called inside the column so they
+                    // inherit the correct viewport/clip context)
                     ui_layout::draw_about_dialog(ui, &mut state);
                     ui_layout::draw_language_prompt_dialog(ui, &mut state);
                     ui_layout::draw_ai_settings_dialog(ui, &mut state);

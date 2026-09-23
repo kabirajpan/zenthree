@@ -135,6 +135,13 @@ pub struct ZenthreeState {
     pub ai_menu_open: bool,
     /// AI & Agent settings state (appearance, general, model, customization)
     pub ai_settings: AiSettingsState,
+
+    /// Floating Thinking Orb window state
+    pub orb_window_open: bool,
+    pub orb_window_pos: (f32, f32),
+    pub orb_window_dragging: bool,
+    pub orb_window_drag_offset: (f32, f32),
+    pub orb_animation_start: std::time::Instant,
 }
 
 impl ZenthreeState {
@@ -274,6 +281,11 @@ impl ZenthreeState {
             ai_cancel_token: None,
             ai_menu_open: false,
             ai_settings: AiSettingsState::default(),
+            orb_window_open: false,
+            orb_window_pos: (0.0, 0.0),
+            orb_window_dragging: false,
+            orb_window_drag_offset: (0.0, 0.0),
+            orb_animation_start: std::time::Instant::now(),
         };
 
         // Restore previous session preferences (theme, accent, extensions, etc.)
@@ -323,6 +335,10 @@ impl ZenthreeState {
         }
 
         state
+    }
+
+    pub fn is_ai_working(&self) -> bool {
+        self.ai_messages.last().map(|m| m.is_working).unwrap_or(false)
     }
 
     pub fn set_active_tab(&mut self, idx: Option<usize>) {
