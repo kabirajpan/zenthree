@@ -1,63 +1,39 @@
-use crate::state::{ZenthreeState, AiModel, AiProvider, AgentMode, TrajectoryStep, ExplorationItem, path_matches};
+use crate::state::{ZenthreeState, AiModel, AiProvider, AgentMode, TrajectoryStep, ExplorationItem, path_matches, SessionSummary};
 use zenthra::{Color, Ui, Align, FontWeight, Id, CursorIcon, use_context, Placement, PopoverAlign};
 use crate::theme::ThemeColors;
 
 const AGENT_MODE_BTN_ID: Id = Id::from_u64(999999885);
 const MODEL_PICKER_BTN_ID: Id = Id::from_u64(999999886);
 
-pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height: f32) {
-    let colors = use_context::<ThemeColors>().map(|c| *c).unwrap_or_else(|| state.colors());
-    let ai_panel_w = width;
-    let ai_id = Id::from_u64(999999801);
-    let ai_input_id = ui.id_from("ai_prompt_text_area");
+fn draw_panel_left_icon(ui: &mut Ui, x: f32, y: f32, is_expanded: bool, color: Color) {
+    let icon_w = 13.0;
+    let icon_h = 13.0;
+    let bw = 1.0;
+    let r = 2.0;
 
-    // ─── Resizing Splitter Handle ─────────────────────────────────────────
-    let handle_w = 6.0;
-    let splitter_x = ui.cursor_x;
-    let splitter_y = ui.cursor_y;
-    let is_splitter_hovered = ui.mouse_in_rect(
-        splitter_x - handle_w / 2.0,
-        splitter_y,
-        handle_w,
-        height,
-    );
-
-    if is_splitter_hovered || state.active_resize_ai_panel {
-        ui.cursor_icon = CursorIcon::ColResize;
-    }
-
-    if is_splitter_hovered && ui.mouse_down && ui.active_drag.is_none() {
-        state.active_resize_ai_panel = true;
-    }
-
-    if state.active_resize_ai_panel {
-        if !ui.mouse_down {
-            state.active_resize_ai_panel = false;
-            state.save_persistent_state();
-        } else {
-            let target_w = ui.width - ui.mouse_x;
-            state.ai_panel_width = target_w.clamp(200.0, (ui.width * 0.55).max(220.0));
-            ui.request_redraw();
-        }
-    }
-
-    // Smooth subtle divider line
-    let edge_color = if state.active_resize_ai_panel {
-        colors.accent
-    } else if is_splitter_hovered {
-        colors.accent.with_alpha(0.6)
-    } else {
-        colors.border.with_alpha(0.7)
-    };
-
-    let edge_thickness = if state.active_resize_ai_panel || is_splitter_hovered { 2.0 } else { 1.0 };
-    let edge_draw_x = splitter_x - edge_thickness / 2.0;
-
+    // 1. Outer rounded square frame
     ui.draws.push(zenthra_widgets::ui::DrawCommand::Rect(zenthra_widgets::ui::RectDraw {
         instance: zenthra_render::RectInstance {
-            pos: [edge_draw_x, splitter_y],
-            size: [edge_thickness, height],
-            color: edge_color.to_array(),
+            pos: [x, y],
+            size: [icon_w, icon_h],
+            color: [0.0, 0.0, 0.0, 0.0],
+            radius: [r; 4],
+            border_width: bw,
+            border_color: color.to_array(),
+            clip_rect: [-10000.0, -10000.0, 20000.0, 20000.0],
+            ..Default::default()
+        },
+    }));
+
+    // 2. Vertical divider line at ~1/3 width
+    let div_x = x + 4.2;
+    let div_y = y + bw;
+    let div_h = icon_h - 2.0 * bw;
+    ui.draws.push(zenthra_widgets::ui::DrawCommand::Rect(zenthra_widgets::ui::RectDraw {
+        instance: zenthra_render::RectInstance {
+            pos: [div_x, div_y],
+            size: [bw, div_h],
+            color: color.to_array(),
             radius: [0.0; 4],
             border_width: 0.0,
             border_color: [0.0; 4],
@@ -66,95 +42,355 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
         },
     }));
 
-    // Center pill grip handle when hovered or active
-    if is_splitter_hovered || state.active_resize_ai_panel {
-        let grip_w = 4.0;
-        let grip_h = 32.0;
-        let grip_x = splitter_x - grip_w / 2.0;
-        let grip_y = splitter_y + (height - grip_h) / 2.0;
+    // 3. Chevron in the right pane (centered horizontally in right area and vertically)
+    let cx = x + 8.6;
+    let cy = y + icon_h / 2.0;
+    let arm_thick = 1.0;
+    let step = 0.9;
+
+    if !is_expanded {
+        // Pointing LEFT (<): tip at left, arms go up-right and down-right
+        let tip_x = cx - 1.4;
+        let tip_y = cy;
+
+        // Tip dot
         ui.draws.push(zenthra_widgets::ui::DrawCommand::Rect(zenthra_widgets::ui::RectDraw {
             instance: zenthra_render::RectInstance {
-                pos: [grip_x, grip_y],
-                size: [grip_w, grip_h],
-                color: colors.accent.to_array(),
-                radius: [2.0; 4],
+                pos: [tip_x, tip_y - arm_thick / 2.0],
+                size: [arm_thick, arm_thick],
+                color: color.to_array(),
+                radius: [0.3; 4],
+                clip_rect: [-10000.0, -10000.0, 20000.0, 20000.0],
+                ..Default::default()
+            },
+        }));
+
+        for i in 1..=2 {
+            let offset = i as f32 * step;
+            let ax = tip_x + offset;
+            ui.draws.push(zenthra_widgets::ui::DrawCommand::Rect(zenthra_widgets::ui::RectDraw {
+                instance: zenthra_render::RectInstance {
+                    pos: [ax, tip_y - arm_thick / 2.0 - offset],
+                    size: [arm_thick, arm_thick],
+                    color: color.to_array(),
+                    radius: [0.3; 4],
+                    clip_rect: [-10000.0, -10000.0, 20000.0, 20000.0],
+                    ..Default::default()
+                },
+            }));
+            ui.draws.push(zenthra_widgets::ui::DrawCommand::Rect(zenthra_widgets::ui::RectDraw {
+                instance: zenthra_render::RectInstance {
+                    pos: [ax, tip_y - arm_thick / 2.0 + offset],
+                    size: [arm_thick, arm_thick],
+                    color: color.to_array(),
+                    radius: [0.3; 4],
+                    clip_rect: [-10000.0, -10000.0, 20000.0, 20000.0],
+                    ..Default::default()
+                },
+            }));
+        }
+    } else {
+        // Pointing RIGHT (>): tip at right, arms go up-left and down-left
+        let tip_x = cx + 1.4 - arm_thick;
+        let tip_y = cy;
+
+        // Tip dot
+        ui.draws.push(zenthra_widgets::ui::DrawCommand::Rect(zenthra_widgets::ui::RectDraw {
+            instance: zenthra_render::RectInstance {
+                pos: [tip_x, tip_y - arm_thick / 2.0],
+                size: [arm_thick, arm_thick],
+                color: color.to_array(),
+                radius: [0.3; 4],
+                clip_rect: [-10000.0, -10000.0, 20000.0, 20000.0],
+                ..Default::default()
+            },
+        }));
+
+        for i in 1..=2 {
+            let offset = i as f32 * step;
+            let ax = tip_x - offset;
+            ui.draws.push(zenthra_widgets::ui::DrawCommand::Rect(zenthra_widgets::ui::RectDraw {
+                instance: zenthra_render::RectInstance {
+                    pos: [ax, tip_y - arm_thick / 2.0 - offset],
+                    size: [arm_thick, arm_thick],
+                    color: color.to_array(),
+                    radius: [0.3; 4],
+                    clip_rect: [-10000.0, -10000.0, 20000.0, 20000.0],
+                    ..Default::default()
+                },
+            }));
+            ui.draws.push(zenthra_widgets::ui::DrawCommand::Rect(zenthra_widgets::ui::RectDraw {
+                instance: zenthra_render::RectInstance {
+                    pos: [ax, tip_y - arm_thick / 2.0 + offset],
+                    size: [arm_thick, arm_thick],
+                    color: color.to_array(),
+                    radius: [0.3; 4],
+                    clip_rect: [-10000.0, -10000.0, 20000.0, 20000.0],
+                    ..Default::default()
+                },
+            }));
+        }
+    }
+}
+
+pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height: f32) {
+    let colors = use_context::<ThemeColors>().map(|c| *c).unwrap_or_else(|| state.colors());
+    let ai_panel_w = width;
+    let ai_id = Id::from_u64(999999801);
+    let ai_input_id = ui.id_from("ai_prompt_text_area");
+
+    // ─── Resizing Splitter Handle ─────────────────────────────────────────
+    let splitter_x = ui.cursor_x;
+    let splitter_y = ui.cursor_y;
+
+    if !state.ai_panel_expanded {
+        let handle_w = 6.0;
+        let is_splitter_hovered = ui.mouse_in_rect(
+            splitter_x - handle_w / 2.0,
+            splitter_y,
+            handle_w,
+            height,
+        );
+
+        if is_splitter_hovered || state.active_resize_ai_panel {
+            ui.cursor_icon = CursorIcon::ColResize;
+        }
+
+        if is_splitter_hovered && ui.mouse_down && ui.active_drag.is_none() {
+            state.active_resize_ai_panel = true;
+        }
+
+        if state.active_resize_ai_panel {
+            if !ui.mouse_down {
+                state.active_resize_ai_panel = false;
+                state.save_persistent_state();
+            } else {
+                let target_w = ui.width - ui.mouse_x;
+                state.ai_panel_width = target_w.clamp(200.0, (ui.width * 0.55).max(220.0));
+                ui.request_redraw();
+            }
+        }
+
+        // Smooth subtle divider line
+        let edge_color = if state.active_resize_ai_panel {
+            colors.accent
+        } else if is_splitter_hovered {
+            colors.accent.with_alpha(0.6)
+        } else {
+            colors.border.with_alpha(0.7)
+        };
+
+        let edge_thickness = if state.active_resize_ai_panel || is_splitter_hovered { 2.0 } else { 1.0 };
+        let edge_draw_x = splitter_x - edge_thickness / 2.0;
+
+        ui.draws.push(zenthra_widgets::ui::DrawCommand::Rect(zenthra_widgets::ui::RectDraw {
+            instance: zenthra_render::RectInstance {
+                pos: [edge_draw_x, splitter_y],
+                size: [edge_thickness, height],
+                color: edge_color.to_array(),
+                radius: [0.0; 4],
                 border_width: 0.0,
                 border_color: [0.0; 4],
                 clip_rect: [-10000.0, -10000.0, 20000.0, 20000.0],
                 ..Default::default()
             },
         }));
+
+        // Center pill grip handle when hovered or active
+        if is_splitter_hovered || state.active_resize_ai_panel {
+            let grip_w = 4.0;
+            let grip_h = 32.0;
+            let grip_x = splitter_x - grip_w / 2.0;
+            let grip_y = splitter_y + (height - grip_h) / 2.0;
+            ui.draws.push(zenthra_widgets::ui::DrawCommand::Rect(zenthra_widgets::ui::RectDraw {
+                instance: zenthra_render::RectInstance {
+                    pos: [grip_x, grip_y],
+                    size: [grip_w, grip_h],
+                    color: colors.accent.to_array(),
+                    radius: [2.0; 4],
+                    border_width: 0.0,
+                    border_color: [0.0; 4],
+                    clip_rect: [-10000.0, -10000.0, 20000.0, 20000.0],
+                    ..Default::default()
+                },
+            }));
+        }
     }
 
     // ─── Main AI Agent Panel ──────────────────────────────────────────────
-    let _panel_container = ui.container()
+    let mut panel_builder = ui.container()
         .id(ai_id)
         .width(ai_panel_w)
         .height(height)
         .max_height(height)
         .clip(true)
         .bg(colors.bg_sidebar)
-        .column()
-        .show(|ui| {
+        .column();
+
+    if state.ai_panel_expanded {
+        panel_builder = panel_builder
+            .border(colors.border.with_alpha(0.8), 1.0);
+    }
+
+    let _panel_container = panel_builder.show(|ui| {
             // ─── Header: Minimalist Top Bar ──────────────────────────────
             const HEADER_H: f32 = 36.0;
             ui.container()
                 .width(ai_panel_w)
                 .height(HEADER_H)
                 .bg(colors.bg_sidebar)
-                .padding_left(12.0)
+                .padding_left(8.0)
                 .padding_right(10.0)
                 .row()
                 .valign(Align::Center)
                 .halign(Align::SpaceBetween)
                 .no_wrap()
                 .show(|ui| {
-                    // Left: dot + "Assistant" label
+                    // Left: Expand/Collapse Arrow + (Back button or Title)
                     ui.container()
                         .row()
                         .valign(Align::Center)
-                        .gap(7.0)
+                        .gap(6.0)
                         .show(|ui| {
-                            // Pulsing status dot
-                            ui.container()
-                                .width(7.0)
-                                .height(7.0)
-                                .radius_all(3.5)
-                                .bg(colors.accent)
-                                .show(|_| {});
+                            // Expand/Collapse overlay button using Lucide panel-left icon
+                            let is_expanded = state.ai_panel_expanded;
+                            let btn_w = 22.0;
+                            let btn_h = 22.0;
+                            let is_btn_hovered = ui.mouse_in_rect(ui.cursor_x, ui.cursor_y, btn_w, btn_h);
+                            let expand_btn = ui.container()
+                                .clickable(true)
+                                .width(btn_w)
+                                .height(btn_h)
+                                .radius_all(4.0)
+                                .bg(if is_expanded { colors.highlight } else { Color::TRANSPARENT })
+                                .hover_bg(colors.highlight)
+                                .halign(Align::Center)
+                                .valign(Align::Center)
+                                .show(|ui| {
+                                    let icon_color = if is_expanded {
+                                        colors.accent
+                                    } else if is_btn_hovered {
+                                        colors.text_primary
+                                    } else {
+                                        colors.text_muted
+                                    };
+                                    let ix = ui.cursor_x + (btn_w - 13.0) / 2.0;
+                                    let iy = ui.cursor_y + (btn_h - 13.0) / 2.0;
+                                    draw_panel_left_icon(ui, ix, iy, is_expanded, icon_color);
+                                    ui.container().width(btn_w).height(btn_h).show(|_| {});
+                                });
+                            if expand_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
+                            if expand_btn.clicked {
+                                state.ai_panel_expanded = !state.ai_panel_expanded;
+                                state.save_persistent_state();
+                                ui.needs_redraw = true;
+                            }
 
-                            ui.text("Assistant")
-                                .size(12.0)
-                                .weight(FontWeight::Bold)
-                                .color(colors.text_primary)
-                                .show();
+                            if !state.ai_panel_expanded && state.ai_sessions_visible {
+                                let back_btn = ui.container()
+                                    .clickable(true)
+                                    .padding(2.0, 6.0, 2.0, 4.0)
+                                    .radius_all(4.0)
+                                    .hover_bg(colors.highlight)
+                                    .row()
+                                    .valign(Align::Center)
+                                    .gap(4.0)
+                                    .show(|ui| {
+                                        ui.text("\u{f053}") // NF_FA_CHEVRON_LEFT
+                                            .size(8.5)
+                                            .color(colors.accent)
+                                            .show();
+                                        ui.text("Back to Chat")
+                                            .size(11.0)
+                                            .weight(FontWeight::Medium)
+                                            .color(colors.accent)
+                                            .show();
+                                    });
+                                if back_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
+                                if back_btn.clicked {
+                                    state.ai_sessions_visible = false;
+                                    ui.needs_redraw = true;
+                                }
+                            } else {
+                                ui.container()
+                                    .row()
+                                    .valign(Align::Center)
+                                    .gap(7.0)
+                                    .show(|ui| {
+                                        // Pulsing status dot
+                                        ui.container()
+                                            .width(7.0)
+                                            .height(7.0)
+                                            .radius_all(3.5)
+                                            .bg(colors.accent)
+                                            .show(|_| {});
+
+                                        ui.text("AI Assistant")
+                                            .size(12.0)
+                                            .weight(FontWeight::Bold)
+                                            .color(colors.text_primary)
+                                            .show();
+                                    });
+                            }
                         });
 
-                    // Right Actions (Clear & Close)
+                    // Right Actions (History, New Chat, Close)
                     ui.container()
                         .row()
                         .valign(Align::Center)
                         .gap(4.0)
                         .show(|ui| {
-                            // Clear chat button
-                            let reset_btn = ui.container()
-                                .width(22.0)
-                                .height(22.0)
+                            // History button
+                            let history_btn = ui.container()
+                                .clickable(true)
+                                .padding(2.0, 6.0, 2.0, 6.0)
+                                .radius_all(4.0)
+                                .bg(if state.ai_sessions_visible { colors.highlight } else { Color::TRANSPARENT })
+                                .hover_bg(colors.highlight)
+                                .row()
+                                .valign(Align::Center)
+                                .gap(4.0)
+                                .show(|ui| {
+                                    ui.text("\u{f1da}") // fa-clock-rotate-left
+                                        .size(10.0)
+                                        .color(if state.ai_sessions_visible { colors.accent } else { colors.text_muted })
+                                        .show();
+                                    ui.text("History")
+                                        .size(10.5)
+                                        .color(if state.ai_sessions_visible { colors.text_primary } else { colors.text_muted })
+                                        .show();
+                                });
+                            if history_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
+                            if history_btn.clicked {
+                                state.ai_sessions_visible = !state.ai_sessions_visible;
+                                if state.ai_sessions_visible {
+                                    state.refresh_ai_sessions();
+                                }
+                                ui.needs_redraw = true;
+                            }
+
+                            // New chat button
+                            let new_btn = ui.container()
+                                .clickable(true)
+                                .padding(2.0, 6.0, 2.0, 6.0)
                                 .radius_all(4.0)
                                 .hover_bg(colors.highlight)
-                                .halign(Align::Center)
+                                .row()
                                 .valign(Align::Center)
+                                .gap(3.0)
                                 .show(|ui| {
-                                    ui.text("\u{f01e}")
-                                        .size(10.0)
+                                    ui.text("\u{f067}") // fa-plus
+                                        .size(9.0)
+                                        .color(colors.text_muted)
+                                        .show();
+                                    ui.text("New")
+                                        .size(10.5)
                                         .color(colors.text_muted)
                                         .show();
                                 });
-
-                            if reset_btn.clicked {
-                                state.ai_messages.clear();
-                                state.ai_session_json = None;
-                                state.ai_block_cache.clear();
+                            if new_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
+                            if new_btn.clicked {
+                                state.start_new_ai_session();
                                 ui.needs_redraw = true;
                             }
 
@@ -172,8 +408,9 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                         .color(colors.text_muted)
                                         .show();
                                 });
-
+                            if close_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
                             if close_btn.clicked {
+                                state.cancel_active_ai();
                                 state.ai_panel_visible = false;
                                 state.save_persistent_state();
                                 ui.needs_redraw = true;
@@ -188,14 +425,248 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                 .bg(colors.border.with_alpha(0.5))
                 .show(|_| {});
 
+            let content_h = height - HEADER_H - 1.0;
 
-            // ─── Dynamic Height Calculations ─────────────────────────────
-            let is_input_focused = ui.focused_id == Some(ai_input_id);
-            const MIN_PROMPT_H: f32 = 32.0;
-            const MAX_PROMPT_H: f32 = 120.0;
+            if state.ai_panel_expanded && state.ai_sessions_visible {
+                // Expanded Mode with History OPEN: Side-by-Side!
+                const HISTORY_SIDEBAR_W: f32 = 280.0;
+                let hist_w = HISTORY_SIDEBAR_W.min(ai_panel_w * 0.45);
+                let chat_w = (ai_panel_w - hist_w).max(200.0);
 
-            // Immediately track visual wrapped lines while typing continuously without newline
-            let chars_per_line = ((ai_panel_w - 44.0).max(60.0) / 6.6).max(8.0);
+                ui.container()
+                    .width(ai_panel_w)
+                    .height(content_h)
+                    .max_height(content_h)
+                    .row()
+                    .show(|ui| {
+                        // Left: Active Chat Area
+                        ui.container()
+                            .width(chat_w)
+                            .height(content_h)
+                            .max_height(content_h)
+                            .column()
+                            .show(|ui| {
+                                draw_ai_chat_content(ui, state, chat_w, content_h, &colors, ai_input_id);
+                            });
+
+                        // Vertical divider line between Chat and History sidebar
+                        ui.container()
+                            .width(1.0)
+                            .height(content_h)
+                            .bg(colors.border.with_alpha(0.6))
+                            .show(|_| {});
+
+                        // Right: Session History Sidebar Panel
+                        draw_session_history_panel(ui, state, hist_w - 1.0, content_h, &colors);
+                    });
+            } else if state.ai_sessions_visible {
+                // Docked Mode with History OPEN: In-place replacement
+                draw_session_history_panel(ui, state, ai_panel_w, content_h, &colors);
+            } else {
+                // History CLOSED (both Docked and Expanded): Chat takes full panel width
+                draw_ai_chat_content(ui, state, ai_panel_w, content_h, &colors, ai_input_id);
+            }
+        });
+
+    // ─── Floating Menu Panel: Agent Mode ─────────────────────────────────
+    if state.agent_mode_menu_open {
+        let menu_w = 130.0;
+        let menu_h = 56.0;
+
+        if let Some(anchor) = ui.next_screen_layout_cache.get(&AGENT_MODE_BTN_ID)
+            .or_else(|| ui.screen_layout_cache.get(&AGENT_MODE_BTN_ID)).copied()
+        {
+            let (mx, my) = zenthra_widgets::compute_placement_pos(
+                anchor,
+                menu_w,
+                menu_h,
+                Placement::Top,
+                PopoverAlign::Start,
+                4.0,
+                false,
+                ui.width,
+                ui.height,
+            );
+            let mouse_in_menu = ui.mouse_in_rect(mx, my, menu_w, menu_h);
+            let mouse_in_trigger = ui.mouse_in_rect(anchor.origin.x, anchor.origin.y, anchor.size.width, anchor.size.height);
+            if ui.clicked && !mouse_in_menu && !mouse_in_trigger {
+                state.agent_mode_menu_open = false;
+                ui.needs_redraw = true;
+            }
+        }
+
+        if state.agent_mode_menu_open {
+            ui.popover(AGENT_MODE_BTN_ID)
+                .placement(Placement::Top)
+                .align(PopoverAlign::Start)
+                .gap(4.0)
+                .auto_flip(false)
+                .width(menu_w)
+                .height(menu_h)
+                .bg(colors.bg_sidebar)
+                .border(colors.border, 1.0)
+                .radius_all(6.0)
+                .shadow(Color::rgba(0.0, 0.0, 0.0, 0.5), 0.0, 4.0, 16.0)
+                .padding(2.0, 3.0, 2.0, 3.0)
+                .show(|ui| {
+                    for mode in AgentMode::ALL {
+                        let is_sel = state.agent_mode == mode;
+                        let row_id = ui.id_from(&format!("pop_agent_mode_{:?}", mode));
+                        let row = ui.container()
+                            .id(row_id)
+                            .full_width()
+                            .padding(2.0, 5.0, 2.0, 5.0)
+                            .radius_all(3.5)
+                            .bg(if is_sel { colors.accent.with_alpha(0.12) } else { Color::TRANSPARENT })
+                            .hover_bg(colors.highlight)
+                            .row()
+                            .valign(Align::Center)
+                            .halign(Align::SpaceBetween)
+                            .show(|ui| {
+                                ui.container().row().gap(5.0).valign(Align::Center).show(|ui| {
+                                    ui.text(mode.icon()).size(9.5).show();
+                                    ui.text(mode.display_name())
+                                        .size(9.5)
+                                        .weight(if is_sel { FontWeight::SemiBold } else { FontWeight::Regular })
+                                        .color(if is_sel { colors.accent } else { colors.text_primary })
+                                        .show();
+                                });
+                                if is_sel {
+                                    ui.text("\u{f00c}").size(8.5).color(colors.accent).show();
+                                }
+                            });
+                        if row.hovered { ui.cursor_icon = CursorIcon::Pointer; }
+                        if row.clicked {
+                            state.agent_mode = mode;
+                            state.agent_mode_menu_open = false;
+                            ui.needs_redraw = true;
+                        }
+                    }
+                });
+        }
+    }
+
+    // ─── Floating Menu Panel: Model Selector ──────────────────────────────
+    if state.ai_model_menu_open {
+        let menu_w = 148.0;
+        let menu_h = 126.0;
+
+        if let Some(anchor) = ui.next_screen_layout_cache.get(&MODEL_PICKER_BTN_ID)
+            .or_else(|| ui.screen_layout_cache.get(&MODEL_PICKER_BTN_ID)).copied()
+        {
+            let (mx, my) = zenthra_widgets::compute_placement_pos(
+                anchor,
+                menu_w,
+                menu_h,
+                Placement::Top,
+                PopoverAlign::Start,
+                4.0,
+                false,
+                ui.width,
+                ui.height,
+            );
+            let mouse_in_menu = ui.mouse_in_rect(mx, my, menu_w, menu_h);
+            let mouse_in_trigger = ui.mouse_in_rect(anchor.origin.x, anchor.origin.y, anchor.size.width, anchor.size.height);
+            if ui.clicked && !mouse_in_menu && !mouse_in_trigger {
+                state.ai_model_menu_open = false;
+                ui.needs_redraw = true;
+            }
+        }
+
+        if state.ai_model_menu_open {
+            let mut select_model: Option<AiModel> = None;
+            ui.popover(MODEL_PICKER_BTN_ID)
+                .placement(Placement::Top)
+                .align(PopoverAlign::Start)
+                .gap(4.0)
+                .auto_flip(false)
+                .width(menu_w)
+                .height(menu_h)
+                .bg(colors.bg_sidebar)
+                .border(colors.border, 1.0)
+                .radius_all(6.0)
+                .shadow(Color::rgba(0.0, 0.0, 0.0, 0.5), 0.0, 4.0, 16.0)
+                .padding(2.0, 3.0, 2.0, 3.0)
+                .show(|ui| {
+                    let mut last_provider: Option<AiProvider> = None;
+                    for model in AiModel::ALL {
+                        if last_provider != Some(model.provider()) {
+                            let label = match model.provider() {
+                                AiProvider::Groq => "GROQ",
+                                AiProvider::Gemini => "GEMINI",
+                            };
+                            if last_provider.is_some() {
+                                ui.container().height(2.0).show(|_| {});
+                            }
+                            ui.container().padding(2.0, 4.0, 1.0, 4.0).show(|ui| {
+                                ui.text(label)
+                                    .size(7.5)
+                                    .weight(FontWeight::Bold)
+                                    .color(colors.text_muted.with_alpha(0.6))
+                                    .show();
+                            });
+                            last_provider = Some(model.provider());
+                        }
+
+                        let is_selected = state.selected_ai_model == model;
+                        let row_id = ui.id_from(&format!("pop_model_opt_{}", model.model_id()));
+                        let row = ui.container()
+                            .id(row_id)
+                            .full_width()
+                            .padding(2.0, 5.0, 2.0, 5.0)
+                            .radius_all(3.5)
+                            .bg(if is_selected { colors.accent.with_alpha(0.08) } else { Color::TRANSPARENT })
+                            .hover_bg(colors.highlight)
+                            .row()
+                            .valign(Align::Center)
+                            .halign(Align::SpaceBetween)
+                            .show(|ui| {
+                                ui.text(model.display_name())
+                                    .size(9.5)
+                                    .weight(if is_selected { FontWeight::Medium } else { FontWeight::Regular })
+                                    .color(if is_selected { colors.accent } else { colors.text_primary })
+                                    .show();
+                                if is_selected {
+                                    ui.text("\u{f00c}")
+                                        .size(8.5)
+                                        .color(colors.accent)
+                                        .show();
+                                }
+                            });
+
+                        if row.hovered { ui.cursor_icon = CursorIcon::Pointer; }
+                        if row.clicked { select_model = Some(model); }
+                    }
+                });
+
+            if let Some(model) = select_model {
+                state.selected_ai_model = model;
+                state.ai_model_menu_open = false;
+                state.ai_session_json = None;
+                state.save_persistent_state();
+                ui.needs_redraw = true;
+            }
+        }
+    }
+}
+
+fn draw_ai_chat_content(
+    ui: &mut Ui,
+    state: &mut ZenthreeState,
+    chat_w: f32,
+    content_h: f32,
+    colors: &crate::theme::ThemeColors,
+    ai_input_id: Id,
+) {
+    // ─── Dynamic Height & Width Calculations ───────────────────────
+    let is_input_focused = ui.focused_id == Some(ai_input_id);
+    const MIN_PROMPT_H: f32 = 32.0;
+    const MAX_PROMPT_H: f32 = 120.0;
+    const MAX_INPUT_W: f32 = 684.0; // 90% of previous 760px cap
+    let input_dock_w = (chat_w - 20.0).min(MAX_INPUT_W).max(120.0);
+
+    // Immediately track visual wrapped lines while typing continuously without newline
+    let chars_per_line = ((input_dock_w - 24.0).max(60.0) / 6.6).max(8.0);
             let visual_lines: usize = state.ai_input.split('\n').map(|para| {
                 let len = para.chars().count();
                 if len == 0 { 1 } else { (len as f32 / chars_per_line).ceil() as usize }
@@ -329,13 +800,13 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
 
             // Dock height: prompt box + bottom row/padding + toolbar/modified section
             let dock_total_h = prompt_box_h + 52.0 + modified_section_h;
-            let msgs_h = (height - HEADER_H - 1.0 - dock_total_h).max(30.0);
+            let msgs_h = (content_h - dock_total_h).max(30.0);
 
             // ─── Messages Scroll Area ────────────────────────────────────
             let msgs_scroll_id = Id::from_u64(999999802);
             ui.container()
                 .id(msgs_scroll_id)
-                .width(ai_panel_w)
+                .width(chat_w)
                 .height(msgs_h)
                 .max_height(msgs_h)
                 .clip(true)
@@ -400,7 +871,7 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
 
                             if msg.is_user {
                                 // ─── User Message (Right-aligned, accent tint) ───
-                                let bubble_max_w = (ai_panel_w - 48.0).max(80.0);
+                                let bubble_max_w = (chat_w - 48.0).min(MAX_INPUT_W).max(80.0);
                                 let user_text_w = (bubble_max_w - 20.0).max(60.0);
 
                                 let newline_count = full_text.as_bytes().iter().filter(|&&b| b == b'\n').count();
@@ -417,74 +888,126 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                     full_text
                                 };
 
+                                let is_short_single_line = newline_count == 0
+                                    && full_text.len() <= 45
+                                    && (full_text.len() as f32 * 6.5 + 40.0) <= bubble_max_w;
+
                                 ui.container()
                                     .full_width()
                                     .row()
                                     .halign(Align::Right)
                                     .padding(2.0, 0.0, 2.0, 0.0)
                                     .show(|ui| {
-                                        let bubble_res = ui.container()
-                                            .id(bubble_id)
-                                            .max_width(bubble_max_w)
-                                            .padding(8.0, 10.0, 6.0, 10.0)
-                                            .bg(colors.accent.with_alpha(0.12))
-                                            .hover_bg(colors.accent.with_alpha(0.16))
-                                            .border(colors.accent.with_alpha(0.3), 0.5)
-                                            .radius_all(10.0)
-                                            .column()
-                                            .gap(4.0)
-                                            .show(|ui| {
-                                                ui.text(display_text)
-                                                    .size(11.0)
-                                                    .line_height(1.65)
-                                                    .color(colors.text_primary)
-                                                    .max_width(user_text_w)
-                                                    .wrap(zenthra_text::prelude::TextWrap::Word)
-                                                    .show();
+                                        let bubble_res = if is_short_single_line {
+                                            ui.container()
+                                                .id(bubble_id)
+                                                .max_width(bubble_max_w)
+                                                .padding(6.0, 10.0, 6.0, 10.0)
+                                                .bg(colors.accent.with_alpha(0.12))
+                                                .hover_bg(colors.accent.with_alpha(0.16))
+                                                .border(colors.accent.with_alpha(0.3), 0.5)
+                                                .radius_all(10.0)
+                                                .row()
+                                                .valign(Align::Center)
+                                                .gap(8.0)
+                                                .show(|ui| {
+                                                    ui.text(display_text)
+                                                        .size(11.0)
+                                                        .line_height(1.35)
+                                                        .color(colors.text_primary)
+                                                        .show();
 
-                                                ui.container()
-                                                    .full_width()
-                                                    .row()
-                                                    .halign(Align::Right)
-                                                    .valign(Align::Center)
-                                                    .gap(6.0)
-                                                    .show(|ui| {
-                                                        if is_long {
-                                                            ui.text(if is_expanded { "Show less" } else { "Show more" })
-                                                                .size(9.0)
-                                                                .color(colors.accent.with_alpha(0.85))
+                                                    let copy_btn = ui.container()
+                                                        .id(copy_btn_id)
+                                                        .padding(2.0, 4.0, 2.0, 4.0)
+                                                        .radius_all(4.0)
+                                                        .hover_bg(colors.highlight)
+                                                        .row()
+                                                        .valign(Align::Center)
+                                                        .gap(3.0)
+                                                        .show(|ui| {
+                                                            ui.text(if is_copied { "\u{f00c}" } else { "\u{f0c5}" })
+                                                                .size(9.5)
+                                                                .color(if is_copied { colors.accent } else { colors.text_muted })
                                                                 .show();
-                                                        }
-
-                                                        let copy_btn = ui.container()
-                                                            .id(copy_btn_id)
-                                                            .padding(2.0, 4.0, 2.0, 4.0)
-                                                            .radius_all(4.0)
-                                                            .hover_bg(colors.highlight)
-                                                            .row()
-                                                            .valign(Align::Center)
-                                                            .gap(3.0)
-                                                            .show(|ui| {
-                                                                ui.text(if is_copied { "\u{f00c}" } else { "\u{f0c5}" })
-                                                                    .size(9.5)
-                                                                    .color(if is_copied { colors.accent } else { colors.text_muted })
+                                                            if is_copied {
+                                                                ui.text("Copied")
+                                                                    .size(9.0)
+                                                                    .color(colors.accent)
                                                                     .show();
-                                                                if is_copied {
-                                                                    ui.text("Copied")
-                                                                        .size(9.0)
-                                                                        .color(colors.accent)
-                                                                        .show();
-                                                                }
-                                                            });
+                                                            }
+                                                        });
 
-                                                        if copy_btn.hovered {
-                                                            ui.cursor_icon = CursorIcon::Pointer;
-                                                        }
-                                                        if copy_btn.clicked {
-                                                            copy_clicked = true;
-                                                        }
-                                                    });
-                                            });
+                                                    if copy_btn.hovered {
+                                                        ui.cursor_icon = CursorIcon::Pointer;
+                                                    }
+                                                    if copy_btn.clicked {
+                                                        copy_clicked = true;
+                                                    }
+                                                })
+                                        } else {
+                                            ui.container()
+                                                .id(bubble_id)
+                                                .max_width(bubble_max_w)
+                                                .padding(8.0, 10.0, 6.0, 10.0)
+                                                .bg(colors.accent.with_alpha(0.12))
+                                                .hover_bg(colors.accent.with_alpha(0.16))
+                                                .border(colors.accent.with_alpha(0.3), 0.5)
+                                                .radius_all(10.0)
+                                                .column()
+                                                .halign(Align::Right)
+                                                .gap(4.0)
+                                                .show(|ui| {
+                                                    ui.text(display_text)
+                                                        .size(11.0)
+                                                        .line_height(1.65)
+                                                        .color(colors.text_primary)
+                                                        .max_width(user_text_w)
+                                                        .wrap(zenthra_text::prelude::TextWrap::Word)
+                                                        .show();
+
+                                                    ui.container()
+                                                        .row()
+                                                        .valign(Align::Center)
+                                                        .gap(6.0)
+                                                        .show(|ui| {
+                                                            if is_long {
+                                                                ui.text(if is_expanded { "Show less" } else { "Show more" })
+                                                                    .size(9.0)
+                                                                    .color(colors.accent.with_alpha(0.85))
+                                                                    .show();
+                                                            }
+
+                                                            let copy_btn = ui.container()
+                                                                .id(copy_btn_id)
+                                                                .padding(2.0, 4.0, 2.0, 4.0)
+                                                                .radius_all(4.0)
+                                                                .hover_bg(colors.highlight)
+                                                                .row()
+                                                                .valign(Align::Center)
+                                                                .gap(3.0)
+                                                                .show(|ui| {
+                                                                    ui.text(if is_copied { "\u{f00c}" } else { "\u{f0c5}" })
+                                                                        .size(9.5)
+                                                                        .color(if is_copied { colors.accent } else { colors.text_muted })
+                                                                        .show();
+                                                                    if is_copied {
+                                                                        ui.text("Copied")
+                                                                            .size(9.0)
+                                                                            .color(colors.accent)
+                                                                            .show();
+                                                                    }
+                                                                });
+
+                                                            if copy_btn.hovered {
+                                                                ui.cursor_icon = CursorIcon::Pointer;
+                                                            }
+                                                            if copy_btn.clicked {
+                                                                copy_clicked = true;
+                                                            }
+                                                        });
+                                                })
+                                        };
 
                                         if copy_clicked {
                                             copy_target_idx = Some(msg_idx);
@@ -497,7 +1020,7 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                     });
                             } else {
                                 // ─── Assistant Message (full-width, clean container) ───
-                                let ai_text_w = (ai_panel_w - 44.0).max(60.0);
+                                let ai_text_w = (chat_w - 44.0).min(MAX_INPUT_W + 40.0).max(60.0);
                                 let code_box_w = ai_text_w.max(50.0);
 
                                 ui.container()
@@ -512,7 +1035,7 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                             let step_id = Id::from_u64(999_200_000 + (msg_idx as u64) * 1000 + (step_idx as u64));
                                             match step {
                                                 TrajectoryStep::Exploration(grp) => {
-                                                    let chevron = if grp.expanded { "▾" } else { "▸" };
+                                                    let chevron = if grp.expanded { "\u{f078}" } else { "\u{f054}" };
                                                     let summary = grp.summary_label();
 
                                                     let header_row = ui.container()
@@ -539,7 +1062,7 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                                                 .show();
 
                                                             ui.text(chevron)
-                                                                .size(8.5)
+                                                                .size(7.5)
                                                                 .color(colors.text_muted.with_alpha(0.8))
                                                                 .show();
                                                         });
@@ -844,7 +1367,7 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                                         });
                                                 }
                                                 TrajectoryStep::Plan { title, steps, expanded } => {
-                                                    let chevron = if *expanded { "▾" } else { "▸" };
+                                                    let chevron = if *expanded { "\u{f078}" } else { "\u{f054}" };
                                                     let plan_header = ui.container()
                                                         .id(step_id)
                                                         .full_width()
@@ -865,7 +1388,7 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                                                 .color(colors.text_primary)
                                                                 .show();
                                                             ui.text(chevron)
-                                                                .size(8.5)
+                                                                .size(7.5)
                                                                 .color(colors.text_muted)
                                                                 .show();
                                                         });
@@ -1007,11 +1530,16 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                                             .valign(Align::Center)
                                                             .gap(4.0)
                                                             .show(|ui| {
+                                                                let chevron = if is_details_expanded { "\u{f078}" } else { "\u{f054}" };
                                                                 let label = if is_details_expanded {
-                                                                    "▾ Hide technical details"
+                                                                    "Hide technical details"
                                                                 } else {
-                                                                    "▸ Show technical details"
+                                                                    "Show technical details"
                                                                 };
+                                                                ui.text(chevron)
+                                                                    .size(7.5)
+                                                                    .color(colors.text_muted)
+                                                                    .show();
                                                                 ui.text(label)
                                                                     .size(9.5)
                                                                     .color(colors.text_muted)
@@ -1346,15 +1874,20 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                     }
                 });
 
-                // Input box container (docked at the bottom)
+                // Input box container (docked at the bottom, centered with max width cap)
                 ui.container()
-                    .width(ai_panel_w)
+                    .width(chat_w)
                     .height(dock_total_h)
                     .max_height(dock_total_h)
                     .padding(6.0, 10.0, 8.0, 10.0)
                     .column()
-                    .gap(6.0)
+                    .halign(Align::Center)
                     .show(|ui| {
+                    ui.container()
+                        .width(input_dock_w)
+                        .column()
+                        .gap(6.0)
+                        .show(|ui| {
                     let dock_border_color = if is_input_focused {
                         colors.accent.with_alpha(0.7)
                     } else {
@@ -1595,8 +2128,8 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                                 .bg(Color::TRANSPARENT)
                                                 .hover_bg(Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, 0.05))
                                                 .show(|ui| {
-                                                    ui.text("▾")
-                                                        .size(12.0)
+                                                    ui.text("\u{f078}")
+                                                        .size(7.5)
                                                         .color(colors.text_muted)
                                                         .show();
                                                 });
@@ -1796,8 +2329,8 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                                 .bg(Color::TRANSPARENT)
                                                 .hover_bg(Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, 0.05))
                                                 .show(|ui| {
-                                                    ui.text("▴")
-                                                        .size(12.0)
+                                                    ui.text("\u{f077}")
+                                                        .size(7.5)
                                                         .color(colors.text_muted)
                                                         .show();
                                                 });
@@ -1849,13 +2382,13 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                             }
 
                             // Text area
-                            let placeholder = if ai_panel_w >= 240.0 {
+                            let placeholder = if input_dock_w >= 240.0 {
                                 "Ask anything, @ to mention, / for actions"
                             } else {
                                 "Ask..."
                             };
 
-                            let input_w = (ai_panel_w - 36.0).max(80.0);
+                            let input_w = (input_dock_w - 16.0).max(80.0);
                             let text_res = ui.text_area(&mut state.ai_input, "ai_prompt_text_area")
                                 .width(input_w)
                                 .height(prompt_box_h)
@@ -1909,7 +2442,7 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                                         .weight(FontWeight::Medium)
                                                         .color(colors.text_primary)
                                                         .show();
-                                                    ui.text(if state.agent_mode_menu_open { "▴" } else { "▾" })
+                                                    ui.text(if state.agent_mode_menu_open { "\u{f077}" } else { "\u{f078}" })
                                                         .size(7.5)
                                                         .color(colors.text_muted)
                                                         .show();
@@ -1939,7 +2472,7 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                                         .size(9.5)
                                                         .color(colors.text_muted)
                                                         .show();
-                                                    ui.text(if state.ai_model_menu_open { "▴" } else { "▾" })
+                                                    ui.text(if state.ai_model_menu_open { "\u{f077}" } else { "\u{f078}" })
                                                         .size(7.5)
                                                         .color(colors.text_muted)
                                                         .show();
@@ -2006,8 +2539,7 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
 
                                     if is_processing {
                                         if send_btn.clicked {
-                                            // Cancel: clear the signal queue so drain_ai_updates stops processing
-                                            state.ai_update_signal.set(Vec::new());
+                                            state.cancel_active_ai();
                                             // Also send a synthetic Done update so is_working is reset on next frame
                                             state.ai_update_signal.with_mut(|q| q.push(
                                                 crate::state::types::AiUiUpdate::Done {
@@ -2090,189 +2622,9 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                         ui.needs_redraw = true;
                     }
                 });
-        });
-
-    // ─── Floating Menu Panel: Agent Mode ─────────────────────────────────
-    if state.agent_mode_menu_open {
-        let menu_w = 130.0;
-        let menu_h = 56.0;
-
-        if let Some(anchor) = ui.next_screen_layout_cache.get(&AGENT_MODE_BTN_ID)
-            .or_else(|| ui.screen_layout_cache.get(&AGENT_MODE_BTN_ID)).copied()
-        {
-            let (mx, my) = zenthra_widgets::compute_placement_pos(
-                anchor,
-                menu_w,
-                menu_h,
-                Placement::Top,
-                PopoverAlign::Start,
-                4.0,
-                false,
-                ui.width,
-                ui.height,
-            );
-            let mouse_in_menu = ui.mouse_in_rect(mx, my, menu_w, menu_h);
-            let mouse_in_trigger = ui.mouse_in_rect(anchor.origin.x, anchor.origin.y, anchor.size.width, anchor.size.height);
-            if ui.clicked && !mouse_in_menu && !mouse_in_trigger {
-                state.agent_mode_menu_open = false;
-                ui.needs_redraw = true;
-            }
-        }
-
-        if state.agent_mode_menu_open {
-            ui.popover(AGENT_MODE_BTN_ID)
-                .placement(Placement::Top)
-                .align(PopoverAlign::Start)
-                .gap(4.0)
-                .auto_flip(false)
-                .width(menu_w)
-                .height(menu_h)
-                .bg(colors.bg_sidebar)
-                .border(colors.border, 1.0)
-                .radius_all(6.0)
-                .shadow(Color::rgba(0.0, 0.0, 0.0, 0.5), 0.0, 4.0, 16.0)
-                .padding(2.0, 3.0, 2.0, 3.0)
-                .show(|ui| {
-                    for mode in AgentMode::ALL {
-                        let is_sel = state.agent_mode == mode;
-                        let row_id = ui.id_from(&format!("pop_agent_mode_{:?}", mode));
-                        let row = ui.container()
-                            .id(row_id)
-                            .full_width()
-                            .padding(2.0, 5.0, 2.0, 5.0)
-                            .radius_all(3.5)
-                            .bg(if is_sel { colors.accent.with_alpha(0.12) } else { Color::TRANSPARENT })
-                            .hover_bg(colors.highlight)
-                            .row()
-                            .valign(Align::Center)
-                            .halign(Align::SpaceBetween)
-                            .show(|ui| {
-                                ui.container().row().gap(5.0).valign(Align::Center).show(|ui| {
-                                    ui.text(mode.icon()).size(9.5).show();
-                                    ui.text(mode.display_name())
-                                        .size(9.5)
-                                        .weight(if is_sel { FontWeight::SemiBold } else { FontWeight::Regular })
-                                        .color(if is_sel { colors.accent } else { colors.text_primary })
-                                        .show();
-                                });
-                                if is_sel {
-                                    ui.text("\u{f00c}").size(8.5).color(colors.accent).show();
-                                }
-                            });
-                        if row.hovered { ui.cursor_icon = CursorIcon::Pointer; }
-                        if row.clicked {
-                            state.agent_mode = mode;
-                            state.agent_mode_menu_open = false;
-                            ui.needs_redraw = true;
-                        }
-                    }
-                });
-        }
-    }
-
-    // ─── Floating Menu Panel: Model Selector ──────────────────────────────
-    if state.ai_model_menu_open {
-        let menu_w = 148.0;
-        let menu_h = 126.0;
-
-        if let Some(anchor) = ui.next_screen_layout_cache.get(&MODEL_PICKER_BTN_ID)
-            .or_else(|| ui.screen_layout_cache.get(&MODEL_PICKER_BTN_ID)).copied()
-        {
-            let (mx, my) = zenthra_widgets::compute_placement_pos(
-                anchor,
-                menu_w,
-                menu_h,
-                Placement::Top,
-                PopoverAlign::Start,
-                4.0,
-                false,
-                ui.width,
-                ui.height,
-            );
-            let mouse_in_menu = ui.mouse_in_rect(mx, my, menu_w, menu_h);
-            let mouse_in_trigger = ui.mouse_in_rect(anchor.origin.x, anchor.origin.y, anchor.size.width, anchor.size.height);
-            if ui.clicked && !mouse_in_menu && !mouse_in_trigger {
-                state.ai_model_menu_open = false;
-                ui.needs_redraw = true;
-            }
-        }
-
-        if state.ai_model_menu_open {
-            let mut select_model: Option<AiModel> = None;
-            ui.popover(MODEL_PICKER_BTN_ID)
-                .placement(Placement::Top)
-                .align(PopoverAlign::Start)
-                .gap(4.0)
-                .auto_flip(false)
-                .width(menu_w)
-                .height(menu_h)
-                .bg(colors.bg_sidebar)
-                .border(colors.border, 1.0)
-                .radius_all(6.0)
-                .shadow(Color::rgba(0.0, 0.0, 0.0, 0.5), 0.0, 4.0, 16.0)
-                .padding(2.0, 3.0, 2.0, 3.0)
-                .show(|ui| {
-                    let mut last_provider: Option<AiProvider> = None;
-                    for model in AiModel::ALL {
-                        if last_provider != Some(model.provider()) {
-                            let label = match model.provider() {
-                                AiProvider::Groq => "GROQ",
-                                AiProvider::Gemini => "GEMINI",
-                            };
-                            if last_provider.is_some() {
-                                ui.container().height(2.0).show(|_| {});
-                            }
-                            ui.container().padding(2.0, 4.0, 1.0, 4.0).show(|ui| {
-                                ui.text(label)
-                                    .size(7.5)
-                                    .weight(FontWeight::Bold)
-                                    .color(colors.text_muted.with_alpha(0.6))
-                                    .show();
-                            });
-                            last_provider = Some(model.provider());
-                        }
-
-                        let is_selected = state.selected_ai_model == model;
-                        let row_id = ui.id_from(&format!("pop_model_opt_{}", model.model_id()));
-                        let row = ui.container()
-                            .id(row_id)
-                            .full_width()
-                            .padding(2.0, 5.0, 2.0, 5.0)
-                            .radius_all(3.5)
-                            .bg(if is_selected { colors.accent.with_alpha(0.08) } else { Color::TRANSPARENT })
-                            .hover_bg(colors.highlight)
-                            .row()
-                            .valign(Align::Center)
-                            .halign(Align::SpaceBetween)
-                            .show(|ui| {
-                                ui.text(model.display_name())
-                                    .size(9.5)
-                                    .weight(if is_selected { FontWeight::Medium } else { FontWeight::Regular })
-                                    .color(if is_selected { colors.accent } else { colors.text_primary })
-                                    .show();
-                                if is_selected {
-                                    ui.text("\u{f00c}")
-                                        .size(8.5)
-                                        .color(colors.accent)
-                                        .show();
-                                }
-                            });
-
-                        if row.hovered { ui.cursor_icon = CursorIcon::Pointer; }
-                        if row.clicked { select_model = Some(model); }
-                    }
-                });
-
-            if let Some(model) = select_model {
-                state.selected_ai_model = model;
-                state.ai_model_menu_open = false;
-                state.ai_session_json = None;
-                state.save_persistent_state();
-                ui.needs_redraw = true;
-            }
-        }
-    }
+            });
 }
+
 
 use pulldown_cmark::{Event, HeadingLevel, Options, Parser, Tag, TagEnd};
 
@@ -2409,6 +2761,449 @@ fn parse_markdown_blocks(content: &str) -> Vec<MarkdownBlock> {
     }
 
     blocks
+}
+
+fn draw_session_history_panel(
+    ui: &mut Ui,
+    state: &mut ZenthreeState,
+    panel_w: f32,
+    content_h: f32,
+    colors: &crate::theme::ThemeColors,
+) {
+    let mut load_session_id: Option<String> = None;
+    let mut delete_session_id: Option<String> = None;
+    let mut toggle_project_path: Option<String> = None;
+
+    ui.container()
+        .width(panel_w)
+        .height(content_h)
+        .max_height(content_h)
+        .column()
+        .clip(true)
+        .show(|ui| {
+            // In expanded mode, show a sleek header bar with title and close icon
+            if state.ai_panel_expanded {
+                ui.container()
+                    .width(panel_w)
+                    .height(28.0)
+                    .padding(0.0, 10.0, 0.0, 10.0)
+                    .row()
+                    .valign(Align::Center)
+                    .halign(Align::SpaceBetween)
+                    .bg(colors.bg_sidebar)
+                    .show(|ui| {
+                        ui.container()
+                            .row()
+                            .valign(Align::Center)
+                            .gap(5.0)
+                            .show(|ui| {
+                                ui.text("\u{f1da}") // fa-clock-rotate-left
+                                    .size(9.5)
+                                    .color(colors.accent)
+                                    .show();
+                                ui.text("Session History")
+                                    .size(11.0)
+                                    .weight(FontWeight::Medium)
+                                    .color(colors.text_primary)
+                                    .show();
+                            });
+
+                        let close_side_btn = ui.container()
+                            .clickable(true)
+                            .width(20.0)
+                            .height(20.0)
+                            .radius_all(3.0)
+                            .hover_bg(colors.highlight)
+                            .halign(Align::Center)
+                            .valign(Align::Center)
+                            .show(|ui| {
+                                ui.text("\u{f00d}")
+                                    .size(9.0)
+                                    .color(colors.text_muted)
+                                    .show();
+                            });
+                        if close_side_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
+                        if close_side_btn.clicked {
+                            state.ai_sessions_visible = false;
+                            ui.needs_redraw = true;
+                        }
+                    });
+
+                // Subtle hairline below subheader
+                ui.container()
+                    .width(panel_w)
+                    .height(1.0)
+                    .bg(colors.border.with_alpha(0.4))
+                    .show(|_| {});
+            }
+
+            // ── Search Bar ──────────────────────────────────────────
+            let search_h: f32 = 34.0;
+            let search_input_id = Id::from_u64(999_999_888);
+            ui.container()
+                .width(panel_w)
+                .height(search_h)
+                .padding(6.0, 10.0, 6.0, 10.0)
+                .row()
+                .valign(Align::Center)
+                .gap(6.0)
+                .bg(colors.bg_sidebar)
+                .show(|ui| {
+                    ui.text("\u{f002}") // fa-search
+                        .size(10.0)
+                        .color(colors.text_muted)
+                        .show();
+
+                    let query_empty = state.ai_sessions_search_query.is_empty();
+
+                    ui.input(&mut state.ai_sessions_search_query, search_input_id)
+                        .fill_x()
+                        .size(11.0)
+                        .color(colors.text_primary)
+                        .bg(Color::TRANSPARENT)
+                        .show();
+
+                    if query_empty {
+                        // Subtle hint text overlay if desired
+                    } else {
+                        let clear_btn = ui.container()
+                            .padding(2.0, 4.0, 2.0, 4.0)
+                            .radius_all(3.0)
+                            .hover_bg(colors.highlight)
+                            .clickable(true)
+                            .show(|ui| {
+                                ui.text("\u{f00d}")
+                                    .size(9.0)
+                                    .color(colors.text_muted)
+                                    .show();
+                            });
+                        if clear_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
+                        if clear_btn.clicked {
+                            state.ai_sessions_search_query.clear();
+                            ui.needs_redraw = true;
+                        }
+                    }
+                });
+
+            // 1px hairline below search bar
+            ui.container()
+                .width(panel_w)
+                .height(1.0)
+                .bg(colors.border.with_alpha(0.35))
+                .show(|_| {});
+
+            // ── Scrollable Sessions List ────────────────────────────
+            let list_h = (content_h - search_h - 1.0).max(20.0);
+            let scroll_id = Id::from_u64(999_999_889);
+
+            ui.container()
+                .id(scroll_id)
+                .width(panel_w)
+                .height(list_h)
+                .max_height(list_h)
+                .padding(8.0, 10.0, 12.0, 10.0)
+                .column()
+                .gap(12.0)
+                .scroll_y(true)
+                .clip(true)
+                .show(|ui| {
+                    let cur_canon = state.current_dir.canonicalize().unwrap_or_else(|_| state.current_dir.clone());
+                    let cur_proj_str = cur_canon.to_string_lossy().to_string();
+
+                    // Group sessions by project
+                    // 1. Collect unique project paths in order
+                    let mut project_paths: Vec<(String, String)> = Vec::new();
+                    // Always place current workspace project at the top
+                    let cur_name = cur_canon.file_name().and_then(|n| n.to_str()).unwrap_or("project").to_string();
+                    project_paths.push((cur_proj_str.clone(), cur_name));
+
+                    for sess in &state.ai_sessions {
+                        if !project_paths.iter().any(|(p, _)| p == &sess.project_path) {
+                            project_paths.push((sess.project_path.clone(), sess.project_name.clone()));
+                        }
+                    }
+
+                    let query_lower = state.ai_sessions_search_query.to_lowercase();
+                    let mut total_rendered_sessions = 0;
+
+                    for (proj_idx, (proj_path, proj_name)) in project_paths.iter().enumerate() {
+                        let is_current = proj_path == &cur_proj_str;
+
+                        // Filter sessions for this project
+                        let filtered_sessions: Vec<&SessionSummary> = state.ai_sessions.iter()
+                            .filter(|s| &s.project_path == proj_path)
+                            .filter(|s| {
+                                if query_lower.is_empty() {
+                                    true
+                                } else {
+                                    s.title.to_lowercase().contains(&query_lower)
+                                        || s.project_name.to_lowercase().contains(&query_lower)
+                                }
+                            })
+                            .collect();
+
+                        // If user is searching and no sessions match this project, skip project
+                        if !query_lower.is_empty() && filtered_sessions.is_empty() {
+                            continue;
+                        }
+
+                        let session_count = filtered_sessions.len();
+                        total_rendered_sessions += session_count;
+
+                        // By default, current project is expanded
+                        let is_expanded = state.ai_expanded_projects.contains(proj_path)
+                            || (!query_lower.is_empty() && !filtered_sessions.is_empty());
+
+                        // ── Project Line with details ────────────────────────
+                        // ▾ 📁 zenthree · 4 sessions · ~/.../zenthree (current)
+                        let proj_line_id = Id::from_u64(0x7F00_0000 + (proj_idx as u64) * 100);
+
+                        let proj_hdr = ui.container()
+                            .id(proj_line_id)
+                            .full_width()
+                            .clickable(true)
+                            .padding(3.0, 4.0, 3.0, 4.0)
+                            .radius_all(4.0)
+                            .row()
+                            .valign(Align::Center)
+                            .gap(5.0)
+                            .no_wrap()
+                            .show(|ui| {
+                                ui.container()
+                                    .width(12.0)
+                                    .valign(Align::Center)
+                                    .halign(Align::Center)
+                                    .show(|ui| {
+                                        let arrow = if is_expanded { "\u{f078}" } else { "\u{f054}" };
+                                        ui.text(arrow)
+                                            .size(7.5)
+                                            .color(colors.text_muted)
+                                            .show();
+                                    });
+
+                                ui.text("\u{f07b}") // fa-folder
+                                    .size(10.5)
+                                    .color(colors.accent)
+                                    .show();
+
+                                ui.text(proj_name)
+                                    .size(11.5)
+                                    .weight(FontWeight::Bold)
+                                    .color(colors.text_primary)
+                                    .show();
+
+                                ui.text("·")
+                                    .size(10.0)
+                                    .color(colors.text_muted.with_alpha(0.6))
+                                    .show();
+
+                                ui.text(&format!("{} session{}", session_count, if session_count == 1 { "" } else { "s" }))
+                                    .size(10.0)
+                                    .color(colors.text_muted)
+                                    .show();
+
+                                // Shortened path display
+                                let short_path = if let Ok(home) = std::env::var("HOME") {
+                                    if let Some(rest) = proj_path.strip_prefix(&home) {
+                                        format!("~{}", rest)
+                                    } else {
+                                        proj_path.clone()
+                                    }
+                                } else {
+                                    proj_path.clone()
+                                };
+                                let max_path_len = ((panel_w - 200.0).max(40.0) / 6.0) as usize;
+                                let display_path = if short_path.len() > max_path_len && max_path_len > 10 {
+                                    format!("...{}", &short_path[short_path.len() - max_path_len..])
+                                } else {
+                                    short_path
+                                };
+
+                                ui.text("·")
+                                    .size(10.0)
+                                    .color(colors.text_muted.with_alpha(0.5))
+                                    .show();
+
+                                ui.text(&display_path)
+                                    .size(9.5)
+                                    .color(colors.text_muted.with_alpha(0.65))
+                                    .show();
+
+                                if is_current {
+                                    ui.container()
+                                        .padding(1.0, 4.0, 1.0, 4.0)
+                                        .radius_all(3.0)
+                                        .bg(colors.accent.with_alpha(0.15))
+                                        .show(|ui| {
+                                            ui.text("current")
+                                                .size(8.5)
+                                                .color(colors.accent)
+                                                .weight(FontWeight::Medium)
+                                                .show();
+                                        });
+                                }
+                            });
+
+                        if proj_hdr.hovered { ui.cursor_icon = CursorIcon::Pointer; }
+                        if proj_hdr.clicked {
+                            toggle_project_path = Some(proj_path.clone());
+                        }
+
+                        // ── Project Session Items (if expanded) ─────────────
+                        if is_expanded {
+                            ui.container()
+                                .full_width()
+                                .column()
+                                .gap(6.0)
+                                .padding_left(16.0)
+                                .show(|ui| {
+                                    if filtered_sessions.is_empty() {
+                                        ui.container()
+                                            .padding(4.0, 16.0, 4.0, 16.0)
+                                            .show(|ui| {
+                                                ui.text("No sessions in this project yet.")
+                                                    .size(10.5)
+                                                    .italic()
+                                                    .color(colors.text_muted.with_alpha(0.6))
+                                                    .show();
+                                            });
+                                    } else {
+                                        for (s_idx, sess) in filtered_sessions.iter().enumerate() {
+                                            let is_active = state.ai_session_id.as_deref() == Some(&sess.id);
+                                            let sess_card_id = Id::from_u64(0x8A00_0000 + (proj_idx as u64) * 1000 + (s_idx as u64) * 10);
+                                            let sess_del_id = Id::from_u64(0x8A00_0000 + (proj_idx as u64) * 1000 + (s_idx as u64) * 10 + 1);
+
+                                            let mut del_clicked = false;
+
+                                            let card_res = ui.container()
+                                                .id(sess_card_id)
+                                                .full_width()
+                                                .height(36.0)
+                                                .clickable(true)
+                                                .padding(0.0, 10.0, 0.0, 10.0)
+                                                .radius_all(6.0)
+                                                .row()
+                                                .valign(Align::Center)
+                                                .halign(Align::SpaceBetween)
+                                                .bg(if is_active {
+                                                    colors.accent.with_alpha(0.12)
+                                                } else {
+                                                    colors.bg_sidebar
+                                                })
+                                                .hover_bg(if is_active {
+                                                    colors.accent.with_alpha(0.18)
+                                                } else {
+                                                    colors.highlight
+                                                })
+                                                .border(if is_active {
+                                                    colors.accent.with_alpha(0.60)
+                                                } else {
+                                                    colors.border.with_alpha(0.50)
+                                                }, 1.0)
+                                                .show(|ui| {
+                                                    // Left: optional active dot + Title
+                                                    ui.container()
+                                                        .row()
+                                                        .valign(Align::Center)
+                                                        .gap(6.0)
+                                                        .show(|ui| {
+                                                            if is_active {
+                                                                ui.container()
+                                                                    .width(6.0)
+                                                                    .height(6.0)
+                                                                    .radius_all(3.0)
+                                                                    .bg(colors.accent)
+                                                                    .show(|_| {});
+                                                            }
+
+                                                            let title_max_w = (panel_w - 130.0).max(40.0);
+                                                            ui.text(&sess.title)
+                                                                .size(11.5)
+                                                                .weight(if is_active { FontWeight::Bold } else { FontWeight::Medium })
+                                                                .color(colors.text_primary)
+                                                                .max_width(title_max_w)
+                                                                .ellipsis(true)
+                                                                .show();
+                                                        });
+
+                                                    // Right: Time on left side of Delete, Delete on far right
+                                                    ui.container()
+                                                        .row()
+                                                        .valign(Align::Center)
+                                                        .gap(8.0)
+                                                        .show(|ui| {
+                                                            ui.text(&sess.relative_time_string())
+                                                                .size(9.5)
+                                                                .color(colors.text_muted.with_alpha(0.7))
+                                                                .show();
+
+                                                            let del_btn = ui.container()
+                                                                .id(sess_del_id)
+                                                                .clickable(true)
+                                                                .padding(2.5, 5.0, 2.5, 5.0)
+                                                                .radius_all(3.0)
+                                                                .hover_bg(Color::rgba(239.0 / 255.0, 68.0 / 255.0, 68.0 / 255.0, 0.18))
+                                                                .show(|ui| {
+                                                                    ui.text("\u{f014}") // trash / delete icon
+                                                                        .size(10.0)
+                                                                        .color(colors.text_muted.with_alpha(0.75))
+                                                                        .show();
+                                                                });
+                                                            if del_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
+                                                            if del_btn.clicked {
+                                                                del_clicked = true;
+                                                            }
+                                                        });
+                                                });
+
+                                            if card_res.hovered { ui.cursor_icon = CursorIcon::Pointer; }
+
+                                            if del_clicked {
+                                                delete_session_id = Some(sess.id.clone());
+                                            } else if card_res.clicked {
+                                                load_session_id = Some(sess.id.clone());
+                                            }
+                                        }
+                                    }
+                                });
+                        }
+                    }
+
+                    if total_rendered_sessions == 0 && !query_lower.is_empty() {
+                        ui.container()
+                            .padding_top(20.0)
+                            .halign(Align::Center)
+                            .full_width()
+                            .show(|ui| {
+                                ui.text("No matching sessions found.")
+                                    .size(11.0)
+                                    .italic()
+                                    .color(colors.text_muted)
+                                    .show();
+                            });
+                    }
+                });
+        });
+
+    if let Some(path) = toggle_project_path {
+        if state.ai_expanded_projects.contains(&path) {
+            state.ai_expanded_projects.remove(&path);
+        } else {
+            state.ai_expanded_projects.insert(path);
+        }
+        ui.needs_redraw = true;
+    }
+
+    if let Some(id) = delete_session_id {
+        state.delete_ai_session(&id);
+        ui.needs_redraw = true;
+    } else if let Some(id) = load_session_id {
+        state.load_ai_session(&id);
+        if !state.ai_panel_expanded {
+            state.ai_sessions_visible = false;
+        }
+        ui.needs_redraw = true;
+    }
 }
 
 #[cfg(test)]

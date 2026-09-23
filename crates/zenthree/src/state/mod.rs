@@ -66,6 +66,7 @@ pub struct ZenthreeState {
     pub terminal_history: Vec<String>,
     pub terminal_history_idx: Option<usize>,
     pub ai_panel_visible: bool,
+    pub ai_panel_expanded: bool,
     pub ai_panel_width: f32,
     pub active_resize_ai_panel: bool,
     pub ai_messages: Vec<AiMessage>,
@@ -111,6 +112,14 @@ pub struct ZenthreeState {
     /// Cached OS clipboard handle — lazily initialized to avoid opening a new
     /// Wayland/X11 socket on every copy/paste operation.
     pub os_clipboard: Option<arboard::Clipboard>,
+
+    /// Session history panel state
+    pub ai_sessions_visible: bool,
+    pub ai_session_id: Option<String>,
+    pub ai_sessions: Vec<SessionSummary>,
+    pub ai_sessions_search_query: String,
+    pub ai_expanded_projects: std::collections::HashSet<String>,
+    pub ai_cancel_token: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
 }
 
 impl ZenthreeState {
@@ -192,6 +201,7 @@ impl ZenthreeState {
             terminal_history: Vec::new(),
             terminal_history_idx: None,
             ai_panel_visible: false,
+            ai_panel_expanded: false,
             ai_panel_width: 340.0,
             active_resize_ai_panel: false,
             ai_messages: vec![AiMessage {
@@ -241,11 +251,20 @@ impl ZenthreeState {
             show_modified_files_popup: false,
             font_adapter: None,
             os_clipboard: None,
+            ai_sessions_visible: false,
+            ai_session_id: None,
+            ai_sessions: Vec::new(),
+            ai_sessions_search_query: String::new(),
+            ai_expanded_projects: std::collections::HashSet::new(),
+            ai_cancel_token: None,
         };
 
         // Restore previous session preferences (theme, accent, extensions, etc.)
         #[cfg(not(test))]
         state.load_persistent_state();
+
+        // Refresh saved AI session history
+        state.refresh_ai_sessions();
 
         // If CLI argument was explicitly provided, open specified file or workspace
         if args.len() > 1 {
@@ -517,6 +536,7 @@ impl Default for ZenthreeState {
 
 impl Drop for ZenthreeState {
     fn drop(&mut self) {
+        self.cancel_active_ai();
         #[cfg(not(test))]
         self.save_persistent_state();
     }
@@ -789,7 +809,10 @@ mod tests {
         assert!(state.terminal_session.is_some() || !state.terminal_lines.is_empty());
 
         // Toggle AI panel & send prompt
+        assert!(!state.ai_panel_expanded);
         state.ai_panel_visible = true;
+        state.ai_panel_expanded = true;
+        assert!(state.ai_panel_expanded);
         state.send_ai_message("Explain the workspace");
         assert!(state
             .ai_messages
@@ -1321,6 +1344,82 @@ mod tests {
         // Syncing active review for tab 0
         state.sync_active_review_for_tab(0);
         assert_eq!(state.active_review_idx, Some(0));
+    }
+
+    #[test]
+    fn test_session_summary_relative_time() {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+
+        let s1 = SessionSummary {
+            id: "1".into(),
+            title: "Test".into(),
+            project_path: "/tmp/proj".into(),
+            project_name: "proj".into(),
+            created_at: now,
+            updated_at: now - 10,
+            message_count: 2,
+        };
+        assert_eq!(s1.relative_time_string(), "just now");
+
+        let s2 = SessionSummary {
+            updated_at: now - 300,
+            ..s1.clone()
+        };
+        assert_eq!(s2.relative_time_string(), "5m");
+
+        let s3 = SessionSummary {
+            updated_at: now - 7200,
+            ..s1.clone()
+        };
+        assert_eq!(s3.relative_time_string(), "2h");
+
+        let s4 = SessionSummary {
+            updated_at: now - 172800,
+            ..s1.clone()
+        };
+        assert_eq!(s4.relative_time_string(), "2d");
+    }
+
+    #[test]
+    fn test_open_workspace_shows_ai_history() {
+        let mut state = ZenthreeState::default();
+        state.ai_sessions_visible = false;
+        let tmp = std::env::temp_dir();
+        state.open_workspace(tmp);
+        assert!(state.ai_sessions_visible, "Opening workspace must show AI history");
+    }
+
+    #[test]
+    fn test_ai_session_save_and_start_new() {
+        let mut state = ZenthreeState::default();
+        state.ai_messages.push(AiMessage {
+            is_user: true,
+            content: "Hello AI session test".into(),
+            code_snippet: None,
+            thoughts: None,
+            expanded: false,
+            trajectory: Vec::new(),
+            is_working: false,
+        });
+
+        // Save session
+        state.save_current_ai_session();
+        let session_id = state.ai_session_id.clone();
+        assert!(session_id.is_some(), "Session ID should be generated on save");
+
+        // Start new session
+        state.start_new_ai_session();
+        assert!(state.ai_messages.is_empty(), "Starting new session must clear messages");
+        assert!(state.ai_session_id.is_none(), "Starting new session must clear session ID");
+        assert!(!state.ai_sessions_visible, "Starting new session must switch to chat view");
+
+        // Cleanup
+        if let Some(id) = session_id {
+            state.delete_ai_session(&id);
+        }
     }
 }
 

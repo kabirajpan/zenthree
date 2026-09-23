@@ -48,6 +48,8 @@ pub struct PersistentState {
     #[serde(default)]
     pub ai_panel_visible: Option<bool>,
     #[serde(default)]
+    pub ai_panel_expanded: Option<bool>,
+    #[serde(default)]
     pub ai_panel_width: Option<f32>,
     #[serde(default)]
     pub sidebar_view: Option<SidebarView>,
@@ -119,6 +121,7 @@ impl ZenthreeState {
             terminal_visible: Some(self.terminal_visible),
             terminal_height: Some(self.terminal_height),
             ai_panel_visible: Some(self.ai_panel_visible),
+            ai_panel_expanded: Some(self.ai_panel_expanded),
             ai_panel_width: Some(self.ai_panel_width),
             sidebar_view: Some(self.sidebar_view),
             installed_extensions: self.installed_extensions.iter().cloned().collect(),
@@ -183,6 +186,9 @@ impl ZenthreeState {
                 }
                 if let Some(aiv) = saved.ai_panel_visible {
                     self.ai_panel_visible = aiv;
+                }
+                if let Some(aie) = saved.ai_panel_expanded {
+                    self.ai_panel_expanded = aie;
                 }
                 if let Some(aiw) = saved.ai_panel_width {
                     self.ai_panel_width = aiw;

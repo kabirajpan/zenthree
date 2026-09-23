@@ -2,11 +2,30 @@ use crate::state::types::*;
 use crate::state::ZenthreeState;
 
 impl ZenthreeState {
+    pub fn cancel_active_ai(&mut self) {
+        if let Some(ref token) = self.ai_cancel_token {
+            token.store(true, std::sync::atomic::Ordering::Relaxed);
+        }
+        self.ai_cancel_token = None;
+        self.ai_update_signal.set(Vec::new());
+        for m in &mut self.ai_messages {
+            if !m.is_user && m.is_working {
+                m.is_working = false;
+            }
+        }
+    }
+
     pub fn send_ai_message(&mut self, text: &str) {
         let trimmed = text.trim();
         if trimmed.is_empty() {
             return;
         }
+
+        // Cancel any currently running background AI task before starting a new one
+        self.cancel_active_ai();
+
+        let cancel_token = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+        self.ai_cancel_token = Some(cancel_token.clone());
 
         // Keep maximum 60 messages to bound memory
         if self.ai_messages.len() >= 60 {
@@ -42,6 +61,7 @@ impl ZenthreeState {
         });
 
         self.ai_input.clear();
+        self.save_current_ai_session();
 
         // Clone the signal handle so the background thread can push updates.
         // ArcSignal is Send + Sync, so this is safe to move into the thread.
@@ -49,7 +69,11 @@ impl ZenthreeState {
         // Clear any leftover updates from a previous session
         update_signal.set(Vec::new());
 
+        let cancel_for_send = cancel_token.clone();
         let send = move |update: AiUiUpdate| {
+            if cancel_for_send.load(std::sync::atomic::Ordering::Relaxed) {
+                return;
+            }
             update_signal.with_mut(|queue| queue.push(update));
             // ArcSignal::with_mut already calls trigger_redraw_hook() — no timer needed
         };
@@ -82,12 +106,17 @@ impl ZenthreeState {
             .format_for_prompt();
         let git_context_prompt = agent::context::GitContext::format_for_prompt(&current_dir);
 
+        let cancel_for_thread = cancel_token.clone();
         std::thread::spawn(move || {
             // Set CWD so all tools (get_project_structure, search_codebase, etc.)
             // operate on the user's workspace, not the binary's launch directory.
             let _ = std::env::set_current_dir(&current_dir);
 
-            if let Some(mut agent) = agent::create_agent_for_model_and_workspace(
+            if cancel_for_thread.load(std::sync::atomic::Ordering::Relaxed) {
+                return;
+            }
+
+            if let Some(agent) = agent::create_agent_for_model_and_workspace(
                 match selected_model.provider() {
                     crate::state::AiProvider::Gemini => "gemini",
                     crate::state::AiProvider::Groq => "groq",
@@ -95,6 +124,8 @@ impl ZenthreeState {
                 selected_model.model_id(),
                 &current_dir,
             ) {
+                let mut agent = agent.with_cancellation_token(cancel_for_thread.clone());
+
                 // Dynamically register all IDE languages into the agent's AST engine
                 let lang_reg = syntax::LanguageRegistry::new();
                 for lang in lang_reg.all() {
@@ -135,23 +166,32 @@ impl ZenthreeState {
                 }
 
                 let mut final_text = String::new();
-                let mut on_event = |ev: agent::types::AgentEvent| match ev {
-                    agent::types::AgentEvent::ToolStarted { name, args } => {
-                        send(AiUiUpdate::ToolStart { name, args });
+                let cancel_for_event = cancel_for_thread.clone();
+                let mut on_event = |ev: agent::types::AgentEvent| {
+                    if cancel_for_event.load(std::sync::atomic::Ordering::Relaxed) {
+                        return;
                     }
-                    agent::types::AgentEvent::ToolFinished { name, .. } => {
-                        send(AiUiUpdate::ToolDone { name });
+                    match ev {
+                        agent::types::AgentEvent::ToolStarted { name, args } => {
+                            send(AiUiUpdate::ToolStart { name, args });
+                        }
+                        agent::types::AgentEvent::ToolFinished { name, .. } => {
+                            send(AiUiUpdate::ToolDone { name });
+                        }
+                        agent::types::AgentEvent::Text(delta) => {
+                            final_text.push_str(&delta);
+                        }
+                        _ => {}
                     }
-                    agent::types::AgentEvent::Text(delta) => {
-                        final_text.push_str(&delta);
-                    }
-                    _ => {}
                 };
                 let mut ask_approval =
                     |_: agent::types::ApprovalRequest| agent::types::ApprovalDecision::Approve;
 
                 match agent.run(&prompt, &mut on_event, &mut ask_approval) {
                     Ok(text) => {
+                        if cancel_for_thread.load(std::sync::atomic::Ordering::Relaxed) {
+                            return;
+                        }
                         let reply = if !text.trim().is_empty() {
                             text
                         } else if !final_text.trim().is_empty() {
@@ -167,6 +207,9 @@ impl ZenthreeState {
                         });
                     }
                     Err(e) => {
+                        if cancel_for_thread.load(std::sync::atomic::Ordering::Relaxed) {
+                            return;
+                        }
                         send(AiUiUpdate::Done {
                             reply: format!("Agent error: {e}"),
                             session_json,
@@ -175,14 +218,23 @@ impl ZenthreeState {
                 }
             } else {
                 // Fallback: no provider key found
+                if cancel_for_thread.load(std::sync::atomic::Ordering::Relaxed) {
+                    return;
+                }
                 match agent::provider::complete(&prompt) {
                     Ok(content) => {
+                        if cancel_for_thread.load(std::sync::atomic::Ordering::Relaxed) {
+                            return;
+                        }
                         send(AiUiUpdate::Done {
                             reply: content,
                             session_json: None,
                         });
                     }
                     Err(err) => {
+                        if cancel_for_thread.load(std::sync::atomic::Ordering::Relaxed) {
+                            return;
+                        }
                         send(AiUiUpdate::Done {
                             reply: format!("Error: {err}"),
                             session_json: None,
@@ -655,10 +707,215 @@ impl ZenthreeState {
                                 if session_json.is_some() {
                                     self.ai_session_json = session_json;
                                 }
+                                self.save_current_ai_session();
                                 // Done: is_working was already set to false above
                             }
                         }
         }
         true
+    }
+}
+
+fn ai_sessions_base_dir() -> std::path::PathBuf {
+    if let Ok(home) = std::env::var("HOME") {
+        std::path::PathBuf::from(home).join(".config").join("zenthree").join("ai_sessions")
+    } else {
+        std::path::PathBuf::from(".zenthree_sessions")
+    }
+}
+
+fn project_dir_key(path: &std::path::Path) -> String {
+    use std::hash::{Hash, Hasher};
+    let canon = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
+    let mut hasher = std::collections::hash_map::DefaultHasher::new();
+    canon.to_string_lossy().hash(&mut hasher);
+    let hash = hasher.finish();
+    let name = canon.file_name().and_then(|n| n.to_str()).unwrap_or("project");
+    let safe_name: String = name.chars().filter(|c| c.is_alphanumeric() || *c == '-' || *c == '_').collect();
+    format!("{safe_name}_{hash:x}")
+}
+
+impl ZenthreeState {
+    pub fn refresh_ai_sessions(&mut self) {
+        let base = ai_sessions_base_dir();
+        let mut summaries = Vec::new();
+        if let Ok(entries) = std::fs::read_dir(&base) {
+            for entry in entries.flatten() {
+                if let Ok(file_type) = entry.file_type() {
+                    if file_type.is_dir() {
+                        if let Ok(sess_entries) = std::fs::read_dir(entry.path()) {
+                            for s_entry in sess_entries.flatten() {
+                                let p = s_entry.path();
+                                if p.extension().and_then(|ext| ext.to_str()) == Some("json") {
+                                    if let Ok(content) = std::fs::read_to_string(&p) {
+                                        if let Ok(saved) = serde_json::from_str::<SavedAiSession>(&content) {
+                                            summaries.push(SessionSummary {
+                                                id: saved.id,
+                                                title: saved.title,
+                                                project_path: saved.project_path,
+                                                project_name: saved.project_name,
+                                                created_at: saved.created_at,
+                                                updated_at: saved.updated_at,
+                                                message_count: saved.messages.len(),
+                                            });
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+        summaries.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+        self.ai_sessions = summaries;
+
+        let cur_str = self.current_dir.canonicalize().unwrap_or_else(|_| self.current_dir.clone()).to_string_lossy().to_string();
+        self.ai_expanded_projects.insert(cur_str.clone());
+
+        // When first project opens, if history exists for current project, show it
+        if self.ai_messages.is_empty() && self.ai_sessions.iter().any(|s| s.project_path == cur_str) {
+            self.ai_sessions_visible = true;
+        }
+    }
+
+    pub fn save_current_ai_session(&mut self) {
+        if self.ai_messages.is_empty() {
+            return;
+        }
+
+        let session_id = if let Some(ref id) = self.ai_session_id {
+            id.clone()
+        } else {
+            let now = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_millis();
+            let new_id = format!("sess_{}", now);
+            self.ai_session_id = Some(new_id.clone());
+            new_id
+        };
+
+        // Determine title: first user message
+        let title = self.ai_messages.iter()
+            .find(|m| m.is_user)
+            .map(|m| {
+                let first_line = m.content.lines().next().unwrap_or("").trim();
+                if first_line.len() > 60 {
+                    let mut end = 60;
+                    while !first_line.is_char_boundary(end) {
+                        end -= 1;
+                    }
+                    format!("{}...", &first_line[..end])
+                } else if !first_line.is_empty() {
+                    first_line.to_string()
+                } else {
+                    "Untitled Session".to_string()
+                }
+            })
+            .unwrap_or_else(|| "New Session".to_string());
+
+        let canon = self.current_dir.canonicalize().unwrap_or_else(|_| self.current_dir.clone());
+        let project_path = canon.to_string_lossy().to_string();
+        let project_name = canon.file_name().and_then(|n| n.to_str()).unwrap_or("project").to_string();
+        let now_sec = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs();
+
+        let created_at = self.ai_sessions.iter().find(|s| s.id == session_id).map(|s| s.created_at).unwrap_or(now_sec);
+
+        let saved = SavedAiSession {
+            id: session_id.clone(),
+            title: title.clone(),
+            project_path: project_path.clone(),
+            project_name: project_name.clone(),
+            created_at,
+            updated_at: now_sec,
+            messages: self.ai_messages.clone(),
+            agent_mode: self.agent_mode,
+            model: self.selected_ai_model,
+            session_json: self.ai_session_json.clone(),
+        };
+
+        let base_dir = ai_sessions_base_dir().join(project_dir_key(&canon));
+        let _ = std::fs::create_dir_all(&base_dir);
+        let file_path = base_dir.join(format!("{}.json", session_id));
+        if let Ok(json_str) = serde_json::to_string_pretty(&saved) {
+            let _ = std::fs::write(file_path, json_str);
+        }
+
+        // Update summaries in memory
+        if let Some(existing) = self.ai_sessions.iter_mut().find(|s| s.id == session_id) {
+            existing.title = title;
+            existing.updated_at = now_sec;
+            existing.message_count = self.ai_messages.len();
+        } else {
+            self.ai_sessions.insert(0, SessionSummary {
+                id: session_id,
+                title,
+                project_path,
+                project_name,
+                created_at,
+                updated_at: now_sec,
+                message_count: self.ai_messages.len(),
+            });
+        }
+        self.ai_sessions.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
+    }
+
+    pub fn load_ai_session(&mut self, session_id: &str) {
+        self.cancel_active_ai();
+        let base = ai_sessions_base_dir();
+        if let Ok(entries) = std::fs::read_dir(&base) {
+            for entry in entries.flatten() {
+                if let Ok(file_type) = entry.file_type() {
+                    if file_type.is_dir() {
+                        let candidate = entry.path().join(format!("{}.json", session_id));
+                        if candidate.exists() {
+                            if let Ok(content) = std::fs::read_to_string(&candidate) {
+                                if let Ok(saved) = serde_json::from_str::<SavedAiSession>(&content) {
+                                    self.ai_session_id = Some(saved.id);
+                                    self.ai_messages = saved.messages;
+                                    self.ai_session_json = saved.session_json;
+                                    self.agent_mode = saved.agent_mode;
+                                    self.selected_ai_model = saved.model;
+                                    self.ai_block_cache.clear();
+                                    self.ai_sessions_visible = false;
+                                    return;
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    pub fn delete_ai_session(&mut self, session_id: &str) {
+        if self.ai_session_id.as_deref() == Some(session_id) {
+            self.cancel_active_ai();
+        }
+        let base = ai_sessions_base_dir();
+        if let Ok(entries) = std::fs::read_dir(&base) {
+            for entry in entries.flatten() {
+                if let Ok(file_type) = entry.file_type() {
+                    if file_type.is_dir() {
+                        let candidate = entry.path().join(format!("{}.json", session_id));
+                        if candidate.exists() {
+                            let _ = std::fs::remove_file(candidate);
+                        }
+                    }
+                }
+            }
+        }
+        self.ai_sessions.retain(|s| s.id != session_id);
+        if self.ai_session_id.as_deref() == Some(session_id) {
+            self.ai_messages.clear();
+            self.ai_session_id = None;
+            self.ai_session_json = None;
+        }
+    }
+
+    pub fn start_new_ai_session(&mut self) {
+        self.cancel_active_ai();
+        self.ai_messages.clear();
+        self.ai_session_id = None;
+        self.ai_session_json = None;
+        self.ai_sessions_visible = false;
     }
 }

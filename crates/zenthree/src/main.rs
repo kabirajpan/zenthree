@@ -109,19 +109,23 @@ fn main() {
                     let min_editor_w = 160.0;
                     let avail_for_ai = (ui_width - activity_bar_w - actual_sb_w - min_editor_w).max(160.0);
                     let actual_ai_w = if state.ai_panel_visible {
-                        state.ai_panel_width.min(avail_for_ai).max(180.0)
+                        if state.ai_panel_expanded {
+                            (ui_width - activity_bar_w - actual_sb_w).max(200.0)
+                        } else {
+                            state.ai_panel_width.min(avail_for_ai).max(180.0)
+                        }
                     } else {
                         0.0
                     };
 
-                    if state.ai_panel_visible {
+                    if state.ai_panel_visible && !state.ai_panel_expanded {
                         state.ai_panel_width = actual_ai_w;
                     }
                     if state.sidebar_visible {
                         state.sidebar_width = actual_sb_w;
                     }
 
-                    let center_w = (ui_width - activity_bar_w - actual_sb_w - actual_ai_w).max(min_editor_w);
+                    let center_w = (ui_width - activity_bar_w - actual_sb_w - if state.ai_panel_visible && !state.ai_panel_expanded { actual_ai_w } else { 0.0 }).max(min_editor_w);
 
                     let term_h = if state.terminal_visible {
                         state.terminal_height.min(middle_h - 80.0).max(60.0)
@@ -143,21 +147,27 @@ fn main() {
                                 ui_layout::draw_sidebar(ui, &mut state);
                             }
 
-                            ui.container()
-                                .width(center_w)
-                                .height(middle_h)
-                                .column()
-                                .show(|ui| {
-                                    ui_layout::draw_main_buffer(ui, &mut state, center_w, editor_h);
+                            if state.ai_panel_visible && state.ai_panel_expanded {
+                                // When expanded, the AI Agent Panel sits in the buffer area
+                                let expanded_w = (ui_width - activity_bar_w - actual_sb_w).max(200.0);
+                                ui_layout::draw_ai_panel(ui, &mut state, expanded_w, middle_h);
+                            } else {
+                                ui.container()
+                                    .width(center_w)
+                                    .height(middle_h)
+                                    .column()
+                                    .show(|ui| {
+                                        ui_layout::draw_main_buffer(ui, &mut state, center_w, editor_h);
 
-                                    if state.terminal_visible {
-                                        ui_layout::draw_terminal_panel(ui, &mut state, center_w, term_h);
-                                    }
-                                });
+                                        if state.terminal_visible {
+                                            ui_layout::draw_terminal_panel(ui, &mut state, center_w, term_h);
+                                        }
+                                    });
 
-                            // Right: AI Agent Panel
-                            if state.ai_panel_visible {
-                                ui_layout::draw_ai_panel(ui, &mut state, actual_ai_w, middle_h);
+                                // Right: AI Agent Panel (docked mode)
+                                if state.ai_panel_visible {
+                                    ui_layout::draw_ai_panel(ui, &mut state, actual_ai_w, middle_h);
+                                }
                             }
                         });
 

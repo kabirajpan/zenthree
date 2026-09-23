@@ -262,30 +262,41 @@ impl Agent {
                 let stream_res = self.provider.complete_stream(
                     &self.conversation,
                     &tool_schemas,
-                    &mut |event| match event {
-                        ProviderEvent::TextDelta(delta) => {
-                            assistant_text.push_str(&delta);
-                            on_event(AgentEvent::Text(delta));
+                    &mut |event| {
+                        if self.is_cancelled() {
+                            return;
                         }
-                        ProviderEvent::ToolCallComplete {
-                            id,
-                            name,
-                            args,
-                            thought_signature,
-                        } => {
-                            pending_tool_calls.push(ToolCall {
+                        match event {
+                            ProviderEvent::TextDelta(delta) => {
+                                assistant_text.push_str(&delta);
+                                on_event(AgentEvent::Text(delta));
+                            }
+                            ProviderEvent::ToolCallComplete {
                                 id,
                                 name,
                                 args,
                                 thought_signature,
-                            });
+                            } => {
+                                pending_tool_calls.push(ToolCall {
+                                    id,
+                                    name,
+                                    args,
+                                    thought_signature,
+                                });
+                            }
+                            ProviderEvent::Error(err) => {
+                                provider_error = Some(ProviderError::Malformed(err));
+                            }
+                            _ => {}
                         }
-                        ProviderEvent::Error(err) => {
-                            provider_error = Some(ProviderError::Malformed(err));
-                        }
-                        _ => {}
                     },
                 );
+
+                if self.is_cancelled() {
+                    let cancel_msg = "Agent execution was cancelled by the user.".to_string();
+                    on_event(AgentEvent::Failed(cancel_msg.clone()));
+                    return Ok(cancel_msg);
+                }
 
                 let active_err = provider_error.clone().or_else(|| stream_res.as_ref().err().cloned());
                 if let Some(err) = active_err {

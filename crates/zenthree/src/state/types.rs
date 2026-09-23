@@ -500,3 +500,49 @@ pub struct BreadcrumbPopup {
     pub popup_y: f32,
     pub expanded_dirs: std::collections::HashSet<PathBuf>,
 }
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct SessionSummary {
+    pub id: String,
+    pub title: String,
+    pub project_path: String,
+    pub project_name: String,
+    pub created_at: u64,
+    pub updated_at: u64,
+    pub message_count: usize,
+}
+
+impl SessionSummary {
+    pub fn relative_time_string(&self) -> String {
+        let now = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap_or_default()
+            .as_secs();
+        let diff = now.saturating_sub(self.updated_at);
+        if diff < 60 {
+            "just now".to_string()
+        } else if diff < 3600 {
+            format!("{}m", diff / 60)
+        } else if diff < 86400 {
+            format!("{}h", diff / 3600)
+        } else if diff < 604800 {
+            format!("{}d", diff / 86400)
+        } else {
+            format!("{}w", diff / 604800)
+        }
+    }
+}
+
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+pub struct SavedAiSession {
+    pub id: String,
+    pub title: String,
+    pub project_path: String,
+    pub project_name: String,
+    pub created_at: u64,
+    pub updated_at: u64,
+    pub messages: Vec<AiMessage>,
+    pub agent_mode: AgentMode,
+    pub model: AiModel,
+    pub session_json: Option<String>,
+}

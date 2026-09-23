@@ -20,15 +20,19 @@ impl ZenthreeState {
     }
 
     pub fn open_workspace(&mut self, path: PathBuf) {
+        self.cancel_active_ai();
         self.current_dir = path;
         self.has_workspace = true;
         self.expanded_dirs.clear();
         self.rebuild_tree();
         self.set_status(format!("Opened workspace: {}", self.current_dir.display()));
         self.save_persistent_state();
+        self.refresh_ai_sessions();
+        self.ai_sessions_visible = true;
     }
 
     pub fn close_workspace(&mut self) {
+        self.cancel_active_ai();
         self.has_workspace = false;
         self.sidebar_items.clear();
         self.expanded_dirs.clear();

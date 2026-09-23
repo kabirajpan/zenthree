@@ -131,6 +131,7 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
 
                         ui.spacing(4.0);
                         if ui.menu_item("Exit").show().clicked {
+                            state.cancel_active_ai();
                             state.save_persistent_state();
                             ui.close();
                         }
@@ -695,6 +696,7 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                     let prev = ui.interaction_state.insert(cls_key, if h { 1.0 } else { 0.0 });
                     if prev != Some(if h { 1.0 } else { 0.0 }) { ui.needs_redraw = true; }
                     if cls_resp.clicked {
+                        state.cancel_active_ai();
                         state.save_persistent_state();
                         ui.close();
                     }

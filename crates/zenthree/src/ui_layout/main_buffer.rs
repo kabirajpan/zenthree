@@ -484,6 +484,7 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                     let is_resizing = state.is_resizing();
                     let terminal_visible = state.terminal_visible;
                     let ai_panel_visible = state.ai_panel_visible;
+                    let is_occluded_by_ai = ai_panel_visible && state.ai_panel_expanded;
 
                     let is_near_panel_edge = (ai_panel_visible && ui.mouse_x >= editor_x + editor_w - 6.0)
                         || (terminal_visible && ui.mouse_y >= editor_y + editor_h - 6.0)
@@ -525,7 +526,7 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                                 }
                             }
 
-                            if !is_dragging && ui.clicked && !is_near_panel_edge && !is_resizing {
+                            if !is_dragging && ui.clicked && !is_near_panel_edge && !is_resizing && !is_occluded_by_ai {
                                 let max_sb_hit_x = editor_x + editor_w - 5.0;
                                 let max_sb_hit_y = editor_y + track_h - (if terminal_visible { 6.0 } else { 0.0 });
                                 let mouse_in_track = ui.mouse_x >= scrollbar_x - 4.0 && ui.mouse_x <= max_sb_hit_x
@@ -560,7 +561,7 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                             }
                         }
 
-                        let is_hovered = ui.mouse_in_rect(editor_x + ui.offset_x, editor_y + ui.offset_y, editor_w, editor_h);
+                        let is_hovered = !is_occluded_by_ai && ui.mouse_in_rect(editor_x + ui.offset_x, editor_y + ui.offset_y, editor_w, editor_h);
                         if is_hovered {
                             let mut scroll_delta_y = 0.0;
                             ui.input_events.retain(|event| {
@@ -1297,7 +1298,8 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                             || (state.terminal_visible && ui.mouse_y >= editor_y + editor_h - 8.0)
                             || state.is_resizing();
 
-                        if !mouse_in_scrollbar && !is_near_panel_edge {
+                        let is_occluded_by_ai = state.ai_panel_visible && state.ai_panel_expanded;
+                        if !mouse_in_scrollbar && !is_near_panel_edge && !is_occluded_by_ai {
                             let tab = &mut state.tabs[active_tab_idx];
                             ui.focused_id = Some(editor_id);
                             ui.needs_redraw = true;
