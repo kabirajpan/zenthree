@@ -1,9 +1,10 @@
-use crate::state::{ZenthreeState, AiModel, AiProvider, AgentMode, TrajectoryStep, ExplorationItem, path_matches, SessionSummary};
-use zenthra::{Color, Ui, Align, FontWeight, Id, CursorIcon, use_context, Placement, PopoverAlign};
+use crate::state::{ZenthreeState, AiModel, AiProvider, AgentMode, TrajectoryStep, ExplorationItem, path_matches, SessionSummary, AiSettingsTab, AiInputTone, AiMessageBg};
+use zenthra::{Color, Ui, Align, FontWeight, Id, CursorIcon, use_context, Placement, PopoverAlign, Wrap};
 use crate::theme::ThemeColors;
 
 const AGENT_MODE_BTN_ID: Id = Id::from_u64(999999885);
 const MODEL_PICKER_BTN_ID: Id = Id::from_u64(999999886);
+const AI_MORE_BTN_ID: Id = Id::from_u64(999999887);
 
 fn draw_panel_left_icon(ui: &mut Ui, x: f32, y: f32, is_expanded: bool, color: Color) {
     let icon_w = 13.0;
@@ -133,6 +134,188 @@ fn draw_panel_left_icon(ui: &mut Ui, x: f32, y: f32, is_expanded: bool, color: C
     }
 }
 
+fn draw_ai_chat_header(
+    ui: &mut Ui,
+    state: &mut ZenthreeState,
+    header_w: f32,
+    colors: &crate::theme::ThemeColors,
+    panel_bg: Color,
+) {
+    const HEADER_H: f32 = 36.0;
+    ui.container()
+        .width(header_w)
+        .height(HEADER_H)
+        .bg(panel_bg)
+        .padding_left(8.0)
+        .padding_right(10.0)
+        .row()
+        .valign(Align::Center)
+        .halign(Align::SpaceBetween)
+        .no_wrap()
+        .show(|ui| {
+            // Left: Expand/Collapse Arrow + Title
+            ui.container()
+                .row()
+                .valign(Align::Center)
+                .gap(6.0)
+                .show(|ui| {
+                    let is_expanded = state.ai_panel_expanded;
+                    let btn_w = 22.0;
+                    let btn_h = 22.0;
+                    let is_btn_hovered = ui.mouse_in_rect(ui.cursor_x, ui.cursor_y, btn_w, btn_h);
+                    let expand_btn = ui.container()
+                        .clickable(true)
+                        .width(btn_w)
+                        .height(btn_h)
+                        .radius_all(4.0)
+                        .bg(if is_expanded { colors.highlight } else { Color::TRANSPARENT })
+                        .hover_bg(colors.highlight)
+                        .halign(Align::Center)
+                        .valign(Align::Center)
+                        .show(|ui| {
+                            let icon_color = if is_expanded {
+                                colors.accent
+                            } else if is_btn_hovered {
+                                colors.text_primary
+                            } else {
+                                colors.text_muted
+                            };
+                            let ix = ui.cursor_x + (btn_w - 13.0) / 2.0;
+                            let iy = ui.cursor_y + (btn_h - 13.0) / 2.0;
+                            draw_panel_left_icon(ui, ix, iy, is_expanded, icon_color);
+                            ui.container().width(btn_w).height(btn_h).show(|_| {});
+                        });
+                    if expand_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
+                    if expand_btn.clicked {
+                        state.ai_panel_expanded = !state.ai_panel_expanded;
+                        state.save_persistent_state();
+                        ui.needs_redraw = true;
+                    }
+
+                    ui.container()
+                        .row()
+                        .valign(Align::Center)
+                        .gap(7.0)
+                        .show(|ui| {
+                            ui.container()
+                                .width(7.0)
+                                .height(7.0)
+                                .radius_all(3.5)
+                                .bg(colors.accent)
+                                .show(|_| {});
+
+                            ui.text("AI Assistant")
+                                .size(12.0)
+                                .weight(FontWeight::Bold)
+                                .color(colors.text_primary)
+                                .show();
+                        });
+                });
+
+            // Right Actions (New, History, 3-dot Menu, Close)
+            ui.container()
+                .row()
+                .valign(Align::Center)
+                .gap(3.0)
+                .show(|ui| {
+                    let new_btn = ui.container()
+                        .clickable(true)
+                        .padding(2.0, 6.0, 2.0, 6.0)
+                        .radius_all(4.0)
+                        .hover_bg(colors.highlight)
+                        .row()
+                        .valign(Align::Center)
+                        .gap(3.0)
+                        .show(|ui| {
+                            ui.text("\u{f067}") // fa-plus
+                                .size(9.0)
+                                .color(colors.text_muted)
+                                .show();
+                            ui.text("New")
+                                .size(10.5)
+                                .color(colors.text_muted)
+                                .show();
+                        });
+                    if new_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
+                    if new_btn.clicked {
+                        state.start_new_ai_session();
+                        ui.needs_redraw = true;
+                    }
+
+                    let history_btn = ui.container()
+                        .clickable(true)
+                        .padding(2.0, 6.0, 2.0, 6.0)
+                        .radius_all(4.0)
+                        .bg(if state.ai_sessions_visible { colors.highlight } else { Color::TRANSPARENT })
+                        .hover_bg(colors.highlight)
+                        .row()
+                        .valign(Align::Center)
+                        .gap(4.0)
+                        .show(|ui| {
+                            ui.text("\u{f1da}") // fa-clock-rotate-left
+                                .size(10.0)
+                                .color(if state.ai_sessions_visible { colors.accent } else { colors.text_muted })
+                                .show();
+                            ui.text("History")
+                                .size(10.5)
+                                .color(if state.ai_sessions_visible { colors.text_primary } else { colors.text_muted })
+                                .show();
+                        });
+                    if history_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
+                    if history_btn.clicked {
+                        state.ai_sessions_visible = !state.ai_sessions_visible;
+                        if state.ai_sessions_visible {
+                            state.refresh_ai_sessions();
+                        }
+                        ui.needs_redraw = true;
+                    }
+
+                    let more_btn = ui.container()
+                        .raw_id(AI_MORE_BTN_ID)
+                        .clickable(true)
+                        .width(22.0)
+                        .height(22.0)
+                        .radius_all(4.0)
+                        .bg(if state.ai_menu_open { colors.highlight } else { Color::TRANSPARENT })
+                        .hover_bg(colors.highlight)
+                        .halign(Align::Center)
+                        .valign(Align::Center)
+                        .show(|ui| {
+                            ui.text("\u{f142}") // fa-ellipsis-vertical
+                                .size(11.0)
+                                .color(if state.ai_menu_open { colors.accent } else { colors.text_muted })
+                                .show();
+                        });
+                    if more_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
+                    if more_btn.clicked {
+                        state.ai_menu_open = !state.ai_menu_open;
+                        ui.needs_redraw = true;
+                    }
+
+                    let close_btn = ui.container()
+                        .width(22.0)
+                        .height(22.0)
+                        .radius_all(4.0)
+                        .hover_bg(colors.highlight)
+                        .halign(Align::Center)
+                        .valign(Align::Center)
+                        .show(|ui| {
+                            ui.text("\u{f00d}")
+                                .size(10.0)
+                                .color(colors.text_muted)
+                                .show();
+                        });
+                    if close_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
+                    if close_btn.clicked {
+                        state.cancel_active_ai();
+                        state.ai_panel_visible = false;
+                        state.save_persistent_state();
+                        ui.needs_redraw = true;
+                    }
+                });
+        });
+}
+
 pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height: f32) {
     let colors = use_context::<ThemeColors>().map(|c| *c).unwrap_or_else(|| state.colors());
     let ai_panel_w = width;
@@ -218,255 +401,213 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
     }
 
     // ─── Main AI Agent Panel ──────────────────────────────────────────────
-    let mut panel_builder = ui.container()
-        .id(ai_id)
-        .width(ai_panel_w)
-        .height(height)
-        .max_height(height)
-        .clip(true)
-        .bg(colors.bg_sidebar)
-        .column();
+    let panel_bg = match state.ai_settings.effective_message_bg() {
+        AiMessageBg::DeepDark => colors.bg_base,
+        AiMessageBg::Sidebar => colors.bg_sidebar,
+    };
 
-    if state.ai_panel_expanded {
-        panel_builder = panel_builder
-            .border(colors.border.with_alpha(0.8), 1.0);
-    }
+    const HEADER_H: f32 = 36.0;
 
-    let _panel_container = panel_builder.show(|ui| {
-            // ─── Header: Minimalist Top Bar ──────────────────────────────
-            const HEADER_H: f32 = 36.0;
-            ui.container()
-                .width(ai_panel_w)
-                .height(HEADER_H)
-                .bg(colors.bg_sidebar)
-                .padding_left(8.0)
-                .padding_right(10.0)
-                .row()
-                .valign(Align::Center)
-                .halign(Align::SpaceBetween)
-                .no_wrap()
-                .show(|ui| {
-                    // Left: Expand/Collapse Arrow + (Back button or Title)
-                    ui.container()
-                        .row()
-                        .valign(Align::Center)
-                        .gap(6.0)
-                        .show(|ui| {
-                            // Expand/Collapse overlay button using Lucide panel-left icon
-                            let is_expanded = state.ai_panel_expanded;
-                            let btn_w = 22.0;
-                            let btn_h = 22.0;
-                            let is_btn_hovered = ui.mouse_in_rect(ui.cursor_x, ui.cursor_y, btn_w, btn_h);
-                            let expand_btn = ui.container()
-                                .clickable(true)
-                                .width(btn_w)
-                                .height(btn_h)
-                                .radius_all(4.0)
-                                .bg(if is_expanded { colors.highlight } else { Color::TRANSPARENT })
-                                .hover_bg(colors.highlight)
-                                .halign(Align::Center)
-                                .valign(Align::Center)
-                                .show(|ui| {
-                                    let icon_color = if is_expanded {
-                                        colors.accent
-                                    } else if is_btn_hovered {
-                                        colors.text_primary
-                                    } else {
-                                        colors.text_muted
-                                    };
-                                    let ix = ui.cursor_x + (btn_w - 13.0) / 2.0;
-                                    let iy = ui.cursor_y + (btn_h - 13.0) / 2.0;
-                                    draw_panel_left_icon(ui, ix, iy, is_expanded, icon_color);
-                                    ui.container().width(btn_w).height(btn_h).show(|_| {});
-                                });
-                            if expand_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
-                            if expand_btn.clicked {
-                                state.ai_panel_expanded = !state.ai_panel_expanded;
-                                state.save_persistent_state();
-                                ui.needs_redraw = true;
-                            }
+    if state.ai_panel_expanded && state.ai_sessions_visible {
+        // Expanded Mode with History OPEN: Side-by-Side with full-height native drawer!
+        const HISTORY_SIDEBAR_W: f32 = 280.0;
+        let hist_w = HISTORY_SIDEBAR_W.min(ai_panel_w * 0.45);
+        let chat_w = (ai_panel_w - hist_w).max(200.0);
 
-                            if !state.ai_panel_expanded && state.ai_sessions_visible {
-                                let back_btn = ui.container()
-                                    .clickable(true)
-                                    .padding(2.0, 6.0, 2.0, 4.0)
-                                    .radius_all(4.0)
-                                    .hover_bg(colors.highlight)
-                                    .row()
-                                    .valign(Align::Center)
-                                    .gap(4.0)
-                                    .show(|ui| {
-                                        ui.text("\u{f053}") // NF_FA_CHEVRON_LEFT
-                                            .size(8.5)
-                                            .color(colors.accent)
-                                            .show();
-                                        ui.text("Back to Chat")
-                                            .size(11.0)
-                                            .weight(FontWeight::Medium)
-                                            .color(colors.accent)
-                                            .show();
-                                    });
-                                if back_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
-                                if back_btn.clicked {
-                                    state.ai_sessions_visible = false;
-                                    ui.needs_redraw = true;
-                                }
-                            } else {
-                                ui.container()
-                                    .row()
-                                    .valign(Align::Center)
-                                    .gap(7.0)
-                                    .show(|ui| {
-                                        // Pulsing status dot
-                                        ui.container()
-                                            .width(7.0)
-                                            .height(7.0)
-                                            .radius_all(3.5)
-                                            .bg(colors.accent)
-                                            .show(|_| {});
+        ui.container()
+            .id(ai_id)
+            .width(ai_panel_w)
+            .height(height)
+            .max_height(height)
+            .clip(true)
+            .bg(panel_bg)
+            .row()
+            .show(|ui| {
+                // Left: Active Chat Area
+                ui.container()
+                    .width(chat_w)
+                    .height(height)
+                    .max_height(height)
+                    .column()
+                    .clip(true)
+                    .show(|ui| {
+                        draw_ai_chat_header(ui, state, chat_w, &colors, panel_bg);
 
-                                        ui.text("AI Assistant")
-                                            .size(12.0)
-                                            .weight(FontWeight::Bold)
-                                            .color(colors.text_primary)
-                                            .show();
-                                    });
-                            }
-                        });
+                        ui.container()
+                            .width(chat_w)
+                            .height(1.0)
+                            .bg(colors.border.with_alpha(0.5))
+                            .show(|_| {});
 
-                    // Right Actions (History, New Chat, Close)
-                    ui.container()
-                        .row()
-                        .valign(Align::Center)
-                        .gap(4.0)
-                        .show(|ui| {
-                            // History button
-                            let history_btn = ui.container()
-                                .clickable(true)
-                                .padding(2.0, 6.0, 2.0, 6.0)
-                                .radius_all(4.0)
-                                .bg(if state.ai_sessions_visible { colors.highlight } else { Color::TRANSPARENT })
-                                .hover_bg(colors.highlight)
-                                .row()
-                                .valign(Align::Center)
-                                .gap(4.0)
-                                .show(|ui| {
-                                    ui.text("\u{f1da}") // fa-clock-rotate-left
-                                        .size(10.0)
-                                        .color(if state.ai_sessions_visible { colors.accent } else { colors.text_muted })
-                                        .show();
-                                    ui.text("History")
-                                        .size(10.5)
-                                        .color(if state.ai_sessions_visible { colors.text_primary } else { colors.text_muted })
-                                        .show();
-                                });
-                            if history_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
-                            if history_btn.clicked {
-                                state.ai_sessions_visible = !state.ai_sessions_visible;
-                                if state.ai_sessions_visible {
-                                    state.refresh_ai_sessions();
-                                }
-                                ui.needs_redraw = true;
-                            }
+                        let chat_content_h = height - HEADER_H - 1.0;
+                        draw_ai_chat_content(ui, state, chat_w, chat_content_h, &colors, ai_input_id);
+                    });
 
-                            // New chat button
-                            let new_btn = ui.container()
-                                .clickable(true)
-                                .padding(2.0, 6.0, 2.0, 6.0)
-                                .radius_all(4.0)
-                                .hover_bg(colors.highlight)
-                                .row()
-                                .valign(Align::Center)
-                                .gap(3.0)
-                                .show(|ui| {
-                                    ui.text("\u{f067}") // fa-plus
-                                        .size(9.0)
-                                        .color(colors.text_muted)
-                                        .show();
-                                    ui.text("New")
-                                        .size(10.5)
-                                        .color(colors.text_muted)
-                                        .show();
-                                });
-                            if new_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
-                            if new_btn.clicked {
-                                state.start_new_ai_session();
-                                ui.needs_redraw = true;
-                            }
+                // Full-height vertical divider line between Chat and History sidebar
+                ui.container()
+                    .width(1.0)
+                    .height(height)
+                    .bg(colors.border.with_alpha(0.6))
+                    .show(|_| {});
 
-                            // Close button
-                            let close_btn = ui.container()
-                                .width(22.0)
-                                .height(22.0)
-                                .radius_all(4.0)
-                                .hover_bg(colors.highlight)
-                                .halign(Align::Center)
-                                .valign(Align::Center)
-                                .show(|ui| {
-                                    ui.text("\u{f00d}")
-                                        .size(10.0)
-                                        .color(colors.text_muted)
-                                        .show();
-                                });
-                            if close_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
-                            if close_btn.clicked {
-                                state.cancel_active_ai();
-                                state.ai_panel_visible = false;
-                                state.save_persistent_state();
-                                ui.needs_redraw = true;
-                            }
-                        });
-                });
-
-            // Subtle 1px hairline below header
-            ui.container()
-                .width(ai_panel_w)
-                .height(1.0)
-                .bg(colors.border.with_alpha(0.5))
-                .show(|_| {});
-
-            let content_h = height - HEADER_H - 1.0;
-
-            if state.ai_panel_expanded && state.ai_sessions_visible {
-                // Expanded Mode with History OPEN: Side-by-Side!
-                const HISTORY_SIDEBAR_W: f32 = 280.0;
-                let hist_w = HISTORY_SIDEBAR_W.min(ai_panel_w * 0.45);
-                let chat_w = (ai_panel_w - hist_w).max(200.0);
+                // Right: Session History Sidebar Panel (Native Full Height!)
+                draw_session_history_panel(ui, state, hist_w - 1.0, height, &colors);
+            });
+    } else if state.ai_sessions_visible {
+        // Docked Mode with History OPEN: In-place full-height replacement
+        draw_session_history_panel(ui, state, ai_panel_w, height, &colors);
+    } else {
+        // History CLOSED (Docked or Expanded): Chat takes full panel width
+        ui.container()
+            .id(ai_id)
+            .width(ai_panel_w)
+            .height(height)
+            .max_height(height)
+            .clip(true)
+            .bg(panel_bg)
+            .column()
+            .show(|ui| {
+                draw_ai_chat_header(ui, state, ai_panel_w, &colors, panel_bg);
 
                 ui.container()
                     .width(ai_panel_w)
-                    .height(content_h)
-                    .max_height(content_h)
-                    .row()
-                    .show(|ui| {
-                        // Left: Active Chat Area
-                        ui.container()
-                            .width(chat_w)
-                            .height(content_h)
-                            .max_height(content_h)
-                            .column()
-                            .show(|ui| {
-                                draw_ai_chat_content(ui, state, chat_w, content_h, &colors, ai_input_id);
-                            });
+                    .height(1.0)
+                    .bg(colors.border.with_alpha(0.5))
+                    .show(|_| {});
 
-                        // Vertical divider line between Chat and History sidebar
-                        ui.container()
-                            .width(1.0)
-                            .height(content_h)
-                            .bg(colors.border.with_alpha(0.6))
-                            .show(|_| {});
-
-                        // Right: Session History Sidebar Panel
-                        draw_session_history_panel(ui, state, hist_w - 1.0, content_h, &colors);
-                    });
-            } else if state.ai_sessions_visible {
-                // Docked Mode with History OPEN: In-place replacement
-                draw_session_history_panel(ui, state, ai_panel_w, content_h, &colors);
-            } else {
-                // History CLOSED (both Docked and Expanded): Chat takes full panel width
+                let content_h = height - HEADER_H - 1.0;
                 draw_ai_chat_content(ui, state, ai_panel_w, content_h, &colors, ai_input_id);
+            });
+    }
+
+    // ─── Floating Menu Panel: AI 3-Dot More Menu ──────────────────────────
+    if state.ai_menu_open {
+        let menu_w = 145.0;
+        let menu_h = 92.0;
+
+        if let Some(anchor) = ui.next_screen_layout_cache.get(&AI_MORE_BTN_ID)
+            .or_else(|| ui.screen_layout_cache.get(&AI_MORE_BTN_ID)).copied()
+        {
+            let (mx, my) = zenthra_widgets::compute_placement_pos(
+                anchor,
+                menu_w,
+                menu_h,
+                Placement::Bottom,
+                PopoverAlign::End,
+                4.0,
+                false,
+                ui.width,
+                ui.height,
+            );
+            let mouse_in_menu = ui.mouse_in_rect(mx, my, menu_w, menu_h);
+            let mouse_in_trigger = ui.mouse_in_rect(anchor.origin.x, anchor.origin.y, anchor.size.width, anchor.size.height);
+            if ui.clicked && !mouse_in_menu && !mouse_in_trigger {
+                state.ai_menu_open = false;
+                ui.needs_redraw = true;
             }
-        });
+        }
+
+        if state.ai_menu_open {
+            ui.popover(AI_MORE_BTN_ID)
+                .placement(Placement::Bottom)
+                .align(PopoverAlign::End)
+                .gap(4.0)
+                .auto_flip(false)
+                .width(menu_w)
+                .height(menu_h)
+                .bg(colors.bg_sidebar)
+                .border(colors.border.with_alpha(0.8), 1.0)
+                .radius_all(6.0)
+                .shadow(Color::rgba(0.0, 0.0, 0.0, 0.5), 0.0, 4.0, 16.0)
+                .padding(3.0, 3.0, 3.0, 3.0)
+                .show(|ui| {
+                    // Option 1: MCP Servers (UI only)
+                    let mcp_btn = ui.container()
+                        .full_width()
+                        .padding(4.0, 7.0, 4.0, 7.0)
+                        .radius_all(3.5)
+                        .hover_bg(colors.highlight)
+                        .clickable(true)
+                        .row()
+                        .valign(Align::Center)
+                        .gap(7.0)
+                        .show(|ui| {
+                            ui.text("\u{f1e6}") // plug icon
+                                .size(10.0)
+                                .color(colors.text_muted)
+                                .show();
+                            ui.text("MCP")
+                                .size(11.0)
+                                .color(colors.text_primary)
+                                .show();
+                        });
+                    if mcp_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
+                    if mcp_btn.clicked {
+                        state.ai_menu_open = false;
+                        state.set_status("MCP Servers (UI placeholder)");
+                        ui.needs_redraw = true;
+                    }
+
+                    // Option 2: Providers (UI only)
+                    let prov_btn = ui.container()
+                        .full_width()
+                        .padding(4.0, 7.0, 4.0, 7.0)
+                        .radius_all(3.5)
+                        .hover_bg(colors.highlight)
+                        .clickable(true)
+                        .row()
+                        .valign(Align::Center)
+                        .gap(7.0)
+                        .show(|ui| {
+                            ui.text("\u{f233}") // server icon
+                                .size(10.0)
+                                .color(colors.text_muted)
+                                .show();
+                            ui.text("Provider")
+                                .size(11.0)
+                                .color(colors.text_primary)
+                                .show();
+                        });
+                    if prov_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
+                    if prov_btn.clicked {
+                        state.ai_menu_open = false;
+                        state.set_status("AI Providers (UI placeholder)");
+                        ui.needs_redraw = true;
+                    }
+
+                    // Option 3: Settings (opens AI & Agent Settings modal!)
+                    let set_btn = ui.container()
+                        .full_width()
+                        .padding(4.0, 7.0, 4.0, 7.0)
+                        .radius_all(3.5)
+                        .hover_bg(colors.highlight)
+                        .clickable(true)
+                        .row()
+                        .valign(Align::Center)
+                        .gap(7.0)
+                        .show(|ui| {
+                            ui.text("\u{f013}") // gear icon
+                                .size(10.0)
+                                .color(colors.accent)
+                                .show();
+                            ui.text("Settings")
+                                .size(11.0)
+                                .weight(FontWeight::Medium)
+                                .color(colors.text_primary)
+                                .show();
+                        });
+                    if set_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
+                    if set_btn.clicked {
+                        ui.clicked = false;
+                        state.ai_menu_open = false;
+                        state.ai_settings.open = true;
+                        state.ai_settings.just_opened = true;
+                        state.ai_settings.active_tab = AiSettingsTab::Appearance;
+                        ui.needs_redraw = true;
+                    }
+                });
+        }
+    }
 
     // ─── Floating Menu Panel: Agent Mode ─────────────────────────────────
     if state.agent_mode_menu_open {
@@ -799,10 +940,14 @@ fn draw_ai_chat_content(
             };
 
             // Dock height: prompt box + bottom row/padding + toolbar/modified section
-            let dock_total_h = prompt_box_h + 52.0 + modified_section_h;
+            let dock_total_h = prompt_box_h + 60.0 + modified_section_h;
             let msgs_h = (content_h - dock_total_h).max(30.0);
 
             // ─── Messages Scroll Area ────────────────────────────────────
+            let panel_bg = match state.ai_settings.effective_message_bg() {
+                AiMessageBg::DeepDark => colors.bg_base,
+                AiMessageBg::Sidebar => colors.bg_sidebar,
+            };
             let msgs_scroll_id = Id::from_u64(999999802);
             ui.container()
                 .id(msgs_scroll_id)
@@ -810,6 +955,7 @@ fn draw_ai_chat_content(
                 .height(msgs_h)
                 .max_height(msgs_h)
                 .clip(true)
+                .bg(panel_bg)
                 .padding(8.0, 12.0, 8.0, 12.0)
                 .column()
                 .gap(20.0)
@@ -1620,7 +1766,7 @@ fn draw_ai_chat_content(
                                                 h.finish()
                                             };
                                             if !state.ai_block_cache.contains_key(&content_hash) {
-                                                let parsed = parse_markdown_blocks(full_text);
+                                                let parsed = parse_markdown_blocks_impl(full_text);
                                                 state.ai_block_cache.insert(content_hash, Box::new(parsed));
                                             }
                                             let blocks = state.ai_block_cache
@@ -1630,69 +1776,201 @@ fn draw_ai_chat_content(
                                                 .unwrap_or(&[]);
                                             for (block_idx, block) in blocks.iter().enumerate() {
                                                 match block {
-                                                    MarkdownBlock::Heading { level, text } => {
-                                                        let (font_size, pad_t) = match level {
-                                                            1 => (13.0, 4.0),
-                                                            2 => (12.0, 3.0),
-                                                            _ => (11.5, 2.0),
+                                                    MarkdownBlock::Heading { level, spans } => {
+                                                        let (font_size, pad_t, pad_b) = match level {
+                                                            1 => (14.0_f32, 8.0_f32, 4.0_f32),
+                                                            2 => (12.5, 6.0, 3.0),
+                                                            3 => (11.5, 5.0, 2.0),
+                                                            _ => (11.0, 3.0, 1.0),
                                                         };
-                                                        let clean_text = strip_markdown_stars(text);
                                                         ui.container()
                                                             .padding_top(pad_t)
-                                                            .padding_bottom(1.0)
+                                                            .padding_bottom(pad_b)
                                                             .show(|ui| {
-                                                                ui.text(&clean_text)
-                                                                    .size(font_size)
-                                                                    .weight(FontWeight::Bold)
-                                                                    .color(colors.text_primary)
-                                                                    .max_width(ai_text_w)
-                                                                    .wrap(zenthra_text::prelude::TextWrap::Word)
-                                                                    .show();
+                                                                draw_inline_spans(ui, spans, ai_text_w, font_size, FontWeight::Bold, colors.text_primary, colors);
                                                             });
                                                     }
-                                                    MarkdownBlock::BulletItem { text } => {
-                                                        let clean_text = strip_markdown_stars(text);
+                                                    MarkdownBlock::Rule => {
+                                                        ui.container()
+                                                            .full_width()
+                                                            .height(1.0)
+                                                            .bg(colors.border.with_alpha(0.4))
+                                                            .padding_top(6.0)
+                                                            .padding_bottom(6.0)
+                                                            .show(|_| {});
+                                                    }
+                                                    MarkdownBlock::BlockQuote { kind, spans } => {
+                                                        let (accent_col, badge_label, badge_icon) = match kind {
+                                                            QuoteKind::Note      => (Color::rgb(59.0/255.0, 130.0/255.0, 246.0/255.0), "NOTE", "\u{f05a}"),
+                                                            QuoteKind::Tip       => (Color::rgb(34.0/255.0, 197.0/255.0, 94.0/255.0),  "TIP",  "\u{f0eb}"),
+                                                            QuoteKind::Important => (Color::rgb(139.0/255.0, 92.0/255.0, 246.0/255.0), "IMPORTANT", "\u{f06a}"),
+                                                            QuoteKind::Warning   => (Color::rgb(245.0/255.0, 158.0/255.0, 11.0/255.0), "WARNING", "\u{f071}"),
+                                                            QuoteKind::Caution   => (Color::rgb(239.0/255.0, 68.0/255.0, 68.0/255.0),  "CAUTION", "\u{f057}"),
+                                                            QuoteKind::Plain     => (colors.accent, "", "\u{f10d}"),
+                                                        };
+                                                        let is_keyed = !badge_label.is_empty();
+                                                        // Blockquote: row with left accent bar + content column
+                                                        ui.container()
+                                                            .max_width(ai_text_w)
+                                                            .row()
+                                                            .gap(0.0)
+                                                            .show(|ui| {
+                                                                // Left accent bar
+                                                                ui.container()
+                                                                    .width(3.0)
+                                                                    .bg(accent_col)
+                                                                    .radius(0.0, 0.0, 2.0, 2.0)
+                                                                    .show(|_| {});
+                                                                // Content
+                                                                ui.container()
+                                                                    .bg(accent_col.with_alpha(0.08))
+                                                                    .padding(6.0, 10.0, 6.0, 10.0)
+                                                                    .column()
+                                                                    .gap(4.0)
+                                                                    .show(|ui| {
+                                                                        if is_keyed {
+                                                                            ui.container()
+                                                                                .row()
+                                                                                .valign(Align::Center)
+                                                                                .gap(5.0)
+                                                                                .show(|ui| {
+                                                                                    ui.text(badge_icon)
+                                                                                        .size(9.0)
+                                                                                        .color(accent_col)
+                                                                                        .show();
+                                                                                    ui.text(badge_label)
+                                                                                        .size(9.0)
+                                                                                        .weight(FontWeight::Bold)
+                                                                                        .color(accent_col)
+                                                                                        .show();
+                                                                                });
+                                                                        }
+                                                                        draw_inline_spans(ui, spans, (ai_text_w - 20.0).max(40.0), 11.0, FontWeight::Regular, colors.text_muted, colors);
+                                                                    });
+                                                            });
+                                                    }
+                                                    MarkdownBlock::Table { alignments: _aligns, headers, rows } => {
+                                                        let col_count = headers.len().max(1);
+                                                        let col_w = ((ai_text_w - 2.0) / col_count as f32).max(40.0);
+                                                        ui.container()
+                                                            .max_width(ai_text_w)
+                                                            .radius_all(6.0)
+                                                            .border(colors.border.with_alpha(0.5), 0.5)
+                                                            .clip(true)
+                                                            .column()
+                                                            .show(|ui| {
+                                                                // Header row
+                                                                ui.container()
+                                                                    .full_width()
+                                                                    .row()
+                                                                    .gap(0.0)
+                                                                    .bg(colors.bg_sidebar.with_alpha(0.9))
+                                                                    .show(|ui| {
+                                                                        for (ci, cell) in headers.iter().enumerate() {
+                                                                            let is_last = ci + 1 == col_count;
+                                                                            ui.container()
+                                                                                .width(col_w)
+                                                                                .padding(5.0, 8.0, 5.0, 8.0)
+                                                                                .show(|ui| {
+                                                                                    draw_inline_spans(ui, cell, col_w - 16.0, 10.0, FontWeight::SemiBold, colors.text_primary, colors);
+                                                                                });
+                                                                            if !is_last {
+                                                                                ui.container()
+                                                                                    .width(0.5)
+                                                                                    .bg(colors.border.with_alpha(0.4))
+                                                                                    .show(|_| {});
+                                                                            }
+                                                                        }
+                                                                    });
+                                                                // Divider under header
+                                                                ui.container().full_width().height(0.5).bg(colors.border.with_alpha(0.5)).show(|_| {});
+                                                                // Data rows
+                                                                for (ri, row) in rows.iter().enumerate() {
+                                                                    let row_bg = if ri % 2 == 1 {
+                                                                        colors.bg_sidebar.with_alpha(0.3)
+                                                                    } else {
+                                                                        Color::TRANSPARENT
+                                                                    };
+                                                                    ui.container()
+                                                                        .full_width()
+                                                                        .row()
+                                                                        .gap(0.0)
+                                                                        .bg(row_bg)
+                                                                        .show(|ui| {
+                                                                            for (ci, cell) in row.iter().enumerate() {
+                                                                                let is_last = ci + 1 == col_count;
+                                                                                ui.container()
+                                                                                    .width(col_w)
+                                                                                    .padding(4.0, 8.0, 4.0, 8.0)
+                                                                                    .show(|ui| {
+                                                                                        draw_inline_spans(ui, cell, col_w - 16.0, 10.5, FontWeight::Regular, colors.text_muted, colors);
+                                                                                    });
+                                                                                if !is_last {
+                                                                                    ui.container()
+                                                                                        .width(0.5)
+                                                                                        .bg(colors.border.with_alpha(0.3))
+                                                                                        .show(|_| {});
+                                                                                }
+                                                                            }
+                                                                        });
+                                                                    if ri + 1 < rows.len() {
+                                                                        ui.container().full_width().height(0.5).bg(colors.border.with_alpha(0.2)).show(|_| {});
+                                                                    }
+                                                                }
+                                                            });
+                                                    }
+
+                                                    MarkdownBlock::BulletItem { depth, spans, checked } => {
+                                                        let indent = (*depth as f32) * 12.0 + 2.0;
+                                                        let avail_w = (ai_text_w - indent - 16.0).max(40.0);
                                                         ui.container()
                                                             .full_width()
                                                             .row()
                                                             .valign(Align::Top)
                                                             .gap(6.0)
-                                                            .padding_left(2.0)
+                                                            .padding_left(indent)
                                                             .show(|ui| {
-                                                                ui.text("•")
-                                                                    .size(11.0)
-                                                                    .color(colors.accent)
-                                                                    .show();
-                                                                ui.text(&clean_text)
-                                                                    .size(11.0)
-                                                                    .line_height(1.65)
-                                                                    .color(colors.text_primary)
-                                                                    .max_width((ai_text_w - 16.0).max(40.0))
-                                                                    .wrap(zenthra_text::prelude::TextWrap::Word)
-                                                                    .show();
+                                                                // Bullet or checkbox
+                                                                match checked {
+                                                                    Some(true) => {
+                                                                        ui.text("\u{f14a}")
+                                                                            .size(10.5)
+                                                                            .color(colors.accent)
+                                                                            .show();
+                                                                    }
+                                                                    Some(false) => {
+                                                                        ui.text("\u{f0c8}")
+                                                                            .size(10.5)
+                                                                            .color(colors.text_muted)
+                                                                            .show();
+                                                                    }
+                                                                    None => {
+                                                                        let bullet = if *depth == 0 { "•" } else { "◦" };
+                                                                        ui.text(bullet)
+                                                                            .size(9.0)
+                                                                            .color(colors.accent)
+                                                                            .show();
+                                                                    }
+                                                                }
+                                                                draw_inline_spans(ui, spans, avail_w, 11.0, FontWeight::Regular, colors.text_primary, colors);
                                                             });
                                                     }
-                                                    MarkdownBlock::NumberedItem { num, text } => {
-                                                        let clean_text = strip_markdown_stars(text);
+                                                    MarkdownBlock::NumberedItem { num, depth, spans } => {
+                                                        let indent = (*depth as f32) * 12.0 + 2.0;
+                                                        let avail_w = (ai_text_w - indent - 22.0).max(40.0);
                                                         ui.container()
                                                             .full_width()
                                                             .row()
                                                             .valign(Align::Top)
                                                             .gap(6.0)
-                                                            .padding_left(2.0)
+                                                            .padding_left(indent)
                                                             .show(|ui| {
-                                                                ui.text(&format!("{}.", num))
+                                                                ui.text(&format!("{}." , num))
                                                                     .size(10.5)
                                                                     .weight(FontWeight::Medium)
                                                                     .color(colors.accent)
                                                                     .show();
-                                                                ui.text(&clean_text)
-                                                                    .size(11.0)
-                                                                    .line_height(1.65)
-                                                                    .color(colors.text_primary)
-                                                                    .max_width((ai_text_w - 20.0).max(40.0))
-                                                                    .wrap(zenthra_text::prelude::TextWrap::Word)
-                                                                    .show();
+                                                                draw_inline_spans(ui, spans, avail_w, 11.0, FontWeight::Regular, colors.text_primary, colors);
                                                             });
                                                     }
                                                     MarkdownBlock::CodeBlock { lang, code } => {
@@ -1770,16 +2048,10 @@ fn draw_ai_chat_content(
                                                                     });
                                                             });
                                                     }
-                                                    MarkdownBlock::Paragraph(text) => {
-                                                        let clean_text = strip_markdown_stars(text);
-                                                        ui.text(&clean_text)
-                                                            .size(11.0)
-                                                            .line_height(1.65)
-                                                            .color(colors.text_primary)
-                                                            .max_width(ai_text_w)
-                                                            .wrap(zenthra_text::prelude::TextWrap::Word)
-                                                            .show();
+                                                    MarkdownBlock::Paragraph(spans) => {
+                                                        draw_inline_spans(ui, spans, ai_text_w, 11.0, FontWeight::Regular, colors.text_primary, colors);
                                                     }
+
                                                 }
                                             }
 
@@ -1879,7 +2151,7 @@ fn draw_ai_chat_content(
                     .width(chat_w)
                     .height(dock_total_h)
                     .max_height(dock_total_h)
-                    .padding(6.0, 10.0, 8.0, 10.0)
+                    .padding(6.0, 10.0, 16.0, 10.0)
                     .column()
                     .halign(Align::Center)
                     .show(|ui| {
@@ -1888,10 +2160,30 @@ fn draw_ai_chat_content(
                         .column()
                         .gap(6.0)
                         .show(|ui| {
-                    let dock_border_color = if is_input_focused {
-                        colors.accent.with_alpha(0.7)
+                    let is_light = colors.bg_base.r > 0.5;
+                    let input_box_bg = if is_light {
+                        Color::rgb(248.0 / 255.0, 248.0 / 255.0, 250.0 / 255.0)
                     } else {
-                        colors.border.with_alpha(0.4)
+                        match state.ai_settings.effective_input_tone() {
+                            AiInputTone::Dark => Color::rgb(20.0 / 255.0, 20.0 / 255.0, 22.0 / 255.0),
+                            AiInputTone::Charcoal => Color::rgb(32.0 / 255.0, 33.0 / 255.0, 38.0 / 255.0),
+                            AiInputTone::Bright => Color::rgb(44.0 / 255.0, 46.0 / 255.0, 53.0 / 255.0),
+                        }
+                    };
+                    let input_shadow_col = if is_light {
+                        Color::rgba(0.0, 0.0, 0.0, 0.08)
+                    } else {
+                        Color::rgba(0.0, 0.0, 0.0, 0.45)
+                    };
+                    let pill_bg = if is_light {
+                        Color::rgba(0.0, 0.0, 0.0, 0.05)
+                    } else {
+                        Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, 0.06)
+                    };
+                    let pill_hover_bg = if is_light {
+                        Color::rgba(0.0, 0.0, 0.0, 0.08)
+                    } else {
+                        Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, 0.12)
                     };
 
                     let mut target_open_file: Option<std::path::PathBuf> = None;
@@ -1902,20 +2194,26 @@ fn draw_ai_chat_content(
                     // ─── Modified Files View & Quick Toolbar ────────────────────────
                     if state.show_modified_files_popup {
                         if has_modified_files {
-                            // 1. Scrollable file list container (only for the file list) with input background & shadow
+                            // 1. Scrollable file list container (only for the file list) with input background & drop shadow
                             let file_list_h = (modified_files.len().max(1) as f32 * 22.0 + 8.0).min(140.0);
-                            ui.container()
+                            let mut mod_files_builder = ui.container()
                                 .full_width()
                                 .height(file_list_h)
-                                .bg(colors.bg_base)
-                                .border(colors.border.with_alpha(0.4), 0.5)
+                                .bg(input_box_bg)
                                 .radius_all(7.0)
-                                .shadow(Color::rgba(0.0, 0.0, 0.0, 0.45), 0.0, 2.0, 12.0)
                                 .padding(4.0, 6.0, 4.0, 6.0)
                                 .scroll_y(true)
                                 .column()
-                                .gap(2.0)
-                                .show(|ui| {
+                                .gap(2.0);
+
+                            if state.ai_settings.effective_input_shadow() {
+                                mod_files_builder = mod_files_builder.shadow(input_shadow_col, 0.0, 2.0, 12.0);
+                            }
+                            if state.ai_settings.effective_input_outline() {
+                                mod_files_builder = mod_files_builder.border(colors.border.with_alpha(0.6), 0.75);
+                            }
+
+                            mod_files_builder.show(|ui| {
                                     for (idx, item) in modified_files.iter().enumerate() {
                                         let ext = item.file_path.extension().and_then(|s| s.to_str()).unwrap_or("");
                                         let (_glyph, icon_color) = crate::mini_icons::get_mini_file_icon(&item.file_name.to_lowercase(), &ext.to_lowercase());
@@ -2344,15 +2642,30 @@ fn draw_ai_chat_content(
                             });
                     }
 
-                    let input_box = ui.container()
+                    let mut input_box_builder = ui.container()
                         .full_width()
-                        .bg(colors.bg_base)
-                        .border(dock_border_color, 0.5) // Thin outline (half of 1.0)
+                        .bg(input_box_bg)
                         .radius_all(7.0)
                         .padding(6.0, 8.0, 6.0, 8.0)
                         .column()
-                        .gap(4.0)
-                        .show(|ui| {
+                        .gap(4.0);
+
+                    if state.ai_settings.effective_input_shadow() {
+                        input_box_builder = input_box_builder.shadow(input_shadow_col, 0.0, 2.0, 12.0);
+                    }
+
+                    if state.ai_settings.effective_input_outline() {
+                        let outline_col = if is_input_focused {
+                            colors.accent.with_alpha(0.8)
+                        } else {
+                            colors.border.with_alpha(0.6)
+                        };
+                        input_box_builder = input_box_builder.border(outline_col, 0.75);
+                    }
+
+                    let prompt_text_size = state.ai_settings.effective_text_size().pt();
+
+                    let input_box = input_box_builder.show(|ui| {
                             // Enter key handling: Enter sends, Shift+Enter inserts newline
                             let mut trigger_send = false;
                             if is_input_focused {
@@ -2394,10 +2707,10 @@ fn draw_ai_chat_content(
                                 .height(prompt_box_h)
                                 .max_height(MAX_PROMPT_H)
                                 .scrollable(true)
-                                .size(11.5)
+                                .size(prompt_text_size)
                                 .line_height(1.25)
                                 .color(colors.text_primary)
-                                .bg(colors.bg_base)
+                                .bg(input_box_bg)
                                 .border(Color::TRANSPARENT, 0.0)
                                 .focus_border(Color::TRANSPARENT, 0.0)
                                 .padding(2.0, 4.0, 2.0, 4.0)
@@ -2428,8 +2741,8 @@ fn draw_ai_chat_content(
                                                 .clickable(true)
                                                 .padding(2.0, 5.0, 2.0, 5.0)
                                                 .radius_all(4.0)
-                                                .bg(if state.agent_mode_menu_open { colors.highlight } else { colors.bg_sidebar })
-                                                .hover_bg(colors.highlight)
+                                                .bg(if state.agent_mode_menu_open { colors.highlight } else { pill_bg })
+                                                .hover_bg(pill_hover_bg)
                                                 .row()
                                                 .valign(Align::Center)
                                                 .gap(3.0)
@@ -2462,8 +2775,8 @@ fn draw_ai_chat_content(
                                                 .clickable(true)
                                                 .padding(2.0, 5.0, 2.0, 5.0)
                                                 .radius_all(4.0)
-                                                .bg(if state.ai_model_menu_open { colors.highlight } else { colors.bg_sidebar })
-                                                .hover_bg(colors.highlight)
+                                                .bg(if state.ai_model_menu_open { colors.highlight } else { pill_bg })
+                                                .hover_bg(pill_hover_bg)
                                                 .row()
                                                 .valign(Align::Center)
                                                 .gap(3.0)
@@ -2496,7 +2809,7 @@ fn draw_ai_chat_content(
                                     } else if has_text {
                                         colors.accent
                                     } else {
-                                        colors.bg_sidebar
+                                        pill_bg
                                     };
 
                                     let send_hover_bg = if is_processing {
@@ -2504,7 +2817,7 @@ fn draw_ai_chat_content(
                                     } else if has_text {
                                         colors.highlight
                                     } else {
-                                        colors.bg_sidebar
+                                        pill_hover_bg
                                     };
 
                                     let send_btn = ui.container()
@@ -2626,135 +2939,388 @@ fn draw_ai_chat_content(
 }
 
 
-use pulldown_cmark::{Event, HeadingLevel, Options, Parser, Tag, TagEnd};
+use pulldown_cmark::{
+    Alignment, BlockQuoteKind, Event, HeadingLevel, Options, Parser, Tag, TagEnd,
+};
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Inline span model
+// ─────────────────────────────────────────────────────────────────────────────
+
+/// A fragment of inline-formatted text.
+#[derive(Debug, Clone, PartialEq)]
+enum InlineSpan {
+    /// Plain text
+    Text(String),
+    /// `**bold**`
+    Bold(String),
+    /// `*italic*`
+    Italic(String),
+    /// `***bold-italic***`
+    BoldItalic(String),
+    /// `` `code` ``
+    Code(String),
+    /// ~~strikethrough~~
+    #[allow(dead_code)]
+    Strike(String),
+}
+
+impl InlineSpan {
+    #[cfg(test)]
+    fn plain_text(&self) -> &str {
+        match self {
+            Self::Text(s)
+            | Self::Bold(s)
+            | Self::Italic(s)
+            | Self::BoldItalic(s)
+            | Self::Code(s)
+            | Self::Strike(s) => s,
+        }
+    }
+
+    #[cfg(test)]
+    fn to_plain_string(spans: &[InlineSpan]) -> String {
+        spans.iter().map(|s| s.plain_text()).collect()
+    }
+}
+
+/// GitHub-style blockquote kinds.
+#[derive(Debug, Clone, PartialEq)]
+enum QuoteKind {
+    Note,
+    Tip,
+    Important,
+    Warning,
+    Caution,
+    Plain,
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Block model
+// ─────────────────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, PartialEq)]
 enum MarkdownBlock {
-    Heading { level: u8, text: String },
+    Heading { level: u8, spans: Vec<InlineSpan> },
     CodeBlock { lang: Option<String>, code: String },
-    BulletItem { text: String },
-    NumberedItem { num: String, text: String },
-    Paragraph(String),
+    /// depth: 0 = top-level, 1 = nested, etc.  checked: None = not a task item.
+    BulletItem { depth: u8, spans: Vec<InlineSpan>, checked: Option<bool> },
+    NumberedItem { num: String, depth: u8, spans: Vec<InlineSpan> },
+    Table {
+        alignments: Vec<Alignment>,
+        headers: Vec<Vec<InlineSpan>>,
+        rows: Vec<Vec<Vec<InlineSpan>>>,
+    },
+    BlockQuote { kind: QuoteKind, spans: Vec<InlineSpan> },
+    Rule,
+    Paragraph(Vec<InlineSpan>),
+
 }
 
-/// Strip bold/italic markdown markers so we can show clean text in non-rich text widgets.
-fn strip_markdown_stars(s: &str) -> String {
-    s.replace("**", "").replace("__", "")
+// ── Compat helpers used only in tests ─────────────────────────────────────────
+impl MarkdownBlock {
+    #[cfg(test)]
+    fn plain_paragraph(s: impl Into<String>) -> Self {
+        MarkdownBlock::Paragraph(vec![InlineSpan::Text(s.into())])
+    }
+    #[cfg(test)]
+    fn plain_heading(level: u8, s: impl Into<String>) -> Self {
+        MarkdownBlock::Heading { level, spans: vec![InlineSpan::Text(s.into())] }
+    }
+    #[cfg(test)]
+    fn plain_bullet(s: impl Into<String>) -> Self {
+        MarkdownBlock::BulletItem { depth: 0, spans: vec![InlineSpan::Text(s.into())], checked: None }
+    }
+    #[cfg(test)]
+    fn plain_numbered(num: impl Into<String>, s: impl Into<String>) -> Self {
+        MarkdownBlock::NumberedItem { num: num.into(), depth: 0, spans: vec![InlineSpan::Text(s.into())] }
+    }
 }
 
+// ─────────────────────────────────────────────────────────────────────────────
+// Parser
+// ─────────────────────────────────────────────────────────────────────────────
+
+
+
+// ─────────────────────────────────────────────────────────────────────────────
+// Actual parser (replaces the broken draft above)
+// ─────────────────────────────────────────────────────────────────────────────
 /// Parse a markdown string into a flat list of [`MarkdownBlock`]s using pulldown-cmark.
-fn parse_markdown_blocks(content: &str) -> Vec<MarkdownBlock> {
-    let mut blocks = Vec::new();
+/// This is the real implementation used at runtime.
+fn parse_markdown_blocks_impl(content: &str) -> Vec<MarkdownBlock> {
+    let mut blocks: Vec<MarkdownBlock> = Vec::new();
 
-    let opts = Options::ENABLE_STRIKETHROUGH | Options::ENABLE_TASKLISTS;
+    let opts = Options::ENABLE_STRIKETHROUGH
+        | Options::ENABLE_TASKLISTS
+        | Options::ENABLE_TABLES;
     let parser = Parser::new_ext(content, opts);
 
-    // We accumulate inline text here while inside a block-level element.
+    // ── Inline span accumulator ─────────────────────────────────────────────
+    let mut spans: Vec<InlineSpan> = Vec::new();
     let mut text_buf = String::new();
+    let mut in_strong: u8 = 0; // nesting depth
+    let mut in_em: u8 = 0;
+    let mut in_strike: u8 = 0;
 
-    // Ordered list tracking: when Some(n) we are inside an ordered list and n is the next number.
-    let mut ordered_start: Option<u64> = None;
-    // Counter for ordered items actually emitted so far in the current ordered list.
-    let mut ordered_counter: u64 = 0;
-
-    // Current heading level (0 = not in a heading)
+    // ── Block state ─────────────────────────────────────────────────────────
     let mut heading_level: u8 = 0;
+    // list nesting stack: (is_ordered, next_counter)
+    let mut list_stack: Vec<(bool, u64)> = Vec::new();
+    let mut task_checked: Option<bool> = None;
 
-    // Are we inside an unordered list item?
-    let mut in_bullet: bool = false;
+    // blockquote
+    let mut bq_depth: u8 = 0;
+    let mut bq_kind = QuoteKind::Plain;
+    let mut bq_spans: Vec<InlineSpan> = Vec::new();
+    let mut bq_text = String::new();
+    let mut bq_strong: u8 = 0;
+    let mut bq_em: u8 = 0;
 
-    // Current code fence language
+    // table state
+    let mut table_alignments: Vec<Alignment> = Vec::new();
+    let mut in_table_head = false;
+    let mut table_headers: Vec<Vec<InlineSpan>> = Vec::new();
+    let mut table_rows: Vec<Vec<Vec<InlineSpan>>> = Vec::new();
+    let mut cur_row: Vec<Vec<InlineSpan>> = Vec::new();
+    let mut in_cell = false;
+    let mut cell_spans: Vec<InlineSpan> = Vec::new();
+    let mut cell_text = String::new();
+    let mut cell_strong: u8 = 0;
+    let mut cell_em: u8 = 0;
+
+    // code block
     let mut code_lang: Option<String> = None;
+    let mut in_code_block = false;
+    let mut code_buf = String::new();
+
+    // ── Flush helpers ───────────────────────────────────────────────────────
+    macro_rules! flush {
+        ($buf:expr, $spans:expr, $s:expr, $e:expr) => {{
+            if !$buf.is_empty() {
+                let t = std::mem::take(&mut $buf);
+                let sp = match ($s > 0, $e > 0) {
+                    (true, true) => InlineSpan::BoldItalic(t),
+                    (true, false) => InlineSpan::Bold(t),
+                    (false, true) => InlineSpan::Italic(t),
+                    _ => InlineSpan::Text(t),
+                };
+                $spans.push(sp);
+            }
+        }};
+    }
 
     for event in parser {
+        // ── Code block raw accumulation (highest priority) ───────────────────
+        if in_code_block {
+            match event {
+                Event::Text(t) => { code_buf.push_str(&t); }
+                Event::End(TagEnd::CodeBlock) => {
+                    let code = std::mem::take(&mut code_buf);
+                    let code = code.trim_end_matches('\n').to_string();
+                    blocks.push(MarkdownBlock::CodeBlock { lang: code_lang.take(), code });
+                    in_code_block = false;
+                }
+                _ => {}
+            }
+            continue;
+        }
+
+        // ── Table cell inline accumulation ───────────────────────────────────
+        if in_cell {
+            match event {
+                Event::Text(t) => { cell_text.push_str(&t); }
+                Event::Code(t) => {
+                    flush!(cell_text, cell_spans, cell_strong, cell_em);
+                    cell_spans.push(InlineSpan::Code(t.to_string()));
+                }
+                Event::Start(Tag::Strong) => { flush!(cell_text, cell_spans, cell_strong, cell_em); cell_strong += 1; }
+                Event::End(TagEnd::Strong) => { flush!(cell_text, cell_spans, cell_strong, cell_em); cell_strong = cell_strong.saturating_sub(1); }
+                Event::Start(Tag::Emphasis) => { flush!(cell_text, cell_spans, cell_strong, cell_em); cell_em += 1; }
+                Event::End(TagEnd::Emphasis) => { flush!(cell_text, cell_spans, cell_strong, cell_em); cell_em = cell_em.saturating_sub(1); }
+                Event::SoftBreak | Event::HardBreak => { cell_text.push(' '); }
+                Event::End(TagEnd::TableCell) => {
+                    flush!(cell_text, cell_spans, cell_strong, cell_em);
+                    cur_row.push(std::mem::take(&mut cell_spans));
+                    in_cell = false;
+                    cell_strong = 0; cell_em = 0;
+                }
+                _ => {}
+            }
+            continue;
+        }
+
+        // ── Blockquote inline accumulation ───────────────────────────────────
+        if bq_depth > 0 {
+            match event {
+                Event::Text(t) => { bq_text.push_str(&t); }
+                Event::Code(t) => {
+                    flush!(bq_text, bq_spans, bq_strong, bq_em);
+                    bq_spans.push(InlineSpan::Code(t.to_string()));
+                }
+                Event::Start(Tag::Strong) => { flush!(bq_text, bq_spans, bq_strong, bq_em); bq_strong += 1; }
+                Event::End(TagEnd::Strong) => { flush!(bq_text, bq_spans, bq_strong, bq_em); bq_strong = bq_strong.saturating_sub(1); }
+                Event::Start(Tag::Emphasis) => { flush!(bq_text, bq_spans, bq_strong, bq_em); bq_em += 1; }
+                Event::End(TagEnd::Emphasis) => { flush!(bq_text, bq_spans, bq_strong, bq_em); bq_em = bq_em.saturating_sub(1); }
+                Event::SoftBreak => { bq_text.push(' '); }
+                Event::HardBreak => { bq_text.push('\n'); }
+                // Paragraphs inside blockquotes just emit into bq_spans.
+                Event::Start(Tag::Paragraph) | Event::End(TagEnd::Paragraph) => {}
+                Event::End(TagEnd::BlockQuote(_)) => {
+                    bq_depth -= 1;
+                    if bq_depth == 0 {
+                        flush!(bq_text, bq_spans, bq_strong, bq_em);
+                        let s = std::mem::take(&mut bq_spans);
+                        if !s.is_empty() {
+                            blocks.push(MarkdownBlock::BlockQuote {
+                                kind: std::mem::replace(&mut bq_kind, QuoteKind::Plain),
+                                spans: s,
+                            });
+                        }
+                    }
+                }
+                _ => {}
+            }
+            continue;
+        }
+
         match event {
-            // ── Block-open ──────────────────────────────────────────────────
+            // ── Horizontal rule ──────────────────────────────────────────────
+            Event::Rule => {
+                blocks.push(MarkdownBlock::Rule);
+            }
+
+            // ── Blockquote ───────────────────────────────────────────────────
+            Event::Start(Tag::BlockQuote(kind)) => {
+                bq_kind = match kind {
+                    Some(BlockQuoteKind::Note) => QuoteKind::Note,
+                    Some(BlockQuoteKind::Tip) => QuoteKind::Tip,
+                    Some(BlockQuoteKind::Important) => QuoteKind::Important,
+                    Some(BlockQuoteKind::Warning) => QuoteKind::Warning,
+                    Some(BlockQuoteKind::Caution) => QuoteKind::Caution,
+                    None => QuoteKind::Plain,
+                };
+                bq_depth += 1;
+                bq_spans.clear();
+                bq_text.clear();
+            }
+
+            // ── Headings ─────────────────────────────────────────────────────
             Event::Start(Tag::Heading { level, .. }) => {
-                text_buf.clear();
+                spans.clear(); text_buf.clear();
+                in_strong = 0; in_em = 0; in_strike = 0;
                 heading_level = match level {
-                    HeadingLevel::H1 => 1,
-                    HeadingLevel::H2 => 2,
-                    HeadingLevel::H3 => 3,
-                    HeadingLevel::H4 => 4,
-                    HeadingLevel::H5 => 5,
-                    HeadingLevel::H6 => 6,
+                    HeadingLevel::H1 => 1, HeadingLevel::H2 => 2, HeadingLevel::H3 => 3,
+                    HeadingLevel::H4 => 4, HeadingLevel::H5 => 5, HeadingLevel::H6 => 6,
                 };
             }
             Event::End(TagEnd::Heading(_)) => {
-                let text = std::mem::take(&mut text_buf).trim().to_string();
-                if !text.is_empty() {
-                    blocks.push(MarkdownBlock::Heading { level: heading_level, text });
-                }
+                flush!(text_buf, spans, in_strong, in_em);
+                let s = std::mem::take(&mut spans);
+                if !s.is_empty() { blocks.push(MarkdownBlock::Heading { level: heading_level, spans: s }); }
                 heading_level = 0;
             }
 
-            Event::Start(Tag::Paragraph) => {
-                text_buf.clear();
-            }
+            // ── Paragraphs ───────────────────────────────────────────────────
+            Event::Start(Tag::Paragraph) => { spans.clear(); text_buf.clear(); in_strong = 0; in_em = 0; in_strike = 0; }
             Event::End(TagEnd::Paragraph) => {
-                let text = std::mem::take(&mut text_buf).trim().to_string();
-                if !text.is_empty() {
-                    blocks.push(MarkdownBlock::Paragraph(text));
-                }
+                flush!(text_buf, spans, in_strong, in_em);
+                let s = std::mem::take(&mut spans);
+                if !s.is_empty() { blocks.push(MarkdownBlock::Paragraph(s)); }
             }
 
-            // ── Lists ───────────────────────────────────────────────────────
+            // ── Inline bold / italic / strike ─────────────────────────────────
+            Event::Start(Tag::Strong) => { flush!(text_buf, spans, in_strong, in_em); in_strong += 1; }
+            Event::End(TagEnd::Strong) => { flush!(text_buf, spans, in_strong, in_em); in_strong = in_strong.saturating_sub(1); }
+            Event::Start(Tag::Emphasis) => { flush!(text_buf, spans, in_strong, in_em); in_em += 1; }
+            Event::End(TagEnd::Emphasis) => { flush!(text_buf, spans, in_strong, in_em); in_em = in_em.saturating_sub(1); }
+            Event::Start(Tag::Strikethrough) => { flush!(text_buf, spans, in_strong, in_em); in_strike += 1; }
+            Event::End(TagEnd::Strikethrough) => { flush!(text_buf, spans, in_strong, in_em); in_strike = in_strike.saturating_sub(1); }
+
+            // ── Lists ─────────────────────────────────────────────────────────
             Event::Start(Tag::List(start_num)) => {
-                ordered_start = start_num;
-                ordered_counter = start_num.unwrap_or(0);
+                list_stack.push((start_num.is_some(), start_num.unwrap_or(1)));
             }
-            Event::End(TagEnd::List(_)) => {
-                ordered_start = None;
-                ordered_counter = 0;
-            }
+            Event::End(TagEnd::List(_)) => { list_stack.pop(); }
             Event::Start(Tag::Item) => {
-                text_buf.clear();
-                in_bullet = ordered_start.is_none();
+                spans.clear(); text_buf.clear();
+                in_strong = 0; in_em = 0; in_strike = 0;
+                task_checked = None;
             }
+            Event::TaskListMarker(checked) => { task_checked = Some(checked); }
             Event::End(TagEnd::Item) => {
-                let text = std::mem::take(&mut text_buf).trim().to_string();
-                if !text.is_empty() {
-                    if in_bullet {
-                        blocks.push(MarkdownBlock::BulletItem { text });
-                    } else {
-                        blocks.push(MarkdownBlock::NumberedItem {
-                            num: ordered_counter.to_string(),
-                            text,
-                        });
-                        ordered_counter += 1;
+                flush!(text_buf, spans, in_strong, in_em);
+                let s = std::mem::take(&mut spans);
+                if !s.is_empty() {
+                    let depth = (list_stack.len().saturating_sub(1)) as u8;
+                    if let Some(last) = list_stack.last_mut() {
+                        if last.0 {
+                            let num = last.1.to_string();
+                            last.1 += 1;
+                            blocks.push(MarkdownBlock::NumberedItem { num, depth, spans: s });
+                        } else {
+                            blocks.push(MarkdownBlock::BulletItem { depth, spans: s, checked: task_checked });
+                        }
                     }
                 }
-                in_bullet = false;
+                task_checked = None;
             }
 
-            // ── Fenced code blocks ──────────────────────────────────────────
+            // ── Fenced code blocks ────────────────────────────────────────────
             Event::Start(Tag::CodeBlock(kind)) => {
-                text_buf.clear();
                 code_lang = match kind {
-                    pulldown_cmark::CodeBlockKind::Fenced(lang) => {
-                        let l = lang.trim().to_string();
+                    pulldown_cmark::CodeBlockKind::Fenced(l) => {
+                        let l = l.trim().to_string();
                         if l.is_empty() { None } else { Some(l) }
                     }
                     pulldown_cmark::CodeBlockKind::Indented => None,
                 };
-            }
-            Event::End(TagEnd::CodeBlock) => {
-                let code = std::mem::take(&mut text_buf);
-                // pulldown-cmark appends a trailing newline; trim it.
-                let code = code.trim_end_matches('\n').to_string();
-                blocks.push(MarkdownBlock::CodeBlock { lang: code_lang.take(), code });
+                code_buf.clear();
+                in_code_block = true;
             }
 
-            // ── Inline text & code ──────────────────────────────────────────
-            Event::Text(t) | Event::Code(t) => {
-                text_buf.push_str(&t);
+            // ── Tables ────────────────────────────────────────────────────────
+            Event::Start(Tag::Table(aligns)) => {
+
+                table_alignments = aligns;
+                table_headers.clear();
+                table_rows.clear();
             }
-            Event::SoftBreak => {
-                text_buf.push(' ');
+            Event::End(TagEnd::Table) => {
+                blocks.push(MarkdownBlock::Table {
+                    alignments: std::mem::take(&mut table_alignments),
+                    headers: std::mem::take(&mut table_headers),
+                    rows: std::mem::take(&mut table_rows),
+                });
+
             }
-            Event::HardBreak => {
-                text_buf.push('\n');
+            Event::Start(Tag::TableHead) => { in_table_head = true; cur_row.clear(); }
+            Event::End(TagEnd::TableHead) => {
+                table_headers = std::mem::take(&mut cur_row);
+                in_table_head = false;
             }
+            Event::Start(Tag::TableRow) => { cur_row.clear(); }
+            Event::End(TagEnd::TableRow) => {
+                if !in_table_head {
+                    table_rows.push(std::mem::take(&mut cur_row));
+                }
+            }
+            Event::Start(Tag::TableCell) => {
+                in_cell = true;
+                cell_spans.clear();
+                cell_text.clear();
+                cell_strong = 0; cell_em = 0;
+            }
+            // TableCell End handled inside in_cell branch above.
+
+            // ── Inline text & inline code ─────────────────────────────────────
+            Event::Text(t) => { text_buf.push_str(&t); }
+            Event::Code(t) => {
+                flush!(text_buf, spans, in_strong, in_em);
+                spans.push(InlineSpan::Code(t.to_string()));
+            }
+            Event::SoftBreak => { text_buf.push(' '); }
+            Event::HardBreak => { text_buf.push('\n'); }
 
             _ => {}
         }
@@ -2763,11 +3329,143 @@ fn parse_markdown_blocks(content: &str) -> Vec<MarkdownBlock> {
     blocks
 }
 
+/// Render a slice of [`InlineSpan`]s as a horizontally-wrapped rich text row.
+///
+/// Because the underlying text widget can only render a single style at a time we emit
+/// each span as its own text widget inside a wrapping row container. Inline `Code` spans
+/// get a subtle pill background drawn around them.
+fn draw_inline_spans(
+    ui: &mut Ui,
+    spans: &[InlineSpan],
+    max_width: f32,
+    base_size: f32,
+    base_weight: FontWeight,
+    base_color: Color,
+    colors: &crate::theme::ThemeColors,
+) {
+    if spans.is_empty() {
+        return;
+    }
+
+    // Fast-path: single plain text span (most common case)
+    if spans.len() == 1 {
+        match &spans[0] {
+            InlineSpan::Text(t) => {
+                ui.text(t)
+                    .size(base_size)
+                    .weight(base_weight)
+                    .color(base_color)
+                    .line_height(1.6)
+                    .max_width(max_width)
+                    .wrap(zenthra_text::prelude::TextWrap::Word)
+                    .show();
+                return;
+            }
+            InlineSpan::Code(t) => {
+                ui.container()
+                    .radius_all(3.0)
+                    .bg(colors.bg_base.with_alpha(0.8))
+                    .border(colors.border.with_alpha(0.4), 0.5)
+                    .padding(1.0, 4.0, 1.0, 4.0)
+                    .show(|ui| {
+                        ui.text(t)
+                            .size((base_size - 0.5).max(8.5))
+                            .monospace()
+                            .color(colors.accent.with_alpha(0.9))
+                            .max_width(max_width)
+                            .wrap(zenthra_text::prelude::TextWrap::Word)
+                            .show();
+                    });
+                return;
+            }
+            _ => {}
+        }
+    }
+
+    // Multi-span: row with wrapping
+    ui.container()
+        .full_width()
+        .row()
+        .wrap(Wrap::Auto)
+        .valign(Align::Top)
+        .gap(0.0)
+        .show(|ui| {
+            for span in spans {
+                match span {
+                    InlineSpan::Text(t) | InlineSpan::Strike(t) => {
+                        let is_strike = matches!(span, InlineSpan::Strike(_));
+                        let color = if is_strike {
+                            base_color.with_alpha(0.5)
+                        } else {
+                            base_color
+                        };
+                        ui.text(t)
+                            .size(base_size)
+                            .weight(base_weight)
+                            .color(color)
+                            .line_height(1.6)
+                            .max_width(max_width)
+                            .wrap(zenthra_text::prelude::TextWrap::Word)
+                            .show();
+                    }
+                    InlineSpan::Bold(t) => {
+                        ui.text(t)
+                            .size(base_size)
+                            .weight(FontWeight::SemiBold)
+                            .color(base_color)
+                            .line_height(1.6)
+                            .max_width(max_width)
+                            .wrap(zenthra_text::prelude::TextWrap::Word)
+                            .show();
+                    }
+                    InlineSpan::Italic(t) => {
+                        ui.text(t)
+                            .size(base_size)
+                            .weight(base_weight)
+                            .italic()
+                            .color(base_color.with_alpha(0.85))
+                            .line_height(1.6)
+                            .max_width(max_width)
+                            .wrap(zenthra_text::prelude::TextWrap::Word)
+                            .show();
+                    }
+                    InlineSpan::BoldItalic(t) => {
+                        ui.text(t)
+                            .size(base_size)
+                            .weight(FontWeight::SemiBold)
+                            .italic()
+                            .color(base_color)
+                            .line_height(1.6)
+                            .max_width(max_width)
+                            .wrap(zenthra_text::prelude::TextWrap::Word)
+                            .show();
+                    }
+                    InlineSpan::Code(t) => {
+                        ui.container()
+                            .radius_all(3.0)
+                            .bg(colors.bg_base.with_alpha(0.8))
+                            .border(colors.border.with_alpha(0.4), 0.5)
+                            .padding(1.0, 4.0, 1.0, 4.0)
+                            .show(|ui| {
+                                ui.text(t)
+                                    .size((base_size - 0.5).max(8.5))
+                                    .monospace()
+                                    .color(colors.accent.with_alpha(0.9))
+                                    .max_width(max_width)
+                                    .wrap(zenthra_text::prelude::TextWrap::Word)
+                                    .show();
+                            });
+                    }
+                }
+            }
+        });
+}
+
 fn draw_session_history_panel(
     ui: &mut Ui,
     state: &mut ZenthreeState,
     panel_w: f32,
-    content_h: f32,
+    panel_h: f32,
     colors: &crate::theme::ThemeColors,
 ) {
     let mut load_session_id: Option<String> = None;
@@ -2776,113 +3474,152 @@ fn draw_session_history_panel(
 
     ui.container()
         .width(panel_w)
-        .height(content_h)
-        .max_height(content_h)
+        .height(panel_h)
+        .max_height(panel_h)
+        .bg(colors.bg_sidebar)
         .column()
         .clip(true)
         .show(|ui| {
-            // In expanded mode, show a sleek header bar with title and close icon
-            if state.ai_panel_expanded {
-                ui.container()
-                    .width(panel_w)
-                    .height(28.0)
-                    .padding(0.0, 10.0, 0.0, 10.0)
-                    .row()
-                    .valign(Align::Center)
-                    .halign(Align::SpaceBetween)
-                    .bg(colors.bg_sidebar)
-                    .show(|ui| {
-                        ui.container()
+            // ── Top Header Bar (Full height aligned with chat header) ────────
+            const HEADER_H: f32 = 36.0;
+            ui.container()
+                .width(panel_w)
+                .height(HEADER_H)
+                .padding_left(10.0)
+                .padding_right(10.0)
+                .row()
+                .valign(Align::Center)
+                .halign(Align::SpaceBetween)
+                .bg(colors.bg_sidebar)
+                .show(|ui| {
+                    if !state.ai_panel_expanded {
+                        // Docked mode: Back button with chevron + "Chat"
+                        let back_btn = ui.container()
+                            .clickable(true)
+                            .padding(2.0, 6.0, 2.0, 4.0)
+                            .radius_all(4.0)
+                            .hover_bg(colors.highlight)
                             .row()
                             .valign(Align::Center)
                             .gap(5.0)
                             .show(|ui| {
+                                ui.text("\u{f053}") // NF_FA_CHEVRON_LEFT
+                                    .size(9.0)
+                                    .color(colors.accent)
+                                    .show();
+                                ui.text("Chat")
+                                    .size(11.0)
+                                    .color(colors.text_primary)
+                                    .show();
+                            });
+                        if back_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
+                        if back_btn.clicked {
+                            state.ai_sessions_visible = false;
+                            ui.needs_redraw = true;
+                        }
+                    } else {
+                        // Expanded mode: Clock icon + "Session History"
+                        ui.container()
+                            .row()
+                            .valign(Align::Center)
+                            .gap(6.0)
+                            .show(|ui| {
                                 ui.text("\u{f1da}") // fa-clock-rotate-left
-                                    .size(9.5)
+                                    .size(10.0)
                                     .color(colors.accent)
                                     .show();
                                 ui.text("Session History")
-                                    .size(11.0)
+                                    .size(11.5)
                                     .weight(FontWeight::Medium)
                                     .color(colors.text_primary)
                                     .show();
                             });
+                    }
 
-                        let close_side_btn = ui.container()
-                            .clickable(true)
-                            .width(20.0)
-                            .height(20.0)
-                            .radius_all(3.0)
-                            .hover_bg(colors.highlight)
-                            .halign(Align::Center)
-                            .valign(Align::Center)
-                            .show(|ui| {
-                                ui.text("\u{f00d}")
-                                    .size(9.0)
-                                    .color(colors.text_muted)
-                                    .show();
-                            });
-                        if close_side_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
-                        if close_side_btn.clicked {
-                            state.ai_sessions_visible = false;
-                            ui.needs_redraw = true;
-                        }
-                    });
+                    // Right: Close button
+                    let close_side_btn = ui.container()
+                        .clickable(true)
+                        .width(22.0)
+                        .height(22.0)
+                        .radius_all(4.0)
+                        .hover_bg(colors.highlight)
+                        .halign(Align::Center)
+                        .valign(Align::Center)
+                        .show(|ui| {
+                            ui.text("\u{f00d}")
+                                .size(9.5)
+                                .color(colors.text_muted)
+                                .show();
+                        });
+                    if close_side_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
+                    if close_side_btn.clicked {
+                        state.ai_sessions_visible = false;
+                        ui.needs_redraw = true;
+                    }
+                });
 
-                // Subtle hairline below subheader
-                ui.container()
-                    .width(panel_w)
-                    .height(1.0)
-                    .bg(colors.border.with_alpha(0.4))
-                    .show(|_| {});
-            }
+            // 1px hairline below header
+            ui.container()
+                .width(panel_w)
+                .height(1.0)
+                .bg(colors.border.with_alpha(0.4))
+                .show(|_| {});
 
-            // ── Search Bar ──────────────────────────────────────────
+            // ── Search Bar (Native pill with no outline) ──────────────
             let search_h: f32 = 34.0;
             let search_input_id = Id::from_u64(999_999_888);
             ui.container()
                 .width(panel_w)
                 .height(search_h)
-                .padding(6.0, 10.0, 6.0, 10.0)
+                .padding(5.0, 10.0, 5.0, 10.0)
                 .row()
                 .valign(Align::Center)
-                .gap(6.0)
                 .bg(colors.bg_sidebar)
                 .show(|ui| {
-                    ui.text("\u{f002}") // fa-search
-                        .size(10.0)
-                        .color(colors.text_muted)
-                        .show();
-
-                    let query_empty = state.ai_sessions_search_query.is_empty();
-
-                    ui.input(&mut state.ai_sessions_search_query, search_input_id)
+                    ui.container()
                         .fill_x()
-                        .size(11.0)
-                        .color(colors.text_primary)
-                        .bg(Color::TRANSPARENT)
-                        .show();
+                        .height(24.0)
+                        .radius_all(4.0)
+                        .padding(0.0, 8.0, 0.0, 8.0)
+                        .row()
+                        .valign(Align::Center)
+                        .gap(6.0)
+                        .bg(colors.bg_base.with_alpha(0.6))
+                        .show(|ui| {
+                            ui.text("\u{f002}") // fa-search
+                                .size(9.5)
+                                .color(colors.text_muted)
+                                .show();
 
-                    if query_empty {
-                        // Subtle hint text overlay if desired
-                    } else {
-                        let clear_btn = ui.container()
-                            .padding(2.0, 4.0, 2.0, 4.0)
-                            .radius_all(3.0)
-                            .hover_bg(colors.highlight)
-                            .clickable(true)
-                            .show(|ui| {
-                                ui.text("\u{f00d}")
-                                    .size(9.0)
-                                    .color(colors.text_muted)
-                                    .show();
-                            });
-                        if clear_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
-                        if clear_btn.clicked {
-                            state.ai_sessions_search_query.clear();
-                            ui.needs_redraw = true;
-                        }
-                    }
+                            let query_empty = state.ai_sessions_search_query.is_empty();
+
+                            ui.input(&mut state.ai_sessions_search_query, search_input_id)
+                                .fill_x()
+                                .size(11.0)
+                                .color(colors.text_primary)
+                                .no_bg()
+                                .no_border()
+                                .show();
+
+                            if !query_empty {
+                                let clear_btn = ui.container()
+                                    .padding(2.0, 4.0, 2.0, 4.0)
+                                    .radius_all(3.0)
+                                    .hover_bg(colors.highlight)
+                                    .clickable(true)
+                                    .show(|ui| {
+                                        ui.text("\u{f00d}")
+                                            .size(9.0)
+                                            .color(colors.text_muted)
+                                            .show();
+                                    });
+                                if clear_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
+                                if clear_btn.clicked {
+                                    state.ai_sessions_search_query.clear();
+                                    ui.needs_redraw = true;
+                                }
+                            }
+                        });
                 });
 
             // 1px hairline below search bar
@@ -2893,7 +3630,7 @@ fn draw_session_history_panel(
                 .show(|_| {});
 
             // ── Scrollable Sessions List ────────────────────────────
-            let list_h = (content_h - search_h - 1.0).max(20.0);
+            let list_h = (panel_h - HEADER_H - 1.0 - search_h - 1.0).max(20.0);
             let scroll_id = Id::from_u64(999_999_889);
 
             ui.container()
@@ -2913,9 +3650,14 @@ fn draw_session_history_panel(
                     // Group sessions by project
                     // 1. Collect unique project paths in order
                     let mut project_paths: Vec<(String, String)> = Vec::new();
-                    // Always place current workspace project at the top
-                    let cur_name = cur_canon.file_name().and_then(|n| n.to_str()).unwrap_or("project").to_string();
-                    project_paths.push((cur_proj_str.clone(), cur_name));
+                    if state.has_workspace {
+                        // Current workspace project is placed at the top
+                        let cur_name = cur_canon.file_name().and_then(|n| n.to_str()).unwrap_or("project").to_string();
+                        project_paths.push((cur_proj_str.clone(), cur_name));
+                    } else {
+                        // When no workspace is opened, place "General" at the top
+                        project_paths.push(("general".to_string(), "General".to_string()));
+                    }
 
                     for sess in &state.ai_sessions {
                         if !project_paths.iter().any(|(p, _)| p == &sess.project_path) {
@@ -2927,7 +3669,12 @@ fn draw_session_history_panel(
                     let mut total_rendered_sessions = 0;
 
                     for (proj_idx, (proj_path, proj_name)) in project_paths.iter().enumerate() {
-                        let is_current = proj_path == &cur_proj_str;
+                        let is_general = proj_path == "general";
+                        let is_current = if state.has_workspace {
+                            proj_path == &cur_proj_str
+                        } else {
+                            is_general
+                        };
 
                         // Filter sessions for this project
                         let filtered_sessions: Vec<&SessionSummary> = state.ai_sessions.iter()
@@ -2950,12 +3697,16 @@ fn draw_session_history_panel(
                         let session_count = filtered_sessions.len();
                         total_rendered_sessions += session_count;
 
-                        // By default, current project is expanded
+                        // By default, current project / active general is expanded
                         let is_expanded = state.ai_expanded_projects.contains(proj_path)
                             || (!query_lower.is_empty() && !filtered_sessions.is_empty());
 
+                        let badge_reserve = if is_current { 52.0 } else { 0.0 };
+                        let avail_w = (panel_w - 32.0).max(180.0);
+                        let left_max_w = (avail_w - badge_reserve).max(120.0);
+
                         // ── Project Line with details ────────────────────────
-                        // ▾ 📁 zenthree · 4 sessions · ~/.../zenthree (current)
+                        // ▾ 💬 General · 1 session · No workspace (active)  OR  ▾ 📁 zenthree (current)
                         let proj_line_id = Id::from_u64(0x7F00_0000 + (proj_idx as u64) * 100);
 
                         let proj_hdr = ui.container()
@@ -2966,76 +3717,123 @@ fn draw_session_history_panel(
                             .radius_all(4.0)
                             .row()
                             .valign(Align::Center)
-                            .gap(5.0)
+                            .halign(Align::SpaceBetween)
                             .no_wrap()
                             .show(|ui| {
+                                // Left details: arrow, icon, name, count, optional path
                                 ui.container()
-                                    .width(12.0)
+                                    .max_width(left_max_w)
+                                    .row()
                                     .valign(Align::Center)
-                                    .halign(Align::Center)
+                                    .gap(5.0)
+                                    .no_wrap()
                                     .show(|ui| {
-                                        let arrow = if is_expanded { "\u{f078}" } else { "\u{f054}" };
-                                        ui.text(arrow)
-                                            .size(7.5)
+                                        ui.container()
+                                            .width(12.0)
+                                            .valign(Align::Center)
+                                            .halign(Align::Center)
+                                            .show(|ui| {
+                                                let arrow = if is_expanded { "\u{f078}" } else { "\u{f054}" };
+                                                ui.text(arrow)
+                                                    .size(7.5)
+                                                    .color(colors.text_muted)
+                                                    .show();
+                                            });
+
+                                        if is_general {
+                                            ui.text("\u{f086}") // fa-comments
+                                                .size(10.5)
+                                                .color(colors.accent)
+                                                .show();
+                                        } else {
+                                            ui.text("\u{f07b}") // fa-folder
+                                                .size(10.5)
+                                                .color(colors.accent)
+                                                .show();
+                                        }
+
+                                        let display_name = if is_general {
+                                            "General"
+                                        } else {
+                                            proj_name.as_str()
+                                        };
+
+                                        ui.text(display_name)
+                                            .size(11.5)
+                                            .weight(FontWeight::Bold)
+                                            .color(colors.text_primary)
+                                            .max_width(75.0)
+                                            .ellipsis(true)
+                                            .show();
+
+                                        ui.text("·")
+                                            .size(10.0)
+                                            .color(colors.text_muted.with_alpha(0.6))
+                                            .show();
+
+                                        ui.text(&format!("{} session{}", session_count, if session_count == 1 { "" } else { "s" }))
+                                            .size(10.0)
                                             .color(colors.text_muted)
                                             .show();
+
+                                        // Shortened path display or "No workspace"
+                                        let remaining_for_path = left_max_w - 145.0;
+                                        if is_general {
+                                            if remaining_for_path >= 50.0 {
+                                                ui.text("·")
+                                                    .size(10.0)
+                                                    .color(colors.text_muted.with_alpha(0.5))
+                                                    .show();
+
+                                                ui.text("No workspace")
+                                                    .size(9.5)
+                                                    .color(colors.text_muted.with_alpha(0.65))
+                                                    .max_width(remaining_for_path)
+                                                    .ellipsis(true)
+                                                    .show();
+                                            }
+                                        } else {
+                                            let short_path = if let Ok(home) = std::env::var("HOME") {
+                                                if let Some(rest) = proj_path.strip_prefix(&home) {
+                                                    format!("~{}", rest)
+                                                } else {
+                                                    proj_path.clone()
+                                                }
+                                            } else {
+                                                proj_path.clone()
+                                            };
+                                            if remaining_for_path >= 35.0 {
+                                                let max_chars = (remaining_for_path / 6.2) as usize;
+                                                let display_path = if short_path.len() > max_chars && max_chars > 6 {
+                                                    format!("...{}", &short_path[short_path.len() - (max_chars.saturating_sub(3))..])
+                                                } else {
+                                                    short_path
+                                                };
+
+                                                ui.text("·")
+                                                    .size(10.0)
+                                                    .color(colors.text_muted.with_alpha(0.5))
+                                                    .show();
+
+                                                ui.text(&display_path)
+                                                    .size(9.5)
+                                                    .color(colors.text_muted.with_alpha(0.65))
+                                                    .max_width(remaining_for_path)
+                                                    .ellipsis(true)
+                                                    .show();
+                                            }
+                                        }
                                     });
 
-                                ui.text("\u{f07b}") // fa-folder
-                                    .size(10.5)
-                                    .color(colors.accent)
-                                    .show();
-
-                                ui.text(proj_name)
-                                    .size(11.5)
-                                    .weight(FontWeight::Bold)
-                                    .color(colors.text_primary)
-                                    .show();
-
-                                ui.text("·")
-                                    .size(10.0)
-                                    .color(colors.text_muted.with_alpha(0.6))
-                                    .show();
-
-                                ui.text(&format!("{} session{}", session_count, if session_count == 1 { "" } else { "s" }))
-                                    .size(10.0)
-                                    .color(colors.text_muted)
-                                    .show();
-
-                                // Shortened path display
-                                let short_path = if let Ok(home) = std::env::var("HOME") {
-                                    if let Some(rest) = proj_path.strip_prefix(&home) {
-                                        format!("~{}", rest)
-                                    } else {
-                                        proj_path.clone()
-                                    }
-                                } else {
-                                    proj_path.clone()
-                                };
-                                let max_path_len = ((panel_w - 200.0).max(40.0) / 6.0) as usize;
-                                let display_path = if short_path.len() > max_path_len && max_path_len > 10 {
-                                    format!("...{}", &short_path[short_path.len() - max_path_len..])
-                                } else {
-                                    short_path
-                                };
-
-                                ui.text("·")
-                                    .size(10.0)
-                                    .color(colors.text_muted.with_alpha(0.5))
-                                    .show();
-
-                                ui.text(&display_path)
-                                    .size(9.5)
-                                    .color(colors.text_muted.with_alpha(0.65))
-                                    .show();
-
+                                // Right side: Current workspace badge
                                 if is_current {
                                     ui.container()
                                         .padding(1.0, 4.0, 1.0, 4.0)
                                         .radius_all(3.0)
                                         .bg(colors.accent.with_alpha(0.15))
+                                        .valign(Align::Center)
                                         .show(|ui| {
-                                            ui.text("current")
+                                            ui.text(if is_general { "active" } else { "current" })
                                                 .size(8.5)
                                                 .color(colors.accent)
                                                 .weight(FontWeight::Medium)
@@ -3213,14 +4011,15 @@ mod tests {
     #[test]
     fn test_parse_markdown_blocks_comprehensive() {
         let md = "I have inspected the project.\n\n## Diagnostics Summary\n- Errors: 0\n- Warnings: 0\n\n```rust\nfn main() {\n    println!(\"Hello Zenthra!\");\n}\n```\n\n1. First step\n2. Second step\n\nAll systems operational.";
-        let blocks = parse_markdown_blocks(md);
+        let blocks = parse_markdown_blocks_impl(md);
 
         // paragraph, heading, 2 bullets, code block, 2 numbered, paragraph
         assert_eq!(blocks.len(), 8, "got: {:#?}", blocks);
-        assert_eq!(blocks[0], MarkdownBlock::Paragraph("I have inspected the project.".into()));
-        assert_eq!(blocks[1], MarkdownBlock::Heading { level: 2, text: "Diagnostics Summary".into() });
-        assert_eq!(blocks[2], MarkdownBlock::BulletItem { text: "Errors: 0".into() });
-        assert_eq!(blocks[3], MarkdownBlock::BulletItem { text: "Warnings: 0".into() });
+
+        assert!(matches!(&blocks[0], MarkdownBlock::Paragraph(s) if InlineSpan::to_plain_string(s).contains("I have inspected")));
+        assert!(matches!(&blocks[1], MarkdownBlock::Heading { level: 2, .. }));
+        assert!(matches!(&blocks[2], MarkdownBlock::BulletItem { depth: 0, .. }));
+        assert!(matches!(&blocks[3], MarkdownBlock::BulletItem { depth: 0, .. }));
         match &blocks[4] {
             MarkdownBlock::CodeBlock { lang, code } => {
                 assert_eq!(lang.as_deref(), Some("rust"));
@@ -3228,16 +4027,67 @@ mod tests {
             }
             other => panic!("Expected CodeBlock, got {:?}", other),
         }
-        assert_eq!(blocks[5], MarkdownBlock::NumberedItem { num: "1".into(), text: "First step".into() });
-        assert_eq!(blocks[6], MarkdownBlock::NumberedItem { num: "2".into(), text: "Second step".into() });
-        assert_eq!(blocks[7], MarkdownBlock::Paragraph("All systems operational.".into()));
+        assert!(matches!(&blocks[5], MarkdownBlock::NumberedItem { num, .. } if num == "1"));
+        assert!(matches!(&blocks[6], MarkdownBlock::NumberedItem { num, .. } if num == "2"));
+        assert!(matches!(&blocks[7], MarkdownBlock::Paragraph(s) if InlineSpan::to_plain_string(s).contains("All systems")));
     }
 
     #[test]
     fn test_parse_markdown_blocks_quota_error() {
         let err = r#"Agent error: Gemini api error: 429 Too Many Requests: { "error": { "code": 429, "message": "Resource has been exhausted (e.g. check quota).", "status": "RESOURCE_EXHAUSTED", "details": [ { "@type": "type.googleapis.com/google.rpc.QuotaFailure", "violations": [ { "subject": "project:12345", "description": "GenerateRequestsPerMinutePerProjectPerModel-FreeTier" } ] } ] } }"#;
-        let blocks = parse_markdown_blocks(err);
+        let blocks = parse_markdown_blocks_impl(err);
         println!("Blocks: {:#?}", blocks);
         assert_eq!(blocks.len(), 1);
+    }
+
+    #[test]
+    fn test_inline_bold_italic() {
+        let md = "Normal **bold** and *italic* and ***bold-italic*** and `code`";
+        let blocks = parse_markdown_blocks_impl(md);
+        assert_eq!(blocks.len(), 1);
+        if let MarkdownBlock::Paragraph(spans) = &blocks[0] {
+            let has_bold  = spans.iter().any(|s| matches!(s, InlineSpan::Bold(_)));
+            let has_italic = spans.iter().any(|s| matches!(s, InlineSpan::Italic(_)));
+            let has_bi    = spans.iter().any(|s| matches!(s, InlineSpan::BoldItalic(_)));
+            let has_code  = spans.iter().any(|s| matches!(s, InlineSpan::Code(_)));
+            assert!(has_bold,   "missing Bold span; got {:?}", spans);
+            assert!(has_italic, "missing Italic span; got {:?}", spans);
+            assert!(has_bi,     "missing BoldItalic span; got {:?}", spans);
+            assert!(has_code,   "missing Code span; got {:?}", spans);
+        } else {
+            panic!("Expected Paragraph, got {:?}", blocks);
+        }
+    }
+
+    #[test]
+    fn test_table_parsing() {
+        let md = "| Name | Value |\n|------|-------|\n| Foo  | 42    |\n| Bar  | 99    |";
+        let blocks = parse_markdown_blocks_impl(md);
+        assert_eq!(blocks.len(), 1, "got: {:#?}", blocks);
+        match &blocks[0] {
+            MarkdownBlock::Table { headers, rows, .. } => {
+                assert_eq!(headers.len(), 2);
+                assert_eq!(rows.len(), 2);
+                assert!(InlineSpan::to_plain_string(&headers[0]).contains("Name"));
+                assert!(InlineSpan::to_plain_string(&rows[0][1]).contains("42"));
+            }
+            other => panic!("Expected Table, got {:?}", other),
+        }
+    }
+
+    #[test]
+    fn test_horizontal_rule() {
+        let md = "Before\n\n---\n\nAfter";
+        let blocks = parse_markdown_blocks_impl(md);
+        assert!(blocks.iter().any(|b| b == &MarkdownBlock::Rule), "got: {:#?}", blocks);
+    }
+
+    #[test]
+    fn test_task_list() {
+        let md = "- [x] Done\n- [ ] Todo";
+        let blocks = parse_markdown_blocks_impl(md);
+        assert_eq!(blocks.len(), 2, "got: {:#?}", blocks);
+        assert!(matches!(&blocks[0], MarkdownBlock::BulletItem { checked: Some(true), .. }));
+        assert!(matches!(&blocks[1], MarkdownBlock::BulletItem { checked: Some(false), .. }));
     }
 }

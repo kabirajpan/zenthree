@@ -7,6 +7,7 @@ mod mini_icons;
 pub mod native_terminal;
 pub mod extensions;
 pub mod lsp;
+pub mod watcher;
 
 use state::ZenthreeState;
 use zenthra::prelude::*;
@@ -71,6 +72,11 @@ fn main() {
             // No timer needed: ArcSignal::with_mut() calls trigger_redraw_hook()
             // on every push, waking the event loop immediately.
             state.drain_ai_updates();
+
+            // Poll filesystem watcher for external file additions, deletions, renames, and git status changes
+            if state.poll_file_tree_changes() {
+                ui.request_redraw();
+            }
 
             // Auto-clear stale status messages after 3 seconds.
             // The _status_clear_effect wakes the event loop when the time is up.
@@ -176,9 +182,10 @@ fn main() {
                         ui_layout::draw_status_bar(ui, &mut state);
                     }
 
-                    // 4. Modal overlays (About dialog, Language installation prompt)
+                    // 4. Modal overlays (About dialog, Language installation prompt, AI Settings dialog)
                     ui_layout::draw_about_dialog(ui, &mut state);
                     ui_layout::draw_language_prompt_dialog(ui, &mut state);
+                    ui_layout::draw_ai_settings_dialog(ui, &mut state);
                 });
         })
         .run();

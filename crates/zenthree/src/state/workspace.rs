@@ -19,25 +19,62 @@ impl ZenthreeState {
         self.scan_dir_recursive(&root, 0, &mut ancestors, &git_statuses);
     }
 
+    pub fn poll_file_tree_changes(&mut self) -> bool {
+        if self.has_workspace && self.fs_watcher.take_pending() {
+            self.rebuild_tree();
+            true
+        } else {
+            false
+        }
+    }
+
     pub fn open_workspace(&mut self, path: PathBuf) {
         self.cancel_active_ai();
+
+        // 1. Save prior session (general or previous project) under its own scope before changing directory
+        self.save_current_ai_session();
+
+        // 2. Start a fresh blank AI session for the newly opened project
+        self.ai_messages.clear();
+        self.ai_session_id = None;
+        self.ai_session_json = None;
+        self.ai_block_cache.clear();
+        self.ai_input.clear();
+        self.ai_sessions_visible = false;
+
+        // 3. Switch workspace
         self.current_dir = path;
         self.has_workspace = true;
         self.expanded_dirs.clear();
         self.rebuild_tree();
+        self.fs_watcher.watch(&self.current_dir);
         self.set_status(format!("Opened workspace: {}", self.current_dir.display()));
         self.save_persistent_state();
         self.refresh_ai_sessions();
-        self.ai_sessions_visible = true;
     }
 
     pub fn close_workspace(&mut self) {
         self.cancel_active_ai();
+
+        // 1. Save prior session under current project before leaving workspace
+        self.save_current_ai_session();
+
+        // 2. Start a fresh blank AI session for General mode
+        self.ai_messages.clear();
+        self.ai_session_id = None;
+        self.ai_session_json = None;
+        self.ai_block_cache.clear();
+        self.ai_input.clear();
+        self.ai_sessions_visible = false;
+
+        // 3. Close workspace
+        self.fs_watcher.stop();
         self.has_workspace = false;
         self.sidebar_items.clear();
         self.expanded_dirs.clear();
         self.set_status("Workspace closed");
         self.save_persistent_state();
+        self.refresh_ai_sessions();
     }
 
     fn get_git_statuses(&self, root: &Path) -> HashMap<PathBuf, GitStatus> {

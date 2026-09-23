@@ -101,10 +101,15 @@ impl ZenthreeState {
                 open_file_infos.push(info);
             }
         }
-        let ws_context_prompt = agent::context::WorkspaceContext::new(&current_dir)
-            .with_open_files(open_file_infos)
-            .format_for_prompt();
-        let git_context_prompt = agent::context::GitContext::format_for_prompt(&current_dir);
+        let (ws_context_prompt, git_context_prompt) = if self.has_workspace {
+            let ws = agent::context::WorkspaceContext::new(&current_dir)
+                .with_open_files(open_file_infos)
+                .format_for_prompt();
+            let git = agent::context::GitContext::format_for_prompt(&current_dir);
+            (ws, git)
+        } else {
+            (String::new(), None)
+        };
 
         let cancel_for_thread = cancel_token.clone();
         std::thread::spawn(move || {
@@ -665,12 +670,14 @@ impl ZenthreeState {
                                 }
                             }
                             AiUiUpdate::ToolDone { name: _ } => {
-                                // Tool done
+                                // Tool done: update file tree in case file was created/modified
+                                self.rebuild_tree();
                             }
                             AiUiUpdate::Done {
                                 reply,
                                 session_json,
                             } => {
+                                self.rebuild_tree();
                                 if let Some(last) =
                                     self.ai_messages.iter_mut().rev().find(|m| !m.is_user)
                                 {
@@ -770,17 +777,18 @@ impl ZenthreeState {
         summaries.sort_by(|a, b| b.updated_at.cmp(&a.updated_at));
         self.ai_sessions = summaries;
 
-        let cur_str = self.current_dir.canonicalize().unwrap_or_else(|_| self.current_dir.clone()).to_string_lossy().to_string();
+        let cur_str = if self.has_workspace {
+            self.current_dir.canonicalize().unwrap_or_else(|_| self.current_dir.clone()).to_string_lossy().to_string()
+        } else {
+            "general".to_string()
+        };
         self.ai_expanded_projects.insert(cur_str.clone());
-
-        // When first project opens, if history exists for current project, show it
-        if self.ai_messages.is_empty() && self.ai_sessions.iter().any(|s| s.project_path == cur_str) {
-            self.ai_sessions_visible = true;
-        }
     }
 
     pub fn save_current_ai_session(&mut self) {
-        if self.ai_messages.is_empty() {
+        // Only create or save a session if the user has actually sent a message
+        let has_user_message = self.ai_messages.iter().any(|m| m.is_user && !m.content.trim().is_empty());
+        if !has_user_message {
             return;
         }
 
@@ -812,9 +820,15 @@ impl ZenthreeState {
             })
             .unwrap_or_else(|| "New Session".to_string());
 
-        let canon = self.current_dir.canonicalize().unwrap_or_else(|_| self.current_dir.clone());
-        let project_path = canon.to_string_lossy().to_string();
-        let project_name = canon.file_name().and_then(|n| n.to_str()).unwrap_or("project").to_string();
+        let (project_path, project_name, base_dir) = if self.has_workspace {
+            let canon = self.current_dir.canonicalize().unwrap_or_else(|_| self.current_dir.clone());
+            let p_path = canon.to_string_lossy().to_string();
+            let p_name = canon.file_name().and_then(|n| n.to_str()).unwrap_or("project").to_string();
+            let b_dir = ai_sessions_base_dir().join(project_dir_key(&canon));
+            (p_path, p_name, b_dir)
+        } else {
+            ("general".to_string(), "General".to_string(), ai_sessions_base_dir().join("general"))
+        };
         let now_sec = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs();
 
         let created_at = self.ai_sessions.iter().find(|s| s.id == session_id).map(|s| s.created_at).unwrap_or(now_sec);
@@ -832,7 +846,6 @@ impl ZenthreeState {
             session_json: self.ai_session_json.clone(),
         };
 
-        let base_dir = ai_sessions_base_dir().join(project_dir_key(&canon));
         let _ = std::fs::create_dir_all(&base_dir);
         let file_path = base_dir.join(format!("{}.json", session_id));
         if let Ok(json_str) = serde_json::to_string_pretty(&saved) {

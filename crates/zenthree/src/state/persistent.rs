@@ -59,6 +59,18 @@ pub struct PersistentState {
     pub ignored_language_prompts: Vec<String>,
     #[serde(default)]
     pub selected_ai_model: Option<AiModel>,
+    #[serde(default)]
+    pub ai_settings: Option<AiSettingsState>,
+    #[serde(default)]
+    pub ai_input_outline: Option<bool>,
+    #[serde(default)]
+    pub ai_input_shadow: Option<bool>,
+    #[serde(default)]
+    pub ai_input_tone: Option<AiInputTone>,
+    #[serde(default)]
+    pub ai_message_bg: Option<AiMessageBg>,
+    #[serde(default)]
+    pub ai_text_size: Option<AiTextSize>,
 }
 
 pub fn get_config_path() -> PathBuf {
@@ -78,56 +90,7 @@ pub fn get_config_path() -> PathBuf {
 impl ZenthreeState {
     pub fn save_persistent_state(&self) {
         let path = get_config_path();
-        let current_dir = if self.has_workspace {
-            Some(self.current_dir.clone())
-        } else {
-            None
-        };
-        let open_tabs: Vec<PathBuf> = if self.has_workspace {
-            self.tabs.iter().filter_map(|t| t.path.clone()).collect()
-        } else {
-            Vec::new()
-        };
-        let active_tab_path = if self.has_workspace {
-            self.active_tab
-                .and_then(|idx| self.tabs.get(idx))
-                .and_then(|t| t.path.clone())
-        } else {
-            None
-        };
-
-        let state = PersistentState {
-            theme: Some(self.theme),
-            accent_color: Some(self.accent_color.clone()),
-            icon_theme: Some(self.icon_theme.clone()),
-            explorer_preset: Some(self.explorer_preset),
-            explorer_tree_guides: Some(self.explorer_tree_guides),
-            explorer_git_status: Some(self.explorer_git_status),
-            explorer_show_hidden: Some(self.explorer_show_hidden),
-            sidebar_visible: Some(self.sidebar_visible),
-            sidebar_width: Some(self.sidebar_width),
-            status_bar_visible: Some(self.status_bar_visible),
-            line_numbers_visible: Some(self.line_numbers_visible),
-            zoom_level: Some(self.zoom_level),
-            current_dir,
-            expanded_dirs: if self.has_workspace {
-                self.expanded_dirs.iter().cloned().collect()
-            } else {
-                Vec::new()
-            },
-            open_tabs,
-            active_tab_path,
-            recent_files: self.recent_files.clone(),
-            terminal_visible: Some(self.terminal_visible),
-            terminal_height: Some(self.terminal_height),
-            ai_panel_visible: Some(self.ai_panel_visible),
-            ai_panel_expanded: Some(self.ai_panel_expanded),
-            ai_panel_width: Some(self.ai_panel_width),
-            sidebar_view: Some(self.sidebar_view),
-            installed_extensions: self.installed_extensions.iter().cloned().collect(),
-            ignored_language_prompts: self.ignored_language_prompts.iter().cloned().collect(),
-            selected_ai_model: Some(self.selected_ai_model),
-        };
+        let state = PersistentState::from(self);
 
         if let Ok(json) = serde_json::to_string_pretty(&state) {
             let _ = std::fs::write(path, json);
@@ -206,6 +169,25 @@ impl ZenthreeState {
                 if let Some(m) = saved.selected_ai_model {
                     self.selected_ai_model = m;
                 }
+                if let Some(settings) = saved.ai_settings {
+                    self.ai_settings = settings;
+                } else {
+                    if let Some(v) = saved.ai_input_outline {
+                        self.ai_settings.input_outline = v;
+                    }
+                    if let Some(v) = saved.ai_input_shadow {
+                        self.ai_settings.input_shadow = v;
+                    }
+                    if let Some(v) = saved.ai_input_tone {
+                        self.ai_settings.input_tone = v;
+                    }
+                    if let Some(v) = saved.ai_message_bg {
+                        self.ai_settings.message_bg = v;
+                    }
+                    if let Some(v) = saved.ai_text_size {
+                        self.ai_settings.text_size = v;
+                    }
+                }
 
                 let args: Vec<String> = std::env::args().collect();
                 if args.len() > 1 {
@@ -273,3 +255,65 @@ impl ZenthreeState {
         }
     }
 }
+
+impl From<&ZenthreeState> for PersistentState {
+    fn from(s: &ZenthreeState) -> Self {
+        let current_dir = if s.has_workspace {
+            Some(s.current_dir.clone())
+        } else {
+            None
+        };
+        let open_tabs: Vec<PathBuf> = if s.has_workspace {
+            s.tabs.iter().filter_map(|t| t.path.clone()).collect()
+        } else {
+            Vec::new()
+        };
+        let active_tab_path = if s.has_workspace {
+            s.active_tab
+                .and_then(|idx| s.tabs.get(idx))
+                .and_then(|t| t.path.clone())
+        } else {
+            None
+        };
+
+        PersistentState {
+            theme: Some(s.theme),
+            accent_color: Some(s.accent_color.clone()),
+            icon_theme: Some(s.icon_theme.clone()),
+            explorer_preset: Some(s.explorer_preset),
+            explorer_tree_guides: Some(s.explorer_tree_guides),
+            explorer_git_status: Some(s.explorer_git_status),
+            explorer_show_hidden: Some(s.explorer_show_hidden),
+            sidebar_visible: Some(s.sidebar_visible),
+            sidebar_width: Some(s.sidebar_width),
+            status_bar_visible: Some(s.status_bar_visible),
+            line_numbers_visible: Some(s.line_numbers_visible),
+            zoom_level: Some(s.zoom_level),
+            current_dir,
+            expanded_dirs: if s.has_workspace {
+                s.expanded_dirs.iter().cloned().collect()
+            } else {
+                Vec::new()
+            },
+            open_tabs,
+            active_tab_path,
+            recent_files: s.recent_files.clone(),
+            terminal_visible: Some(s.terminal_visible),
+            terminal_height: Some(s.terminal_height),
+            ai_panel_visible: Some(s.ai_panel_visible),
+            ai_panel_expanded: Some(s.ai_panel_expanded),
+            ai_panel_width: Some(s.ai_panel_width),
+            sidebar_view: Some(s.sidebar_view),
+            installed_extensions: s.installed_extensions.iter().cloned().collect(),
+            ignored_language_prompts: s.ignored_language_prompts.iter().cloned().collect(),
+            selected_ai_model: Some(s.selected_ai_model),
+            ai_settings: Some(s.ai_settings.clone()),
+            ai_input_outline: Some(s.ai_settings.input_outline),
+            ai_input_shadow: Some(s.ai_settings.input_shadow),
+            ai_input_tone: Some(s.ai_settings.input_tone),
+            ai_message_bg: Some(s.ai_settings.message_bg),
+            ai_text_size: Some(s.ai_settings.text_size),
+        }
+    }
+}
+

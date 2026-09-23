@@ -546,3 +546,7 @@ pub struct SavedAiSession {
     pub model: AiModel,
     pub session_json: Option<String>,
 }
+
+pub use super::ai_settings::*;
+
+

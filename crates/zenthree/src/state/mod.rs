@@ -1,4 +1,5 @@
 pub mod ai;
+pub mod ai_settings;
 pub mod editor;
 pub mod persistent;
 pub mod terminal;
@@ -11,6 +12,8 @@ use std::path::{Path, PathBuf};
 #[allow(unused_imports)]
 pub use persistent::{get_config_path, PersistentState};
 pub use types::*;
+#[allow(unused_imports)]
+pub use ai_settings::*;
 
 pub struct ZenthreeState {
     pub theme: ThemeMode,
@@ -112,6 +115,7 @@ pub struct ZenthreeState {
     /// Cached OS clipboard handle — lazily initialized to avoid opening a new
     /// Wayland/X11 socket on every copy/paste operation.
     pub os_clipboard: Option<arboard::Clipboard>,
+    pub fs_watcher: crate::watcher::WorkspaceWatcher,
 
     /// Session history panel state
     pub ai_sessions_visible: bool,
@@ -120,6 +124,10 @@ pub struct ZenthreeState {
     pub ai_sessions_search_query: String,
     pub ai_expanded_projects: std::collections::HashSet<String>,
     pub ai_cancel_token: Option<std::sync::Arc<std::sync::atomic::AtomicBool>>,
+    /// AI 3-dot dropdown menu open state
+    pub ai_menu_open: bool,
+    /// AI & Agent settings state (appearance, general, model, customization)
+    pub ai_settings: AiSettingsState,
 }
 
 impl ZenthreeState {
@@ -204,15 +212,7 @@ impl ZenthreeState {
             ai_panel_expanded: false,
             ai_panel_width: 340.0,
             active_resize_ai_panel: false,
-            ai_messages: vec![AiMessage {
-                is_user: false,
-                content: "Hello! I am your assistant. How can I help you today?".to_string(),
-                code_snippet: None,
-                thoughts: None,
-                expanded: false,
-                trajectory: Vec::new(),
-                is_working: false,
-            }],
+            ai_messages: Vec::new(),
             ai_input: String::new(),
             user_profile_open: false,
             terminal_session: None,
@@ -251,12 +251,15 @@ impl ZenthreeState {
             show_modified_files_popup: false,
             font_adapter: None,
             os_clipboard: None,
+            fs_watcher: crate::watcher::WorkspaceWatcher::new(),
             ai_sessions_visible: false,
             ai_session_id: None,
             ai_sessions: Vec::new(),
             ai_sessions_search_query: String::new(),
             ai_expanded_projects: std::collections::HashSet::new(),
             ai_cancel_token: None,
+            ai_menu_open: false,
+            ai_settings: AiSettingsState::default(),
         };
 
         // Restore previous session preferences (theme, accent, extensions, etc.)
@@ -292,6 +295,7 @@ impl ZenthreeState {
 
         if state.has_workspace {
             state.rebuild_tree();
+            state.fs_watcher.watch(&state.current_dir);
         }
 
         // Wire the status auto-clear Effect to the real status_signal so it
@@ -795,6 +799,41 @@ mod tests {
 
         // Clean up
         let _ = std::fs::remove_dir_all(tmp_dir);
+    }
+
+    #[test]
+    fn test_ai_settings_persistence_and_defaults() {
+        let mut state = ZenthreeState::new();
+        // Check initial appearance defaults
+        assert_eq!(state.ai_settings.preset_mode, AiPresetMode::SystemDefault);
+        assert!(!state.ai_settings.effective_input_outline());
+        assert!(state.ai_settings.effective_input_shadow());
+        assert_eq!(state.ai_settings.effective_input_tone(), AiInputTone::Charcoal);
+        assert_eq!(state.ai_settings.effective_message_bg(), AiMessageBg::DeepDark);
+        assert_eq!(state.ai_settings.effective_text_size(), AiTextSize::Regular);
+        assert_eq!(state.ai_settings.effective_text_size().pt(), 11.5);
+
+        // Switch to custom preset mode and mutate settings
+        state.ai_settings.preset_mode = AiPresetMode::Custom;
+        state.ai_settings.input_outline = true;
+        state.ai_settings.input_shadow = false;
+        state.ai_settings.input_tone = AiInputTone::Bright;
+        state.ai_settings.message_bg = AiMessageBg::Sidebar;
+        state.ai_settings.text_size = AiTextSize::Large;
+        assert_eq!(state.ai_settings.effective_text_size().pt(), 12.5);
+
+        // Serialize to PersistentState JSON
+        let persistent: PersistentState = (&state).into();
+        let json = serde_json::to_string(&persistent).expect("serialize persistent state");
+        let restored: PersistentState = serde_json::from_str(&json).expect("deserialize persistent state");
+
+        let saved_ai = restored.ai_settings.expect("saved ai_settings");
+        assert_eq!(saved_ai.preset_mode, AiPresetMode::Custom);
+        assert!(saved_ai.input_outline);
+        assert!(!saved_ai.input_shadow);
+        assert_eq!(saved_ai.input_tone, AiInputTone::Bright);
+        assert_eq!(saved_ai.message_bg, AiMessageBg::Sidebar);
+        assert_eq!(saved_ai.text_size, AiTextSize::Large);
     }
 
     #[test]
@@ -1384,17 +1423,80 @@ mod tests {
     }
 
     #[test]
-    fn test_open_workspace_shows_ai_history() {
+    fn test_open_workspace_switches_to_blank_session_and_preserves_general() {
         let mut state = ZenthreeState::default();
-        state.ai_sessions_visible = false;
-        let tmp = std::env::temp_dir();
-        state.open_workspace(tmp);
-        assert!(state.ai_sessions_visible, "Opening workspace must show AI history");
+        assert!(!state.has_workspace);
+
+        // 1. User is chatting in General session
+        state.ai_messages.push(AiMessage {
+            is_user: true,
+            content: "General chat query".into(),
+            code_snippet: None,
+            thoughts: None,
+            expanded: false,
+            trajectory: Vec::new(),
+            is_working: false,
+        });
+
+        // 2. Open workspace
+        let tmp = std::env::temp_dir().join(format!("zenthree_test_proj_{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        std::fs::create_dir_all(&tmp).unwrap();
+        state.open_workspace(tmp.clone());
+        assert!(state.has_workspace);
+
+        // 3. Verify general session was cleanly saved under "general"
+        assert!(state.ai_sessions.iter().any(|s| s.project_path == "general" && s.title == "General chat query"));
+
+        // 4. Verify AI messages and session ID were cleared for a fresh blank session in the project
+        assert!(state.ai_messages.is_empty(), "Opening workspace must start a fresh blank session");
+        assert!(state.ai_session_id.is_none(), "Opening workspace must clear active session ID");
+        assert!(!state.ai_sessions_visible, "Opening workspace must show the fresh start screen, not history drawer");
+
+        // 5. Send message in project
+        state.ai_messages.push(AiMessage {
+            is_user: true,
+            content: "Project chat query".into(),
+            code_snippet: None,
+            thoughts: None,
+            expanded: false,
+            trajectory: Vec::new(),
+            is_working: false,
+        });
+        state.save_current_ai_session();
+
+        let canon = tmp.canonicalize().unwrap();
+        let canon_str = canon.to_string_lossy().to_string();
+        assert!(state.ai_sessions.iter().any(|s| s.project_path == canon_str && s.title == "Project chat query"));
+
+        // Cleanup
+        state.close_workspace();
+        let _ = std::fs::remove_dir_all(&tmp);
     }
 
     #[test]
     fn test_ai_session_save_and_start_new() {
         let mut state = ZenthreeState::default();
+        // By default, no messages exist so start screen is displayed
+        assert!(state.ai_messages.is_empty(), "AI messages must be empty by default for start screen");
+
+        // Saving with no messages must NOT create or save any session
+        state.save_current_ai_session();
+        assert!(state.ai_session_id.is_none(), "Session ID must not be generated when no user message was sent");
+
+        // Even with an assistant-only message, no session should be created
+        state.ai_messages.push(AiMessage {
+            is_user: false,
+            content: "Welcome!".into(),
+            code_snippet: None,
+            thoughts: None,
+            expanded: false,
+            trajectory: Vec::new(),
+            is_working: false,
+        });
+        state.save_current_ai_session();
+        assert!(state.ai_session_id.is_none(), "Session ID must not be generated when only assistant message exists");
+
+        // When user sends a message, session is created
         state.ai_messages.push(AiMessage {
             is_user: true,
             content: "Hello AI session test".into(),
@@ -1408,7 +1510,7 @@ mod tests {
         // Save session
         state.save_current_ai_session();
         let session_id = state.ai_session_id.clone();
-        assert!(session_id.is_some(), "Session ID should be generated on save");
+        assert!(session_id.is_some(), "Session ID should be generated on save once user sends a message");
 
         // Start new session
         state.start_new_ai_session();
@@ -1421,6 +1523,114 @@ mod tests {
             state.delete_ai_session(&id);
         }
     }
+
+    #[test]
+    fn test_workspace_file_tree_auto_updates() {
+        let unique_id = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .unwrap()
+            .as_nanos();
+        let tmp = std::env::temp_dir().join(format!("zenthree_watch_test_{}", unique_id));
+        std::fs::create_dir_all(&tmp).unwrap();
+
+        let mut state = ZenthreeState::default();
+        state.open_workspace(tmp.clone());
+
+        assert!(state.sidebar_items.is_empty());
+
+        // Create a new file externally (as another process or tool would)
+        let test_file = tmp.join("created_by_other.txt");
+        std::fs::write(&test_file, "hello external world").unwrap();
+
+        // Allow debounce window (~200ms) to trigger
+        let start = std::time::Instant::now();
+        let mut detected = false;
+        while start.elapsed() < std::time::Duration::from_millis(1500) {
+            if state.poll_file_tree_changes() {
+                detected = true;
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+
+        assert!(detected, "Watcher should automatically detect newly created file");
+        assert!(
+            state.sidebar_items.iter().any(|item| item.name == "created_by_other.txt"),
+            "sidebar_items must contain the newly created file after auto-update"
+        );
+
+        // Remove the file externally
+        std::fs::remove_file(&test_file).unwrap();
+
+        let start2 = std::time::Instant::now();
+        let mut removed_detected = false;
+        while start2.elapsed() < std::time::Duration::from_millis(1500) {
+            if state.poll_file_tree_changes() {
+                removed_detected = true;
+                break;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+
+        assert!(removed_detected, "Watcher should automatically detect removed file");
+        assert!(
+            !state.sidebar_items.iter().any(|item| item.name == "created_by_other.txt"),
+            "sidebar_items must not contain the removed file after auto-update"
+        );
+
+        state.close_workspace();
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn test_general_vs_workspace_ai_session_categorization() {
+        let mut state = ZenthreeState::default();
+        assert!(!state.has_workspace);
+
+        // Add a message in no-workspace mode
+        state.ai_messages.push(crate::state::AiMessage {
+            is_user: true,
+            content: "What is 2 + 2?".to_string(),
+            code_snippet: None,
+            thoughts: None,
+            expanded: false,
+            trajectory: Vec::new(),
+            is_working: false,
+        });
+
+        state.save_current_ai_session();
+        let first_session = state.ai_sessions.first().expect("Session should be saved");
+        assert_eq!(first_session.project_path, "general");
+        assert_eq!(first_session.project_name, "General");
+
+        // Now open a workspace and verify sessions are saved under that project
+        let tmp = std::env::temp_dir().join(format!("zenthree_test_proj_{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        std::fs::create_dir_all(&tmp).unwrap();
+        state.open_workspace(tmp.clone());
+        assert!(state.has_workspace);
+
+        state.ai_session_id = None; // start new session
+        state.ai_messages.clear();
+        state.ai_messages.push(crate::state::AiMessage {
+            is_user: true,
+            content: "Explain this project".to_string(),
+            code_snippet: None,
+            thoughts: None,
+            expanded: false,
+            trajectory: Vec::new(),
+            is_working: false,
+        });
+
+        state.save_current_ai_session();
+        let proj_session = state.ai_sessions.first().expect("Project session should be saved");
+        let canon = tmp.canonicalize().unwrap();
+        assert_eq!(proj_session.project_path, canon.to_string_lossy().to_string());
+
+        // Clean up
+        state.close_workspace();
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
 }
+
 
 

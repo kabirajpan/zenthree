@@ -7,6 +7,7 @@ pub mod ai_panel;
 pub mod language_dialog;
 pub mod extensions_panel;
 pub mod activity_bar;
+pub mod ai_settings_dialog;
 
 pub use title_bar::draw_title_bar;
 pub use sidebar::draw_sidebar;
@@ -17,6 +18,7 @@ pub use ai_panel::draw_ai_panel;
 pub use language_dialog::draw_language_prompt_dialog;
 pub use extensions_panel::draw_extensions_panel;
 pub use activity_bar::{draw_activity_bar, ACTIVITY_BAR_WIDTH};
+pub use ai_settings_dialog::draw_ai_settings_dialog;
 
 use crate::state::ZenthreeState;
 use zenthra::{Color, Ui, Align, FontWeight, Id, use_context};
