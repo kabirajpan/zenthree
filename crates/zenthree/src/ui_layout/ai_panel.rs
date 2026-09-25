@@ -6,133 +6,7 @@ const AGENT_MODE_BTN_ID: Id = Id::from_u64(999999885);
 const MODEL_PICKER_BTN_ID: Id = Id::from_u64(999999886);
 const AI_MORE_BTN_ID: Id = Id::from_u64(999999887);
 
-fn draw_panel_left_icon(ui: &mut Ui, x: f32, y: f32, is_expanded: bool, color: Color) {
-    let icon_w = 13.0;
-    let icon_h = 13.0;
-    let bw = 1.0;
-    let r = 2.0;
 
-    // 1. Outer rounded square frame
-    ui.draws.push(zenthra_widgets::ui::DrawCommand::Rect(zenthra_widgets::ui::RectDraw {
-        instance: zenthra_render::RectInstance {
-            pos: [x, y],
-            size: [icon_w, icon_h],
-            color: [0.0, 0.0, 0.0, 0.0],
-            radius: [r; 4],
-            border_width: bw,
-            border_color: color.to_array(),
-            clip_rect: [-10000.0, -10000.0, 20000.0, 20000.0],
-            ..Default::default()
-        },
-    }));
-
-    // 2. Vertical divider line at ~1/3 width
-    let div_x = x + 4.2;
-    let div_y = y + bw;
-    let div_h = icon_h - 2.0 * bw;
-    ui.draws.push(zenthra_widgets::ui::DrawCommand::Rect(zenthra_widgets::ui::RectDraw {
-        instance: zenthra_render::RectInstance {
-            pos: [div_x, div_y],
-            size: [bw, div_h],
-            color: color.to_array(),
-            radius: [0.0; 4],
-            border_width: 0.0,
-            border_color: [0.0; 4],
-            clip_rect: [-10000.0, -10000.0, 20000.0, 20000.0],
-            ..Default::default()
-        },
-    }));
-
-    // 3. Chevron in the right pane (centered horizontally in right area and vertically)
-    let cx = x + 8.6;
-    let cy = y + icon_h / 2.0;
-    let arm_thick = 1.0;
-    let step = 0.9;
-
-    if !is_expanded {
-        // Pointing LEFT (<): tip at left, arms go up-right and down-right
-        let tip_x = cx - 1.4;
-        let tip_y = cy;
-
-        // Tip dot
-        ui.draws.push(zenthra_widgets::ui::DrawCommand::Rect(zenthra_widgets::ui::RectDraw {
-            instance: zenthra_render::RectInstance {
-                pos: [tip_x, tip_y - arm_thick / 2.0],
-                size: [arm_thick, arm_thick],
-                color: color.to_array(),
-                radius: [0.3; 4],
-                clip_rect: [-10000.0, -10000.0, 20000.0, 20000.0],
-                ..Default::default()
-            },
-        }));
-
-        for i in 1..=2 {
-            let offset = i as f32 * step;
-            let ax = tip_x + offset;
-            ui.draws.push(zenthra_widgets::ui::DrawCommand::Rect(zenthra_widgets::ui::RectDraw {
-                instance: zenthra_render::RectInstance {
-                    pos: [ax, tip_y - arm_thick / 2.0 - offset],
-                    size: [arm_thick, arm_thick],
-                    color: color.to_array(),
-                    radius: [0.3; 4],
-                    clip_rect: [-10000.0, -10000.0, 20000.0, 20000.0],
-                    ..Default::default()
-                },
-            }));
-            ui.draws.push(zenthra_widgets::ui::DrawCommand::Rect(zenthra_widgets::ui::RectDraw {
-                instance: zenthra_render::RectInstance {
-                    pos: [ax, tip_y - arm_thick / 2.0 + offset],
-                    size: [arm_thick, arm_thick],
-                    color: color.to_array(),
-                    radius: [0.3; 4],
-                    clip_rect: [-10000.0, -10000.0, 20000.0, 20000.0],
-                    ..Default::default()
-                },
-            }));
-        }
-    } else {
-        // Pointing RIGHT (>): tip at right, arms go up-left and down-left
-        let tip_x = cx + 1.4 - arm_thick;
-        let tip_y = cy;
-
-        // Tip dot
-        ui.draws.push(zenthra_widgets::ui::DrawCommand::Rect(zenthra_widgets::ui::RectDraw {
-            instance: zenthra_render::RectInstance {
-                pos: [tip_x, tip_y - arm_thick / 2.0],
-                size: [arm_thick, arm_thick],
-                color: color.to_array(),
-                radius: [0.3; 4],
-                clip_rect: [-10000.0, -10000.0, 20000.0, 20000.0],
-                ..Default::default()
-            },
-        }));
-
-        for i in 1..=2 {
-            let offset = i as f32 * step;
-            let ax = tip_x - offset;
-            ui.draws.push(zenthra_widgets::ui::DrawCommand::Rect(zenthra_widgets::ui::RectDraw {
-                instance: zenthra_render::RectInstance {
-                    pos: [ax, tip_y - arm_thick / 2.0 - offset],
-                    size: [arm_thick, arm_thick],
-                    color: color.to_array(),
-                    radius: [0.3; 4],
-                    clip_rect: [-10000.0, -10000.0, 20000.0, 20000.0],
-                    ..Default::default()
-                },
-            }));
-            ui.draws.push(zenthra_widgets::ui::DrawCommand::Rect(zenthra_widgets::ui::RectDraw {
-                instance: zenthra_render::RectInstance {
-                    pos: [ax, tip_y - arm_thick / 2.0 + offset],
-                    size: [arm_thick, arm_thick],
-                    color: color.to_array(),
-                    radius: [0.3; 4],
-                    clip_rect: [-10000.0, -10000.0, 20000.0, 20000.0],
-                    ..Default::default()
-                },
-            }));
-        }
-    }
-}
 
 fn draw_ai_chat_header(
     ui: &mut Ui,
@@ -167,7 +41,6 @@ fn draw_ai_chat_header(
                     let is_expanded = state.ai_panel_expanded;
                     let btn_w = 22.0;
                     let btn_h = 22.0;
-                    let is_btn_hovered = ui.mouse_in_rect(ui.cursor_x, ui.cursor_y, btn_w, btn_h);
                     let expand_btn = ui.container()
                         .clickable(true)
                         .width(btn_w)
@@ -178,17 +51,20 @@ fn draw_ai_chat_header(
                         .halign(Align::Center)
                         .valign(Align::Center)
                         .show(|ui| {
+                            let icon = if is_expanded {
+                                "\u{f514}" // collapse
+                            } else {
+                                "\u{f515}" // expand
+                            };
                             let icon_color = if is_expanded {
                                 colors.accent
-                            } else if is_btn_hovered {
-                                colors.text_primary
                             } else {
                                 colors.text_muted
                             };
-                            let ix = ui.cursor_x + (btn_w - 13.0) / 2.0;
-                            let iy = ui.cursor_y + (btn_h - 13.0) / 2.0;
-                            draw_panel_left_icon(ui, ix, iy, is_expanded, icon_color);
-                            ui.container().width(btn_w).height(btn_h).show(|_| {});
+                            ui.text(icon)
+                                .size(12.0)
+                                .color(icon_color)
+                                .show();
                         });
                     if expand_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
                     if expand_btn.clicked {

@@ -469,12 +469,9 @@ impl IconTheme {
             }
         }
 
-        // Final fallback: Gruvbox folder
-        if let Some(file) = crate::assets::Assets::get("themes/gruvbox/folders/gray.png") {
-            FileIcon::Image(ImageSource::Bytes(std::sync::Arc::from(file.data.into_owned())))
-        } else {
-            FileIcon::Image(ImageSource::Bytes(std::sync::Arc::from(&[][..])))
-        }
+        // Final fallback: Neovim blue folder icon
+        let (glyph, color) = crate::neovim_icons::get_neovim_folder_icon(is_expanded);
+        FileIcon::Glyph { glyph, color }
     }
 
     pub fn get_icon_for_file(&self, file_name: &str, path: Option<&std::path::Path>) -> FileIcon {

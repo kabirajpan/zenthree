@@ -9,12 +9,16 @@ pub mod extensions_panel;
 pub mod activity_bar;
 pub mod ai_settings_dialog;
 pub mod editor_settings_dialog;
+pub mod git_panel;
+pub mod notes_panel;
 pub mod thinking_orb_window;
 pub mod markdown_preview;
 pub mod unsaved_dialog;
 
 pub use title_bar::draw_title_bar;
 pub use sidebar::draw_sidebar;
+pub use git_panel::draw_git_panel;
+pub use notes_panel::draw_notes_panel;
 pub use main_buffer::draw_main_buffer;
 pub use status_bar::draw_status_bar;
 pub use terminal::draw_terminal_panel;

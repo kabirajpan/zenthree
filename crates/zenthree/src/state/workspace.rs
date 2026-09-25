@@ -59,6 +59,7 @@ impl ZenthreeState {
         self.has_workspace = true;
         self.expanded_dirs.clear();
         self.rebuild_tree();
+        self.refresh_git_status();
         self.fs_watcher.watch(&self.current_dir);
         self.set_status(format!("Opened workspace: {}", self.current_dir.display()));
         self.save_persistent_state();
@@ -170,7 +171,7 @@ impl ZenthreeState {
     fn get_git_statuses(&self, root: &Path) -> HashMap<PathBuf, GitStatus> {
         let mut map = HashMap::new();
         if let Ok(output) = std::process::Command::new("git")
-            .args(["status", "--porcelain", "-uall"])
+            .args(["status", "--porcelain=v1", "-uall", "."])
             .current_dir(root)
             .output()
         {
@@ -187,14 +188,28 @@ impl ZenthreeState {
                     } else {
                         file_rel
                     };
+                    let file_clean = file_clean.trim_matches('"');
                     let full_path = root.join(file_clean);
                     let status = if status_code.contains('?') {
                         GitStatus::Untracked
+                    } else if status_code.contains('A') {
+                        GitStatus::Added
+                    } else if status_code.contains('D') {
+                        GitStatus::Deleted
+                    } else if status_code.contains('R') {
+                        GitStatus::Renamed
+                    } else if status_code.contains('U') || status_code == "AA" || status_code == "DD" {
+                        GitStatus::Conflicted
                     } else {
                         GitStatus::Modified
                     };
 
                     map.insert(full_path.clone(), status);
+                    if let Ok(canon) = std::fs::canonicalize(&full_path) {
+                        if canon != full_path {
+                            map.insert(canon, status);
+                        }
+                    }
 
                     let mut current = full_path.parent();
                     while let Some(parent) = current {
@@ -203,6 +218,11 @@ impl ZenthreeState {
                         }
                         map.entry(parent.to_path_buf())
                             .or_insert(GitStatus::Modified);
+                        if let Ok(canon_parent) = std::fs::canonicalize(parent) {
+                            if canon_parent != parent {
+                                map.entry(canon_parent).or_insert(GitStatus::Modified);
+                            }
+                        }
                         current = parent.parent();
                     }
                 }

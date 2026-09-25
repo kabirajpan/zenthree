@@ -51,8 +51,8 @@ pub fn draw_extensions_panel(ui: &mut Ui, state: &mut ZenthreeState, panel_w: f3
                     ui.container()
                         .full_width()
                         .height(28.0)
-                        .bg(colors.bg_editor)
-                        .border(colors.border, 1.0)
+                        .bg(colors.bg_base)
+                        .border(Color::TRANSPARENT, 0.0)
                         .radius_all(4.0)
                         .padding_left(8.0)
                         .padding_right(8.0)
@@ -65,11 +65,34 @@ pub fn draw_extensions_panel(ui: &mut Ui, state: &mut ZenthreeState, panel_w: f3
                                 .color(colors.text_dim)
                                 .show();
 
+                            let query_empty = state.extension_search_query.is_empty();
+
                             ui.input(&mut state.extension_search_query, Id::from_u64(999998200))
                                 .fill_x()
+                                .no_bg()
+                                .no_border()
                                 .color(colors.text_primary)
                                 .size(11.0)
                                 .show();
+
+                            if !query_empty {
+                                let clear_btn = ui.container()
+                                    .padding(2.0, 4.0, 2.0, 4.0)
+                                    .radius_all(3.0)
+                                    .hover_bg(colors.highlight)
+                                    .clickable(true)
+                                    .show(|ui| {
+                                        ui.text("\u{f00d}")
+                                            .size(9.0)
+                                            .color(colors.text_muted)
+                                            .show();
+                                    });
+                                if clear_btn.hovered { ui.cursor_icon = zenthra::CursorIcon::Pointer; }
+                                if clear_btn.clicked {
+                                    state.extension_search_query.clear();
+                                    ui.needs_redraw = true;
+                                }
+                            }
                         });
 
                     // 2. Filter Tabs (All / Installed / Available)

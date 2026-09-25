@@ -7,7 +7,8 @@ pub fn draw_terminal_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, h
     state.ensure_terminal_session();
 
     let term_id = Id::from_u64(999999800);
-    let is_focused = ui.focused_id == Some(term_id);
+    let text_area_id = Id::from_u64(999999801);
+    let is_focused = ui.focused_id == Some(term_id) || ui.focused_id == Some(text_area_id);
 
     // ─── Top Horizontal Edge Handler (Resize Splitter) ───────────
     let splitter_h = 6.0;
@@ -97,58 +98,36 @@ pub fn draw_terminal_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, h
     }
 
     // ─── Input Event Processing directly inside Terminal ─────────
+    // ─── Input Event Processing directly inside Terminal ─────────
     if is_focused {
-        let events = std::mem::take(&mut ui.input_events);
-
-        for event in &events {
-            match event {
-                zenthra_platform::event::PlatformEvent::CharTyped(c) => {
-                    if !state.ctrl_pressed && !state.alt_pressed && *c != '\r' && *c != '\n' && *c != '\t' && !c.is_control() {
-                        state.terminal_input.push(*c);
+        // Intercept special terminal keys before text_area:
+        for event in &ui.input_events {
+            if let zenthra_platform::event::PlatformEvent::KeyDown { key } = event {
+                match key {
+                    winit::keyboard::KeyCode::KeyC if state.ctrl_pressed => {
+                        state.send_terminal_sigint();
                         ui.needs_redraw = true;
                     }
-                }
-                zenthra_platform::event::PlatformEvent::KeyDown { key } => {
-                    match key {
-                        winit::keyboard::KeyCode::KeyC if state.ctrl_pressed => {
-                            state.send_terminal_sigint();
-                            ui.needs_redraw = true;
-                        }
-                        winit::keyboard::KeyCode::KeyL if state.ctrl_pressed => {
-                            state.clear_terminal();
-                            ui.needs_redraw = true;
-                        }
-                        winit::keyboard::KeyCode::ArrowUp => {
-                            state.terminal_history_prev();
-                            ui.needs_redraw = true;
-                        }
-                        winit::keyboard::KeyCode::ArrowDown => {
-                            state.terminal_history_next();
-                            ui.needs_redraw = true;
-                        }
-                        winit::keyboard::KeyCode::Backspace => {
-                            state.terminal_input.pop();
-                            ui.needs_redraw = true;
-                        }
-                        winit::keyboard::KeyCode::Enter => {
-                            let cmd = state.terminal_input.clone();
-                            state.send_terminal_input(&cmd);
-                            ui.needs_redraw = true;
-                        }
-                        winit::keyboard::KeyCode::Tab => {
-                            if let Some(ref mut sess) = state.terminal_session {
-                                sess.write_raw(b"\t");
-                            }
-                            ui.needs_redraw = true;
-                        }
-                        winit::keyboard::KeyCode::Escape => {
-                            ui.focused_id = None;
-                            ui.needs_redraw = true;
-                        }
-                        _ => {}
+                    winit::keyboard::KeyCode::KeyL if state.ctrl_pressed => {
+                        state.clear_terminal();
+                        ui.needs_redraw = true;
                     }
+                    winit::keyboard::KeyCode::ArrowUp => {
+                        state.terminal_history_prev();
+                        ui.needs_redraw = true;
+                    }
+                    winit::keyboard::KeyCode::ArrowDown => {
+                        state.terminal_history_next();
+                        ui.needs_redraw = true;
+                    }
+                    winit::keyboard::KeyCode::Tab => {
+                        if let Some(ref mut sess) = state.terminal_session {
+                            sess.write_raw(b"\t");
+                        }
+                        ui.needs_redraw = true;
+                    }
+                    _ => {}
                 }
-                _ => {}
             }
         }
     }
@@ -174,180 +153,166 @@ pub fn draw_terminal_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, h
                 .halign(Align::SpaceBetween)
                 .no_wrap()
                 .show(|ui| {
-                    // Child 1: Left Title + Shell Badge + Quick Command Chips
+                    // Child 1: Left Title (Terminal Icon + Label) & New Terminal Button
                     ui.container()
                         .row()
                         .valign(Align::Center)
-                        .gap(6.0)
+                        .gap(8.0)
                         .show(|ui| {
-                            ui.text(">_")
-                                .size(11.0)
-                                .weight(FontWeight::Bold)
-                                .color(colors.accent)
-                                .show();
+                            // Terminal Icon (\u{f489}) + Text
+                            ui.container()
+                                .row()
+                                .valign(Align::Center)
+                                .gap(5.0)
+                                .show(|ui| {
+                                    ui.text("\u{f489}")
+                                        .size(12.0)
+                                        .color(colors.accent)
+                                        .show();
 
-                            if width >= 340.0 {
-                                ui.text("TERMINAL")
-                                    .size(11.0)
-                                    .weight(FontWeight::Bold)
-                                    .color(colors.text_primary)
-                                    .show();
-                            } else if width >= 260.0 {
-                                ui.text("TERM")
-                                    .size(10.5)
-                                    .weight(FontWeight::Bold)
-                                    .color(colors.text_primary)
-                                    .show();
-                            }
-
-                            // Native PTY shell badge
-                            let shell = std::env::var("SHELL").unwrap_or_else(|_| "sh".to_string());
-                            let shell_name = std::path::Path::new(&shell)
-                                .file_name()
-                                .and_then(|n| n.to_str())
-                                .unwrap_or("sh");
-
-                            if width >= 640.0 {
-                                ui.container()
-                                    .padding(1.0, 5.0, 1.0, 5.0)
-                                    .bg(colors.bg_base)
-                                    .border(colors.border, 1.0)
-                                    .radius_all(3.0)
-                                    .row()
-                                    .valign(Align::Center)
-                                    .gap(4.0)
-                                    .show(|ui| {
-                                        ui.container()
-                                            .width(5.0)
-                                            .height(5.0)
-                                            .radius_all(2.5)
-                                            .bg(Color::rgb(184.0 / 255.0, 187.0 / 255.0, 38.0 / 255.0))
-                                            .show(|_| {});
-
-                                        ui.text(&format!("{} (native PTY)", shell_name))
-                                            .size(9.5)
-                                            .color(colors.text_muted)
+                                    if width >= 320.0 {
+                                        ui.text("TERMINAL")
+                                            .size(11.0)
+                                            .weight(FontWeight::Bold)
+                                            .color(colors.text_primary)
                                             .show();
-                                    });
-                            } else if width >= 480.0 {
-                                ui.container()
-                                    .padding(1.0, 5.0, 1.0, 5.0)
-                                    .bg(colors.bg_base)
-                                    .border(colors.border, 1.0)
-                                    .radius_all(3.0)
-                                    .row()
-                                    .valign(Align::Center)
-                                    .gap(4.0)
-                                    .show(|ui| {
-                                        ui.container()
-                                            .width(5.0)
-                                            .height(5.0)
-                                            .radius_all(2.5)
-                                            .bg(Color::rgb(184.0 / 255.0, 187.0 / 255.0, 38.0 / 255.0))
-                                            .show(|_| {});
-
-                                        ui.text(shell_name)
-                                            .size(9.5)
-                                            .color(colors.text_muted)
+                                    } else if width >= 240.0 {
+                                        ui.text("TERM")
+                                            .size(10.5)
+                                            .weight(FontWeight::Bold)
+                                            .color(colors.text_primary)
                                             .show();
-                                    });
-                            } else if width >= 360.0 {
-                                ui.container()
-                                    .width(6.0)
-                                    .height(6.0)
-                                    .radius_all(3.0)
-                                    .bg(Color::rgb(184.0 / 255.0, 187.0 / 255.0, 38.0 / 255.0))
-                                    .show(|_| {});
-                            }
+                                    }
+                                });
 
-                            // Command Chips: click to execute directly in terminal
-                            let chips: &[&str] = if width >= 800.0 {
-                                &["cargo check", "cargo test", "git status", "ls -la"]
-                            } else if width >= 660.0 {
-                                &["cargo check", "cargo test", "git status"]
-                            } else if width >= 540.0 {
-                                &["cargo check", "git status"]
-                            } else if width >= 440.0 {
-                                &["cargo check"]
-                            } else {
-                                &[]
-                            };
-
-                            for chip in chips {
-                                let chip_btn = ui.container()
-                                    .padding(2.0, 5.0, 2.0, 5.0)
-                                    .bg(colors.bg_base)
-                                    .hover_bg(colors.highlight)
-                                    .border(colors.border, 1.0)
-                                    .radius_all(3.0)
-                                    .show(|ui| {
-                                        ui.text(*chip)
-                                            .size(9.5)
-                                            .color(colors.text_muted)
-                                            .show();
-                                    });
-
-                                if chip_btn.clicked {
-                                    state.send_terminal_input(chip);
-                                    ui.focused_id = Some(term_id);
-                                    ui.needs_redraw = true;
-                                }
-                            }
-                        });
-
-                    // Child 2: Right Actions: Clear + Close
-                    ui.container()
-                        .row()
-                        .valign(Align::Center)
-                        .gap(4.0)
-                        .show(|ui| {
-                            if width >= 360.0 {
-                                let clear_btn = ui.container()
-                                    .padding(2.0, 6.0, 2.0, 6.0)
-                                    .hover_bg(colors.highlight)
-                                    .radius_all(3.0)
-                                    .show(|ui| {
-                                        ui.text("Clear")
-                                            .size(10.0)
-                                            .color(colors.text_muted)
-                                            .show();
-                                    });
-
-                                if clear_btn.clicked {
-                                    state.clear_terminal();
-                                    ui.needs_redraw = true;
-                                }
-                            } else {
-                                let clear_btn = ui.container()
-                                    .width(18.0)
-                                    .height(18.0)
-                                    .radius_all(3.0)
-                                    .hover_bg(colors.highlight)
-                                    .halign(Align::Center)
-                                    .valign(Align::Center)
-                                    .show(|ui| {
-                                        ui.text("\u{f1f8}")
-                                            .size(9.0)
-                                            .color(colors.text_muted)
-                                            .show();
-                                    });
-
-                                if clear_btn.clicked {
-                                    state.clear_terminal();
-                                    ui.needs_redraw = true;
-                                }
-                            }
-
-                            let close_btn = ui.container()
-                                .width(18.0)
-                                .height(18.0)
+                            // New Terminal Button (\u{f0415})
+                            let new_term_btn = ui.container()
+                                .width(20.0)
+                                .height(20.0)
                                 .radius_all(3.0)
                                 .hover_bg(colors.highlight)
                                 .halign(Align::Center)
                                 .valign(Align::Center)
                                 .show(|ui| {
-                                    ui.text("\u{f00d}")
-                                        .size(9.0)
+                                    ui.text("\u{f0415}")
+                                        .size(11.0)
+                                        .color(colors.text_muted)
+                                        .show();
+                                });
+
+                            if new_term_btn.clicked {
+                                state.terminal_session = None;
+                                state.clear_terminal();
+                                state.ensure_terminal_session();
+                                ui.focused_id = Some(term_id);
+                                ui.needs_redraw = true;
+                            }
+                        });
+
+                    // Child 2: Right Actions: Split, Copy, Paste, Clear, Close
+                    ui.container()
+                        .row()
+                        .valign(Align::Center)
+                        .gap(4.0)
+                        .show(|ui| {
+                            // Split (\u{eb56})
+                            let split_btn = ui.container()
+                                .width(22.0)
+                                .height(20.0)
+                                .radius_all(3.0)
+                                .hover_bg(colors.highlight)
+                                .halign(Align::Center)
+                                .valign(Align::Center)
+                                .show(|ui| {
+                                    ui.text("\u{eb56}")
+                                        .size(11.5)
+                                        .color(colors.text_muted)
+                                        .show();
+                                });
+
+                            if split_btn.clicked {
+                                state.set_status("Terminal split (coming soon)");
+                                ui.needs_redraw = true;
+                            }
+
+                            // Copy (\u{f018f})
+                            let copy_btn = ui.container()
+                                .width(22.0)
+                                .height(20.0)
+                                .radius_all(3.0)
+                                .hover_bg(colors.highlight)
+                                .halign(Align::Center)
+                                .valign(Align::Center)
+                                .show(|ui| {
+                                    ui.text("\u{f018f}")
+                                        .size(11.5)
+                                        .color(colors.text_muted)
+                                        .show();
+                                });
+
+                            if copy_btn.clicked {
+                                let lines: Vec<String> = if let Some(ref sess) = state.terminal_session {
+                                    sess.lines.lock().map(|l| l.clone()).unwrap_or_default()
+                                } else {
+                                    state.terminal_lines.iter().map(|l| l.text.clone()).collect()
+                                };
+                                let full_text = lines.join("\n");
+                                state.set_clipboard(full_text);
+                                state.set_status("Terminal output copied to clipboard");
+                                ui.needs_redraw = true;
+                            }
+
+                            // Paste (\u{f0192})
+                            let paste_btn = ui.container()
+                                .width(22.0)
+                                .height(20.0)
+                                .radius_all(3.0)
+                                .hover_bg(colors.highlight)
+                                .halign(Align::Center)
+                                .valign(Align::Center)
+                                .show(|ui| {
+                                    ui.text("\u{f0192}")
+                                        .size(11.5)
+                                        .color(colors.text_muted)
+                                        .show();
+                                });
+
+                            if paste_btn.clicked {
+                                if let Some(text) = state.get_clipboard() {
+                                    state.terminal_input.push_str(&text);
+                                    ui.focused_id = Some(term_id);
+                                    ui.needs_redraw = true;
+                                }
+                            }
+
+                            // Clear text button
+                            let clear_btn = ui.container()
+                                .padding(2.0, 6.0, 2.0, 6.0)
+                                .hover_bg(colors.highlight)
+                                .radius_all(3.0)
+                                .show(|ui| {
+                                    ui.text("Clear")
+                                        .size(10.5)
+                                        .color(colors.text_muted)
+                                        .show();
+                                });
+
+                            if clear_btn.clicked {
+                                state.clear_terminal();
+                                ui.needs_redraw = true;
+                            }
+
+                            // Close Button (\u{f0156})
+                            let close_btn = ui.container()
+                                .width(22.0)
+                                .height(20.0)
+                                .radius_all(3.0)
+                                .hover_bg(colors.highlight)
+                                .halign(Align::Center)
+                                .valign(Align::Center)
+                                .show(|ui| {
+                                    ui.text("\u{f0156}")
+                                        .size(11.5)
                                         .color(colors.text_muted)
                                         .show();
                                 });
@@ -432,42 +397,55 @@ pub fn draw_terminal_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, h
                             .show();
                     }
 
-                    // 2. Active Inline Command Line (Prompt + User Typed Text + Blinking Cursor)
+                    // 2. Active Inline Command Line (Prompt + ui.text_area with accurate cursor positioning)
                     ui.container()
                         .full_width()
                         .row()
                         .valign(Align::Center)
-                        .gap(6.0)
+                        .gap(4.0)
                         .show(|ui| {
-                            ui.text("❯")
+                            ui.text("\u{f0142}")
                                 .size(11.0)
                                 .weight(FontWeight::Bold)
                                 .color(colors.accent)
                                 .show();
 
-                            let blink = if is_focused {
-                                (ui.elapsed_time * 2.2).fract() < 0.65
-                            } else {
-                                false
-                            };
-                            let cursor_char = if is_focused && blink { "█" } else if is_focused { " " } else { " " };
-                            let prompt_display = format!("{}{}", state.terminal_input, cursor_char);
-
-                            ui.text(&prompt_display)
+                            let input_w = (width - 45.0).max(60.0);
+                            let input_res = ui.text_area(&mut state.terminal_input, text_area_id)
+                                .width(input_w)
+                                .height(18.0)
                                 .size(11.0)
+                                .line_height(1.2)
                                 .color(colors.text_primary)
+                                .bg(Color::TRANSPARENT)
+                                .border(Color::TRANSPARENT, 0.0)
+                                .focus_border(Color::TRANSPARENT, 0.0)
+                                .padding(0.0, 0.0, 0.0, 0.0)
+                                .text_padding(0.0, 0.0, 0.0, 0.0)
+                                .submit_on_enter(true)
                                 .show();
+
+                            if input_res.submitted {
+                                let cmd = state.terminal_input.clone();
+                                state.send_terminal_input(&cmd);
+                                ui.needs_redraw = true;
+                            }
+
+                            if input_res.clicked {
+                                ui.focused_id = Some(text_area_id);
+                                ui.needs_redraw = true;
+                            }
                         });
                 });
 
             if body_resp.clicked {
-                ui.focused_id = Some(term_id);
+                ui.focused_id = Some(text_area_id);
                 ui.needs_redraw = true;
             }
         });
 
     if term_panel.clicked {
-        ui.focused_id = Some(term_id);
+        ui.focused_id = Some(text_area_id);
         ui.needs_redraw = true;
     }
 }

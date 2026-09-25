@@ -115,10 +115,76 @@ pub fn path_matches(p1: &std::path::Path, p2: &std::path::Path) -> bool {
 }
 
 
-#[derive(Debug, Clone, PartialEq)]
-pub enum GitStatus {
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GitFileStatusCode {
     Modified,
+    Added,
+    Deleted,
+    Renamed,
     Untracked,
+    Conflicted,
+}
+
+pub type GitStatus = GitFileStatusCode;
+
+#[derive(Debug, Clone)]
+#[allow(dead_code)]
+pub struct GitChangeItem {
+    pub path: std::path::PathBuf,
+    pub rel_path: String,
+    pub filename: String,
+    pub dir_path: String,
+    pub status: GitFileStatusCode,
+    pub is_staged: bool,
+}
+
+#[derive(Debug, Clone)]
+#[allow(dead_code)]
+pub struct GitCommitLogItem {
+    pub hash: String,
+    pub short_hash: String,
+    pub author: String,
+    pub time_ago: String,
+    pub message: String,
+    pub is_head: bool,
+    pub branch_refs: Vec<String>,
+    pub lane: usize,
+    pub graph_prefix: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct GitRepoState {
+    pub is_repo: bool,
+    pub branch: String,
+    pub staged: Vec<GitChangeItem>,
+    pub unstaged: Vec<GitChangeItem>,
+    pub commit_message: String,
+    pub staged_expanded: bool,
+    pub changes_expanded: bool,
+    pub graph_expanded: bool,
+    pub graph_height: f32,
+    pub active_resize_graph: bool,
+    pub commit_history: Vec<GitCommitLogItem>,
+    pub status_error: Option<String>,
+}
+
+impl Default for GitRepoState {
+    fn default() -> Self {
+        Self {
+            is_repo: false,
+            branch: String::new(),
+            staged: Vec::new(),
+            unstaged: Vec::new(),
+            commit_message: String::new(),
+            staged_expanded: true,
+            changes_expanded: true,
+            graph_expanded: true,
+            graph_height: 200.0,
+            active_resize_graph: false,
+            commit_history: Vec::new(),
+            status_error: None,
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -299,7 +365,9 @@ pub enum ExplorerPreset {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum SidebarView {
     Explorer,
+    Git,
     Extensions,
+    Notes,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -262,8 +262,12 @@ impl ZenthreeState {
     /// The signal's `trigger_redraw_hook()` already wakes the event loop, so this
     /// only needs to be called once per frame — no 50ms timer required.
     pub fn drain_ai_updates(&mut self) -> bool {
-        // Atomically take the full update queue from the signal.
-        let updates = self.ai_update_signal.with_mut(|queue| std::mem::take(queue));
+        // Fast path: if empty, return immediately without acquiring write-lock or triggering redraw hook
+        if self.ai_update_signal.with(|queue| queue.is_empty()) {
+            return false;
+        }
+        // Atomically take the full update queue from the signal without triggering a spurious redraw loop
+        let updates = self.ai_update_signal.with_silent_mut(|queue| std::mem::take(queue));
         if updates.is_empty() {
             return false;
         }

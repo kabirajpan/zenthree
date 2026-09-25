@@ -11,9 +11,8 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
     let hover_flag_key = Id::from_u64(999999902);
     ui.interaction_state.insert(hover_flag_key, 0.0);
 
-    const BTN_W: f32 = 20.0;
     const BAR_H: f32 = 36.0;
-    const RIGHT_W: f32 = 226.0;
+    const RIGHT_W: f32 = 236.0;
 
     ui.container()
         .full_width()
@@ -456,7 +455,7 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                 .padding_right(12.0)
                 .gap(6.0)
                 .show(|ui| {
-                    // 1. Left Panel (File Tree) Toggle
+                    // 1. Left Panel (File Tree) Toggle (\u{f10aa})
                     let left_key = Id::from_u64(999999910);
                     let left_hov = ui.interaction_state.get(&left_key).copied().unwrap_or(0.0) > 0.5;
                     let left_resp = ui.container()
@@ -473,31 +472,17 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                         .halign(Align::Center)
                         .valign(Align::Center)
                         .show(|ui| {
-                            let border_color = if state.sidebar_visible {
+                            let icon_color = if state.sidebar_visible {
                                 colors.accent
                             } else if left_hov {
-                                colors.text_primary.with_alpha(0.8)
+                                colors.text_primary
                             } else {
-                                colors.text_muted.with_alpha(0.6)
+                                colors.text_muted
                             };
-                            let fill_color = if state.sidebar_visible {
-                                colors.accent
-                            } else if left_hov {
-                                colors.text_muted.with_alpha(0.6)
-                            } else {
-                                colors.text_muted.with_alpha(0.3)
-                            };
-                            ui.container()
-                                .width(14.0).height(11.0)
-                                .border(border_color, 1.0)
-                                .radius_all(2.0)
-                                .row()
-                                .show(|ui| {
-                                    ui.container()
-                                        .width(4.0).height(9.0)
-                                        .bg(fill_color)
-                                        .show(|_| {});
-                                });
+                            ui.text("\u{f10aa}")
+                                .size(13.0)
+                                .color(icon_color)
+                                .show();
                         });
                     let h = left_resp.hovered;
                     let prev = ui.interaction_state.insert(left_key, if h { 1.0 } else { 0.0 });
@@ -508,7 +493,7 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                         ui.request_redraw();
                     }
 
-                    // 2. Bottom Panel (Terminal) Toggle
+                    // 2. Bottom Panel (Terminal) Toggle (\u{f10a9})
                     let btm_key = Id::from_u64(999999911);
                     let btm_hov = ui.interaction_state.get(&btm_key).copied().unwrap_or(0.0) > 0.5;
                     let btm_resp = ui.container()
@@ -525,32 +510,17 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                         .halign(Align::Center)
                         .valign(Align::Center)
                         .show(|ui| {
-                            let border_color = if state.terminal_visible {
+                            let icon_color = if state.terminal_visible {
                                 colors.accent
                             } else if btm_hov {
-                                colors.text_primary.with_alpha(0.8)
+                                colors.text_primary
                             } else {
-                                colors.text_muted.with_alpha(0.6)
+                                colors.text_muted
                             };
-                            let fill_color = if state.terminal_visible {
-                                colors.accent
-                            } else if btm_hov {
-                                colors.text_muted.with_alpha(0.6)
-                            } else {
-                                colors.text_muted.with_alpha(0.3)
-                            };
-                            ui.container()
-                                .width(14.0).height(11.0)
-                                .border(border_color, 1.0)
-                                .radius_all(2.0)
-                                .column()
-                                .valign(Align::Bottom)
-                                .show(|ui| {
-                                    ui.container()
-                                        .full_width().height(3.0)
-                                        .bg(fill_color)
-                                        .show(|_| {});
-                                });
+                            ui.text("\u{f10a9}")
+                                .size(13.0)
+                                .color(icon_color)
+                                .show();
                         });
                     let h = btm_resp.hovered;
                     let prev = ui.interaction_state.insert(btm_key, if h { 1.0 } else { 0.0 });
@@ -564,7 +534,7 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                         ui.request_redraw();
                     }
 
-                    // 3. Right Panel (AI Agent) Toggle
+                    // 3. Right Panel (AI Agent) Toggle (\u{f10ab})
                     let right_key = Id::from_u64(999999912);
                     let right_hov = ui.interaction_state.get(&right_key).copied().unwrap_or(0.0) > 0.5;
                     let right_resp = ui.container()
@@ -581,32 +551,17 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                         .halign(Align::Center)
                         .valign(Align::Center)
                         .show(|ui| {
-                            let border_color = if state.ai_panel_visible {
+                            let icon_color = if state.ai_panel_visible {
                                 colors.accent
                             } else if right_hov {
-                                colors.text_primary.with_alpha(0.8)
+                                colors.text_primary
                             } else {
-                                colors.text_muted.with_alpha(0.6)
+                                colors.text_muted
                             };
-                            let fill_color = if state.ai_panel_visible {
-                                colors.accent
-                            } else if right_hov {
-                                colors.text_muted.with_alpha(0.6)
-                            } else {
-                                colors.text_muted.with_alpha(0.3)
-                            };
-                            ui.container()
-                                .width(14.0).height(11.0)
-                                .border(border_color, 1.0)
-                                .radius_all(2.0)
-                                .row()
-                                .halign(Align::Right)
-                                .show(|ui| {
-                                    ui.container()
-                                        .width(4.0).height(9.0)
-                                        .bg(fill_color)
-                                        .show(|_| {});
-                                });
+                            ui.text("\u{f10ab}")
+                                .size(13.0)
+                                .color(icon_color)
+                                .show();
                         });
                     let h = right_resp.hovered;
                     let prev = ui.interaction_state.insert(right_key, if h { 1.0 } else { 0.0 });
@@ -617,27 +572,32 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                         ui.request_redraw();
                     }
 
-                    // 4. User Icon
+                    // 4. User Icon (\u{f2bd}) - Clean, unconstrained glyph without small enclosing circle/padding
                     let user_key = Id::from_u64(999999913);
                     let user_hov = ui.interaction_state.get(&user_key).copied().unwrap_or(0.0) > 0.5;
                     let user_resp = ui.container()
                         .clickable(true)
                         .width(22.0).height(22.0)
-                        .radius_all(11.0)
+                        .radius_all(4.0)
                         .bg(if user_hov {
                             colors.highlight
                         } else if state.user_profile_open {
-                            colors.accent.with_alpha(0.25)
+                            colors.accent.with_alpha(0.18)
                         } else {
                             Color::TRANSPARENT
                         })
-                        .border(if state.user_profile_open { colors.accent } else { colors.border }, 1.0)
                         .halign(Align::Center)
                         .valign(Align::Center)
                         .show(|ui| {
-                            ui.text(zenthra::icons::NF_FA_USER)
-                                .size(9.5)
-                                .color(if state.user_profile_open { colors.accent } else { colors.text_primary })
+                            ui.text("\u{f2bd}")
+                                .size(14.0)
+                                .color(if state.user_profile_open {
+                                    colors.accent
+                                } else if user_hov {
+                                    colors.text_primary
+                                } else {
+                                    colors.text_muted
+                                })
                                 .show();
                         });
                     let h = user_resp.hovered;
@@ -662,13 +622,13 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                                 .show(|_| {});
                         });
 
-                    // 6. Minimize
+                    // 6. Minimize (\u{e224})
                     let min_key = Id::from_u64(999999903);
                     let min_hov = ui.interaction_state.get(&min_key).copied().unwrap_or(0.0) > 0.5;
                     let min_resp = ui.container()
                         .clickable(true)
-                        .width(BTN_W).height(BTN_W)
-                        .radius_all(BTN_W / 2.0)
+                        .width(24.0).height(24.0)
+                        .radius_all(4.0)
                         .bg(if min_hov {
                             match state.theme {
                                 ThemeMode::Dark => Color::rgba(1.0, 1.0, 1.0, 0.08),
@@ -678,7 +638,10 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                         .halign(Align::Center)
                         .valign(Align::Center)
                         .show(|ui| {
-                            ui.text("\u{f068}").size(8.0).color(colors.text_muted).show();
+                            ui.text("\u{e224}")
+                                .size(13.0)
+                                .color(if min_hov { colors.text_primary } else { colors.text_muted })
+                                .show();
                         });
                     let h = min_resp.hovered;
                     let prev = ui.interaction_state.insert(min_key, if h { 1.0 } else { 0.0 });
@@ -687,13 +650,13 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                         ui.minimize();
                     }
 
-                    // 7. Floating Window (Maximize/Restore)
+                    // 7. Maximize / Restore (\u{f0616})
                     let max_key = Id::from_u64(999999904);
                     let max_hov = ui.interaction_state.get(&max_key).copied().unwrap_or(0.0) > 0.5;
                     let max_resp = ui.container()
                         .clickable(true)
-                        .width(BTN_W).height(BTN_W)
-                        .radius_all(BTN_W / 2.0)
+                        .width(24.0).height(24.0)
+                        .radius_all(4.0)
                         .bg(if max_hov {
                             match state.theme {
                                 ThemeMode::Dark => Color::rgba(1.0, 1.0, 1.0, 0.08),
@@ -703,7 +666,10 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                         .halign(Align::Center)
                         .valign(Align::Center)
                         .show(|ui| {
-                            ui.text("\u{f0c8}").size(7.5).color(colors.text_muted).show();
+                            ui.text("\u{f0616}")
+                                .size(13.0)
+                                .color(if max_hov { colors.text_primary } else { colors.text_muted })
+                                .show();
                         });
                     let h = max_resp.hovered;
                     let prev = ui.interaction_state.insert(max_key, if h { 1.0 } else { 0.0 });
@@ -712,19 +678,19 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                         ui.maximize();
                     }
 
-                    // 8. Cross (Close)
+                    // 8. Close (\u{f0159}) - Clean unconstrained button with larger glyph
                     let cls_key = Id::from_u64(999999905);
                     let cls_hov = ui.interaction_state.get(&cls_key).copied().unwrap_or(0.0) > 0.5;
                     let cls_resp = ui.container()
                         .clickable(true)
-                        .width(BTN_W).height(BTN_W)
-                        .radius_all(BTN_W / 2.0)
+                        .width(24.0).height(24.0)
+                        .radius_all(4.0)
                         .bg(if cls_hov { Color::rgb(0.85, 0.15, 0.15) } else { Color::TRANSPARENT })
                         .halign(Align::Center)
                         .valign(Align::Center)
                         .show(|ui| {
                             let fg = if cls_hov { Color::WHITE } else { colors.text_muted };
-                            ui.text("\u{f00d}").size(8.0).color(fg).show();
+                            ui.text("\u{f0159}").size(14.0).color(fg).show();
                         });
                     let h = cls_resp.hovered;
                     let prev = ui.interaction_state.insert(cls_key, if h { 1.0 } else { 0.0 });

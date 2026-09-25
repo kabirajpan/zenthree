@@ -98,6 +98,10 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
         .show(|ui| {
             if state.sidebar_view == crate::state::SidebarView::Extensions {
                 crate::ui_layout::draw_extensions_panel(ui, state, sidebar_w);
+            } else if state.sidebar_view == crate::state::SidebarView::Git {
+                crate::ui_layout::draw_git_panel(ui, state, sidebar_w);
+            } else if state.sidebar_view == crate::state::SidebarView::Notes {
+                crate::ui_layout::draw_notes_panel(ui, state, sidebar_w);
             } else if !state.has_workspace {
                 draw_no_folder_view(ui, state, sidebar_w);
             } else {
@@ -535,11 +539,12 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
                             .full_width()
                             .row()
                             .valign(Align::Center)
+                            .halign(Align::SpaceBetween)
+                            .no_wrap()
                             .padding_left(pad_h)
                             .padding_right(pad_h)
                             .padding_top(pad_v)
                             .padding_bottom(pad_v)
-                            .gap(4.0)
                             .radius_all(0.0);
 
                         if is_selected {
@@ -571,138 +576,153 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
                         let resp = item_container.show(|ui| {
                             let text_color = if is_selected {
                                 colors.text_primary
-                            } else if preset == crate::state::ExplorerPreset::ClassicTree && state.explorer_git_status {
+                            } else if state.explorer_git_status {
                                 match node.git_status {
                                     Some(crate::state::GitStatus::Modified) => Color::rgb(238.0 / 255.0, 180.0 / 255.0, 46.0 / 255.0),
                                     Some(crate::state::GitStatus::Untracked) => Color::rgb(184.0 / 255.0, 187.0 / 255.0, 38.0 / 255.0),
+                                    Some(crate::state::GitStatus::Added) => Color::rgb(166.0 / 255.0, 218.0 / 255.0, 149.0 / 255.0),
+                                    Some(crate::state::GitStatus::Deleted) => Color::rgb(248.0 / 255.0, 113.0 / 255.0, 113.0 / 255.0),
+                                    Some(crate::state::GitStatus::Renamed) => Color::rgb(125.0 / 255.0, 196.0 / 255.0, 228.0 / 255.0),
+                                    Some(crate::state::GitStatus::Conflicted) => Color::rgb(254.0 / 255.0, 100.0 / 255.0, 50.0 / 255.0),
                                     None => colors.text_primary,
                                 }
                             } else {
                                 colors.text_primary
                             };
 
-                            if state.explorer_tree_guides {
-                                if preset == crate::state::ExplorerPreset::ClassicTree {
-                                    let guide_prefix = node.guide_prefix.replace("├─", "┊ ").replace("└─", "└ ").replace("│ ", "┊ ");
-                                    ui.text(&guide_prefix)
-                                        .size(11.0)
-                                        .color(Color::rgb(100.0 / 255.0, 100.0 / 255.0, 100.0 / 255.0))
-                                        .show();
-                                } else {
-                                    // Branch guide lines
-                                    ui.text(&node.guide_prefix)
-                                        .size(11.0)
-                                        .color(Color::rgb(124.0 / 255.0, 111.0 / 255.0, 100.0 / 255.0))
-                                        .show();
-                                }
-                            } else {
-                                // Default (Zed style): clean indentation without guidelines
-                                let indent = node.depth as f32 * 14.0;
-                                if indent > 0.0 {
-                                    ui.spacing(indent);
-                                }
-                                ui.container()
-                                    .width(12.0)
-                                    .valign(Align::Center)
-                                    .halign(Align::Center)
-                                    .show(|ui| {
-                                        if is_dir {
-                                            let arrow = if node.is_expanded { "\u{f078}" } else { "\u{f054}" };
-                                            ui.text(arrow)
-                                                .size(7.5)
-                                                .color(if is_selected { colors.text_primary } else { colors.text_muted })
-                                                .show();
-                                        }
-                                    });
-                            }
-
-                            icon_source.show(ui, 13.0);
-
-                            if is_being_renamed {
-                                let input_text = state.inline_tree_input.as_ref().map(|i| i.text.as_str()).unwrap_or("");
-                                let cursor_str = if (state.last_cursor_activity.elapsed().as_millis() / 530) % 2 == 0 {
-                                    "|"
-                                } else {
-                                    " "
-                                };
-                                ui.container()
-                                    .height(20.0)
-                                    .fill_x()
-                                    .bg(colors.bg_base)
-                                    .border(colors.accent, 1.0)
-                                    .radius_all(2.0)
-                                    .padding(0.0, 4.0, 0.0, 4.0)
-                                    .row()
-                                    .valign(Align::Center)
-                                    .show(|ui| {
-                                        if input_text.is_empty() {
-                                            ui.text("name...")
+                            // Left node content: indentation/guides, fold arrow, file/folder icon, and name
+                            ui.container()
+                                .row()
+                                .valign(Align::Center)
+                                .no_wrap()
+                                .gap(4.0)
+                                .show(|ui| {
+                                    if state.explorer_tree_guides {
+                                        if preset == crate::state::ExplorerPreset::ClassicTree {
+                                            let guide_prefix = node.guide_prefix.replace("├─", "┊ ").replace("└─", "└ ").replace("│ ", "┊ ");
+                                            ui.text(&guide_prefix)
                                                 .size(11.0)
-                                                .color(colors.text_dim)
+                                                .color(Color::rgb(100.0 / 255.0, 100.0 / 255.0, 100.0 / 255.0))
                                                 .show();
                                         } else {
-                                            ui.text(input_text)
-                                                .size(11.5)
-                                                .color(colors.text_primary)
+                                            // Branch guide lines
+                                            ui.text(&node.guide_prefix)
+                                                .size(11.0)
+                                                .color(Color::rgb(124.0 / 255.0, 111.0 / 255.0, 100.0 / 255.0))
                                                 .show();
                                         }
-                                        ui.text(cursor_str)
-                                            .size(11.5)
-                                            .weight(FontWeight::Bold)
-                                            .color(colors.accent)
-                                            .show();
-                                    });
-                            } else {
-                                let indent_w = if state.explorer_tree_guides {
-                                    node.guide_prefix.chars().count() as f32 * 6.5
-                                } else {
-                                    (node.depth as f32 * 14.0) + 12.0
-                                };
-                                let git_w = if state.explorer_git_status && node.git_status.is_some() {
-                                    24.0
-                                } else {
-                                    0.0
-                                };
-                                let used_w = pad_h * 2.0 + indent_w + 13.0 + 8.0 + git_w + 10.0;
-                                let avail_w = (sidebar_w - used_w).max(24.0);
-                                let max_chars = (avail_w / 6.8).max(4.0) as usize;
-                                let display_name = truncate_filename(&node.name, max_chars);
-
-                                ui.text(&display_name)
-                                    .size(11.5)
-                                    .color(text_color)
-                                    .show();
-
-                                if state.explorer_git_status {
-                                    if let Some(ref status) = node.git_status {
-                                        ui.container().fill_x().show(|_| {});
-                                        if preset == crate::state::ExplorerPreset::ModernMinimalist {
-                                            let (badge, color) = match status {
-                                                crate::state::GitStatus::Modified => ("M", Color::rgb(238.0 / 255.0, 180.0 / 255.0, 46.0 / 255.0)),
-                                                crate::state::GitStatus::Untracked => ("U", Color::rgb(184.0 / 255.0, 187.0 / 255.0, 38.0 / 255.0)),
-                                            };
-                                            ui.text(badge)
-                                                .size(9.0)
-                                                .weight(FontWeight::Bold)
-                                                .color(color)
-                                                .show();
-                                        } else {
-                                            match status {
-                                                crate::state::GitStatus::Modified => {
-                                                    ui.text("○")
-                                                        .size(10.0)
-                                                        .color(Color::rgb(238.0 / 255.0, 180.0 / 255.0, 46.0 / 255.0))
-                                                        .show();
-                                                }
-                                                crate::state::GitStatus::Untracked => {
-                                                    ui.text("+")
-                                                        .size(10.0)
-                                                        .color(Color::rgb(184.0 / 255.0, 187.0 / 255.0, 38.0 / 255.0))
-                                                        .show();
-                                                }
-                                            }
+                                    } else {
+                                        // Default (Zed style): clean indentation without guidelines
+                                        let indent = node.depth as f32 * 14.0;
+                                        if indent > 0.0 {
+                                            ui.spacing(indent);
                                         }
+                                        ui.container()
+                                            .width(12.0)
+                                            .valign(Align::Center)
+                                            .halign(Align::Center)
+                                            .show(|ui| {
+                                                if is_dir {
+                                                    let arrow = if node.is_expanded { "\u{f078}" } else { "\u{f054}" };
+                                                    ui.text(arrow)
+                                                        .size(7.5)
+                                                        .color(if is_selected { colors.text_primary } else { colors.text_muted })
+                                                        .show();
+                                                }
+                                            });
                                     }
+
+                                    icon_source.show(ui, 13.0);
+
+                                    if is_being_renamed {
+                                        let input_text = state.inline_tree_input.as_ref().map(|i| i.text.as_str()).unwrap_or("");
+                                        let cursor_str = if (state.last_cursor_activity.elapsed().as_millis() / 530) % 2 == 0 {
+                                            "|"
+                                        } else {
+                                            " "
+                                        };
+                                        ui.container()
+                                            .height(20.0)
+                                            .fill_x()
+                                            .bg(colors.bg_base)
+                                            .border(colors.accent, 1.0)
+                                            .radius_all(2.0)
+                                            .padding(0.0, 4.0, 0.0, 4.0)
+                                            .row()
+                                            .valign(Align::Center)
+                                            .show(|ui| {
+                                                if input_text.is_empty() {
+                                                    ui.text("name...")
+                                                        .size(11.0)
+                                                        .color(colors.text_dim)
+                                                        .show();
+                                                } else {
+                                                    ui.text(input_text)
+                                                        .size(11.5)
+                                                        .color(colors.text_primary)
+                                                        .show();
+                                                }
+                                                ui.text(cursor_str)
+                                                    .size(11.5)
+                                                    .weight(FontWeight::Bold)
+                                                    .color(colors.accent)
+                                                    .show();
+                                            });
+                                    } else {
+                                        let indent_w = if state.explorer_tree_guides {
+                                            node.guide_prefix.chars().count() as f32 * 6.5
+                                        } else {
+                                            (node.depth as f32 * 14.0) + 12.0
+                                        };
+                                        let git_w = if state.explorer_git_status && node.git_status.is_some() {
+                                            20.0
+                                        } else {
+                                            0.0
+                                        };
+                                        let used_w = pad_h * 2.0 + indent_w + 13.0 + 8.0 + git_w + 10.0;
+                                        let avail_w = (sidebar_w - used_w).max(24.0);
+                                        let max_chars = (avail_w / 6.8).max(4.0) as usize;
+                                        let display_name = truncate_filename(&node.name, max_chars);
+
+                                        ui.text(&display_name)
+                                            .size(11.5)
+                                            .color(text_color)
+                                            .show();
+                                    }
+                                });
+
+                            // Right Git status badge
+                            if state.explorer_git_status {
+                                if let Some(ref status) = node.git_status {
+                                    ui.container()
+                                        .row()
+                                        .valign(Align::Center)
+                                        .no_wrap()
+                                        .padding_right(2.0)
+                                        .show(|ui| {
+                                            if node.is_dir {
+                                                ui.container()
+                                                    .width(5.0)
+                                                    .height(5.0)
+                                                    .radius_all(2.5)
+                                                    .bg(Color::rgb(238.0 / 255.0, 180.0 / 255.0, 46.0 / 255.0))
+                                                    .show(|_| {});
+                                            } else {
+                                                let (badge, color) = match status {
+                                                    crate::state::GitStatus::Modified => ("M", Color::rgb(238.0 / 255.0, 180.0 / 255.0, 46.0 / 255.0)),
+                                                    crate::state::GitStatus::Untracked => ("U", Color::rgb(184.0 / 255.0, 187.0 / 255.0, 38.0 / 255.0)),
+                                                    crate::state::GitStatus::Added => ("A", Color::rgb(166.0 / 255.0, 218.0 / 255.0, 149.0 / 255.0)),
+                                                    crate::state::GitStatus::Deleted => ("D", Color::rgb(248.0 / 255.0, 113.0 / 255.0, 113.0 / 255.0)),
+                                                    crate::state::GitStatus::Renamed => ("R", Color::rgb(125.0 / 255.0, 196.0 / 255.0, 228.0 / 255.0)),
+                                                    crate::state::GitStatus::Conflicted => ("!", Color::rgb(254.0 / 255.0, 100.0 / 255.0, 50.0 / 255.0)),
+                                                };
+                                                ui.text(badge)
+                                                    .size(9.0)
+                                                    .weight(FontWeight::Bold)
+                                                    .color(color)
+                                                    .show();
+                                            }
+                                        });
                                 }
                             }
                         });

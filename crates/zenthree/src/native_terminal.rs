@@ -13,6 +13,7 @@ fn clean_ansi(input: &str) -> String {
     let mut out = String::with_capacity(input.len());
     let mut in_escape = false;
     let mut in_bracket = false;
+    let mut in_osc = false;
 
     for c in input.chars() {
         if c == '\x1b' {
@@ -22,16 +23,27 @@ fn clean_ansi(input: &str) -> String {
         if in_escape {
             if c == '[' {
                 in_bracket = true;
+                in_escape = false;
+                continue;
+            } else if c == ']' {
+                in_osc = true;
+                in_escape = false;
+                continue;
+            } else {
+                in_escape = false;
                 continue;
             }
-            if in_bracket {
-                if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '~' {
-                    in_escape = false;
-                    in_bracket = false;
-                }
-                continue;
+        }
+        if in_bracket {
+            if (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || c == '~' {
+                in_bracket = false;
             }
-            in_escape = false;
+            continue;
+        }
+        if in_osc {
+            if c == '\x07' || c == '\x1b' {
+                in_osc = false;
+            }
             continue;
         }
         if c != '\x07' && c != '\x08' {
@@ -73,6 +85,15 @@ impl NativeTerminalSession {
                         break;
                     }
                     let chunk = String::from_utf8_lossy(&buf[..n]);
+
+                    // Check for ANSI screen-clear sequences (\x1b[2J, \x1b[3J, \x0c / form-feed)
+                    if chunk.contains("\x1b[2J") || chunk.contains("\x1b[3J") || chunk.contains('\x0c') {
+                        if let Ok(mut l) = lines_clone.lock() {
+                            l.clear();
+                        }
+                        current_line.clear();
+                    }
+
                     for c in chunk.chars() {
                         if c == '\n' || c == '\r' {
                             if !current_line.is_empty() {

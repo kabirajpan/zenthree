@@ -29,6 +29,10 @@ impl ZenthreeState {
         }
         self.terminal_history_idx = None;
 
+        if trimmed == "clear" || trimmed == "cls" {
+            self.clear_terminal();
+        }
+
         if let Some(ref mut sess) = self.terminal_session {
             sess.write_line(text);
         } else {

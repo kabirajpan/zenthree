@@ -149,7 +149,10 @@ impl WorkspaceWatcher {
     }
 
     pub fn take_pending(&self) -> bool {
-        self.pending_signal.with_mut(|flag| {
+        if !self.pending_signal.with(|flag| *flag) {
+            return false;
+        }
+        self.pending_signal.with_silent_mut(|flag| {
             let was = *flag;
             *flag = false;
             was
