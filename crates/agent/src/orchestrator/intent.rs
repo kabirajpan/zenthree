@@ -37,10 +37,22 @@ impl AgentIntent {
     /// Returns the initial set of tool names needed for this intent.
     pub fn initial_tools(&self) -> Vec<&'static str> {
         match self {
-            AgentIntent::Discussion => Vec::new(),
-            AgentIntent::Exploration => vec!["search", "read_file", "activate_skill"],
+            AgentIntent::Discussion => vec![
+                "search",
+                "read_file",
+                "list_directory",
+                "activate_skill",
+            ],
+            AgentIntent::Exploration => vec![
+                "search",
+                "read_file",
+                "list_directory",
+                "activate_skill",
+            ],
             AgentIntent::Action(cat) => match cat {
                 ActionCategory::Debug => vec![
+                    "create_plan",
+                    "update_plan_step",
                     "search",
                     "read_file",
                     "edit_file",
@@ -49,6 +61,8 @@ impl AgentIntent {
                     "activate_skill",
                 ],
                 ActionCategory::Implement => vec![
+                    "create_plan",
+                    "update_plan_step",
                     "search",
                     "read_file",
                     "edit_file",
@@ -57,6 +71,8 @@ impl AgentIntent {
                     "activate_skill",
                 ],
                 ActionCategory::Refactor => vec![
+                    "create_plan",
+                    "update_plan_step",
                     "search",
                     "read_file",
                     "edit_file",
@@ -65,6 +81,7 @@ impl AgentIntent {
                     "activate_skill",
                 ],
                 ActionCategory::Verify => vec![
+                    "update_plan_step",
                     "run_terminal",
                     "get_diagnostics",
                     "read_file",
@@ -78,11 +95,15 @@ impl AgentIntent {
                     "activate_skill",
                 ],
                 ActionCategory::General => vec![
+                    "create_plan",
+                    "update_plan_step",
                     "search",
                     "read_file",
+                    "list_directory",
                     "edit_file",
-                    "get_diagnostics",
+                    "write_file",
                     "run_terminal",
+                    "get_diagnostics",
                     "activate_skill",
                 ],
             },
@@ -96,9 +117,13 @@ mod tests {
     use crate::tools::ToolRegistry;
 
     #[test]
-    fn test_discussion_intent_has_zero_tools() {
+    fn test_discussion_intent_has_safe_readonly_tools() {
         let intent = AgentIntent::Discussion;
-        assert!(intent.initial_tools().is_empty());
+        assert!(intent.initial_tools().contains(&"search"));
+        assert!(intent.initial_tools().contains(&"read_file"));
+        assert!(intent.initial_tools().contains(&"list_directory"));
+        assert!(intent.initial_tools().contains(&"activate_skill"));
+        assert!(!intent.initial_tools().contains(&"edit_file"));
     }
 
     #[test]
@@ -106,6 +131,7 @@ mod tests {
         let intent = AgentIntent::Exploration;
         assert!(intent.initial_tools().contains(&"search"));
         assert!(intent.initial_tools().contains(&"read_file"));
+        assert!(intent.initial_tools().contains(&"list_directory"));
         assert!(intent.initial_tools().contains(&"activate_skill"));
     }
 

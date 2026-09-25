@@ -52,7 +52,7 @@ pub fn draw_terminal_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, h
     };
 
     let edge_thickness = if state.active_resize_terminal || is_splitter_hovered { 2.0 } else { 1.0 };
-    let edge_draw_y = splitter_y - edge_thickness / 2.0;
+    let edge_draw_y = if edge_thickness == 1.0 { splitter_y - 1.0 } else { splitter_y - 1.0 };
 
     ui.draws.push(zenthra_widgets::ui::DrawCommand::Rect(zenthra_widgets::ui::RectDraw {
         instance: zenthra_render::RectInstance {
@@ -159,7 +159,6 @@ pub fn draw_terminal_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, h
         .width(width)
         .height(height)
         .bg(colors.bg_base)
-        .border(colors.border, 1.0)
         .column()
         .show(|ui| {
             // ─── Header Bar using SpaceBetween ───────────────────────
@@ -168,7 +167,6 @@ pub fn draw_terminal_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, h
                 .width(width)
                 .height(HEADER_H)
                 .bg(colors.bg_sidebar)
-                .border(colors.border, 1.0)
                 .padding_left(8.0)
                 .padding_right(8.0)
                 .row()
@@ -362,9 +360,16 @@ pub fn draw_terminal_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, h
                         });
                 });
 
+            // 1px divider under terminal header
+            ui.container()
+                .width(width)
+                .height(1.0)
+                .bg(colors.border)
+                .show(|_| {});
+
             // ─── Free Native Terminal Console Screen ─────────────────
             // Directly interactive: click anywhere to focus, type freely with inline prompt & blinking cursor
-            let body_h = (height - 28.0).max(40.0);
+            let body_h = (height - 28.0 - 1.0).max(40.0);
             let term_body_x = ui.cursor_x;
             let term_body_y = ui.cursor_y;
 

@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use crate::state::{ZenthreeState, path_matches, DiffLineState};
 use crate::lsp::protocol::DiagnosticSeverity;
-use zenthra::{Color, Ui, Align, FontWeight, Id, use_context};
+use zenthra::{Color, Ui, Align, FontWeight, Id, CursorIcon, use_context};
 use zenthra_widgets::ui::{DrawCommand, TextDraw, RectDraw, ScrollDrag};
 use zenthra_render::RectInstance;
 use zenthra_text::prelude::{CosmicFontProvider, TextOptions, ShapedBuffer};
@@ -216,6 +216,13 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                         }
                     });
 
+                // 1px divider line below tab bar across full editor width
+                ui.container()
+                    .width(width)
+                    .height(1.0)
+                    .bg(colors.border)
+                    .show(|_| {});
+
                 let path_bar_h = 22.0;
                 let mut segment_clicked_this_frame = false;
 
@@ -318,6 +325,7 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                     }
 
                     let mut segment_clicked: Option<(usize, f32)> = None;
+                    let mut toggle_markdown_preview = false;
 
                     path_container.show(|ui| {
                         let total_segs = segments.len();
@@ -373,7 +381,43 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                                     .show();
                             }
                         }
+
+                        if tab.is_markdown() {
+                            ui.spacing((width - ui.cursor_x - 110.0).max(12.0));
+                            let preview_btn_id = Id::from_u64(999999000 + active_tab_idx as u64);
+                            let (icon, label) = if tab.is_markdown_preview {
+                                ("\u{f044}", "Edit Source")
+                            } else {
+                                ("\u{f06e}", "Preview")
+                            };
+                            let toggle_resp = ui.container()
+                                .id(preview_btn_id)
+                                .row()
+                                .valign(Align::Center)
+                                .gap(4.0)
+                                .padding(1.0, 7.0, 1.0, 7.0)
+                                .radius_all(4.0)
+                                .bg(if tab.is_markdown_preview { colors.accent.with_alpha(0.18) } else { colors.bg_sidebar.with_alpha(0.7) })
+                                .border(if tab.is_markdown_preview { colors.accent.with_alpha(0.4) } else { colors.border.with_alpha(0.3) }, 0.5)
+                                .hover_bg(colors.highlight)
+                                .show(|ui| {
+                                    ui.text(icon).size(9.0).color(if tab.is_markdown_preview { colors.accent } else { colors.text_muted }).show();
+                                    ui.text(label).size(10.0).weight(FontWeight::Medium).color(if tab.is_markdown_preview { colors.accent } else { colors.text_muted }).show();
+                                });
+
+                            if toggle_resp.hovered {
+                                ui.cursor_icon = CursorIcon::Pointer;
+                            }
+                            if toggle_resp.clicked {
+                                toggle_markdown_preview = true;
+                            }
+                        }
                     });
+
+                    if toggle_markdown_preview {
+                        state.tabs[active_tab_idx].is_markdown_preview = !state.tabs[active_tab_idx].is_markdown_preview;
+                        ui.request_redraw();
+                    }
 
                     // Handle segment click to open/toggle popup
                     if let Some((idx, seg_x)) = segment_clicked {
@@ -408,8 +452,19 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
 
                 // ─── Editor Area ────────────────────────────────────────────
                 if active_tab_idx < state.tabs.len() {
-                    let editor_h = (height - tab_bar_h - path_bar_h).max(50.0);
+                    let editor_h = (height - tab_bar_h - path_bar_h - 1.0).max(50.0);
                     let editor_id = Id::from_u64(999996000 + active_tab_idx as u64);
+
+                    if state.tabs[active_tab_idx].is_markdown_preview {
+                        crate::ui_layout::draw_markdown_buffer_preview(
+                            ui,
+                            state,
+                            active_tab_idx,
+                            width,
+                            editor_h,
+                            &colors,
+                        );
+                    } else {
 
                     // Update modifiers
                     for event in &ui.input_events {
@@ -1345,7 +1400,8 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                             state.last_cursor_activity = std::time::Instant::now();
                         }
                     }
-            }
+                    }
+                }
 
             // ─── Render Breadcrumb Dropdown Popup Overlay ─────────────────
                 if let Some(popup) = state.active_breadcrumb_popup.clone() {

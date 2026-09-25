@@ -5,12 +5,13 @@ use crate::theme::ThemeColors;
 pub fn draw_status_bar(ui: &mut Ui, state: &mut ZenthreeState) {
     let colors = use_context::<ThemeColors>().map(|c| *c).unwrap_or_else(|| state.colors());
     let avail_w = ui.available_width;
+    let bar_x = ui.cursor_x;
+    let bar_y = ui.cursor_y;
 
     ui.container()
         .full_width()
         .height(24.0)
         .bg(colors.bg_sidebar)
-        .border(colors.border, 1.0)
         .row()
         .valign(Align::Center)
         .halign(Align::SpaceBetween) // SpaceBetween: Left status vs Right details
@@ -197,4 +198,18 @@ pub fn draw_status_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                         });
                 });
         });
+
+    // Top 1px divider line separating status bar from workspace
+    ui.draws.push(zenthra_widgets::ui::DrawCommand::Rect(zenthra_widgets::ui::RectDraw {
+        instance: zenthra_render::RectInstance {
+            pos: [bar_x, bar_y],
+            size: [avail_w, 1.0],
+            color: colors.border.to_array(),
+            radius: [0.0; 4],
+            border_width: 0.0,
+            border_color: [0.0; 4],
+            clip_rect: [-10000.0, -10000.0, 20000.0, 20000.0],
+            ..Default::default()
+        },
+    }));
 }

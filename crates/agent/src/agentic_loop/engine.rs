@@ -43,6 +43,7 @@ pub struct Agent {
     ast: Arc<crate::ast::DynamicAstEngine>,
     explicit_intent: Option<AgentIntent>,
     explicit_tools: Option<HashSet<String>>,
+    reflex: crate::orchestrator::BioReflexClient,
 }
 
 impl Agent {
@@ -59,7 +60,8 @@ impl Agent {
         mut tools: ToolRegistry,
         workspace: impl AsRef<std::path::Path>,
     ) -> Self {
-        let skills_report = crate::skills::discover(workspace).unwrap_or_default();
+        let ws_path = workspace.as_ref().to_path_buf();
+        let skills_report = crate::skills::discover(&ws_path).unwrap_or_default();
         let skills = Arc::new(skills_report.registry);
         let ast = Arc::new(crate::ast::DynamicAstEngine::new());
         tools.register(crate::tools::ActivateSkillTool::new(skills.clone()));
@@ -74,7 +76,10 @@ impl Agent {
             );
         }
         if tools.find("read_file").is_some() {
-            tools.register(crate::tools::ReadFileTool::new().with_ast(ast.clone()));
+            tools.register(crate::tools::ReadFileTool::new().with_ast(ast.clone()).with_workspace(ws_path.clone()));
+        }
+        if tools.find("list_directory").is_some() {
+            tools.register(crate::tools::ListDirectoryTool::new().with_workspace(ws_path.clone()));
         }
         Self {
             provider,
@@ -86,7 +91,19 @@ impl Agent {
             ast,
             explicit_intent: None,
             explicit_tools: None,
+            reflex: crate::orchestrator::BioReflexClient::default(),
         }
+    }
+
+    /// Set a custom bio-reflex client (e.g. for custom endpoint or mock tests).
+    pub fn with_reflex(mut self, reflex: crate::orchestrator::BioReflexClient) -> Self {
+        self.reflex = reflex;
+        self
+    }
+
+    /// Read-only reference to the bio-reflex client.
+    pub fn reflex(&self) -> &crate::orchestrator::BioReflexClient {
+        &self.reflex
     }
 
     /// Read-only reference to the dynamic AST engine.
@@ -222,12 +239,31 @@ impl Agent {
                 self.active_tools.insert(t.to_string());
             }
         } else {
-            // Let the LLM decide: provision all tools registered in self.tools
-            self.active_tools.clear();
-            for name in self.tools.list_names() {
-                self.active_tools.insert(name.to_string());
+            // Biological Connectome Reflex Engine: Classify user intent & enforce physical safety lockout
+            if let Some(decision) = self.reflex.classify(user_input) {
+                if decision.is_danger {
+                    let lock_msg = format!(
+                        "🚨 PHYSICAL SAFETY REFLEX LOCK ENGAGED ({} µs latency, {:.1}% confidence)\n{}\nExecution blocked to prevent workspace damage.",
+                        decision.reaction_time_us, decision.confidence, decision.explanation
+                    );
+                    on_event(AgentEvent::Failed(lock_msg.clone()));
+                    return Ok(lock_msg);
+                }
+                self.active_tools.clear();
+                for t in decision.intent.initial_tools() {
+                    self.active_tools.insert(t.to_string());
+                }
+            } else {
+                // Fallback (when bio-reflex engine offline): provision all tools registered in self.tools
+                self.active_tools.clear();
+                for name in self.tools.list_names() {
+                    self.active_tools.insert(name.to_string());
+                }
             }
         }
+
+        let mut last_call_signature = String::new();
+        let mut consecutive_repeat_count = 0;
 
         for _iteration in 0..self.config.max_iterations {
             // Situation J: Check for user cancellation at safe checkpoint
@@ -378,6 +414,26 @@ impl Agent {
                 let tool_name = &tool_call.name;
                 let tool_id = &tool_call.id;
                 let mut tool_args = tool_call.args;
+
+                // Repetitive call loop breaker: Prevents model from getting stuck repeating identical tool calls
+                let call_sig = format!("{}:{}", tool_name, tool_args);
+                if call_sig == last_call_signature {
+                    consecutive_repeat_count += 1;
+                } else {
+                    consecutive_repeat_count = 1;
+                    last_call_signature = call_sig.clone();
+                }
+
+                if consecutive_repeat_count >= 3 {
+                    let loop_msg = format!(
+                        "Repetitive call blocked: You have called tool '{}' with identical arguments {} times consecutively. \
+                         You already have this output in your context. \
+                         Do NOT call this tool again. Immediately formulate your final response or conclusion for the user.",
+                        tool_name, consecutive_repeat_count
+                    );
+                    self.conversation.push(Message::tool_result(tool_id, &loop_msg));
+                    continue;
+                }
 
                 // Situation E: Model requested unknown / hallucinated tool
                 let tool = match self.tools.find(tool_name) {

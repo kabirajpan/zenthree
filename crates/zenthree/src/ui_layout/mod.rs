@@ -10,6 +10,8 @@ pub mod activity_bar;
 pub mod ai_settings_dialog;
 pub mod editor_settings_dialog;
 pub mod thinking_orb_window;
+pub mod markdown_preview;
+pub mod unsaved_dialog;
 
 pub use title_bar::draw_title_bar;
 pub use sidebar::draw_sidebar;
@@ -23,6 +25,8 @@ pub use activity_bar::{draw_activity_bar, ACTIVITY_BAR_WIDTH};
 pub use ai_settings_dialog::draw_ai_settings_dialog;
 pub use editor_settings_dialog::draw_editor_settings_dialog;
 pub use thinking_orb_window::{draw_thinking_orb_window, draw_orb_side_panel};
+pub use markdown_preview::draw_markdown_buffer_preview;
+pub use unsaved_dialog::draw_unsaved_changes_dialog;
 
 use crate::state::ZenthreeState;
 use zenthra::{Color, Ui, Align, FontWeight, Id, use_context};

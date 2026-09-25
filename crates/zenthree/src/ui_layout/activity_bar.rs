@@ -7,11 +7,13 @@ pub const ACTIVITY_BAR_WIDTH: f32 = 44.0;
 pub fn draw_activity_bar(ui: &mut Ui, state: &mut ZenthreeState, height: f32) {
     let colors = use_context::<ThemeColors>().map(|c| *c).unwrap_or_else(|| state.colors());
 
+    let bar_x = ui.cursor_x;
+    let bar_y = ui.cursor_y;
+
     ui.container()
         .width(ACTIVITY_BAR_WIDTH)
         .height(height)
         .bg(colors.bg_base)
-        .border(colors.border, 1.0)
         .column()
         .halign(Align::Center)
         .valign(Align::SpaceBetween)
@@ -202,4 +204,18 @@ pub fn draw_activity_bar(ui: &mut Ui, state: &mut ZenthreeState, height: f32) {
                     }
                 });
         });
+
+    // Right 1px divider line separating activity bar from sidebar or workspace
+    ui.draws.push(zenthra_widgets::ui::DrawCommand::Rect(zenthra_widgets::ui::RectDraw {
+        instance: zenthra_render::RectInstance {
+            pos: [bar_x + ACTIVITY_BAR_WIDTH - 1.0, bar_y],
+            size: [1.0, height],
+            color: colors.border.to_array(),
+            radius: [0.0; 4],
+            border_width: 0.0,
+            border_color: [0.0; 4],
+            clip_rect: [-10000.0, -10000.0, 20000.0, 20000.0],
+            ..Default::default()
+        },
+    }));
 }

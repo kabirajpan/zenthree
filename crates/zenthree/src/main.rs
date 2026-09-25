@@ -25,13 +25,14 @@ fn main() {
     }
 
     let font_bytes = include_bytes!("../../../assets/fonts/SymbolsNerdFont-Regular.ttf").to_vec();
+    let initial_blur = state.glassmorphism;
 
     App::new()
         .title("Zenthree Editor")
         .size(1100, 680)
         .decorations(false)
         .transparent(true)
-        .blur(true)
+        .blur(initial_blur)
         .load_font_data(font_bytes)
         .with_ui(move |ui| {
             // Track global modifier key states from input events
@@ -206,6 +207,7 @@ fn main() {
                     ui_layout::draw_language_prompt_dialog(ui, &mut state);
                     ui_layout::draw_ai_settings_dialog(ui, &mut state);
                     ui_layout::draw_editor_settings_dialog(ui, &mut state);
+                    ui_layout::draw_unsaved_changes_dialog(ui, &mut state);
                 });
         })
         .run();

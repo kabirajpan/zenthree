@@ -13,6 +13,27 @@ pub struct EditorTab {
     pub version: u64,
     pub lines_added: usize,
     pub lines_removed: usize,
+    pub is_markdown_preview: bool,
+}
+
+impl EditorTab {
+    pub fn is_markdown(&self) -> bool {
+        self.name.ends_with(".md")
+            || self.name.ends_with(".markdown")
+            || self.path.as_ref()
+                .and_then(|p| p.extension())
+                .and_then(|e| e.to_str())
+                .map(|ext| ext.eq_ignore_ascii_case("md") || ext.eq_ignore_ascii_case("markdown"))
+                .unwrap_or(false)
+    }
+}
+
+#[derive(Debug, Clone)]
+pub struct UnsavedChangesDialog {
+    /// Target workspace path to open (or None if closing workspace)
+    pub target_workspace: Option<PathBuf>,
+    /// List of unsaved file names or paths
+    pub unsaved_files: Vec<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -190,7 +211,7 @@ impl AgentMode {
 
     pub fn icon(&self) -> &'static str {
         match self {
-            AgentMode::Agent => "⚡",
+            AgentMode::Agent => "✦",
             AgentMode::Chat => "💬",
             AgentMode::Plan => "📋",
         }

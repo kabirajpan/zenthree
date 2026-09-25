@@ -1,5 +1,5 @@
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::time::SystemTime;
 use serde_json::{json, Value};
 use crate::traits::tool::{Tool, ToolRisk};
@@ -10,11 +10,62 @@ const DEFAULT_LINE_CAP: usize = 500;
 /// Hard limit cap that cannot be exceeded in a single call.
 const HARD_LINE_LIMIT: usize = 700;
 
-use std::sync::Arc;
+use std::collections::HashMap;
+use std::sync::{Arc, Mutex};
+
+/// Track inspection history per file for duplicate suppression and smart overlap deduplication.
+#[derive(Debug, Clone, Default)]
+pub struct FileReadHistory {
+    pub mtime: Option<SystemTime>,
+    pub is_fully_read: bool,
+    pub read_ranges: Vec<(usize, usize)>,
+}
+
+impl FileReadHistory {
+    pub fn is_range_covered(&self, start: usize, end: usize) -> Option<(usize, usize)> {
+        if self.is_fully_read {
+            return Some((1, usize::MAX));
+        }
+        for &(s, e) in &self.read_ranges {
+            if s <= start && e >= end {
+                return Some((s, e));
+            }
+        }
+        None
+    }
+
+    pub fn find_overlap_end(&self, start: usize, end: usize) -> Option<usize> {
+        let mut max_covered = None;
+        for &(s, e) in &self.read_ranges {
+            if s <= start && e >= start && e < end {
+                max_covered = Some(max_covered.map_or(e, |m: usize| m.max(e)));
+            }
+        }
+        max_covered
+    }
+
+    pub fn record_range(&mut self, start: usize, end: usize) {
+        self.read_ranges.push((start, end));
+        self.read_ranges.sort_unstable_by_key(|r| r.0);
+        let mut merged: Vec<(usize, usize)> = Vec::with_capacity(self.read_ranges.len());
+        for (s, e) in self.read_ranges.drain(..) {
+            if let Some(last) = merged.last_mut() {
+                if s <= last.1 + 1 {
+                    last.1 = last.1.max(e);
+                    continue;
+                }
+            }
+            merged.push((s, e));
+        }
+        self.read_ranges = merged;
+    }
+}
 
 /// Tool for reading file contents safely, supporting ranges, symbol extraction, peek mode, and batching.
 pub struct ReadFileTool {
     ast: Arc<crate::ast::DynamicAstEngine>,
+    history: Arc<Mutex<HashMap<String, FileReadHistory>>>,
+    workspace_root: Option<PathBuf>,
 }
 
 impl Default for ReadFileTool {
@@ -27,12 +78,25 @@ impl ReadFileTool {
     pub fn new() -> Self {
         Self {
             ast: Arc::new(crate::ast::DynamicAstEngine::new()),
+            history: Arc::new(Mutex::new(HashMap::new())),
+            workspace_root: None,
         }
     }
 
     pub fn with_ast(mut self, ast: Arc<crate::ast::DynamicAstEngine>) -> Self {
         self.ast = ast;
         self
+    }
+
+    pub fn with_workspace(mut self, root: PathBuf) -> Self {
+        self.workspace_root = Some(root);
+        self
+    }
+
+    pub fn clear_cache(&self) {
+        if let Ok(mut lock) = self.history.lock() {
+            lock.clear();
+        }
     }
 }
 
@@ -122,7 +186,28 @@ impl Tool for ReadFileTool {
 
 impl ReadFileTool {
     fn read_single_file(&self, path_str: &str, args: &Value) -> Result<Value, ToolError> {
-        let path = Path::new(path_str);
+        let path_obj = Path::new(path_str);
+        let resolved = if path_obj.is_absolute() {
+            path_obj.to_path_buf()
+        } else if let Some(ref ws) = self.workspace_root {
+            ws.join(path_obj)
+        } else {
+            path_obj.to_path_buf()
+        };
+
+        if let Some(ref ws) = self.workspace_root {
+            let canon_ws = ws.canonicalize().unwrap_or_else(|_| ws.clone());
+            let canon_res = resolved.canonicalize().unwrap_or_else(|_| resolved.clone());
+            if !canon_res.starts_with(&canon_ws) {
+                return Err(ToolError::ExecutionFailed(format!(
+                    "Access denied: Path '{}' is outside the project workspace boundary ('{}'). You are strictly forbidden from navigating to parent directories.",
+                    path_str,
+                    ws.display()
+                )));
+            }
+        }
+
+        let path = &resolved;
         if !path.exists() {
             let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or(path_str);
             return Err(ToolError::ExecutionFailed(format!(
@@ -255,9 +340,12 @@ impl ReadFileTool {
             return Ok(Value::String(out.trim_end().to_string()));
         }
 
-        // 4. Sliced Range Mode with Scope Breadcrumb
+        let path_key = path.canonicalize().unwrap_or_else(|_| path.to_path_buf()).to_string_lossy().to_string();
+        let current_mtime = fs::metadata(path).ok().and_then(|m| m.modified().ok());
+
+        // 4. Sliced Range Mode with Scope Breadcrumb & Overlap Deduplication
         if start_line.is_some() || end_line.is_some() {
-            let start = start_line.unwrap_or(1).max(1);
+            let mut start = start_line.unwrap_or(1).max(1);
             let end = end_line.unwrap_or(total_lines).min(total_lines);
 
             if start > total_lines {
@@ -270,9 +358,49 @@ impl ReadFileTool {
             let window_len = (end.saturating_sub(start) + 1).min(HARD_LINE_LIMIT);
             let actual_end = (start + window_len - 1).min(total_lines);
 
+            let mut prior_overlap_note = None;
+            if let Ok(mut lock) = self.history.lock() {
+                let entry = lock.entry(path_key.clone()).or_default();
+                if entry.mtime != current_mtime {
+                    *entry = FileReadHistory {
+                        mtime: current_mtime,
+                        is_fully_read: false,
+                        read_ranges: Vec::new(),
+                    };
+                }
+
+                // A. Check if the requested range is 100% covered already
+                if let Some((cov_s, cov_e)) = entry.is_range_covered(start, actual_end) {
+                    let cov_str = if entry.is_fully_read {
+                        "full file read earlier in context".to_string()
+                    } else {
+                        format!("prior read of lines {}..{}", cov_s, cov_e)
+                    };
+                    return Ok(Value::String(format!(
+                        "[file: {} lines {}..{} are ALREADY in your context (covered by {}).]\n\
+                        Hint: Do not re-read lines already provided. Use the code above to formulate your response or plan edits.",
+                        path_str, start, actual_end, cov_str
+                    )));
+                }
+
+                // B. Check for partial overlap at the beginning (e.g. read 1..100, now requested 50..130)
+                if let Some(overlap_end) = entry.find_overlap_end(start, actual_end) {
+                    let old_start = start;
+                    start = overlap_end + 1;
+                    prior_overlap_note = Some((old_start, overlap_end));
+                }
+
+                entry.record_range(start, actual_end);
+            }
+
             let enclosing = self.ast.enclosing_scope(&content, ext, start)
                 .or_else(|| find_enclosing_scope(&lines, start));
-            let mut formatted = if let Some(ref enc) = enclosing {
+            let mut formatted = if let Some((old_s, old_e)) = prior_overlap_note {
+                format!(
+                    "[file: {} | lines {}..{} of {} (lines {}..{} were already provided in prior context)]\n",
+                    path_str, start, actual_end, total_lines, old_s, old_e
+                )
+            } else if let Some(ref enc) = enclosing {
                 format!(
                     "[file: {} | lines {}..{} of {} | inside: {}]\n",
                     path_str, start, actual_end, total_lines, enc
@@ -298,7 +426,34 @@ impl ReadFileTool {
             return Ok(Value::String(formatted));
         }
 
-        // 5. Full / Default Mode with 500-Line Default Cap and 700-Line Hard Limit
+        // 5. Full / Default Mode with Read Deduplication Guard
+        if let Ok(mut lock) = self.history.lock() {
+            let entry = lock.entry(path_key.clone()).or_default();
+            if entry.mtime != current_mtime {
+                *entry = FileReadHistory {
+                    mtime: current_mtime,
+                    is_fully_read: false,
+                    read_ranges: Vec::new(),
+                };
+            }
+
+            if entry.is_fully_read {
+                return Ok(Value::String(format!(
+                    "[file: {} ({} lines) has ALREADY been read in full and is present in your conversation context.]\n\
+                    Hint: Do not re-read this file. Its complete source is already available above. Please proceed to answer the user's question, formulate your plan, or make edits.",
+                    path_str, total_lines
+                )));
+            }
+
+            if total_lines <= DEFAULT_LINE_CAP {
+                entry.is_fully_read = true;
+                entry.record_range(1, total_lines);
+            } else {
+                let limit = if show_all { total_lines.min(HARD_LINE_LIMIT) } else { DEFAULT_LINE_CAP };
+                entry.record_range(1, limit);
+            }
+        }
+
         if total_lines <= DEFAULT_LINE_CAP {
             let mut formatted = format!("[file: {} ({} lines)]\n", path_str, total_lines);
             for (idx, line) in lines.iter().enumerate() {
@@ -573,5 +728,55 @@ def next_function():
         assert!(is_binary_extension(Path::new("db.sqlite")));
         assert!(!is_binary_extension(Path::new("main.rs")));
         assert!(!is_binary_extension(Path::new("script.py")));
+    }
+
+    #[test]
+    fn test_read_file_deduplicates_full_reads() {
+        let temp = tempfile::NamedTempFile::new().unwrap();
+        let path = temp.path().to_str().unwrap().to_string();
+        std::fs::write(&path, "line 1\nline 2\nline 3\nline 4\n").unwrap();
+
+        let tool = ReadFileTool::new();
+
+        // Turn 1: Initial full read
+        let res1 = tool.execute(json!({ "path": path })).unwrap();
+        let s1 = res1.as_str().unwrap();
+        assert!(s1.contains("line 1"));
+        assert!(s1.contains("line 4"));
+
+        // Turn 2: Duplicate full read attempt
+        let res2 = tool.execute(json!({ "path": path })).unwrap();
+        let s2 = res2.as_str().unwrap();
+        assert!(s2.contains("ALREADY been read in full"));
+    }
+
+    #[test]
+    fn test_read_file_overlap_trimming() {
+        let temp = tempfile::NamedTempFile::new().unwrap();
+        let path = temp.path().to_str().unwrap().to_string();
+        let content: String = (1..=50).map(|i| format!("line {}\n", i)).collect();
+        std::fs::write(&path, content).unwrap();
+
+        let tool = ReadFileTool::new();
+
+        // Turn 1: Read lines 1 to 20
+        let res1 = tool.execute(json!({ "path": path, "start_line": 1, "end_line": 20 })).unwrap();
+        let s1 = res1.as_str().unwrap();
+        assert!(s1.contains("   1 | line 1"));
+        assert!(s1.contains("  20 | line 20"));
+
+        // Turn 2: Read lines 10 to 30 (lines 10..20 overlap with turn 1)
+        let res2 = tool.execute(json!({ "path": path, "start_line": 10, "end_line": 30 })).unwrap();
+        let s2 = res2.as_str().unwrap();
+        // Should trim to lines 21..30 and display notice
+        assert!(s2.contains("lines 10..20 were already provided in prior context"));
+        assert!(s2.contains("  21 | line 21"));
+        assert!(s2.contains("  30 | line 30"));
+        assert!(!s2.contains("  15 | line 15")); // lines 10..20 omitted to save context
+
+        // Turn 3: Read lines 5 to 15 (completely covered by prior reads)
+        let res3 = tool.execute(json!({ "path": path, "start_line": 5, "end_line": 15 })).unwrap();
+        let s3 = res3.as_str().unwrap();
+        assert!(s3.contains("are ALREADY in your context"));
     }
 }

@@ -10,11 +10,11 @@ pub mod traits;
 
 // Top-level re-exports for easy consumption
 pub use diagnostics::GetDiagnosticsTool;
-pub use fs::{DeleteFileTool, EditFileTool, GetProjectStructureTool, ListDirectoryTool, ReadFileTool, RenameFileTool, WriteFileTool};
+pub use fs::{DeleteFileTool, EditFileTool, ListDirectoryTool, ReadFileTool, RenameFileTool, WriteFileTool};
 pub use git::{GitDiffTool, GitStatusTool};
 pub use plan::{CreatePlanTool, PlanState, PlanStep, UpdatePlanStepTool};
 pub use registry::ToolRegistry;
-pub use search::{FindFilesTool, SearchCodebaseTool, SearchTool};
+pub use search::SearchTool;
 pub use skill::ActivateSkillTool;
 pub use terminal::RunTerminalTool;
 pub use traits::Tool;
@@ -35,35 +35,36 @@ mod tests {
     #[test]
     fn test_essentials_registry() {
         let reg = ToolRegistry::essentials();
-        assert_eq!(reg.len(), 10);
+        assert_eq!(reg.len(), 9);
         let names = reg.list_names();
         assert!(names.contains(&"read_file"));
         assert!(names.contains(&"get_diagnostics"));
         assert!(names.contains(&"write_file"));
         assert!(names.contains(&"edit_file"));
         assert!(names.contains(&"list_directory"));
-        assert!(names.contains(&"get_project_structure"));
-        assert!(names.contains(&"find_files"));
-        assert!(names.contains(&"search_codebase"));
         assert!(names.contains(&"search"));
         assert!(names.contains(&"run_terminal"));
+        assert!(names.contains(&"create_plan"));
+        assert!(names.contains(&"update_plan_step"));
+        // get_project_structure is transparently available via alias
+        assert!(reg.find("get_project_structure").is_some());
     }
 
     #[test]
     fn test_all_registry() {
         let reg = ToolRegistry::all();
-        assert_eq!(reg.len(), 16);
+        assert_eq!(reg.len(), 13);
         let names = reg.list_names();
         assert!(names.contains(&"search"));
         assert!(names.contains(&"create_plan"));
         assert!(names.contains(&"delete_file"));
-        assert!(names.contains(&"find_files"));
         assert!(names.contains(&"get_diagnostics"));
-        assert!(names.contains(&"get_project_structure"));
         assert!(names.contains(&"git_status"));
         assert!(names.contains(&"git_diff"));
         assert!(names.contains(&"rename_file"));
         assert!(names.contains(&"update_plan_step"));
+        // get_project_structure is available via alias
+        assert!(reg.find("get_project_structure").is_some());
     }
 
     #[test]
@@ -198,10 +199,10 @@ mod tests {
 
         let reg = ToolRegistry::essentials();
         let openai = reg.to_openai_tools();
-        assert_eq!(openai.as_array().unwrap().len(), 10);
+        assert_eq!(openai.as_array().unwrap().len(), 9);
 
         let gemini = reg.to_gemini_tools();
-        assert_eq!(gemini.as_array().unwrap().len(), 10);
+        assert_eq!(gemini.as_array().unwrap().len(), 9);
     }
 
     #[test]
@@ -229,5 +230,29 @@ mod tests {
         let list_val = list_res.unwrap();
         let list_str = list_val.as_str().unwrap();
         assert!(list_str.contains("Total:"));
+
+        // Test list_directory in recursive tree mode (depth: 2)
+        let list_tree_res = reg.execute("list_directory", json!({ "path": ".", "depth": 2 }));
+        assert!(list_tree_res.is_ok());
+        let list_tree_str = list_tree_res.unwrap();
+        let list_tree_val = list_tree_str.as_str().unwrap();
+        assert!(list_tree_val.contains("├── ") || list_tree_val.contains("└── "));
+
+        // Test no_cap / show_all mode
+        let no_cap_res = reg.execute("list_directory", json!({ "path": ".", "no_cap": true }));
+        assert!(no_cap_res.is_ok());
+        let no_cap_val = no_cap_res.unwrap();
+        assert!(!no_cap_val.as_str().unwrap().contains("items capped"));
+    }
+
+    #[test]
+    fn test_namespaced_tool_lookup_and_execution() {
+        let reg = ToolRegistry::essentials();
+        assert!(reg.find("repo_browser.get_project_structure").is_some());
+        assert!(reg.find("functions.read_file").is_some());
+        assert!(reg.find("tools.search").is_some());
+
+        let res = reg.execute("repo_browser.get_project_structure", json!({ "path": ".", "max_depth": 1 }));
+        assert!(res.is_ok());
     }
 }

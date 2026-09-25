@@ -103,20 +103,45 @@ impl ContextManager {
     }
 
     /// Compact historical tool outputs in older turns so they do not consume context window tokens
-    /// on subsequent turns, while preserving the recent tool output intact.
+    /// on subsequent turns, while preserving the active turn's tool outputs intact so the model
+    /// retains working memory of files inspected during this task.
     pub fn compact_prior_tool_results(conversation: &mut [Message]) {
-        let len = conversation.len();
-        if len <= 2 {
+        if conversation.len() <= 2 {
             return;
         }
-        for msg in &mut conversation[..len.saturating_sub(2)] {
-            if msg.role == crate::types::message::Role::Tool && msg.content.len() > 250 {
-                let preview: String = msg.content.chars().take(80).collect();
-                msg.content = format!(
-                    "[Prior output ({} chars) compacted: {}...]",
-                    msg.content.len(),
-                    preview
-                );
+
+        // Identify the start of the active user turn
+        let last_user_idx = conversation
+            .iter()
+            .rposition(|m| m.role == crate::types::message::Role::User)
+            .unwrap_or(0);
+
+        let total_chars: usize = conversation.iter().map(|m| m.content.len()).sum();
+
+        // Under normal circumstances (< 20k chars), ONLY compact tools from prior turns before last_user_idx.
+        // If context approaches low-tier token limits (> 20k chars ~ 5,000 tokens), allow compacting older tools within the turn,
+        // but always leave the last 4 messages completely intact.
+        let compact_cutoff = if total_chars > 20_000 {
+            conversation.len().saturating_sub(4)
+        } else {
+            last_user_idx
+        };
+
+        for msg in &mut conversation[..compact_cutoff] {
+            if msg.role == crate::types::message::Role::Tool && msg.content.len() > 400 {
+                // If this was a file inspection output, preserve the file header and line count
+                let summary = if msg.content.starts_with("[file:") {
+                    let first_line = msg.content.lines().next().unwrap_or("[file read]");
+                    format!("{} (full content held in memory from prior step)]", first_line.trim_end_matches(']'))
+                } else {
+                    let preview: String = msg.content.chars().take(100).collect();
+                    format!(
+                        "[Prior tool output ({} chars) summarized: {}...]",
+                        msg.content.len(),
+                        preview.trim()
+                    )
+                };
+                msg.content = summary;
             }
         }
     }
@@ -138,7 +163,22 @@ impl ContextManager {
                 conversation.drain(start_idx..last_user_idx);
             }
         }
-        Self::compact_prior_tool_results(conversation);
+
+        // On emergency (413 Payload Too Large), aggressively compact earlier tools in the active turn
+        // keeping only the 2 most recent messages full to recover under provider TPM limits immediately.
+        let cutoff = conversation.len().saturating_sub(2);
+        for msg in &mut conversation[..cutoff] {
+            if msg.role == crate::types::message::Role::Tool && msg.content.len() > 200 {
+                let summary = if msg.content.starts_with("[file:") {
+                    let first_line = msg.content.lines().next().unwrap_or("[file read]");
+                    format!("{} (full content held in memory from prior step)]", first_line.trim_end_matches(']'))
+                } else {
+                    let preview: String = msg.content.chars().take(80).collect();
+                    format!("[Output summarized: {}...]", preview.trim())
+                };
+                msg.content = summary;
+            }
+        }
     }
 }
 
@@ -186,5 +226,29 @@ mod tests {
         assert_eq!(conv[1].content, "latest active user request");
         assert_eq!(conv[2].role, Role::Assistant);
         assert_eq!(conv[3].role, Role::Tool);
+    }
+
+    #[test]
+    fn test_compact_prior_tool_results_preserves_active_turn_memory() {
+        let big_code = "[file: src/main.rs (120 lines)]\n".to_string() + &"let x = 1;\n".repeat(50);
+        let mut conv = vec![
+            Message::system("sys"),
+            Message::user("first question"),
+            Message::assistant("a1"),
+            Message::tool_result("call_old", &big_code),
+            Message::user("second question: explain project"),
+            Message::assistant("a2"),
+            Message::tool_result("call_active_1", &big_code),
+            Message::assistant("a3"),
+            Message::tool_result("call_active_2", &big_code),
+        ];
+
+        ContextManager::compact_prior_tool_results(&mut conv);
+
+        // Older turn tool result before second question should be summarized:
+        assert!(conv[3].content.contains("full content held in memory from prior step"));
+        // Active turn tool results MUST REMAIN INTACT!
+        assert!(conv[6].content.contains("let x = 1;"));
+        assert!(conv[8].content.contains("let x = 1;"));
     }
 }

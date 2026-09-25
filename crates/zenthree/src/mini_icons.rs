@@ -748,79 +748,34 @@ pub fn get_mini_file_icon(file_name_lower: &str, ext_lower: &str) -> (&'static s
     }
 }
 
-pub fn get_mini_folder_icon(folder_name: &str, _is_expanded: bool) -> (&'static str, Color) {
+pub fn get_mini_folder_icon(folder_name: &str, is_expanded: bool) -> (&'static str, Color) {
+    let glyph = if is_expanded {
+        "\u{f0770}"
+    } else {
+        "\u{f024b}"
+    };
     let name_lower = folder_name.to_lowercase();
-    match name_lower.as_str() {
-        ".cache" => ("\u{f0aba}", HL_CYAN),
-        ".config" => ("\u{f107f}", HL_CYAN),
-        ".git" => ("\u{e5fb}", HL_ORANGE),
-        ".github" => ("\u{e5fd}", HL_AZURE),
-        ".local" => ("\u{f024c}", HL_CYAN),
-        ".vim" => ("\u{f024b}", HL_GREEN),
-        "appdata" => ("\u{f024c}", HL_ORANGE),
-        "applications" => ("\u{f19fa}", HL_ORANGE),
-        "desktop" => ("\u{f069d}", HL_ORANGE),
-        "documents" => ("\u{f19f6}", HL_ORANGE),
-        "downloads" => ("\u{f024d}", HL_ORANGE),
-        "favorites" => ("\u{f10ea}", HL_ORANGE),
-        "library" => ("\u{f0c82}", HL_ORANGE),
-        "music" => ("\u{f1359}", HL_ORANGE),
-        "network" => ("\u{f0870}", HL_ORANGE),
-        "pictures" => ("\u{f024f}", HL_ORANGE),
-        "programdata" => ("\u{f024c}", HL_ORANGE),
-        "public" => ("\u{f19f0}", HL_ORANGE),
-        "system" => ("\u{f19fc}", HL_ORANGE),
-        "templates" => ("\u{f12e3}", HL_ORANGE),
-        "trash" => ("\u{f19f4}", HL_ORANGE),
-        "users" => ("\u{f024c}", HL_ORANGE),
-        "videos" => ("\u{f178a}", HL_ORANGE),
-        "volumes" => ("\u{f0253}", HL_ORANGE),
-        "autoload" => ("\u{f107d}", HL_GREEN),
-        "bin" => ("\u{f19fa}", HL_YELLOW),
-        "boot" => ("\u{f0d0b}", HL_YELLOW),
-        "build" => ("\u{f19fc}", HL_GREY),
-        "colors" => ("\u{f107d}", HL_GREEN),
-        "compiler" => ("\u{f107d}", HL_GREEN),
-        "dev" => ("\u{f19fc}", HL_YELLOW),
-        "doc" => ("\u{f10b7}", HL_PURPLE),
-        "docs" => ("\u{f10b7}", HL_PURPLE),
-        "etc" => ("\u{f107f}", HL_YELLOW),
-        "ftdetect" => ("\u{f107d}", HL_GREEN),
-        "ftplugin" => ("\u{f107d}", HL_GREEN),
-        "home" => ("\u{f10b5}", HL_YELLOW),
-        "indent" => ("\u{f107d}", HL_GREEN),
-        "keymap" => ("\u{f107d}", HL_GREEN),
-        "lang" => ("\u{f107d}", HL_GREEN),
-        "lib" => ("\u{f0c82}", HL_YELLOW),
-        "lsp" => ("\u{f107d}", HL_GREEN),
-        "lua" => ("\u{f024b}", HL_BLUE),
-        "media" => ("\u{f19fa}", HL_YELLOW),
-        "mini.nvim" => ("\u{f069d}", HL_RED),
-        "mnt" => ("\u{f0253}", HL_YELLOW),
-        "node_modules" => ("\u{e5fa}", HL_GREEN),
-        "nvim" => ("\u{f024b}", HL_GREEN),
-        "opt" => ("\u{f0257}", HL_YELLOW),
-        "pack" => ("\u{f107d}", HL_GREEN),
-        "parser" => ("\u{f107d}", HL_GREEN),
-        "plugin" => ("\u{f107d}", HL_GREEN),
-        "proc" => ("\u{f08ac}", HL_YELLOW),
-        "queries" => ("\u{f107d}", HL_GREEN),
-        "root" => ("\u{f0dcc}", HL_YELLOW),
-        "rplugin" => ("\u{f107d}", HL_GREEN),
-        "sbin" => ("\u{f19fa}", HL_YELLOW),
-        "snippets" => ("\u{f107d}", HL_YELLOW),
-        "spell" => ("\u{f107d}", HL_GREEN),
-        "src" => ("\u{f0d09}", HL_PURPLE),
-        "srv" => ("\u{f12e3}", HL_YELLOW),
-        "syntax" => ("\u{f107d}", HL_GREEN),
-        "test" => ("\u{f178a}", HL_BLUE),
-        "tests" => ("\u{f178a}", HL_BLUE),
-        "tmp" => ("\u{f0aba}", HL_YELLOW),
-        "tutor" => ("\u{f107d}", HL_GREEN),
-        "usr" => ("\u{f024c}", HL_YELLOW),
-        "var" => ("\u{f12e3}", HL_YELLOW),
-        _ => ("\u{f024b}", HL_AZURE),
-    }
+    let col = match name_lower.as_str() {
+        ".cache" | ".config" | ".local" => HL_CYAN,
+        ".git" => HL_ORANGE,
+        ".github" => HL_AZURE,
+        ".vim" | "nvim" => HL_GREEN,
+        "appdata" | "applications" | "desktop" | "documents" | "downloads" | "favorites"
+        | "library" | "music" | "network" | "pictures" | "programdata" | "public"
+        | "system" | "templates" | "trash" | "users" | "videos" | "volumes" => HL_ORANGE,
+        "bin" | "boot" | "dev" | "etc" | "home" | "lib" | "media" | "mnt" | "opt"
+        | "proc" | "root" | "sbin" | "snippets" | "srv" | "tmp" | "usr" | "var" => HL_YELLOW,
+        "autoload" | "colors" | "compiler" | "ftdetect" | "ftplugin" | "indent"
+        | "keymap" | "lang" | "lsp" | "node_modules" | "pack" | "parser"
+        | "plugin" | "queries" | "rplugin" | "spell" | "syntax" | "tutor" => HL_GREEN,
+        "build" => HL_GREY,
+        "doc" | "docs" => HL_PURPLE,
+        "lua" | "test" | "tests" => HL_BLUE,
+        "mini.nvim" => HL_RED,
+        "src" => HL_PURPLE,
+        _ => HL_AZURE,
+    };
+    (glyph, col)
 }
 
 #[cfg(test)]
@@ -856,13 +811,17 @@ mod tests {
         assert_eq!(glyph, "\u{f138f}");
         assert_eq!(col, HL_GREEN);
 
-        // Folders
+        // Folders: f024b when closed, f0770 when open
         let (glyph, col) = get_mini_folder_icon("src", true);
-        assert_eq!(glyph, "\u{f0d09}");
+        assert_eq!(glyph, "\u{f0770}");
         assert_eq!(col, HL_PURPLE);
 
         let (glyph, col) = get_mini_folder_icon("audio", false);
         assert_eq!(glyph, "\u{f024b}");
+        assert_eq!(col, HL_AZURE);
+
+        let (glyph, col) = get_mini_folder_icon("audio", true);
+        assert_eq!(glyph, "\u{f0770}");
         assert_eq!(col, HL_AZURE);
     }
 }

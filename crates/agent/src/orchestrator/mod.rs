@@ -1,9 +1,13 @@
+pub mod brain;
 pub mod config;
 pub mod intent;
+pub mod reflex;
 pub mod session;
 
+pub use brain::FlyBrain;
 pub use config::AgentConfig;
 pub use intent::{ActionCategory, AgentIntent};
+pub use reflex::{BioReflexClient, ReflexDecision};
 pub use session::AgentSession;
 
 
@@ -183,7 +187,9 @@ mod tests {
             }
         }
 
-        let mut agent = Agent::new(Box::new(MockTurnEcho), ToolRegistry::all());
+        // Use an offline endpoint here to test the fallback behavior when reflex engine is offline
+        let mut agent = Agent::new(Box::new(MockTurnEcho), ToolRegistry::all())
+            .with_reflex(crate::orchestrator::BioReflexClient::new("http://127.0.0.1:9999/offline"));
         let mut on_event = |_| {};
         let mut ask_approval = |_| ApprovalDecision::Approve;
 
@@ -193,10 +199,12 @@ mod tests {
         assert!(agent.active_tools().contains("read_file"));
         assert!(agent.active_tools().contains("edit_file"));
 
-        // Turn 2: Explicit Discussion intent -> 0 active tools
+        // Turn 2: Explicit Discussion intent -> safe read-only active tools, mutation locked
         agent.set_intent(AgentIntent::Discussion);
         let _ = agent.run("Why is that approach better?", &mut on_event, &mut ask_approval);
-        assert!(agent.active_tools().is_empty());
+        assert!(agent.active_tools().contains("search"));
+        assert!(agent.active_tools().contains("read_file"));
+        assert!(!agent.active_tools().contains("edit_file"));
 
         // Turn 3: Explicit Exploration intent -> search, read_file, activate_skill
         agent.set_intent(AgentIntent::Exploration);

@@ -206,6 +206,16 @@ impl Tool for SearchTool {
         let matches_text = |text: &str| -> bool {
             if let Some(ref re) = regex_matcher {
                 re.is_match(text)
+            } else if query_lower.starts_with('*') {
+                text.to_lowercase().ends_with(&query_lower[1..])
+            } else if query_lower.contains('*') {
+                let parts: Vec<&str> = query_lower.split('*').collect();
+                if parts.len() == 2 {
+                    let tl = text.to_lowercase();
+                    tl.starts_with(parts[0]) && tl.ends_with(parts[1])
+                } else {
+                    text.to_lowercase().contains(&query_lower)
+                }
             } else if is_case {
                 text.contains(query)
             } else {

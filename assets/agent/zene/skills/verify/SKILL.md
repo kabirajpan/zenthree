@@ -17,7 +17,7 @@ Use this skill to prove that code changes work correctly and introduce zero regr
 - `get_diagnostics`: Confirm that all compiler diagnostics and language-server checks pass with zero errors.
 
 ## Workflow
-1. **Identify Relevant Checks**: Determine the most targeted test or build command that exercises the modified code (`cargo test <module>`, `npm test`, `pytest <path>`).
+1. **Identify Relevant Checks**: Determine the most targeted test or build command that exercises the modified code according to the project's build system.
 2. **Execute Targeted Tests**: Use `run_terminal` to run the specific test suite.
 3. **Verify Reported Fix**: Check the terminal output to confirm that the reported bug is resolved.
 4. **Run Full Diagnostics**: Call `get_diagnostics` to verify that no new compile errors or warnings were introduced across the workspace.

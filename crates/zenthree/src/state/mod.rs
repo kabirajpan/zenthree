@@ -142,6 +142,9 @@ pub struct ZenthreeState {
     pub orb_window_dragging: bool,
     pub orb_window_drag_offset: (f32, f32),
     pub orb_animation_start: std::time::Instant,
+
+    /// Pending unsaved changes confirmation dialog when switching workspaces
+    pub unsaved_changes_dialog: Option<UnsavedChangesDialog>,
 }
 
 impl ZenthreeState {
@@ -175,7 +178,7 @@ impl ZenthreeState {
             theme: ThemeMode::Dark,
             theme_signal: zenthra_state::Signal::new(ThemeMode::Dark),
             accent_color: "blue".to_string(),
-            glassmorphism: true,
+            glassmorphism: false,
             icon_theme: "neovim_mini".to_string(),
             explorer_preset: ExplorerPreset::ModernMinimalist,
             explorer_tree_guides: false, // Default: Zed style without guidelines
@@ -286,6 +289,7 @@ impl ZenthreeState {
             orb_window_dragging: false,
             orb_window_drag_offset: (0.0, 0.0),
             orb_animation_start: std::time::Instant::now(),
+            unsaved_changes_dialog: None,
         };
 
         // Restore previous session preferences (theme, accent, extensions, etc.)
@@ -857,7 +861,7 @@ mod tests {
         let mut state = ZenthreeState::new();
         // Check initial appearance defaults
         assert_eq!(state.ai_settings.preset_mode, AiPresetMode::SystemDefault);
-        assert!(!state.ai_settings.effective_input_outline());
+        assert!(state.ai_settings.effective_input_outline());
         assert!(state.ai_settings.effective_input_shadow());
         assert_eq!(state.ai_settings.effective_input_tone(), AiInputTone::Charcoal);
         assert_eq!(state.ai_settings.effective_message_bg(), AiMessageBg::DeepDark);
@@ -1138,6 +1142,7 @@ mod tests {
             shaping_cache: std::collections::HashMap::new(),
             lines_added: 1,
             lines_removed: 1,
+            is_markdown_preview: false,
         });
         state.active_tab = Some(0);
 
@@ -1206,6 +1211,7 @@ mod tests {
             shaping_cache: std::collections::HashMap::new(),
             lines_added: 1,
             lines_removed: 1,
+            is_markdown_preview: false,
         });
         state.tabs.push(crate::state::EditorTab {
             name: "bulk2.rs".to_string(),
@@ -1217,6 +1223,7 @@ mod tests {
             shaping_cache: std::collections::HashMap::new(),
             lines_added: 1,
             lines_removed: 1,
+            is_markdown_preview: false,
         });
 
         let (d1, _) = crate::state::compute_line_diff("orig 1", "new 1");
@@ -1276,6 +1283,7 @@ mod tests {
             shaping_cache: std::collections::HashMap::new(),
             lines_added: 2,
             lines_removed: 2,
+            is_markdown_preview: false,
         });
         state.active_tab = Some(0);
 
@@ -1392,6 +1400,7 @@ mod tests {
             shaping_cache: std::collections::HashMap::new(),
             lines_added: 0,
             lines_removed: 0,
+            is_markdown_preview: false,
         });
         state.tabs.push(crate::state::EditorTab {
             name: "b.rs".to_string(),
@@ -1403,6 +1412,7 @@ mod tests {
             shaping_cache: std::collections::HashMap::new(),
             lines_added: 0,
             lines_removed: 0,
+            is_markdown_preview: false,
         });
 
         // Add reviews for both files (using relative paths as AI tools would report)
@@ -1678,6 +1688,66 @@ mod tests {
         assert_eq!(proj_session.project_path, canon.to_string_lossy().to_string());
 
         // Clean up
+        state.close_workspace();
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn test_default_glassmorphism_is_false() {
+        let state = ZenthreeState::default();
+        assert!(!state.glassmorphism, "Default UI glassmorphism must be disabled (normal solid UI)");
+    }
+
+    #[test]
+    fn test_open_workspace_clears_all_buffer_tabs_from_memory() {
+        let mut state = ZenthreeState::default();
+        // State starts with 1 default untitled tab
+        assert_eq!(state.tabs.len(), 1);
+        state.new_untitled_file();
+        assert_eq!(state.tabs.len(), 2);
+
+        let tmp = std::env::temp_dir().join(format!("zenthree_test_proj_tabs_{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        std::fs::create_dir_all(&tmp).unwrap();
+
+        state.open_workspace(tmp.clone());
+        assert!(state.tabs.is_empty(), "Opening a workspace must release all previous buffer tabs from RAM");
+        assert_eq!(state.active_tab, None);
+
+        state.close_workspace();
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn test_unsaved_changes_dialog_lifecycle() {
+        let mut state = ZenthreeState::default();
+        assert_eq!(state.tabs.len(), 1);
+        state.tabs[0].is_dirty = true;
+        assert!(state.has_unsaved_changes());
+
+        let tmp = std::env::temp_dir().join(format!("zenthree_test_proj_unsaved_{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        std::fs::create_dir_all(&tmp).unwrap();
+
+        // 1. Requesting to open a workspace with unsaved changes opens confirmation dialog
+        state.request_open_workspace(tmp.clone());
+        assert!(state.unsaved_changes_dialog.is_some());
+        let dialog = state.unsaved_changes_dialog.as_ref().unwrap();
+        assert_eq!(dialog.unsaved_files.len(), 1);
+        assert!(!state.has_workspace, "Workspace should NOT open until unsaved changes are resolved");
+
+        // 2. Cancel dismisses the dialog and preserves tabs
+        state.cancel_unsaved_dialog();
+        assert!(state.unsaved_changes_dialog.is_none());
+        assert_eq!(state.tabs.len(), 1);
+        assert!(!state.has_workspace);
+
+        // 3. Discard proceeds to open workspace and clears tabs
+        state.request_open_workspace(tmp.clone());
+        assert!(state.unsaved_changes_dialog.is_some());
+        state.discard_unsaved_and_proceed();
+        assert!(state.unsaved_changes_dialog.is_none());
+        assert!(state.has_workspace);
+        assert!(state.tabs.is_empty(), "Tabs must be cleared after proceeding");
+
         state.close_workspace();
         let _ = std::fs::remove_dir_all(&tmp);
     }

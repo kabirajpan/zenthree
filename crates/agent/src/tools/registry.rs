@@ -5,10 +5,10 @@ use serde_json::Value;
 use crate::traits::tool::Tool;
 use crate::types::error::ToolError;
 use super::diagnostics::GetDiagnosticsTool;
-use super::fs::{DeleteFileTool, EditFileTool, GetProjectStructureTool, ListDirectoryTool, ReadFileTool, RenameFileTool, WriteFileTool};
+use super::fs::{DeleteFileTool, EditFileTool, ListDirectoryTool, ReadFileTool, RenameFileTool, WriteFileTool};
 use super::git::{GitDiffTool, GitStatusTool};
 use super::plan::{CreatePlanTool, PlanState, UpdatePlanStepTool};
-use super::search::{FindFilesTool, SearchCodebaseTool, SearchTool};
+use super::search::SearchTool;
 use super::terminal::RunTerminalTool;
 
 /// Central registry managing agent tools, schema exports, and dynamic execution.
@@ -40,32 +40,29 @@ impl ToolRegistry {
     }
 
     /// Pre-configured registry with the essential tools:
-    /// read_file, write_file, edit_file, list_directory, get_project_structure,
-    /// find_files, search_codebase, run_terminal, get_diagnostics.
+    /// read_file, write_file, edit_file, list_directory, search,
+    /// run_terminal, get_diagnostics, create_plan, update_plan_step.
     pub fn essentials() -> Self {
         let mut registry = Self::minimal();
         registry.register(WriteFileTool);
         registry.register(EditFileTool);
-        registry.register(ListDirectoryTool);
-        registry.register(GetProjectStructureTool);
-        registry.register(FindFilesTool);
-        registry.register(SearchCodebaseTool);
+        registry.register(ListDirectoryTool::new());
         registry.register(SearchTool::new());
         registry.register(RunTerminalTool);
+
+        let plan_state = Arc::new(Mutex::new(PlanState::default()));
+        registry.register(CreatePlanTool::new(plan_state.clone()));
+        registry.register(UpdatePlanStepTool::new(plan_state));
         registry
     }
 
-    /// Pre-configured registry containing all tools (essentials + git + file ops + planner).
+    /// Pre-configured registry containing all tools (essentials + git + file ops).
     pub fn all() -> Self {
         let mut registry = Self::essentials();
         registry.register(DeleteFileTool);
         registry.register(RenameFileTool);
         registry.register(GitStatusTool);
         registry.register(GitDiffTool);
-
-        let plan_state = Arc::new(Mutex::new(PlanState::default()));
-        registry.register(CreatePlanTool::new(plan_state.clone()));
-        registry.register(UpdatePlanStepTool::new(plan_state));
         registry
     }
 
@@ -79,14 +76,76 @@ impl ToolRegistry {
         self.tools.insert(tool.name().to_string(), tool);
     }
 
-    /// Find a tool reference by name.
+    /// Find a tool reference by name, stripping hallucinated namespaces (e.g., "repo_browser.get_project_structure" -> "get_project_structure")
+    /// and resolving legacy aliases ("find_files", "search_codebase" -> "search", "get_project_structure" -> "list_directory").
     pub fn find(&self, name: &str) -> Option<&dyn Tool> {
-        self.tools.get(name).map(|t| t.as_ref())
+        let lookup_name = if let Some(pos) = name.rfind('.') {
+            &name[pos + 1..]
+        } else {
+            name
+        };
+
+        if let Some(tool) = self.tools.get(lookup_name) {
+            return Some(tool.as_ref());
+        }
+
+        // Backward-compatibility aliases for legacy search tools
+        if (lookup_name == "find_files" || lookup_name == "search_codebase") && self.tools.contains_key("search") {
+            return self.tools.get("search").map(|t| t.as_ref());
+        }
+
+        // Backward-compatibility alias for get_project_structure -> list_directory
+        if lookup_name == "get_project_structure" && self.tools.contains_key("list_directory") {
+            return self.tools.get("list_directory").map(|t| t.as_ref());
+        }
+
+        None
     }
 
-    /// Execute a tool by name with provided JSON arguments.
+    /// Execute a tool by name with provided JSON arguments, handling aliases transparently.
     pub fn execute(&self, name: &str, args: Value) -> Result<Value, ToolError> {
-        let tool = self.tools.get(name)
+        let lookup_name = if let Some(pos) = name.rfind('.') {
+            &name[pos + 1..]
+        } else {
+            name
+        };
+
+        // Handle backward-compatibility aliases: automatically adapt arguments to unified search
+        if lookup_name == "find_files" {
+            let mut new_args = args.clone();
+            if let Some(obj) = new_args.as_object_mut() {
+                if let Some(pat) = obj.remove("pattern") {
+                    obj.insert("query".to_string(), pat);
+                }
+                obj.insert("in".to_string(), Value::String("files".to_string()));
+            }
+            return self.execute("search", new_args);
+        }
+
+        if lookup_name == "search_codebase" {
+            let mut new_args = args.clone();
+            if let Some(obj) = new_args.as_object_mut() {
+                obj.insert("in".to_string(), Value::String("content".to_string()));
+            }
+            return self.execute("search", new_args);
+        }
+
+        // Handle backward-compatibility alias: adapt get_project_structure to list_directory with depth
+        if lookup_name == "get_project_structure" {
+            let mut new_args = args.clone();
+            if let Some(obj) = new_args.as_object_mut() {
+                if let Some(max_depth) = obj.remove("max_depth") {
+                    obj.insert("depth".to_string(), max_depth);
+                } else if !obj.contains_key("depth") {
+                    obj.insert("depth".to_string(), serde_json::json!(2));
+                }
+            } else {
+                new_args = serde_json::json!({ "depth": 2 });
+            }
+            return self.execute("list_directory", new_args);
+        }
+
+        let tool = self.find(name)
             .ok_or_else(|| ToolError::ExecutionFailed(format!("Tool '{}' not found in registry", name)))?;
         tool.execute(args)
     }
@@ -160,9 +219,12 @@ impl ToolRegistry {
     /// List of tool schemas formatted for OpenAI / Groq tool calling, filtered to specified tool names.
     pub fn openai_schemas_for(&self, names: &[&str]) -> Vec<Value> {
         let mut schemas = Vec::new();
+        let mut seen = std::collections::HashSet::new();
         for name in names {
-            if let Some(tool) = self.tools.get(*name) {
-                schemas.push(tool.to_openai_schema());
+            if let Some(tool) = self.find(*name) {
+                if seen.insert(tool.name()) {
+                    schemas.push(tool.to_openai_schema());
+                }
             }
         }
         schemas
@@ -171,9 +233,12 @@ impl ToolRegistry {
     /// List of tool schemas formatted for Gemini tool calling, filtered to specified tool names.
     pub fn gemini_schemas_for(&self, names: &[&str]) -> Vec<Value> {
         let mut schemas = Vec::new();
+        let mut seen = std::collections::HashSet::new();
         for name in names {
-            if let Some(tool) = self.tools.get(*name) {
-                schemas.push(tool.to_gemini_schema());
+            if let Some(tool) = self.find(*name) {
+                if seen.insert(tool.name()) {
+                    schemas.push(tool.to_gemini_schema());
+                }
             }
         }
         schemas

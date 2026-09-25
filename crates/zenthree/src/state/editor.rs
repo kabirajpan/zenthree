@@ -68,6 +68,10 @@ impl ZenthreeState {
             }
         }
 
+        let is_markdown = name.ends_with(".md")
+            || name.ends_with(".markdown")
+            || path.extension().and_then(|e| e.to_str()).map(|ext| ext.eq_ignore_ascii_case("md") || ext.eq_ignore_ascii_case("markdown")).unwrap_or(false);
+
         self.tabs.push(EditorTab {
             name,
             path: Some(path.to_path_buf()),
@@ -78,6 +82,7 @@ impl ZenthreeState {
             version: 0,
             lines_added,
             lines_removed,
+            is_markdown_preview: is_markdown,
         });
         let new_tab_idx = self.tabs.len() - 1;
         self.set_active_tab(Some(new_tab_idx));
@@ -365,6 +370,7 @@ impl ZenthreeState {
             version: 0,
             lines_added: 0,
             lines_removed: 0,
+            is_markdown_preview: false,
         });
         self.set_active_tab(Some(self.tabs.len() - 1));
         self.set_status("New untitled file created");

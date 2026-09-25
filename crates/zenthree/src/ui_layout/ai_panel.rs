@@ -1,4 +1,4 @@
-use crate::state::{ZenthreeState, AiModel, AiProvider, AgentMode, TrajectoryStep, ExplorationItem, path_matches, SessionSummary, AiSettingsTab, AiInputTone, AiMessageBg};
+use crate::state::{ZenthreeState, AiModel, AiProvider, AgentMode, TrajectoryStep, ExplorationItem, path_matches, SessionSummary, AiSettingsTab, AiMessageBg};
 use zenthra::{Color, Ui, Align, FontWeight, Id, CursorIcon, use_context, Placement, PopoverAlign, Wrap};
 use crate::theme::ThemeColors;
 
@@ -139,13 +139,13 @@ fn draw_ai_chat_header(
     state: &mut ZenthreeState,
     header_w: f32,
     colors: &crate::theme::ThemeColors,
-    panel_bg: Color,
+    _panel_bg: Color,
 ) {
     const HEADER_H: f32 = 36.0;
     let header_bg = if state.glassmorphism {
         colors.bg_base.with_alpha((state.glass_opacity * 0.60).clamp(0.20, 0.80))
     } else {
-        panel_bg
+        colors.bg_sidebar
     };
     ui.container()
         .width(header_w)
@@ -393,13 +393,13 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
         let edge_color = if state.active_resize_ai_panel {
             colors.accent
         } else if is_splitter_hovered {
-            colors.accent.with_alpha(0.6)
+            colors.accent.with_alpha(0.8)
         } else {
-            colors.border.with_alpha(0.7)
+            colors.border
         };
 
         let edge_thickness = if state.active_resize_ai_panel || is_splitter_hovered { 2.0 } else { 1.0 };
-        let edge_draw_x = splitter_x - edge_thickness / 2.0;
+        let edge_draw_x = if edge_thickness == 1.0 { splitter_x.round() } else { (splitter_x - 1.0).round() };
 
         ui.draws.push(zenthra_widgets::ui::DrawCommand::Rect(zenthra_widgets::ui::RectDraw {
             instance: zenthra_render::RectInstance {
@@ -417,7 +417,7 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
         // Center pill grip handle when hovered or active
         if is_splitter_hovered || state.active_resize_ai_panel {
             let grip_w = 4.0;
-            let grip_h = 32.0;
+            let grip_h = 36.0;
             let grip_x = splitter_x - grip_w / 2.0;
             let grip_y = splitter_y + (height - grip_h) / 2.0;
             ui.draws.push(zenthra_widgets::ui::DrawCommand::Rect(zenthra_widgets::ui::RectDraw {
@@ -481,7 +481,7 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                         ui.container()
                             .width(chat_w)
                             .height(1.0)
-                            .bg(colors.border.with_alpha(0.5))
+                            .bg(colors.border)
                             .show(|_| {});
 
                         let chat_content_h = height - HEADER_H - 1.0;
@@ -492,7 +492,7 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                 ui.container()
                     .width(1.0)
                     .height(height)
-                    .bg(colors.border.with_alpha(0.6))
+                    .bg(colors.border)
                     .show(|_| {});
 
                 // Right: Session History Sidebar Panel (Native Full Height!)
@@ -523,7 +523,7 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                 ui.container()
                     .width(ai_panel_w)
                     .height(1.0)
-                    .bg(colors.border.with_alpha(0.5))
+                    .bg(colors.border)
                     .show(|_| {});
 
                 let content_h = height - HEADER_H - 1.0;
@@ -705,11 +705,11 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                 .auto_flip(false)
                 .width(menu_w)
                 .height(menu_h)
-                .bg(colors.bg_sidebar)
-                .border(colors.border, 1.0)
+                .bg(Color::rgb(22.0 / 255.0, 22.0 / 255.0, 25.0 / 255.0)) // #161619
+                .border(Color::rgb(45.0 / 255.0, 45.0 / 255.0, 54.0 / 255.0), 1.0) // #2d2d36
                 .radius_all(6.0)
-                .shadow(Color::rgba(0.0, 0.0, 0.0, 0.5), 0.0, 4.0, 16.0)
-                .padding(2.0, 3.0, 2.0, 3.0)
+                .shadow(Color::rgba(0.0, 0.0, 0.0, 0.65), 0.0, 4.0, 16.0)
+                .padding(3.0, 3.0, 3.0, 3.0)
                 .show(|ui| {
                     for mode in AgentMode::ALL {
                         let is_sel = state.agent_mode == mode;
@@ -784,11 +784,11 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                 .auto_flip(false)
                 .width(menu_w)
                 .height(menu_h)
-                .bg(colors.bg_sidebar)
-                .border(colors.border, 1.0)
+                .bg(Color::rgb(22.0 / 255.0, 22.0 / 255.0, 25.0 / 255.0)) // #161619
+                .border(Color::rgb(45.0 / 255.0, 45.0 / 255.0, 54.0 / 255.0), 1.0) // #2d2d36
                 .radius_all(6.0)
-                .shadow(Color::rgba(0.0, 0.0, 0.0, 0.5), 0.0, 4.0, 16.0)
-                .padding(2.0, 3.0, 2.0, 3.0)
+                .shadow(Color::rgba(0.0, 0.0, 0.0, 0.65), 0.0, 4.0, 16.0)
+                .padding(3.0, 3.0, 3.0, 3.0)
                 .show(|ui| {
                     let mut last_provider: Option<AiProvider> = None;
                     for model in AiModel::ALL {
@@ -1000,8 +1000,11 @@ fn draw_ai_chat_content(
                 20.0
             };
 
-            // Dock height: prompt box + bottom row/padding + toolbar/modified section
-            let dock_total_h = prompt_box_h + 60.0 + modified_section_h;
+            // Dock height: prompt box + bottom row/padding + toolbar/modified section + generous floating bottom gap
+            const DOCK_TOP_PAD: f32 = 6.0;
+            const BOTTOM_DOCK_GAP: f32 = 24.0;
+            let dock_inner_h = prompt_box_h + modified_section_h + 6.0 + 48.0;
+            let dock_total_h = dock_inner_h + DOCK_TOP_PAD + BOTTOM_DOCK_GAP + 6.0;
             let msgs_h = (content_h - dock_total_h).max(30.0);
 
             // ─── Messages Scroll Area ────────────────────────────────────
@@ -1063,6 +1066,8 @@ fn draw_ai_chat_content(
                         let mut copy_target_idx: Option<usize> = None;
                         let mut copy_code_snippet: Option<(u64, String)> = None;
                         let mut chat_open_file: Option<std::path::PathBuf> = None;
+                        let mut open_implementation_plan = false;
+                        let mut proceed_with_plan = false;
 
                         for (msg_idx, msg) in state.ai_messages.iter().enumerate() {
                             let is_copied = state.copied_ai_msg
@@ -1105,37 +1110,43 @@ fn draw_ai_chat_content(
                                     .halign(Align::Right)
                                     .padding(2.0, 0.0, 2.0, 0.0)
                                     .show(|ui| {
+                                        let user_bg = Color::rgb(28.0 / 255.0, 28.0 / 255.0, 32.0 / 255.0); // #1c1c20
+                                        let user_hover_bg = Color::rgb(32.0 / 255.0, 32.0 / 255.0, 38.0 / 255.0); // #202026
+                                        let user_border = Color::rgb(42.0 / 255.0, 42.0 / 255.0, 48.0 / 255.0); // #2a2a30
+                                        let user_text_col = Color::rgb(222.0 / 255.0, 222.0 / 255.0, 227.0 / 255.0); // #dedee3
+
                                         let bubble_res = if is_short_single_line {
                                             ui.container()
                                                 .id(bubble_id)
                                                 .max_width(bubble_max_w)
-                                                .padding(6.0, 10.0, 6.0, 10.0)
-                                                .bg(colors.accent.with_alpha(0.12))
-                                                .hover_bg(colors.accent.with_alpha(0.16))
-                                                .border(colors.accent.with_alpha(0.3), 0.5)
-                                                .radius_all(10.0)
+                                                .padding(5.0, 12.0, 5.0, 12.0)
+                                                .bg(user_bg)
+                                                .hover_bg(user_hover_bg)
+                                                .border(user_border, 1.0)
+                                                .radius_all(14.0)
+                                                .shadow(Color::rgba(0.0, 0.0, 0.0, 0.35), 0.0, 2.0, 6.0)
                                                 .row()
                                                 .valign(Align::Center)
                                                 .gap(8.0)
                                                 .show(|ui| {
                                                     ui.text(display_text)
-                                                        .size(11.0)
+                                                        .size(11.5)
                                                         .line_height(1.35)
-                                                        .color(colors.text_primary)
+                                                        .color(user_text_col)
                                                         .show();
 
                                                     let copy_btn = ui.container()
                                                         .id(copy_btn_id)
                                                         .padding(2.0, 4.0, 2.0, 4.0)
                                                         .radius_all(4.0)
-                                                        .hover_bg(colors.highlight)
+                                                        .hover_bg(user_hover_bg)
                                                         .row()
                                                         .valign(Align::Center)
                                                         .gap(3.0)
                                                         .show(|ui| {
-                                                            ui.text(if is_copied { "\u{f00c}" } else { "\u{f0c5}" })
-                                                                .size(9.5)
-                                                                .color(if is_copied { colors.accent } else { colors.text_muted })
+                                                             ui.text(if is_copied { "\u{f00c}" } else { "\u{f0c5}" })
+                                                                .size(9.0)
+                                                                .color(if is_copied { colors.accent } else { Color::rgb(107.0 / 255.0, 109.0 / 255.0, 118.0 / 255.0) })
                                                                 .show();
                                                             if is_copied {
                                                                 ui.text("Copied")
@@ -1156,19 +1167,20 @@ fn draw_ai_chat_content(
                                             ui.container()
                                                 .id(bubble_id)
                                                 .max_width(bubble_max_w)
-                                                .padding(8.0, 10.0, 6.0, 10.0)
-                                                .bg(colors.accent.with_alpha(0.12))
-                                                .hover_bg(colors.accent.with_alpha(0.16))
-                                                .border(colors.accent.with_alpha(0.3), 0.5)
-                                                .radius_all(10.0)
+                                                .padding(7.0, 12.0, 7.0, 12.0)
+                                                .bg(user_bg)
+                                                .hover_bg(user_hover_bg)
+                                                .border(user_border, 1.0)
+                                                .radius_all(14.0)
+                                                .shadow(Color::rgba(0.0, 0.0, 0.0, 0.35), 0.0, 2.0, 6.0)
                                                 .column()
                                                 .halign(Align::Right)
                                                 .gap(4.0)
                                                 .show(|ui| {
                                                     ui.text(display_text)
-                                                        .size(11.0)
+                                                        .size(11.5)
                                                         .line_height(1.65)
-                                                        .color(colors.text_primary)
+                                                        .color(user_text_col)
                                                         .max_width(user_text_w)
                                                         .wrap(zenthra_text::prelude::TextWrap::Word)
                                                         .show();
@@ -1189,14 +1201,14 @@ fn draw_ai_chat_content(
                                                                 .id(copy_btn_id)
                                                                 .padding(2.0, 4.0, 2.0, 4.0)
                                                                 .radius_all(4.0)
-                                                                .hover_bg(colors.highlight)
+                                                                .hover_bg(user_hover_bg)
                                                                 .row()
                                                                 .valign(Align::Center)
                                                                 .gap(3.0)
                                                                 .show(|ui| {
                                                                     ui.text(if is_copied { "\u{f00c}" } else { "\u{f0c5}" })
-                                                                        .size(9.5)
-                                                                        .color(if is_copied { colors.accent } else { colors.text_muted })
+                                                                        .size(9.0)
+                                                                        .color(if is_copied { colors.accent } else { Color::rgb(107.0 / 255.0, 109.0 / 255.0, 118.0 / 255.0) })
                                                                         .show();
                                                                     if is_copied {
                                                                         ui.text("Copied")
@@ -1245,100 +1257,162 @@ fn draw_ai_chat_content(
                                                     let chevron = if grp.expanded { "\u{f078}" } else { "\u{f054}" };
                                                     let summary = grp.summary_label();
 
-                                                    let header_row = ui.container()
-                                                        .id(step_id)
+                                                    let mut exp_card = ui.container()
                                                         .full_width()
-                                                        .padding(3.0, 4.0, 3.0, 4.0)
-                                                        .radius_all(4.0)
-                                                        .hover_bg(colors.highlight)
-                                                        .row()
-                                                        .valign(Align::Center)
-                                                        .gap(6.0)
-                                                        .show(|ui| {
-                                                            if grp.is_active {
-                                                                ui.container()
-                                                                    .width(5.0)
-                                                                    .height(5.0)
-                                                                    .radius_all(2.5)
-                                                                    .bg(colors.accent)
-                                                                    .show(|_| {});
-                                                            }
-                                                            ui.text(&summary)
-                                                                .size(10.5)
-                                                                .color(if grp.is_active { colors.text_primary } else { colors.text_muted })
-                                                                .show();
+                                                        .column()
+                                                        .gap(4.0);
 
-                                                            ui.text(chevron)
-                                                                .size(7.5)
-                                                                .color(colors.text_muted.with_alpha(0.8))
-                                                                .show();
-                                                        });
-
-                                                    if header_row.hovered {
-                                                        ui.cursor_icon = CursorIcon::Pointer;
-                                                    }
-                                                    if header_row.clicked {
-                                                        toggle_trajectory_group = Some((msg_idx, step_idx));
+                                                    if grp.is_active {
+                                                        exp_card = exp_card
+                                                            .bg(Color::rgb(22.0 / 255.0, 22.0 / 255.0, 25.0 / 255.0)) // #161619
+                                                            .border(Color::rgb(38.0 / 255.0, 38.0 / 255.0, 44.0 / 255.0), 1.0) // #26262c
+                                                            .radius_all(10.0)
+                                                            .padding(6.0, 8.0, 6.0, 8.0)
+                                                            .shadow(Color::rgba(0.0, 0.0, 0.0, 0.35), 0.0, 2.0, 8.0);
                                                     }
 
-                                                    if grp.expanded {
-                                                        ui.container()
+                                                    exp_card.show(|ui| {
+                                                        let header_row = ui.container()
+                                                            .id(step_id)
                                                             .full_width()
-                                                            .padding_left(14.0)
-                                                            .column()
-                                                            .gap(4.0)
+                                                            .padding(2.0, 4.0, 2.0, 4.0)
+                                                            .radius_all(4.0)
+                                                            .hover_bg(colors.highlight)
+                                                            .row()
+                                                            .valign(Align::Center)
+                                                            .gap(6.0)
                                                             .show(|ui| {
-                                                                for item in &grp.items {
+                                                                if grp.is_active {
+                                                                    ui.container()
+                                                                        .width(6.0)
+                                                                        .height(6.0)
+                                                                        .radius_all(3.0)
+                                                                        .bg(colors.accent)
+                                                                        .shadow(colors.accent.with_alpha(0.8), 0.0, 0.0, 6.0)
+                                                                        .show(|_| {});
+                                                                }
+                                                                ui.text(&summary)
+                                                                    .size(11.0)
+                                                                    .color(if grp.is_active { Color::rgb(228.0 / 255.0, 228.0 / 255.0, 233.0 / 255.0) } else { Color::rgb(139.0 / 255.0, 141.0 / 255.0, 152.0 / 255.0) })
+                                                                    .show();
+
+                                                                ui.text(chevron)
+                                                                    .size(7.5)
+                                                                    .color(Color::rgb(113.0 / 255.0, 113.0 / 255.0, 122.0 / 255.0))
+                                                                    .show();
+                                                            });
+
+                                                        if header_row.hovered {
+                                                            ui.cursor_icon = CursorIcon::Pointer;
+                                                        }
+                                                        if header_row.clicked {
+                                                            toggle_trajectory_group = Some((msg_idx, step_idx));
+                                                        }
+
+                                                        if grp.expanded {
+                                                            let line_x = ui.cursor_x + 5.0;
+                                                            let line_y = ui.cursor_y;
+                                                            ui.container()
+                                                                .full_width()
+                                                                .padding_left(16.0)
+                                                                .column()
+                                                                .gap(3.0)
+                                                                .show(|ui| {
+                                                                for (item_idx, item) in grp.items.iter().enumerate() {
                                                                     match item {
                                                                         ExplorationItem::AnalyzedFile { path, start_line, end_line, symbol, is_peek } => {
                                                                             let path_obj = std::path::Path::new(path);
+                                                                            let resolved_path = if path_obj.is_absolute() {
+                                                                                path_obj.to_path_buf()
+                                                                            } else {
+                                                                                state.current_dir.join(path_obj)
+                                                                            };
+                                                                            let file_exists = resolved_path.is_file();
+
                                                                             let fname = path_obj.file_name().and_then(|s| s.to_str()).unwrap_or(path.as_str());
                                                                             let ext = path_obj.extension().and_then(|s| s.to_str()).unwrap_or("");
-                                                                            let (icon_glyph, icon_color) = crate::mini_icons::get_mini_file_icon(&fname.to_lowercase(), &ext.to_lowercase());
-
-                                                                            let action_verb = match (*is_peek, grp.is_active) {
-                                                                                (true, true) => "Peeking",
-                                                                                (true, false) => "Peeked",
-                                                                                (false, true) => "Reading",
-                                                                                (false, false) => "Read",
-                                                                            };
-                                                                            let badge = if *is_peek {
-                                                                                " [outline]".to_string()
-                                                                            } else if let Some(ref sym) = symbol {
-                                                                                format!(" fn {}()", sym)
+                                                                            let (icon_glyph, icon_color) = if file_exists {
+                                                                                crate::mini_icons::get_mini_file_icon(&fname.to_lowercase(), &ext.to_lowercase())
                                                                             } else {
-                                                                                match (start_line, end_line) {
-                                                                                    (Some(s), Some(e)) => format!(" #L{}-{}", s, e),
-                                                                                    (Some(s), None) => format!(" #L{}", s),
-                                                                                    _ => String::new(),
-                                                                                }
+                                                                                ("\u{f00d}", Color { r: 248.0 / 255.0, g: 113.0 / 255.0, b: 113.0 / 255.0, a: 0.9 })
                                                                             };
 
-                                                                            ui.container()
+                                                                            let (action_verb, verb_color, badge) = if !file_exists {
+                                                                                (
+                                                                                    "Not found",
+                                                                                    Color { r: 248.0 / 255.0, g: 113.0 / 255.0, b: 113.0 / 255.0, a: 0.9 },
+                                                                                    " [not found]".to_string(),
+                                                                                )
+                                                                            } else {
+                                                                                let verb = match (*is_peek, grp.is_active) {
+                                                                                    (true, true) => "Peeking",
+                                                                                    (true, false) => "Peeked",
+                                                                                    (false, true) => "Reading",
+                                                                                    (false, false) => "Read",
+                                                                                };
+                                                                                let b = if *is_peek {
+                                                                                    " [outline]".to_string()
+                                                                                } else if let Some(ref sym) = symbol {
+                                                                                    format!(" fn {}()", sym)
+                                                                                } else {
+                                                                                    match (start_line, end_line) {
+                                                                                        (Some(s), Some(e)) => format!(" #L{}-{}", s, e),
+                                                                                        (Some(s), None) => format!(" #L{}", s),
+                                                                                        _ => String::new(),
+                                                                                    }
+                                                                                };
+                                                                                (verb, colors.text_muted, b)
+                                                                            };
+
+                                                                            // Format clean relative path from workspace root
+                                                                            let display_path = if let Ok(rel) = resolved_path.strip_prefix(&state.current_dir) {
+                                                                                let s = rel.to_string_lossy().to_string();
+                                                                                if s.is_empty() || s == "." {
+                                                                                    fname.to_string()
+                                                                                } else {
+                                                                                    s
+                                                                                }
+                                                                            } else {
+                                                                                fname.to_string()
+                                                                            };
+
+                                                                            let item_id = Id::from_u64(999_300_000 + (msg_idx as u64) * 10000 + (step_idx as u64) * 100 + (item_idx as u64));
+                                                                            let file_row = ui.container()
+                                                                                .id(item_id)
                                                                                 .full_width()
+                                                                                .padding(2.0, 4.0, 2.0, 4.0)
+                                                                                .radius_all(3.0)
+                                                                                .hover_bg(if file_exists { colors.highlight } else { colors.highlight.with_alpha(0.3) })
                                                                                 .row()
                                                                                 .valign(Align::Center)
                                                                                 .gap(5.0)
                                                                                 .show(|ui| {
                                                                                     ui.text(action_verb)
                                                                                         .size(10.0)
-                                                                                        .color(colors.text_muted)
+                                                                                        .color(verb_color)
                                                                                         .show();
                                                                                     ui.text(icon_glyph)
                                                                                         .size(10.0)
                                                                                         .color(icon_color)
                                                                                         .show();
-                                                                                    ui.text(fname)
+                                                                                    ui.text(&display_path)
                                                                                         .size(10.5)
-                                                                                        .color(colors.text_primary)
+                                                                                        .color(if file_exists { colors.text_primary } else { colors.text_muted })
                                                                                         .show();
                                                                                     if !badge.is_empty() {
                                                                                         ui.text(&badge)
                                                                                             .size(9.5)
-                                                                                            .color(colors.accent)
+                                                                                            .color(if file_exists { colors.accent } else { Color { r: 248.0 / 255.0, g: 113.0 / 255.0, b: 113.0 / 255.0, a: 0.8 } })
                                                                                             .show();
                                                                                     }
                                                                                 });
+
+                                                                            if file_exists && file_row.hovered {
+                                                                                ui.cursor_icon = CursorIcon::Pointer;
+                                                                            }
+                                                                            if file_exists && file_row.clicked {
+                                                                                chat_open_file = Some(resolved_path);
+                                                                            }
                                                                         }
                                                                         ExplorationItem::BatchRead { paths } => {
                                                                             let action_verb = if grp.is_active { "Reading batch" } else { "Read batch" };
@@ -1361,7 +1435,7 @@ fn draw_ai_chat_content(
                                                                                         .size(10.5)
                                                                                         .color(colors.text_primary)
                                                                                         .show();
-                                                                                });
+                                                                                    });
                                                                         }
                                                                         ExplorationItem::Searched { query, scope } => {
                                                                             let search_prefix = if grp.is_active { "Searching" } else { "Searched" };
@@ -1389,7 +1463,21 @@ fn draw_ai_chat_content(
                                                                         ExplorationItem::ExploredDirectory { path } => {
                                                                             let action_verb = if grp.is_active { "Exploring" } else { "Explored" };
                                                                             let path_obj = std::path::Path::new(path);
-                                                                            let dname = path_obj.file_name().and_then(|s| s.to_str()).unwrap_or(path.as_str());
+                                                                            let resolved = if path_obj.is_absolute() {
+                                                                                path_obj.to_path_buf()
+                                                                            } else {
+                                                                                state.current_dir.join(path_obj)
+                                                                            };
+                                                                            let display_dir = if let Ok(rel) = resolved.strip_prefix(&state.current_dir) {
+                                                                                let s = rel.to_string_lossy().to_string();
+                                                                                if s.is_empty() || s == "." {
+                                                                                    state.current_dir.file_name().and_then(|s| s.to_str()).unwrap_or(".").to_string()
+                                                                                } else {
+                                                                                    s
+                                                                                }
+                                                                            } else {
+                                                                                path_obj.file_name().and_then(|s| s.to_str()).unwrap_or(path.as_str()).to_string()
+                                                                            };
                                                                             ui.container()
                                                                                 .full_width()
                                                                                 .row()
@@ -1400,7 +1488,7 @@ fn draw_ai_chat_content(
                                                                                         .size(10.0)
                                                                                         .color(colors.text_muted)
                                                                                         .show();
-                                                                                    ui.text(dname)
+                                                                                    ui.text(&display_dir)
                                                                                         .size(10.5)
                                                                                         .color(colors.text_primary)
                                                                                         .show();
@@ -1478,8 +1566,25 @@ fn draw_ai_chat_content(
                                                                     }
                                                                 }
                                                             });
+                                                        let line_h = (ui.cursor_y - line_y).max(4.0);
+                                                        let line_col = if grp.is_active {
+                                                            [46.0 / 255.0, 46.0 / 255.0, 56.0 / 255.0, 1.0] // #2e2e38
+                                                        } else {
+                                                            [42.0 / 255.0, 42.0 / 255.0, 48.0 / 255.0, 1.0] // #2a2a30
+                                                        };
+                                                        ui.draws.push(zenthra_widgets::ui::DrawCommand::Rect(zenthra_widgets::ui::RectDraw {
+                                                            instance: zenthra_render::RectInstance {
+                                                                pos: [line_x, line_y + 1.0],
+                                                                size: [1.0, (line_h - 2.0).max(2.0)],
+                                                                color: line_col,
+                                                                radius: [0.5; 4],
+                                                                clip_rect: [-10000.0, -10000.0, 20000.0, 20000.0],
+                                                                ..Default::default()
+                                                            },
+                                                        }));
                                                     }
-                                                }
+                                                });
+                                            }
                                                 TrajectoryStep::FileEdit { path, lines_added, lines_removed } => {
                                                     let path_obj = std::path::Path::new(path);
                                                     let fname = path_obj.file_name().and_then(|s| s.to_str()).unwrap_or(path.as_str());
@@ -1573,65 +1678,95 @@ fn draw_ai_chat_content(
                                                                 .show();
                                                         });
                                                 }
-                                                TrajectoryStep::Plan { title, steps, expanded } => {
-                                                    let chevron = if *expanded { "\u{f078}" } else { "\u{f054}" };
-                                                    let plan_header = ui.container()
-                                                        .id(step_id)
+                                                TrajectoryStep::Plan { title: _, steps, expanded: _ } => {
+                                                    let plan_badge_id = Id::from_u64(999_400_000 + (msg_idx as u64) * 100 + (step_idx as u64));
+                                                    let proceed_btn_id = Id::from_u64(999_400_000 + (msg_idx as u64) * 100 + (step_idx as u64) + 1);
+
+                                                    ui.container()
                                                         .full_width()
-                                                        .padding(2.0, 4.0, 2.0, 4.0)
-                                                        .radius_all(4.0)
-                                                        .hover_bg(colors.highlight)
+                                                        .padding(4.0, 2.0, 4.0, 2.0)
                                                         .row()
                                                         .valign(Align::Center)
-                                                        .gap(6.0)
+                                                        .gap(8.0)
                                                         .show(|ui| {
-                                                            ui.text("\u{f0ca}")
-                                                                .size(9.5)
-                                                                .color(colors.accent)
-                                                                .show();
-                                                            ui.text(title)
-                                                                .size(10.5)
-                                                                .weight(FontWeight::Medium)
-                                                                .color(colors.text_primary)
-                                                                .show();
-                                                            ui.text(chevron)
-                                                                .size(7.5)
-                                                                .color(colors.text_muted)
-                                                                .show();
+                                                            // Implementation Badge / Button
+                                                            let badge_resp = ui.container()
+                                                                .id(plan_badge_id)
+                                                                .row()
+                                                                .valign(Align::Center)
+                                                                .gap(6.0)
+                                                                .padding(4.0, 10.0, 4.0, 10.0)
+                                                                .radius_all(6.0)
+                                                                .bg(colors.accent.with_alpha(0.12))
+                                                                .border(colors.accent.with_alpha(0.35), 1.0)
+                                                                .hover_bg(colors.accent.with_alpha(0.24))
+                                                                .show(|ui| {
+                                                                    ui.text("\u{f15c}")
+                                                                        .size(10.0)
+                                                                        .color(colors.accent)
+                                                                        .show();
+                                                                    ui.text("Implementation Plan")
+                                                                        .size(10.5)
+                                                                        .weight(FontWeight::SemiBold)
+                                                                        .color(colors.accent)
+                                                                        .show();
+                                                                    let step_count = steps.len();
+                                                                    if step_count > 0 {
+                                                                        ui.container()
+                                                                            .padding(1.0, 5.0, 1.0, 5.0)
+                                                                            .radius_all(10.0)
+                                                                            .bg(colors.accent.with_alpha(0.18))
+                                                                            .show(|ui| {
+                                                                                ui.text(&format!("{} steps", step_count))
+                                                                                    .size(9.0)
+                                                                                    .weight(FontWeight::Medium)
+                                                                                    .color(colors.text_primary)
+                                                                                    .show();
+                                                                            });
+                                                                    }
+                                                                    ui.text("\u{f06e}")
+                                                                        .size(9.5)
+                                                                        .color(colors.accent.with_alpha(0.85))
+                                                                        .show();
+                                                                });
+
+                                                            if badge_resp.hovered {
+                                                                ui.cursor_icon = CursorIcon::Pointer;
+                                                            }
+                                                            if badge_resp.clicked {
+                                                                open_implementation_plan = true;
+                                                            }
+
+                                                            // Proceed with Plan Button
+                                                            let proceed_resp = ui.container()
+                                                                .id(proceed_btn_id)
+                                                                .row()
+                                                                .valign(Align::Center)
+                                                                .gap(5.0)
+                                                                .padding(4.0, 10.0, 4.0, 10.0)
+                                                                .radius_all(6.0)
+                                                                .bg(Color::rgb(34.0 / 255.0, 197.0 / 255.0, 94.0 / 255.0).with_alpha(0.16))
+                                                                .border(Color::rgb(34.0 / 255.0, 197.0 / 255.0, 94.0 / 255.0).with_alpha(0.38), 1.0)
+                                                                .hover_bg(Color::rgb(34.0 / 255.0, 197.0 / 255.0, 94.0 / 255.0).with_alpha(0.26))
+                                                                .show(|ui| {
+                                                                    ui.text("\u{f04b}")
+                                                                        .size(9.0)
+                                                                        .color(Color::rgb(74.0 / 255.0, 222.0 / 255.0, 128.0 / 255.0))
+                                                                        .show();
+                                                                    ui.text("Proceed")
+                                                                        .size(10.5)
+                                                                        .weight(FontWeight::SemiBold)
+                                                                        .color(Color::rgb(74.0 / 255.0, 222.0 / 255.0, 128.0 / 255.0))
+                                                                        .show();
+                                                                });
+
+                                                            if proceed_resp.hovered {
+                                                                ui.cursor_icon = CursorIcon::Pointer;
+                                                            }
+                                                            if proceed_resp.clicked {
+                                                                proceed_with_plan = true;
+                                                            }
                                                         });
-
-                                                    if plan_header.hovered {
-                                                        ui.cursor_icon = CursorIcon::Pointer;
-                                                    }
-                                                    if plan_header.clicked {
-                                                        toggle_trajectory_group = Some((msg_idx, step_idx));
-                                                    }
-
-                                                    if *expanded {
-                                                        ui.container()
-                                                            .full_width()
-                                                            .padding_left(16.0)
-                                                            .column()
-                                                            .gap(3.0)
-                                                            .show(|ui| {
-                                                                for (p_idx, p_step) in steps.iter().enumerate() {
-                                                                    ui.container()
-                                                                        .row()
-                                                                        .valign(Align::Center)
-                                                                        .gap(4.0)
-                                                                        .show(|ui| {
-                                                                            ui.text(&format!("{}.", p_idx + 1))
-                                                                                .size(9.5)
-                                                                                .color(colors.accent)
-                                                                                .show();
-                                                                            ui.text(p_step)
-                                                                                .size(10.0)
-                                                                                .color(colors.text_muted)
-                                                                                .show();
-                                                                        });
-                                                                }
-                                                            });
-                                                    }
                                                 }
                                             }
                                         }
@@ -2185,6 +2320,24 @@ fn draw_ai_chat_content(
                             ui.needs_redraw = true;
                         }
 
+                        if open_implementation_plan {
+                            let plan_path = state.current_dir.join("implementation_plan.md");
+                            state.open_file(&plan_path);
+                            for tab in &mut state.tabs {
+                                if let Some(ref p) = tab.path {
+                                    if path_matches(p, &plan_path) || p.file_name().and_then(|n| n.to_str()) == Some("implementation_plan.md") {
+                                        tab.is_markdown_preview = true;
+                                    }
+                                }
+                            }
+                            ui.needs_redraw = true;
+                        }
+
+                        if proceed_with_plan {
+                            state.send_ai_message("Proceed with the implementation plan.");
+                            ui.needs_redraw = true;
+                        }
+
                         if let Some((btn_id, snippet)) = copy_code_snippet {
                             if let Ok(mut cb) = arboard::Clipboard::new() {
                                 let _ = cb.set_text(snippet);
@@ -2207,12 +2360,12 @@ fn draw_ai_chat_content(
                     }
                 });
 
-                // Input box container (docked at the bottom, centered with max width cap)
+                // Input box container (docked at the bottom, centered with max width cap and floating bottom gap)
                 ui.container()
                     .width(chat_w)
                     .height(dock_total_h)
                     .max_height(dock_total_h)
-                    .padding(6.0, 10.0, 16.0, 10.0)
+                    .padding(DOCK_TOP_PAD, 10.0, BOTTOM_DOCK_GAP, 10.0)
                     .column()
                     .halign(Align::Center)
                     .show(|ui| {
@@ -2227,23 +2380,33 @@ fn draw_ai_chat_content(
                     } else if is_light {
                         Color::rgb(248.0 / 255.0, 248.0 / 255.0, 250.0 / 255.0)
                     } else {
-                        match state.ai_settings.effective_input_tone() {
-                            AiInputTone::Dark => Color::rgb(20.0 / 255.0, 20.0 / 255.0, 22.0 / 255.0),
-                            AiInputTone::Charcoal => Color::rgb(32.0 / 255.0, 33.0 / 255.0, 38.0 / 255.0),
-                            AiInputTone::Bright => Color::rgb(44.0 / 255.0, 46.0 / 255.0, 53.0 / 255.0),
-                        }
+                        Color::rgb(22.0 / 255.0, 22.0 / 255.0, 25.0 / 255.0) // #161619
+                    };
+                    let input_border_col = if is_light {
+                        colors.border
+                    } else {
+                        Color::rgb(39.0 / 255.0, 39.0 / 255.0, 46.0 / 255.0) // #27272e
                     };
                     let input_shadow_col = if is_light {
                         Color::rgba(0.0, 0.0, 0.0, 0.08)
                     } else {
-                        Color::rgba(0.0, 0.0, 0.0, 0.45)
+                        Color::rgba(0.0, 0.0, 0.0, 0.60) // shadow-2xl
                     };
                     let pill_bg = if is_light {
                         Color::rgba(0.0, 0.0, 0.0, 0.05)
                     } else {
-                        Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, 0.06)
+                        Color::rgb(32.0 / 255.0, 32.0 / 255.0, 37.0 / 255.0) // #202025
                     };
-                    let pill_hover_bg = colors.highlight;
+                    let pill_hover_bg = if is_light {
+                        colors.highlight
+                    } else {
+                        Color::rgb(39.0 / 255.0, 39.0 / 255.0, 47.0 / 255.0) // #27272f
+                    };
+                    let pill_border = if is_light {
+                        colors.border
+                    } else {
+                        Color::rgb(45.0 / 255.0, 45.0 / 255.0, 54.0 / 255.0) // #2d2d36
+                    };
 
                     let mut target_open_file: Option<std::path::PathBuf> = None;
                     let mut target_reject_file: Option<std::path::PathBuf> = None;
@@ -2563,8 +2726,8 @@ fn draw_ai_chat_content(
                                             .valign(Align::Center)
                                             .gap(3.0)
                                             .show(|ui| {
-                                                ui.text("\u{f15c}")
-                                                    .size(12.0)
+                                                ui.text("\u{f0219}")
+                                                    .size(12.5)
                                                     .color(if count > 0 { colors.accent } else { colors.text_muted })
                                                     .show();
                                                 if count > 0 {
@@ -2583,32 +2746,47 @@ fn draw_ai_chat_content(
 
                                         // 2. Terminal icon
                                         let term_id = Id::from_u64(999999861);
-                                        ui.container()
+                                        let term_bg = if state.terminal_visible {
+                                            colors.accent.with_alpha(0.18)
+                                        } else {
+                                            Color::TRANSPARENT
+                                        };
+                                        let term_btn = ui.container()
                                             .id(term_id)
                                             .clickable(true)
-                                            .padding(2.0, 3.0, 2.0, 3.0)
+                                            .padding(2.0, 4.0, 2.0, 4.0)
                                             .radius_all(3.0)
+                                            .bg(term_bg)
                                             .hover_bg(colors.highlight)
                                             .show(|ui| {
-                                                ui.text("\u{f120}")
-                                                    .size(11.5)
-                                                    .color(colors.text_muted)
+                                                ui.text("\u{f489}")
+                                                    .size(12.0)
+                                                    .color(if state.terminal_visible { colors.accent } else { colors.text_muted })
                                                     .show();
                                             });
+                                        if term_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
+                                        if term_btn.clicked {
+                                            state.terminal_visible = !state.terminal_visible;
+                                            if state.terminal_visible {
+                                                state.ensure_terminal_session();
+                                            }
+                                            state.save_persistent_state();
+                                            ui.needs_redraw = true;
+                                        }
 
                                         // 3. Inbox icon
                                         let inbox_id = Id::from_u64(999999862);
-                                        ui.container()
+                                        let inbox_btn = ui.container()
                                             .id(inbox_id)
                                             .clickable(true)
-                                            .padding(2.0, 3.0, 2.0, 3.0)
+                                            .padding(2.0, 4.0, 2.0, 4.0)
                                             .radius_all(3.0)
                                             .hover_bg(colors.highlight)
                                             .row()
                                             .valign(Align::Center)
-                                            .gap(1.0)
+                                            .gap(1.5)
                                             .show(|ui| {
-                                                ui.text("\u{f2d0}")
+                                                ui.text("\u{f48d}")
                                                     .size(12.0)
                                                     .color(colors.text_muted)
                                                     .show();
@@ -2619,21 +2797,23 @@ fn draw_ai_chat_content(
                                                     .bg(Color { r: 59.0 / 255.0, g: 130.0 / 255.0, b: 246.0 / 255.0, a: 1.0 })
                                                     .show(|_| {});
                                             });
+                                        if inbox_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
 
-                                        // 4. Chrome icon
+                                        // 4. Web icon
                                         let chrome_id = Id::from_u64(999999863);
-                                        ui.container()
+                                        let chrome_btn = ui.container()
                                             .id(chrome_id)
                                             .clickable(true)
-                                            .padding(2.0, 3.0, 2.0, 3.0)
+                                            .padding(2.0, 4.0, 2.0, 4.0)
                                             .radius_all(3.0)
                                             .hover_bg(colors.highlight)
                                             .show(|ui| {
-                                                ui.text("\u{f268}")
+                                                ui.text("\u{f059f}")
                                                     .size(12.5)
                                                     .color(colors.text_muted)
                                                     .show();
                                             });
+                                        if chrome_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
                                     });
 
                                 // Right side when closed but has modified files: Reject all, Accept all, and Top Arrow ▴!
@@ -2707,22 +2887,25 @@ fn draw_ai_chat_content(
                     let mut input_box_builder = ui.container()
                         .full_width()
                         .bg(input_box_bg)
-                        .radius_all(7.0)
-                        .padding(6.0, 8.0, 6.0, 8.0)
+                        .radius_all(14.0) // Matching rounded-2xl in HTML mockup
+                        .padding(8.0, 12.0, 8.0, 12.0)
                         .column()
-                        .gap(4.0);
+                        .gap(5.0);
 
-                    if state.ai_settings.effective_input_shadow() {
-                        input_box_builder = input_box_builder.shadow(input_shadow_col, 0.0, 2.0, 12.0);
+                    if is_input_focused {
+                        // Soft ambient glow when prompt box is active / focused
+                        input_box_builder = input_box_builder.shadow(colors.accent.with_alpha(0.24), 0.0, 0.0, 12.0);
+                    } else if state.ai_settings.effective_input_shadow() {
+                        input_box_builder = input_box_builder.shadow(input_shadow_col, 0.0, 4.0, 18.0);
                     }
 
                     if state.ai_settings.effective_input_outline() {
-                        let outline_col = if is_input_focused {
-                            colors.accent.with_alpha(0.8)
+                        let (outline_col, outline_w) = if is_input_focused {
+                            (colors.accent.with_alpha(0.82), 0.75)
                         } else {
-                            colors.border.with_alpha(0.6)
+                            (input_border_col.with_alpha(0.70), 0.65)
                         };
-                        input_box_builder = input_box_builder.border(outline_col, 0.75);
+                        input_box_builder = input_box_builder.border(outline_col, outline_w);
                     }
 
                     if state.glassmorphism {
@@ -2774,14 +2957,14 @@ fn draw_ai_chat_content(
                                 .max_height(MAX_PROMPT_H)
                                 .scrollable(true)
                                 .size(prompt_text_size)
-                                .line_height(1.25)
-                                .color(colors.text_primary)
+                                .line_height(1.30)
+                                .color(Color::rgb(244.0 / 255.0, 244.0 / 255.0, 245.0 / 255.0)) // text-zinc-100
                                 .bg(input_box_bg)
                                 .border(Color::TRANSPARENT, 0.0)
                                 .focus_border(Color::TRANSPARENT, 0.0)
-                                .padding(2.0, 4.0, 2.0, 4.0)
+                                .padding(2.0, 2.0, 2.0, 2.0)
                                 .placeholder(placeholder)
-                                .placeholder_color(colors.text_muted.with_alpha(0.45))
+                                .placeholder_color(Color::rgb(88.0 / 255.0, 88.0 / 255.0, 99.0 / 255.0)) // #585863
                                 .wrap(zenthra_text::prelude::TextWrap::Word)
                                 .submit_on_enter(true)
                                 .show();
@@ -2790,7 +2973,7 @@ fn draw_ai_chat_content(
                             // Bottom bar of input dock: Mode & Model pills on left, Send button on right
                             ui.container()
                                 .full_width()
-                                .height(22.0)
+                                .height(24.0)
                                 .row()
                                 .valign(Align::Center)
                                 .halign(Align::SpaceBetween)
@@ -2799,31 +2982,33 @@ fn draw_ai_chat_content(
                                     ui.container()
                                         .row()
                                         .valign(Align::Center)
-                                        .gap(5.0)
+                                        .gap(6.0)
                                         .show(|ui| {
                                             // 1. Agent Mode button
                                             let mode_btn = ui.container()
                                                 .raw_id(AGENT_MODE_BTN_ID)
                                                 .clickable(true)
-                                                .padding(2.0, 5.0, 2.0, 5.0)
-                                                .radius_all(4.0)
-                                                .bg(if state.agent_mode_menu_open { colors.highlight } else { pill_bg })
+                                                .padding(2.5, 7.0, 2.5, 7.0)
+                                                .radius_all(5.0)
+                                                .bg(if state.agent_mode_menu_open { pill_hover_bg } else { pill_bg })
                                                 .hover_bg(pill_hover_bg)
+                                                .border(pill_border, 1.0)
                                                 .row()
                                                 .valign(Align::Center)
-                                                .gap(3.0)
+                                                .gap(4.0)
                                                 .show(|ui| {
                                                     ui.text(state.agent_mode.icon())
-                                                        .size(9.0)
+                                                        .size(9.5)
+                                                        .color(Color::rgb(161.0 / 255.0, 161.0 / 255.0, 170.0 / 255.0)) // text-zinc-400
                                                         .show();
                                                     ui.text(state.agent_mode.display_name())
-                                                        .size(9.5)
+                                                        .size(10.0)
                                                         .weight(FontWeight::Medium)
-                                                        .color(colors.text_primary)
+                                                        .color(Color::rgb(228.0 / 255.0, 228.0 / 255.0, 233.0 / 255.0)) // text-zinc-200
                                                         .show();
                                                     ui.text(if state.agent_mode_menu_open { "\u{f077}" } else { "\u{f078}" })
-                                                        .size(7.5)
-                                                        .color(colors.text_muted)
+                                                        .size(7.0)
+                                                        .color(Color::rgb(154.0 / 255.0, 154.0 / 255.0, 165.0 / 255.0))
                                                         .show();
                                                 });
                                             if mode_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
@@ -2839,21 +3024,23 @@ fn draw_ai_chat_content(
                                             let model_btn = ui.container()
                                                 .raw_id(MODEL_PICKER_BTN_ID)
                                                 .clickable(true)
-                                                .padding(2.0, 5.0, 2.0, 5.0)
-                                                .radius_all(4.0)
-                                                .bg(if state.ai_model_menu_open { colors.highlight } else { pill_bg })
+                                                .padding(2.5, 7.0, 2.5, 7.0)
+                                                .radius_all(5.0)
+                                                .bg(if state.ai_model_menu_open { pill_hover_bg } else { pill_bg })
                                                 .hover_bg(pill_hover_bg)
+                                                .border(pill_border, 1.0)
                                                 .row()
                                                 .valign(Align::Center)
-                                                .gap(3.0)
+                                                .gap(4.0)
                                                 .show(|ui| {
                                                     ui.text(state.selected_ai_model.display_name())
-                                                        .size(9.5)
-                                                        .color(colors.text_muted)
+                                                        .size(10.0)
+                                                        .weight(FontWeight::Medium)
+                                                        .color(Color::rgb(228.0 / 255.0, 228.0 / 255.0, 233.0 / 255.0)) // text-zinc-200
                                                         .show();
                                                     ui.text(if state.ai_model_menu_open { "\u{f077}" } else { "\u{f078}" })
-                                                        .size(7.5)
-                                                        .color(colors.text_muted)
+                                                        .size(7.0)
+                                                        .color(Color::rgb(154.0 / 255.0, 154.0 / 255.0, 165.0 / 255.0))
                                                         .show();
                                                 });
                                             if model_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
@@ -2871,7 +3058,7 @@ fn draw_ai_chat_content(
                                     let has_text = !state.ai_input.trim().is_empty();
 
                                     let send_bg = if is_processing {
-                                        Color::rgb(0.20, 0.20, 0.23)
+                                        Color::rgb(37.0 / 255.0, 37.0 / 255.0, 43.0 / 255.0) // #25252b
                                     } else if has_text {
                                         colors.accent
                                     } else {
@@ -2879,29 +3066,36 @@ fn draw_ai_chat_content(
                                     };
 
                                     let send_hover_bg = if is_processing {
-                                        Color::rgb(0.28, 0.28, 0.32)
+                                        Color::rgb(47.0 / 255.0, 47.0 / 255.0, 55.0 / 255.0) // #2f2f37
                                     } else if has_text {
                                         colors.highlight
                                     } else {
                                         pill_hover_bg
                                     };
 
+                                    let send_border = if is_processing {
+                                        Color::rgb(46.0 / 255.0, 46.0 / 255.0, 56.0 / 255.0) // #2e2e38
+                                    } else {
+                                        pill_border
+                                    };
+
                                     let send_btn = ui.container()
-                                        .width(26.0)
-                                        .height(22.0)
+                                        .width(24.0)
+                                        .height(24.0)
                                         .radius_all(5.0)
                                         .bg(send_bg)
                                         .hover_bg(send_hover_bg)
+                                        .border(send_border, 1.0)
                                         .halign(Align::Center)
                                         .valign(Align::Center)
                                         .show(|ui| {
                                             if is_processing {
-                                                // Square red box with dark gray background
+                                                // Square red stop box matching HTML mockup
                                                 ui.container()
                                                     .width(8.0)
                                                     .height(8.0)
                                                     .radius_all(1.5)
-                                                    .bg(Color::rgb(0.92, 0.26, 0.26))
+                                                    .bg(Color::rgb(239.0 / 255.0, 68.0 / 255.0, 68.0 / 255.0)) // #ef4444
                                                     .show(|_| {});
                                             } else {
                                                 let send_text_color = if has_text { Color::WHITE } else { colors.text_muted.with_alpha(0.5) };
@@ -3015,7 +3209,7 @@ use pulldown_cmark::{
 
 /// A fragment of inline-formatted text.
 #[derive(Debug, Clone, PartialEq)]
-enum InlineSpan {
+pub(crate) enum InlineSpan {
     /// Plain text
     Text(String),
     /// `**bold**`
@@ -3052,7 +3246,7 @@ impl InlineSpan {
 
 /// GitHub-style blockquote kinds.
 #[derive(Debug, Clone, PartialEq)]
-enum QuoteKind {
+pub(crate) enum QuoteKind {
     Note,
     Tip,
     Important,
@@ -3066,7 +3260,7 @@ enum QuoteKind {
 // ─────────────────────────────────────────────────────────────────────────────
 
 #[derive(Debug, Clone, PartialEq)]
-enum MarkdownBlock {
+pub(crate) enum MarkdownBlock {
     Heading { level: u8, spans: Vec<InlineSpan> },
     CodeBlock { lang: Option<String>, code: String },
     /// depth: 0 = top-level, 1 = nested, etc.  checked: None = not a task item.
@@ -3080,7 +3274,6 @@ enum MarkdownBlock {
     BlockQuote { kind: QuoteKind, spans: Vec<InlineSpan> },
     Rule,
     Paragraph(Vec<InlineSpan>),
-
 }
 
 // ── Compat helpers used only in tests ─────────────────────────────────────────
@@ -3114,7 +3307,7 @@ impl MarkdownBlock {
 // ─────────────────────────────────────────────────────────────────────────────
 /// Parse a markdown string into a flat list of [`MarkdownBlock`]s using pulldown-cmark.
 /// This is the real implementation used at runtime.
-fn parse_markdown_blocks_impl(content: &str) -> Vec<MarkdownBlock> {
+pub(crate) fn parse_markdown_blocks_impl(content: &str) -> Vec<MarkdownBlock> {
     let mut blocks: Vec<MarkdownBlock> = Vec::new();
 
     let opts = Options::ENABLE_STRIKETHROUGH
@@ -3400,7 +3593,7 @@ fn parse_markdown_blocks_impl(content: &str) -> Vec<MarkdownBlock> {
 /// Because the underlying text widget can only render a single style at a time we emit
 /// each span as its own text widget inside a wrapping row container. Inline `Code` spans
 /// get a subtle pill background drawn around them.
-fn draw_inline_spans(
+pub(crate) fn draw_inline_spans(
     ui: &mut Ui,
     spans: &[InlineSpan],
     max_width: f32,
@@ -3644,7 +3837,7 @@ fn draw_session_history_panel(
             ui.container()
                 .width(panel_w)
                 .height(1.0)
-                .bg(colors.border.with_alpha(0.4))
+                .bg(colors.border)
                 .show(|_| {});
 
             // ── Search Bar (Native pill with no outline) ──────────────

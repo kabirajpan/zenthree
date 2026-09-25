@@ -19,7 +19,6 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
         .full_width()
         .height(BAR_H)
         .bg(colors.bg_sidebar)
-        .border(colors.border, 1.0)
         .row()
         .valign(Align::Center)
         .halign(Align::SpaceBetween) // Use SpaceBetween: Left menus vs Right controls
@@ -64,13 +63,13 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                         }
                         if ui.menu_item("Open Folder...").shortcut("Ctrl+Shift+O").show().clicked {
                             if let Some(path) = rfd::FileDialog::new().pick_folder() {
-                                state.open_workspace(path);
+                                state.request_open_workspace(path);
                             }
                             ui.request_redraw();
                         }
                         if state.has_workspace {
                             if ui.menu_item("Close Folder").show().clicked {
-                                state.close_workspace();
+                                state.request_close_workspace();
                                 ui.request_redraw();
                             }
                         }
@@ -892,5 +891,19 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
         ui.interaction_state.insert(active_submenu_key, 0.0);
         ui.request_redraw();
     }
+
+    // Bottom 1px divider line separating title bar from workspace
+    ui.draws.push(zenthra_widgets::ui::DrawCommand::Rect(zenthra_widgets::ui::RectDraw {
+        instance: zenthra_render::RectInstance {
+            pos: [0.0, BAR_H - 1.0],
+            size: [ui.width, 1.0],
+            color: colors.border.to_array(),
+            radius: [0.0; 4],
+            border_width: 0.0,
+            border_color: [0.0; 4],
+            clip_rect: [-10000.0, -10000.0, 20000.0, 20000.0],
+            ..Default::default()
+        },
+    }));
 }
 

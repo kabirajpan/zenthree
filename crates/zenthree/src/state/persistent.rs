@@ -233,6 +233,7 @@ impl ZenthreeState {
                                     .unwrap_or("Untitled")
                                     .to_string();
 
+                                let is_md = name.ends_with(".md") || name.ends_with(".markdown");
                                 self.tabs.push(EditorTab {
                                     name,
                                     path: Some(tab_path.clone()),
@@ -243,7 +244,8 @@ impl ZenthreeState {
                                     version: 0,
                                     lines_added: 0,
                                     lines_removed: 0,
-                                    });
+                                    is_markdown_preview: is_md,
+                                });
                             }
                         }
                     }

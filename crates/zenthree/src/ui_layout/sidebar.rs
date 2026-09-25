@@ -94,7 +94,6 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
         .fill_y()
         .clip(true)
         .bg(colors.bg_sidebar)
-        .border(colors.border, 1.0)
         .column()
         .show(|ui| {
             if state.sidebar_view == crate::state::SidebarView::Extensions {
@@ -424,6 +423,12 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
                     }
                 }
             }
+
+            ui.container()
+                .full_width()
+                .height(1.0)
+                .bg(colors.border)
+                .show(|_| {});
 
             // File Listing scroll area (Tree View with branch guides)
             let icon_theme = crate::theme::IconTheme::new(&state.icon_theme);
@@ -920,7 +925,7 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
     };
 
     let edge_thickness = if state.active_resize_sidebar || is_hovered { 2.0 } else { 1.0 };
-    let edge_draw_x = splitter_x - edge_thickness / 2.0;
+    let edge_draw_x = if edge_thickness == 1.0 { (splitter_x - 1.0).round() } else { (splitter_x - 1.0).round() };
 
     ui.draws.push(zenthra_widgets::ui::DrawCommand::Rect(zenthra_widgets::ui::RectDraw {
         instance: zenthra_render::RectInstance {
@@ -1190,7 +1195,7 @@ fn draw_no_folder_view(ui: &mut Ui, state: &mut ZenthreeState, sidebar_w: f32) {
 
             if open_btn.clicked {
                 if let Some(path) = rfd::FileDialog::new().pick_folder() {
-                    state.open_workspace(path);
+                    state.request_open_workspace(path);
                     ui.request_redraw();
                 }
             }

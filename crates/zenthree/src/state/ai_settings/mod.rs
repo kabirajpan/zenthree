@@ -61,7 +61,7 @@ impl Default for AiSettingsState {
             just_opened: false,
             active_tab: AiSettingsTab::Appearance,
             preset_mode: AiPresetMode::SystemDefault,
-            input_outline: false,
+            input_outline: true,
             input_shadow: true,
             input_tone: AiInputTone::Charcoal,
             message_bg: AiMessageBg::DeepDark,
@@ -84,7 +84,7 @@ impl AiSettingsState {
 
     pub fn effective_input_outline(&self) -> bool {
         if self.is_system_default() {
-            false
+            true
         } else {
             self.input_outline
         }

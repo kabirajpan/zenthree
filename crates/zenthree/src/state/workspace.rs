@@ -42,7 +42,19 @@ impl ZenthreeState {
         self.ai_input.clear();
         self.ai_sessions_visible = false;
 
-        // 3. Switch workspace
+        // 3. Completely clear all buffer tabs and close LSP documents to release RAM
+        for tab in self.tabs.drain(..) {
+            if let Some(ref p) = tab.path {
+                self.lsp_manager.on_document_close(p);
+            }
+        }
+        self.tabs.clear();
+        self.set_active_tab(None);
+        self.selected_sidebar_path = None;
+        self.pending_reviews.clear();
+        self.active_review_idx = None;
+
+        // 4. Switch workspace
         self.current_dir = path;
         self.has_workspace = true;
         self.expanded_dirs.clear();
@@ -67,7 +79,19 @@ impl ZenthreeState {
         self.ai_input.clear();
         self.ai_sessions_visible = false;
 
-        // 3. Close workspace
+        // 3. Completely clear all buffer tabs and close LSP documents to release RAM
+        for tab in self.tabs.drain(..) {
+            if let Some(ref p) = tab.path {
+                self.lsp_manager.on_document_close(p);
+            }
+        }
+        self.tabs.clear();
+        self.set_active_tab(None);
+        self.selected_sidebar_path = None;
+        self.pending_reviews.clear();
+        self.active_review_idx = None;
+
+        // 4. Close workspace
         self.fs_watcher.stop();
         self.has_workspace = false;
         self.sidebar_items.clear();
@@ -75,6 +99,72 @@ impl ZenthreeState {
         self.set_status("Workspace closed");
         self.save_persistent_state();
         self.refresh_ai_sessions();
+    }
+
+    pub fn has_unsaved_changes(&self) -> bool {
+        self.tabs.iter().any(|tab| tab.is_dirty)
+    }
+
+    pub fn unsaved_tab_names(&self) -> Vec<String> {
+        self.tabs
+            .iter()
+            .filter(|tab| tab.is_dirty)
+            .map(|tab| tab.name.clone())
+            .collect()
+    }
+
+    pub fn request_open_workspace(&mut self, path: PathBuf) {
+        if self.has_unsaved_changes() {
+            self.unsaved_changes_dialog = Some(UnsavedChangesDialog {
+                target_workspace: Some(path),
+                unsaved_files: self.unsaved_tab_names(),
+            });
+        } else {
+            self.open_workspace(path);
+        }
+    }
+
+    pub fn request_close_workspace(&mut self) {
+        if self.has_unsaved_changes() {
+            self.unsaved_changes_dialog = Some(UnsavedChangesDialog {
+                target_workspace: None,
+                unsaved_files: self.unsaved_tab_names(),
+            });
+        } else {
+            self.close_workspace();
+        }
+    }
+
+    pub fn save_unsaved_and_proceed(&mut self) {
+        for tab in &mut self.tabs {
+            if tab.is_dirty {
+                if let Some(ref path) = tab.path {
+                    let _ = std::fs::write(path, tab.editor.buffer.to_string());
+                    tab.is_dirty = false;
+                }
+            }
+        }
+        if let Some(dialog) = self.unsaved_changes_dialog.take() {
+            if let Some(target) = dialog.target_workspace {
+                self.open_workspace(target);
+            } else {
+                self.close_workspace();
+            }
+        }
+    }
+
+    pub fn discard_unsaved_and_proceed(&mut self) {
+        if let Some(dialog) = self.unsaved_changes_dialog.take() {
+            if let Some(target) = dialog.target_workspace {
+                self.open_workspace(target);
+            } else {
+                self.close_workspace();
+            }
+        }
+    }
+
+    pub fn cancel_unsaved_dialog(&mut self) {
+        self.unsaved_changes_dialog = None;
     }
 
     fn get_git_statuses(&self, root: &Path) -> HashMap<PathBuf, GitStatus> {

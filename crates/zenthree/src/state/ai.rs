@@ -152,10 +152,17 @@ impl ZenthreeState {
                         Available Tools (Level 1 Manifest):\n{}\n\n\
                         Available Workflow Skills:\n{}\n\n\
                         Guidelines:\n\
+                        - STRICT PROJECT BOUNDARY: You must operate EXCLUSIVELY inside the current workspace project root ('./'). You are strictly forbidden from navigating to parent directories ('..') or inspecting files outside this project.\n\
                         - Tools follow lazy loading: use available tools when needed.\n\
-                        - Use `search` and `read_file` exclusively to explore files, symbols, and directory trees.\n\
+                        - MANDATORY ACTION PLAN PROTOCOL: Whenever a task requires action (modifying code, creating files, or executing commands), you MUST FIRST formulate and call `create_plan` with a title and sequential steps, and present the implementation plan to the user BEFORE making any edits or modifications.\n\
+                        - Use `search`, `read_file`, and `list_directory` exclusively to explore files, symbols, and directory trees.\n\
+                        - EFFICIENT EXPLORATION: Once you have read a file or gathered sufficient context to answer the user's question, DO NOT read the same file again. Immediately synthesize your answer or create your plan. Never enter repetitive inspection loops.\n\
+                        - DEPTH-FIRST SEARCH (DFS) EXPLORATION: When exploring a project, always follow a Depth-First Search order: first inspect root-level files and configuration at './', then explore one directory branch completely to its leaves before moving to sibling directories. Never jump back and forth erratically between different directories.\n\
+                        - STRICT VERIFIED FILE READING: You are strictly forbidden from guessing, speculating, or anticipating file names or paths. NEVER call `read_file` on any path unless that exact path was explicitly returned by a prior `list_directory` or `search` tool call in this session. If you need to see what files exist inside a directory, you MUST call `list_directory` on that directory first.\n\
+                        - EFFICIENT FILE READING: Call `read_file(path: \"...\")` directly to read complete files (it automatically provides up to 500 lines). DO NOT pass arbitrary line ranges like `start_line: 1, end_line: 200` unless you specifically need a narrow slice of a known large file. DO NOT call `peek: true` on small files (<300 lines); read them directly.\n\
                         - NEVER use `run_terminal` to read files, search code, or view directory trees. Reserve `run_terminal` strictly for compiler tests and build commands.\n\
                         - Prefer surgical edits using `edit_file` rather than rewriting whole files.\n\
+                        - Call `update_plan_step` as you complete each step of the plan.\n\
                         - Run `get_diagnostics` or test suites via `run_terminal` to verify your changes.\n\
                         - Activate workflow skills on demand via `activate_skill(name: \"...\")` for step-by-step guidance.\n\n{}",
                         current_dir.display(),
@@ -408,6 +415,7 @@ impl ZenthreeState {
                                                 idx
                                             } else {
                                                 let name = effective_path.file_name().and_then(|n| n.to_str()).unwrap_or("file").to_string();
+                                                let is_md = name.ends_with(".md") || name.ends_with(".markdown");
                                                 self.tabs.push(EditorTab {
                                                     name,
                                                     path: Some(effective_path.clone()),
@@ -418,6 +426,7 @@ impl ZenthreeState {
                                                     version: 0,
                                                     lines_added,
                                                     lines_removed,
+                                                    is_markdown_preview: is_md,
                                                 });
                                                 self.tabs.len() - 1
                                             };
@@ -533,6 +542,7 @@ impl ZenthreeState {
                                                 idx
                                             } else {
                                                 let name = effective_path.file_name().and_then(|n| n.to_str()).unwrap_or("file").to_string();
+                                                let is_md = name.ends_with(".md") || name.ends_with(".markdown");
                                                 self.tabs.push(EditorTab {
                                                     name,
                                                     path: Some(effective_path.clone()),
@@ -543,6 +553,7 @@ impl ZenthreeState {
                                                     version: 0,
                                                     lines_added,
                                                     lines_removed,
+                                                    is_markdown_preview: is_md,
                                                 });
                                                 self.tabs.len() - 1
                                             };
@@ -582,19 +593,57 @@ impl ZenthreeState {
                                                 expanded: true,
                                             });
                                         }
+                                        "update_plan_step" => {
+                                            let plan_path = self.current_dir.join("implementation_plan.md");
+                                            for tab in &mut self.tabs {
+                                                if let Some(ref p) = tab.path {
+                                                    if path_matches(p, &plan_path) || p.file_name().and_then(|n| n.to_str()) == Some("implementation_plan.md") {
+                                                        if let Ok(fresh) = std::fs::read_to_string(p) {
+                                                            tab.editor = ::editor::editor::Editor::new(::editor::buffer::Buffer::from_text(&fresh));
+                                                            tab.version += 1;
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                        }
                                         _ => {
-                                            let item = match name.as_str() {
+                                            let clean_name = name
+                                                .split(':')
+                                                .last()
+                                                .unwrap_or(&name)
+                                                .split('.')
+                                                .last()
+                                                .unwrap_or(&name);
+
+                                            let item = match clean_name {
                                                 "read_file" => {
                                                     let symbol = args.get("symbol").and_then(|v| v.as_str()).map(String::from);
                                                     let is_peek = args.get("peek").and_then(|v| v.as_bool()).unwrap_or(false);
-                                                    let start_line = args.get("start_line").and_then(|v| v.as_u64()).map(|u| u as usize);
-                                                    let end_line = args.get("end_line").and_then(|v| v.as_u64()).map(|u| u as usize);
+                                                    let mut start_line = args.get("start_line").and_then(|v| v.as_u64()).map(|u| u as usize);
+                                                    let mut end_line = args.get("end_line").and_then(|v| v.as_u64()).map(|u| u as usize);
 
                                                     if let Some(paths) = args.get("paths").and_then(|v| v.as_array()) {
                                                         let path_strings = paths.iter().filter_map(|p| p.as_str().map(String::from)).collect();
                                                         ExplorationItem::BatchRead { paths: path_strings }
                                                     } else {
                                                         let path = args.get("path").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                                                        let path_obj = std::path::Path::new(&path);
+                                                        let resolved = if path_obj.is_absolute() {
+                                                            path_obj.to_path_buf()
+                                                        } else {
+                                                            self.current_dir.join(path_obj)
+                                                        };
+                                                        if let Ok(content) = std::fs::read_to_string(&resolved) {
+                                                            let total_lines = content.lines().count();
+                                                            if let (Some(s), Some(e)) = (start_line, end_line) {
+                                                                if s <= 1 && e >= total_lines {
+                                                                    start_line = None;
+                                                                    end_line = None;
+                                                                } else if e > total_lines {
+                                                                    end_line = Some(total_lines);
+                                                                }
+                                                            }
+                                                        }
                                                         ExplorationItem::AnalyzedFile {
                                                             path,
                                                             start_line,

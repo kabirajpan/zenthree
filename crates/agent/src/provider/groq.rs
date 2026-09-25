@@ -184,6 +184,14 @@ impl Provider for GroqProvider {
             req_messages.insert(insert_pos, Value::Object(fallback));
         }
 
+        if tools.is_empty() {
+            let reminder = json!({
+                "role": "system",
+                "content": "Notice: You are in pure conversational mode for this turn. Do not emit any tool calls or function calls; reply directly in markdown."
+            });
+            req_messages.push(reminder);
+        }
+
         let mut body = json!({
             "model": self.model,
             "messages": req_messages,
@@ -236,6 +244,29 @@ impl Provider for GroqProvider {
         };
 
         if !status.is_success() {
+            // Graceful Error Recovery: If Groq returns 400 Bad Request with tool_use_failed,
+            // recover the failed_generation tool call so the agentic loop proceeds without crashing.
+            if status.as_u16() == 400 && (resp_text.contains("tool_use_failed") || resp_text.contains("Tool choice is none")) {
+                if let Ok(err_val) = serde_json::from_str::<Value>(&resp_text) {
+                    if let Some(failed_gen) = err_val.get("error").and_then(|e| e.get("failed_generation")).and_then(|fg| fg.as_str()) {
+                        if let Ok(gen_obj) = serde_json::from_str::<Value>(failed_gen) {
+                            let name = gen_obj.get("name").and_then(|n| n.as_str()).unwrap_or("").to_string();
+                            let args = gen_obj.get("arguments").cloned().unwrap_or(json!({}));
+                            if !name.is_empty() {
+                                on_event(ProviderEvent::ToolCallComplete {
+                                    id: "recovered_tool_call".to_string(),
+                                    name,
+                                    args,
+                                    thought_signature: None,
+                                });
+                                on_event(ProviderEvent::Done);
+                                return Ok(());
+                            }
+                        }
+                    }
+                }
+            }
+
             return Err(ProviderError::Malformed(format!(
                 "Status {}: {}",
                 status, resp_text

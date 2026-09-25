@@ -26,3 +26,5 @@ references/
 # Test projects (not pushed to github)
 crates/agent/tests/calculator/
 crates/agent/tests/snake_game/
+implementation_plan.md
+**/implementation_plan.md
