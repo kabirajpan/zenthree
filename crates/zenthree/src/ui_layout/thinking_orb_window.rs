@@ -3,6 +3,7 @@ use crate::theme::ThemeColors;
 use zenthra::{Align, Color, CursorIcon, FontWeight, Id, Ui};
 use zenthra_state::use_context;
 
+#[allow(dead_code)]
 pub fn draw_thinking_orb_window(ui: &mut Ui, state: &mut ZenthreeState) {
     if !state.orb_window_open {
         return;

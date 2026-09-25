@@ -135,11 +135,16 @@ pub struct ZenthreeState {
     pub ai_menu_open: bool,
     /// AI & Agent settings state (appearance, general, model, customization)
     pub ai_settings: AiSettingsState,
+    /// Optional custom directory for AI sessions (used for test isolation & custom environments)
+    pub custom_sessions_dir: Option<std::path::PathBuf>,
 
     /// Floating Thinking Orb window state
     pub orb_window_open: bool,
+    #[allow(dead_code)]
     pub orb_window_pos: (f32, f32),
+    #[allow(dead_code)]
     pub orb_window_dragging: bool,
+    #[allow(dead_code)]
     pub orb_window_drag_offset: (f32, f32),
     pub orb_animation_start: std::time::Instant,
 
@@ -284,6 +289,7 @@ impl ZenthreeState {
             ai_cancel_token: None,
             ai_menu_open: false,
             ai_settings: AiSettingsState::default(),
+            custom_sessions_dir: None,
             orb_window_open: false,
             orb_window_pos: (0.0, 0.0),
             orb_window_dragging: false,
@@ -893,7 +899,9 @@ mod tests {
 
     #[test]
     fn test_terminal_and_ai_panel_state() {
+        let test_dir = std::env::temp_dir().join(format!("zenthree_test_term_ai_{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
         let mut state = ZenthreeState::new();
+        state.custom_sessions_dir = Some(test_dir.clone());
         assert!(!state.terminal_visible);
         assert!(!state.ai_panel_visible);
 
@@ -913,6 +921,8 @@ mod tests {
             .iter()
             .any(|m| m.is_user && m.content == "Explain the workspace"));
         assert!(state.ai_messages.iter().any(|m| !m.is_user));
+
+        let _ = std::fs::remove_dir_all(&test_dir);
     }
 
     #[test]
@@ -1485,7 +1495,9 @@ mod tests {
 
     #[test]
     fn test_open_workspace_switches_to_blank_session_and_preserves_general() {
+        let test_dir = std::env::temp_dir().join(format!("zenthree_test_ai_sess_ow_{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
         let mut state = ZenthreeState::default();
+        state.custom_sessions_dir = Some(test_dir.clone());
         assert!(!state.has_workspace);
 
         // 1. User is chatting in General session
@@ -1532,11 +1544,14 @@ mod tests {
         // Cleanup
         state.close_workspace();
         let _ = std::fs::remove_dir_all(&tmp);
+        let _ = std::fs::remove_dir_all(&test_dir);
     }
 
     #[test]
     fn test_ai_session_save_and_start_new() {
+        let test_dir = std::env::temp_dir().join(format!("zenthree_test_ai_sess_sn_{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
         let mut state = ZenthreeState::default();
+        state.custom_sessions_dir = Some(test_dir.clone());
         // By default, no messages exist so start screen is displayed
         assert!(state.ai_messages.is_empty(), "AI messages must be empty by default for start screen");
 
@@ -1583,6 +1598,7 @@ mod tests {
         if let Some(id) = session_id {
             state.delete_ai_session(&id);
         }
+        let _ = std::fs::remove_dir_all(&test_dir);
     }
 
     #[test]
@@ -1645,7 +1661,9 @@ mod tests {
 
     #[test]
     fn test_general_vs_workspace_ai_session_categorization() {
+        let test_dir = std::env::temp_dir().join(format!("zenthree_test_ai_sess_gw_{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
         let mut state = ZenthreeState::default();
+        state.custom_sessions_dir = Some(test_dir.clone());
         assert!(!state.has_workspace);
 
         // Add a message in no-workspace mode
@@ -1690,6 +1708,7 @@ mod tests {
         // Clean up
         state.close_workspace();
         let _ = std::fs::remove_dir_all(&tmp);
+        let _ = std::fs::remove_dir_all(&test_dir);
     }
 
     #[test]

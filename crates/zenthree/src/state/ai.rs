@@ -772,14 +772,6 @@ impl ZenthreeState {
     }
 }
 
-fn ai_sessions_base_dir() -> std::path::PathBuf {
-    if let Ok(home) = std::env::var("HOME") {
-        std::path::PathBuf::from(home).join(".config").join("zenthree").join("ai_sessions")
-    } else {
-        std::path::PathBuf::from(".zenthree_sessions")
-    }
-}
-
 fn project_dir_key(path: &std::path::Path) -> String {
     use std::hash::{Hash, Hasher};
     let canon = path.canonicalize().unwrap_or_else(|_| path.to_path_buf());
@@ -792,11 +784,34 @@ fn project_dir_key(path: &std::path::Path) -> String {
 }
 
 impl ZenthreeState {
+    pub fn ai_sessions_base_dir(&self) -> std::path::PathBuf {
+        if let Some(ref dir) = self.custom_sessions_dir {
+            return dir.clone();
+        }
+        if let Ok(dir) = std::env::var("ZENTHREE_SESSIONS_DIR") {
+            return std::path::PathBuf::from(dir);
+        }
+        if cfg!(test) || std::env::var("ZENTHREE_TEST_MODE").is_ok() {
+            return std::env::temp_dir().join(format!("zenthree_test_sessions_default_{}", std::process::id()));
+        }
+        if let Ok(home) = std::env::var("HOME") {
+            std::path::PathBuf::from(home).join(".config").join("zenthree").join("ai_sessions")
+        } else {
+            std::path::PathBuf::from(".zenthree_sessions")
+        }
+    }
+
     pub fn refresh_ai_sessions(&mut self) {
-        let base = ai_sessions_base_dir();
+        let base = self.ai_sessions_base_dir();
+        let is_test = cfg!(test) || std::env::var("ZENTHREE_TEST_MODE").is_ok() || self.custom_sessions_dir.is_some();
         let mut summaries = Vec::new();
         if let Ok(entries) = std::fs::read_dir(&base) {
             for entry in entries.flatten() {
+                let dir_name = entry.file_name().to_string_lossy().to_string();
+                // Never load test project directories into the user's UI
+                if !is_test && dir_name.starts_with("zenthree_test_proj_") {
+                    continue;
+                }
                 if let Ok(file_type) = entry.file_type() {
                     if file_type.is_dir() {
                         if let Ok(sess_entries) = std::fs::read_dir(entry.path()) {
@@ -805,15 +820,23 @@ impl ZenthreeState {
                                 if p.extension().and_then(|ext| ext.to_str()) == Some("json") {
                                     if let Ok(content) = std::fs::read_to_string(&p) {
                                         if let Ok(saved) = serde_json::from_str::<SavedAiSession>(&content) {
-                                            summaries.push(SessionSummary {
-                                                id: saved.id,
-                                                title: saved.title,
-                                                project_path: saved.project_path,
-                                                project_name: saved.project_name,
-                                                created_at: saved.created_at,
-                                                updated_at: saved.updated_at,
-                                                message_count: saved.messages.len(),
-                                            });
+                                            // In normal UI mode, ignore any leftover test sessions
+                                            if is_test || (!saved.title.starts_with("Hello AI session test")
+                                                && !saved.title.starts_with("General chat query")
+                                                && !saved.title.starts_with("Project chat query")
+                                                && !saved.title.starts_with("What is 2 + 2?")
+                                                && !saved.title.starts_with("Explain the workspace"))
+                                            {
+                                                summaries.push(SessionSummary {
+                                                    id: saved.id,
+                                                    title: saved.title,
+                                                    project_path: saved.project_path,
+                                                    project_name: saved.project_name,
+                                                    created_at: saved.created_at,
+                                                    updated_at: saved.updated_at,
+                                                    message_count: saved.messages.len(),
+                                                });
+                                            }
                                         }
                                     }
                                 }
@@ -873,10 +896,10 @@ impl ZenthreeState {
             let canon = self.current_dir.canonicalize().unwrap_or_else(|_| self.current_dir.clone());
             let p_path = canon.to_string_lossy().to_string();
             let p_name = canon.file_name().and_then(|n| n.to_str()).unwrap_or("project").to_string();
-            let b_dir = ai_sessions_base_dir().join(project_dir_key(&canon));
+            let b_dir = self.ai_sessions_base_dir().join(project_dir_key(&canon));
             (p_path, p_name, b_dir)
         } else {
-            ("general".to_string(), "General".to_string(), ai_sessions_base_dir().join("general"))
+            ("general".to_string(), "General".to_string(), self.ai_sessions_base_dir().join("general"))
         };
         let now_sec = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap_or_default().as_secs();
 
@@ -922,7 +945,7 @@ impl ZenthreeState {
 
     pub fn load_ai_session(&mut self, session_id: &str) {
         self.cancel_active_ai();
-        let base = ai_sessions_base_dir();
+        let base = self.ai_sessions_base_dir();
         if let Ok(entries) = std::fs::read_dir(&base) {
             for entry in entries.flatten() {
                 if let Ok(file_type) = entry.file_type() {
@@ -952,7 +975,7 @@ impl ZenthreeState {
         if self.ai_session_id.as_deref() == Some(session_id) {
             self.cancel_active_ai();
         }
-        let base = ai_sessions_base_dir();
+        let base = self.ai_sessions_base_dir();
         if let Ok(entries) = std::fs::read_dir(&base) {
             for entry in entries.flatten() {
                 if let Ok(file_type) = entry.file_type() {

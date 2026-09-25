@@ -3277,6 +3277,7 @@ pub(crate) enum MarkdownBlock {
 }
 
 // ── Compat helpers used only in tests ─────────────────────────────────────────
+#[allow(dead_code)]
 impl MarkdownBlock {
     #[cfg(test)]
     fn plain_paragraph(s: impl Into<String>) -> Self {
