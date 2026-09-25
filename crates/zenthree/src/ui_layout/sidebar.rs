@@ -7,55 +7,35 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
     let colors = use_context::<ThemeColors>().map(|c| *c).unwrap_or_else(|| state.colors());
     let sidebar_w = state.sidebar_width;
 
+    // Sync modifiers state so widgets know when Ctrl/Shift/Alt are held
+    let ctrl_key = Id::from_u64(0xFEED_C071);
+    let shift_key = Id::from_u64(0xFEED_581F);
+    let alt_key = Id::from_u64(0xFEED_A170);
+    ui.interaction_state.insert(ctrl_key, if state.ctrl_pressed { 1.0 } else { 0.0 });
+    ui.interaction_state.insert(shift_key, if state.shift_pressed { 1.0 } else { 0.0 });
+    ui.interaction_state.insert(alt_key, if state.alt_pressed { 1.0 } else { 0.0 });
+
     // 1. Keyboard event handling for inline file/folder input or tree shortcuts
     if state.inline_tree_input.is_some() {
         let mut commit = false;
         let mut cancel = false;
-        let mut backspace = false;
-        let mut chars: Vec<char> = Vec::new();
 
         ui.input_events.retain(|event| {
-            match event {
-                zenthra_platform::event::PlatformEvent::KeyDown { key } => {
-                    match key {
-                        winit::keyboard::KeyCode::Enter | winit::keyboard::KeyCode::NumpadEnter => {
-                            commit = true;
-                            return false;
-                        }
-                        winit::keyboard::KeyCode::Escape => {
-                            cancel = true;
-                            return false;
-                        }
-                        winit::keyboard::KeyCode::Backspace => {
-                            backspace = true;
-                            return false;
-                        }
-                        _ => {}
-                    }
-                }
-                zenthra_platform::event::PlatformEvent::CharTyped(c) => {
-                    if !c.is_control() {
-                        chars.push(*c);
+            if let zenthra_platform::event::PlatformEvent::KeyDown { key } = event {
+                match key {
+                    winit::keyboard::KeyCode::Enter | winit::keyboard::KeyCode::NumpadEnter => {
+                        commit = true;
                         return false;
                     }
+                    winit::keyboard::KeyCode::Escape => {
+                        cancel = true;
+                        return false;
+                    }
+                    _ => {}
                 }
-                _ => {}
             }
             true
         });
-
-        if let Some(ref mut inline) = state.inline_tree_input {
-            if backspace {
-                inline.text.pop();
-                state.last_cursor_activity = std::time::Instant::now();
-                ui.request_redraw();
-            }
-            for c in chars {
-                inline.text.push(c);
-                state.last_cursor_activity = std::time::Instant::now();
-                ui.request_redraw();
-            }
-        }
 
         if commit {
             state.commit_inline_tree_input();
@@ -100,11 +80,91 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
                 crate::ui_layout::draw_extensions_panel(ui, state, sidebar_w);
             } else if state.sidebar_view == crate::state::SidebarView::Git {
                 crate::ui_layout::draw_git_panel(ui, state, sidebar_w);
-            } else if state.sidebar_view == crate::state::SidebarView::Notes {
-                crate::ui_layout::draw_notes_panel(ui, state, sidebar_w);
-            } else if !state.has_workspace {
+            } else if !state.has_workspace && state.sidebar_view != crate::state::SidebarView::Notes {
                 draw_no_folder_view(ui, state, sidebar_w);
             } else {
+                let is_notes_view = state.sidebar_view == crate::state::SidebarView::Notes;
+
+                // Notes Vault Scope Switcher Bar: [f024b <project_name>]  [f059f Global]
+                if is_notes_view {
+                    let project_name = state.current_dir.file_name()
+                        .and_then(|n| n.to_str())
+                        .unwrap_or("project")
+                        .to_string();
+                    let is_proj = state.notes_state.scope == crate::state::NotesVaultScope::Project;
+                    let is_glob = state.notes_state.scope == crate::state::NotesVaultScope::Global;
+                    let mut switch_scope: Option<crate::state::NotesVaultScope> = None;
+
+                    let total_avail = (sidebar_w - 16.0 - 4.0 - 2.0).max(60.0);
+                    let tab_proj_w = (total_avail * 0.60).floor();
+                    let tab_glob_w = (total_avail - tab_proj_w).floor();
+
+                    let max_chars = ((tab_proj_w - 24.0) / 7.0).max(4.0) as usize;
+                    let proj_label = truncate_filename(&project_name, max_chars);
+
+                    ui.container()
+                        .full_width()
+                        .padding(6.0, 8.0, 3.0, 8.0)
+                        .show(|ui| {
+                            ui.container()
+                                .full_width()
+                                .height(26.0)
+                                .bg(colors.bg_base)
+                                .border(colors.border.with_alpha(0.4), 1.0)
+                                .radius_all(4.0)
+                                .padding(2.0, 2.0, 2.0, 2.0)
+                                .row()
+                                .valign(Align::Center)
+                                .gap(2.0)
+                                .show(|ui| {
+                                    // Tab 1: Project Workspace (60%)
+                                    let btn_proj = ui.button(&format!("\u{f024b} {}", proj_label))
+                                        .id(Id::from_u64(999999010))
+                                        .height(22.0)
+                                        .width(tab_proj_w)
+                                        .padding(0.0, 4.0, 0.0, 4.0)
+                                        .bg(if is_proj { colors.accent.with_alpha(0.20) } else { Color::TRANSPARENT })
+                                        .hover_bg(if is_proj { colors.accent.with_alpha(0.28) } else { Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, 0.07) })
+                                        .text_color(if is_proj { colors.accent } else { colors.text_muted })
+                                        .radius_all(3.0)
+                                        .size(10.5)
+                                        .show();
+                                    if btn_proj.hovered {
+                                        ui.cursor_icon = zenthra::CursorIcon::Pointer;
+                                    }
+                                    if btn_proj.clicked && !is_proj {
+                                        switch_scope = Some(crate::state::NotesVaultScope::Project);
+                                    }
+
+                                    // Tab 2: Global (40%)
+                                    let btn_glob = ui.button("\u{f059f} Global")
+                                        .id(Id::from_u64(999999011))
+                                        .height(22.0)
+                                        .width(tab_glob_w)
+                                        .padding(0.0, 4.0, 0.0, 4.0)
+                                        .bg(if is_glob { colors.accent.with_alpha(0.20) } else { Color::TRANSPARENT })
+                                        .hover_bg(if is_glob { colors.accent.with_alpha(0.28) } else { Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, 0.07) })
+                                        .text_color(if is_glob { colors.accent } else { colors.text_muted })
+                                        .radius_all(3.0)
+                                        .size(10.5)
+                                        .show();
+                                    if btn_glob.hovered {
+                                        ui.cursor_icon = zenthra::CursorIcon::Pointer;
+                                    }
+                                    if btn_glob.clicked && !is_glob {
+                                        switch_scope = Some(crate::state::NotesVaultScope::Global);
+                                    }
+                                });
+                        });
+
+                    if let Some(scope) = switch_scope {
+                        state.notes_state.scope = scope;
+                        state.selected_sidebar_path = None;
+                        state.rebuild_tree();
+                        ui.request_redraw();
+                    }
+                }
+
                 let total_count = state.sidebar_items.len();
                 let count_str = format!("{}/{}", total_count, total_count);
 
@@ -136,15 +196,23 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
                                         .color(Color::rgb(251.0 / 255.0, 73.0 / 255.0, 52.0 / 255.0))
                                         .show();
 
-                                    // Box with title and border: ╭────── Explorer ──────╮
+                                     // Box with title and border: ╭────── Explorer ──────╮
                                     ui.container()
                                         .padding(2.0, 10.0, 2.0, 10.0)
                                         .border(Color::rgb(235.0 / 255.0, 219.0 / 255.0, 178.0 / 255.0), 1.0)
                                         .radius_all(3.0)
                                         .row()
                                         .valign(Align::Center)
+                                        .gap(4.0)
                                         .show(|ui| {
-                                            ui.text("Explorer")
+                                            if is_notes_view {
+                                                ui.text("\u{f1782}")
+                                                    .size(11.0)
+                                                    .color(colors.accent)
+                                                    .show();
+                                            }
+                                            let title = if is_notes_view { "Notes" } else { "Explorer" };
+                                            ui.text(title)
                                                 .size(11.0)
                                                 .weight(FontWeight::Bold)
                                                 .color(Color::rgb(235.0 / 255.0, 219.0 / 255.0, 178.0 / 255.0))
@@ -188,6 +256,27 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
                                         do_new_folder = true;
                                     }
 
+                                    if is_notes_view {
+                                        let daily_btn = ui.button("\u{f0e17}")
+                                            .id(Id::from_u64(999997119))
+                                            .width(18.0)
+                                            .height(18.0)
+                                            .bg(Color::TRANSPARENT)
+                                            .hover_bg(colors.highlight)
+                                            .text_color(colors.text_muted)
+                                            .radius_all(3.0)
+                                            .padding(0.0, 0.0, 0.0, 0.0)
+                                            .size(11.0)
+                                            .show();
+                                        if daily_btn.clicked {
+                                            let cur = state.current_dir.clone();
+                                            if let Ok(p) = state.notes_state.create_or_open_daily_note(&cur) {
+                                                state.rebuild_tree();
+                                                state.open_file(&p);
+                                            }
+                                        }
+                                    }
+
                                     ui.text(&count_str)
                                         .size(10.5)
                                         .color(Color::rgb(124.0 / 255.0, 111.0 / 255.0, 100.0 / 255.0))
@@ -210,10 +299,15 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
                     let mut do_refresh = false;
                     let mut do_collapse = false;
 
-                    let root_name = state.current_dir.file_name()
-                        .and_then(|n| n.to_str())
-                        .unwrap_or("PROJECT")
-                        .to_uppercase();
+                    let is_notes = state.sidebar_view == crate::state::SidebarView::Notes;
+                    let root_name = if is_notes {
+                        "NOTES".to_string()
+                    } else {
+                        state.current_dir.file_name()
+                            .and_then(|n| n.to_str())
+                            .unwrap_or("PROJECT")
+                            .to_uppercase()
+                    };
 
                     ui.container()
                         .full_width()
@@ -224,11 +318,23 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
                         .no_wrap()
                         .show(|ui| {
                             // Child 1: Left Title
-                            ui.text(&root_name)
-                                .size(10.5)
-                                .weight(FontWeight::Bold)
-                                .color(colors.text_muted)
-                                .show();
+                            ui.container()
+                                .row()
+                                .valign(Align::Center)
+                                .gap(4.0)
+                                .show(|ui| {
+                                    if is_notes {
+                                        ui.text("\u{f1782}")
+                                            .size(12.0)
+                                            .color(colors.accent)
+                                            .show();
+                                    }
+                                    ui.text(&root_name)
+                                        .size(10.5)
+                                        .weight(FontWeight::Bold)
+                                        .color(colors.text_muted)
+                                        .show();
+                                });
 
                             // Child 2: Action buttons
                             ui.container()
@@ -264,6 +370,28 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
                                         .show();
                                     if folder_btn.clicked {
                                         do_new_folder = true;
+                                    }
+
+                                    if is_notes {
+                                        let daily_btn = ui.button("\u{f0e17}")
+                                            .id(Id::from_u64(999997109))
+                                            .width(18.0)
+                                            .height(18.0)
+                                            .bg(Color::TRANSPARENT)
+                                            .hover_bg(colors.highlight)
+                                            .text_color(colors.text_muted)
+                                            .radius_all(3.0)
+                                            .padding(0.0, 0.0, 0.0, 0.0)
+                                            .size(11.0)
+                                            .show();
+                                        if daily_btn.clicked {
+                                            let cur = state.current_dir.clone();
+                                            if let Ok(p) = state.notes_state.create_or_open_daily_note(&cur) {
+                                                state.rebuild_tree();
+                                                state.open_file(&p);
+                                                ui.request_redraw();
+                                            }
+                                        }
                                     }
 
                                     let ref_btn = ui.button("↺")
@@ -320,10 +448,15 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
                     let mut do_new_folder = false;
                     let mut do_refresh = false;
                     let mut do_collapse = false;
-                    let root_name = state.current_dir.file_name()
-                        .and_then(|n| n.to_str())
-                        .unwrap_or("Workspace")
-                        .to_string();
+                    let is_notes = state.sidebar_view == crate::state::SidebarView::Notes;
+                    let root_name = if is_notes {
+                        "NOTES".to_string()
+                    } else {
+                        state.current_dir.file_name()
+                            .and_then(|n| n.to_str())
+                            .unwrap_or("Workspace")
+                            .to_string()
+                    };
 
                     ui.container()
                         .full_width()
@@ -332,8 +465,10 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
                         .valign(Align::Center)
                         .gap(6.0)
                         .show(|ui| {
-                            ui.text("📂")
+                            let icon = if is_notes { "\u{f1782}" } else { "📂" };
+                            ui.text(icon)
                                 .size(11.0)
+                                .color(if is_notes { colors.accent } else { colors.text_primary })
                                 .show();
                             ui.text(&root_name)
                                 .size(11.0)
@@ -376,6 +511,27 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
                                 .show();
                             if folder_btn.clicked {
                                 do_new_folder = true;
+                            }
+
+                            if is_notes {
+                                let daily_btn = ui.button("\u{f0e17}")
+                                    .id(Id::from_u64(999997129))
+                                    .width(18.0)
+                                    .height(18.0)
+                                    .bg(Color::TRANSPARENT)
+                                    .hover_bg(colors.highlight)
+                                    .text_color(colors.text_muted)
+                                    .radius_all(3.0)
+                                    .padding(0.0, 0.0, 0.0, 0.0)
+                                    .size(11.0)
+                                    .show();
+                                if daily_btn.clicked {
+                                    let cur = state.current_dir.clone();
+                                    if let Ok(p) = state.notes_state.create_or_open_daily_note(&cur) {
+                                        state.rebuild_tree();
+                                        state.open_file(&p);
+                                    }
+                                }
                             }
 
                             let ref_btn = ui.button("↺")
@@ -439,9 +595,9 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
             let preset = state.explorer_preset;
 
             let (pad_v, pad_h) = match preset {
-                crate::state::ExplorerPreset::NeovimSnacks => (2.0, 8.0),
-                crate::state::ExplorerPreset::ModernMinimalist => (3.0, 8.0),
-                crate::state::ExplorerPreset::ClassicTree => (2.5, 8.0),
+                crate::state::ExplorerPreset::NeovimSnacks => (3.0, 8.0),
+                crate::state::ExplorerPreset::ModernMinimalist => (3.5, 8.0),
+                crate::state::ExplorerPreset::ClassicTree => (3.0, 8.0),
             };
 
             let scroll_padding_h = 0.0;
@@ -453,7 +609,8 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
                 match &inline.mode {
                     InlineTreeInputMode::NewFile { parent_dir }
                     | InlineTreeInputMode::NewFolder { parent_dir } => {
-                        if parent_dir == &state.current_dir {
+                        let tree_root = state.get_tree_root();
+                        if parent_dir == &tree_root {
                             if let Some(ref sel) = state.selected_sidebar_path {
                                 if let Some(pos) = items.iter().position(|it| &it.path == sel) {
                                     let item = &items[pos];
@@ -483,8 +640,9 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
                 None
             };
 
-            let mut clicked_item_idx: Option<usize> = None;
+            let mut clicked_item_action: Option<(PathBuf, bool, bool)> = None;
             let mut inline_rendered = false;
+            let mut do_start_new_note = false;
 
             let tree_resp = ui.container()
                 .full_width()
@@ -493,11 +651,47 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
                 .padding(2.0, scroll_padding_h, 2.0, scroll_padding_h)
                 .gap(1.0)
                 .show(|ui| {
+                    if is_notes_view && items.is_empty() && state.inline_tree_input.is_none() {
+                        ui.container()
+                            .full_width()
+                            .padding(24.0, 16.0, 24.0, 16.0)
+                            .column()
+                            .valign(Align::Center)
+                            .halign(Align::Center)
+                            .gap(10.0)
+                            .show(|ui| {
+                                ui.text("\u{f1782}")
+                                    .size(24.0)
+                                    .color(colors.accent.with_alpha(0.5))
+                                    .show();
+                                ui.text("No notes yet")
+                                    .size(11.5)
+                                    .weight(FontWeight::Medium)
+                                    .color(colors.text_muted)
+                                    .show();
+                                let create_btn = ui.button("+ New Note")
+                                    .id(Id::from_u64(999997180))
+                                    .height(24.0)
+                                    .bg(colors.accent.with_alpha(0.15))
+                                    .hover_bg(colors.accent.with_alpha(0.25))
+                                    .text_color(colors.accent)
+                                    .radius_all(4.0)
+                                    .padding(0.0, 12.0, 0.0, 12.0)
+                                    .size(11.0)
+                                    .show();
+                                if create_btn.clicked {
+                                    do_start_new_note = true;
+                                }
+                            });
+                    }
+
                     // Check if inline creation should be rendered at the very top (index 0)
                     if let Some((insert_idx, depth)) = inline_insertion {
                         if insert_idx == 0 && !inline_rendered {
                             inline_rendered = true;
-                            draw_inline_create_row(ui, state, depth, &icon_theme, preset, sidebar_w, pad_h, pad_v);
+                            if let Some(ref mut inline) = state.inline_tree_input {
+                                draw_inline_create_row(ui, inline, is_notes_view, depth, &icon_theme, preset, sidebar_w, pad_h, pad_v, &colors);
+                            }
                         }
                     }
 
@@ -519,7 +713,33 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
                             &node.name
                         };
 
-                        let icon_source = if is_dir {
+                        let icon_source = if state.sidebar_view == crate::state::SidebarView::Notes {
+                            if is_dir {
+                                let opt = state.notes_state.get_folder_option(&node.path);
+                                let color = match opt {
+                                    crate::state::notes::NoteFolderOption::Star => Color::rgb(238.0 / 255.0, 180.0 / 255.0, 46.0 / 255.0),
+                                    crate::state::notes::NoteFolderOption::Todo => Color::rgb(125.0 / 255.0, 196.0 / 255.0, 228.0 / 255.0),
+                                    crate::state::notes::NoteFolderOption::Reminder => Color::rgb(254.0 / 255.0, 100.0 / 255.0, 50.0 / 255.0),
+                                    crate::state::notes::NoteFolderOption::Calendar => Color::rgb(142.0 / 255.0, 192.0 / 255.0, 124.0 / 255.0),
+                                    crate::state::notes::NoteFolderOption::Private => Color::rgb(202.0 / 255.0, 158.0 / 255.0, 230.0 / 255.0),
+                                    crate::state::notes::NoteFolderOption::Default => colors.accent,
+                                };
+                                let glyph = if node.is_expanded {
+                                    "\u{f0770}"
+                                } else {
+                                    opt.icon()
+                                };
+                                crate::theme::FileIcon::Glyph {
+                                    glyph,
+                                    color,
+                                }
+                            } else {
+                                crate::theme::FileIcon::Glyph {
+                                    glyph: "\u{f0219}",
+                                    color: colors.text_muted,
+                                }
+                            }
+                        } else if is_dir {
                             icon_theme.get_icon_for_folder(effective_name, node.is_expanded)
                         } else {
                             icon_theme.get_icon_for_file(effective_name, Some(&node.path))
@@ -559,18 +779,9 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
                                 }
                             }
                         } else {
-                            match preset {
-                                crate::state::ExplorerPreset::ModernMinimalist => {
-                                    item_container = item_container
-                                        .bg(Color::TRANSPARENT)
-                                        .hover_bg(colors.highlight);
-                                }
-                                _ => {
-                                    item_container = item_container
-                                        .bg(Color::TRANSPARENT)
-                                        .hover_bg(Color::rgba(60.0 / 255.0, 56.0 / 255.0, 54.0 / 255.0, 0.4));
-                                }
-                            }
+                            item_container = item_container
+                                .bg(Color::TRANSPARENT)
+                                .hover_bg(Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, 0.05));
                         }
 
                         let resp = item_container.show(|ui| {
@@ -625,49 +836,62 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
                                                 if is_dir {
                                                     let arrow = if node.is_expanded { "\u{f078}" } else { "\u{f054}" };
                                                     ui.text(arrow)
-                                                        .size(7.5)
+                                                        .size(8.0)
                                                         .color(if is_selected { colors.text_primary } else { colors.text_muted })
                                                         .show();
                                                 }
                                             });
                                     }
 
-                                    icon_source.show(ui, 13.0);
+                                    icon_source.show(ui, 14.5);
 
                                     if is_being_renamed {
-                                        let input_text = state.inline_tree_input.as_ref().map(|i| i.text.as_str()).unwrap_or("");
-                                        let cursor_str = if (state.last_cursor_activity.elapsed().as_millis() / 530) % 2 == 0 {
-                                            "|"
+                                        let indent_w = if state.explorer_tree_guides {
+                                            node.guide_prefix.chars().count() as f32 * 6.5
                                         } else {
-                                            " "
+                                            (node.depth as f32 * 14.0) + 12.0
                                         };
-                                        ui.container()
-                                            .height(20.0)
-                                            .fill_x()
-                                            .bg(colors.bg_base)
-                                            .border(colors.accent, 1.0)
-                                            .radius_all(2.0)
-                                            .padding(0.0, 4.0, 0.0, 4.0)
-                                            .row()
-                                            .valign(Align::Center)
-                                            .show(|ui| {
-                                                if input_text.is_empty() {
-                                                    ui.text("name...")
-                                                        .size(11.0)
-                                                        .color(colors.text_dim)
-                                                        .show();
-                                                } else {
-                                                    ui.text(input_text)
-                                                        .size(11.5)
-                                                        .color(colors.text_primary)
-                                                        .show();
-                                                }
-                                                ui.text(cursor_str)
-                                                    .size(11.5)
-                                                    .weight(FontWeight::Bold)
-                                                    .color(colors.accent)
-                                                    .show();
-                                            });
+                                        let used_w = pad_h * 2.0 + indent_w + 14.5 + 8.0 + 10.0;
+                                        let avail_w = (sidebar_w - used_w).max(30.0);
+
+                                        let input_seed = 999997198u64;
+                                        let actual_input_id = {
+                                            use std::hash::{Hash, Hasher};
+                                            let mut hasher = std::collections::hash_map::DefaultHasher::new();
+                                            input_seed.hash(&mut hasher);
+                                            Id::from_u64(hasher.finish())
+                                        };
+                                        if ui.focused_id != Some(actual_input_id) {
+                                            ui.focused_id = Some(actual_input_id);
+                                            if let Some(ref inline) = state.inline_tree_input {
+                                                let sel_anchor_id = Id::from_u64(actual_input_id.raw() ^ 0x5E1EC700);
+                                                ui.cursor_state.insert(sel_anchor_id, 0);
+                                                ui.cursor_state.insert(actual_input_id, inline.text.len());
+                                            }
+                                        }
+
+                                        if let Some(ref mut inline) = state.inline_tree_input {
+                                            let placeholder = if is_notes_view {
+                                                if node.is_dir { "folder name…" } else { "note name…" }
+                                            } else if node.is_dir {
+                                                "folder name…"
+                                            } else {
+                                                "file name…"
+                                            };
+
+                                            ui.input(&mut inline.text, input_seed)
+                                                .width(avail_w)
+                                                .min_width(20.0)
+                                                .color(colors.text_primary)
+                                                .no_bg()
+                                                .no_border()
+                                                .placeholder(placeholder)
+                                                .placeholder_color(colors.text_dim)
+                                                .padding_x(2.0)
+                                                .padding_y(2.0)
+                                                .size(11.5)
+                                                .show();
+                                        }
                                     } else {
                                         let indent_w = if state.explorer_tree_guides {
                                             node.guide_prefix.chars().count() as f32 * 6.5
@@ -679,15 +903,29 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
                                         } else {
                                             0.0
                                         };
-                                        let used_w = pad_h * 2.0 + indent_w + 13.0 + 8.0 + git_w + 10.0;
+                                        let used_w = pad_h * 2.0 + indent_w + 14.5 + 8.0 + git_w + 10.0;
                                         let avail_w = (sidebar_w - used_w).max(24.0);
                                         let max_chars = (avail_w / 6.8).max(4.0) as usize;
-                                        let display_name = truncate_filename(&node.name, max_chars);
+                                        let base_name = if is_notes_view && !node.is_dir {
+                                            node.name.strip_suffix(".md")
+                                                .or_else(|| node.name.strip_suffix(".markdown"))
+                                                .unwrap_or(&node.name)
+                                        } else {
+                                            &node.name
+                                        };
+                                        let display_name = truncate_filename(base_name, max_chars);
 
                                         ui.text(&display_name)
-                                            .size(11.5)
+                                            .size(12.0)
                                             .color(text_color)
                                             .show();
+
+                                        if is_notes_view && state.notes_state.pinned_paths.contains(&node.path) {
+                                            ui.text("\u{f0403}")
+                                                .size(10.0)
+                                                .color(colors.accent)
+                                                .show();
+                                        }
                                     }
                                 });
 
@@ -728,7 +966,7 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
                         });
 
                         if resp.clicked {
-                            clicked_item_idx = Some(idx);
+                            clicked_item_action = Some((node.path.clone(), node.is_dir, node.is_expanded));
                         }
 
                         if ui.right_clicked && resp.hovered {
@@ -739,7 +977,9 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
                         if let Some((insert_idx, depth)) = inline_insertion {
                             if insert_idx == idx + 1 && !inline_rendered {
                                 inline_rendered = true;
-                                draw_inline_create_row(ui, state, depth, &icon_theme, preset, sidebar_w, pad_h, pad_v);
+                                if let Some(ref mut inline) = state.inline_tree_input {
+                                    draw_inline_create_row(ui, inline, is_notes_view, depth, &icon_theme, preset, sidebar_w, pad_h, pad_v, &colors);
+                                }
                             }
                         }
                     }
@@ -748,31 +988,35 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
                     if let Some((_, depth)) = inline_insertion {
                         if !inline_rendered {
                             inline_rendered = true;
-                            draw_inline_create_row(ui, state, depth, &icon_theme, preset, sidebar_w, pad_h, pad_v);
+                            if let Some(ref mut inline) = state.inline_tree_input {
+                                draw_inline_create_row(ui, inline, is_notes_view, depth, &icon_theme, preset, sidebar_w, pad_h, pad_v, &colors);
+                            }
                         }
                     }
                 });
 
-            if let Some(idx) = clicked_item_idx {
-                let action = items.get(idx).map(|n| (n.path.clone(), n.is_dir, n.is_expanded));
-                if let Some((path, is_dir, is_expanded)) = action {
-                    if state.inline_tree_input.is_some() {
-                        state.commit_inline_tree_input();
-                    }
-                    state.selected_sidebar_path = Some(path.clone());
-                    if is_dir {
-                        if is_expanded {
-                            state.expanded_dirs.remove(&path);
-                        } else {
-                            state.expanded_dirs.insert(path);
-                        }
-                        state.rebuild_tree();
-                        state.save_persistent_state();
-                    } else {
-                        state.open_file(&path);
-                    }
-                    ui.request_redraw();
+            if do_start_new_note {
+                state.start_new_file_inline(None);
+                ui.request_redraw();
+            }
+
+            if let Some((path, is_dir, is_expanded)) = clicked_item_action {
+                if state.inline_tree_input.is_some() {
+                    state.commit_inline_tree_input();
                 }
+                state.selected_sidebar_path = Some(path.clone());
+                if is_dir {
+                    if is_expanded {
+                        state.expanded_dirs.remove(&path);
+                    } else {
+                        state.expanded_dirs.insert(path);
+                    }
+                    state.rebuild_tree();
+                    state.save_persistent_state();
+                } else {
+                    state.open_file(&path);
+                }
+                ui.request_redraw();
             }
 
             // Right click on item -> Open context menu
@@ -789,12 +1033,13 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
                 });
                 ui.request_redraw();
             } else if ui.right_clicked && tree_resp.hovered && state.tree_context_menu.is_none() {
-                // Right click on empty area -> Context menu for workspace root
+                // Right click on empty area -> Context menu for tree root
                 if state.inline_tree_input.is_some() {
                     state.commit_inline_tree_input();
                 }
+                let root = state.get_tree_root();
                 state.tree_context_menu = Some(TreeContextMenu {
-                    target_path: state.current_dir.clone(),
+                    target_path: root,
                     is_dir: true,
                     menu_x: ui.mouse_x,
                     menu_y: ui.mouse_y,
@@ -806,8 +1051,9 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
 
     // Draw Tree Context Menu Overlay if active
     if let Some(menu) = state.tree_context_menu.clone() {
+        let is_notes = state.sidebar_view == crate::state::SidebarView::Notes;
         let menu_w = 210.0;
-        let menu_h = 320.0;
+        let menu_h = if is_notes && menu.is_dir { 440.0 } else { 330.0 };
         let menu_x = menu.menu_x.clamp(8.0, (ui.width - menu_w - 8.0).max(8.0));
         let menu_y = menu.menu_y.clamp(8.0, (ui.height - menu_h - 8.0).max(8.0));
 
@@ -819,10 +1065,11 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
             close_menu = true;
         }
 
+        let root = state.get_tree_root();
         let target_dir = if menu.is_dir {
             menu.target_path.clone()
         } else {
-            menu.target_path.parent().unwrap_or(&state.current_dir).to_path_buf()
+            menu.target_path.parent().unwrap_or(&root).to_path_buf()
         };
 
         let has_clipboard = state.tree_clipboard.is_some();
@@ -841,13 +1088,44 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
                 .column()
                 .gap(1.0)
                 .show(|ui| {
-                    if draw_menu_item(ui, Id::from_u64(999996001), "\u{ea7f}", "New File...", "", true, false, &colors) {
+                    let new_file_label = if is_notes { "New Note..." } else { "New File..." };
+                    if draw_menu_item(ui, Id::from_u64(999996001), "\u{ea7f}", new_file_label, "", true, false, &colors) {
                         state.start_new_file_inline(Some(target_dir.clone()));
                         close_menu = true;
                     }
                     if draw_menu_item(ui, Id::from_u64(999996002), "\u{ea80}", "New Folder...", "", true, false, &colors) {
                         state.start_new_folder_inline(Some(target_dir.clone()));
                         close_menu = true;
+                    }
+
+                    if is_notes && menu.is_dir {
+                        ui.container().full_width().height(1.0).bg(colors.border).show(|_| {});
+                        let current_opt = state.notes_state.get_folder_option(&menu.target_path);
+                        for (i, opt) in crate::state::notes::NoteFolderOption::all().iter().enumerate() {
+                            let is_cur = current_opt == *opt;
+                            let prefix = if is_cur { "● " } else { "   " };
+                            let label = format!("{}{}", prefix, opt.label());
+                            let opt_id = Id::from_u64(999996100 + i as u64);
+                            if draw_menu_item(ui, opt_id, opt.icon(), &label, "", true, false, &colors) {
+                                state.notes_state.folder_options.insert(menu.target_path.clone(), *opt);
+                                state.rebuild_tree();
+                                close_menu = true;
+                            }
+                        }
+                    }
+
+                    if is_notes && !menu.is_dir {
+                        let is_pinned = state.notes_state.pinned_paths.contains(&menu.target_path);
+                        let pin_label = if is_pinned { "Unpin Note" } else { "Pin Note" };
+                        if draw_menu_item(ui, Id::from_u64(999996020), "\u{f0403}", pin_label, "", true, false, &colors) {
+                            if is_pinned {
+                                state.notes_state.pinned_paths.remove(&menu.target_path);
+                            } else {
+                                state.notes_state.pinned_paths.insert(menu.target_path.clone());
+                            }
+                            state.rebuild_tree();
+                            close_menu = true;
+                        }
                     }
 
                     // Divider
@@ -857,7 +1135,9 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
                         state.start_rename_inline(menu.target_path.clone());
                         close_menu = true;
                     }
-                    if draw_menu_item(ui, Id::from_u64(999996004), "\u{f014}", "Delete", "Del", true, true, &colors) {
+                    let del_icon = if is_notes { "\u{f01b4}" } else { "\u{f014}" };
+                    let del_label = if is_notes { "Delete Note" } else { "Delete" };
+                    if draw_menu_item(ui, Id::from_u64(999996004), del_icon, del_label, "Del", true, true, &colors) {
                         state.delete_tree_path(&menu.target_path);
                         close_menu = true;
                     }
@@ -887,7 +1167,7 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
                         close_menu = true;
                     }
                     if draw_menu_item(ui, Id::from_u64(999996009), "⎘", "Copy Relative Path", "", true, false, &colors) {
-                        let rel = menu.target_path.strip_prefix(&state.current_dir).unwrap_or(&menu.target_path);
+                        let rel = menu.target_path.strip_prefix(&root).unwrap_or(&menu.target_path);
                         state.set_clipboard(rel.display().to_string());
                         state.set_status("Relative path copied to clipboard");
                         close_menu = true;
@@ -984,29 +1264,17 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
 /// Render the inline input row for creating a new file or new folder.
 fn draw_inline_create_row(
     ui: &mut Ui,
-    state: &ZenthreeState,
+    inline: &mut crate::state::InlineTreeState,
+    is_notes_view: bool,
     depth: usize,
     icon_theme: &crate::theme::IconTheme,
     preset: crate::state::ExplorerPreset,
     sidebar_w: f32,
     pad_h: f32,
     pad_v: f32,
+    colors: &ThemeColors,
 ) {
-    let colors = use_context::<ThemeColors>().map(|c| *c).unwrap_or_else(|| state.colors());
-
-    let is_folder_mode = matches!(
-        state.inline_tree_input.as_ref().map(|i| &i.mode),
-        Some(InlineTreeInputMode::NewFolder { .. })
-    );
-
-    let input_text = state.inline_tree_input.as_ref().map(|i| i.text.as_str()).unwrap_or("");
-
-    // Blinking cursor
-    let cursor_str = if (state.last_cursor_activity.elapsed().as_millis() / 530) % 2 == 0 {
-        "|"
-    } else {
-        " "
-    };
+    let is_folder_mode = matches!(&inline.mode, InlineTreeInputMode::NewFolder { .. });
 
     // Indent based on depth (same logic as tree items)
     let indent_px = match preset {
@@ -1015,9 +1283,9 @@ fn draw_inline_create_row(
         crate::state::ExplorerPreset::ModernMinimalist => depth as f32 * 14.0,
     };
 
-    // Approximate available width for text input: account for indent, arrow container (12px), icon (13px), padding & gaps
-    let icon_and_padding = pad_h * 2.0 + indent_px + 12.0 + 13.0 + 4.0 * 2.0;
-    let avail_w = (sidebar_w - icon_and_padding - 20.0).max(60.0);
+    // Calculate available width for the input widget strictly so it NEVER overflows the sidebar.
+    let used_w = pad_h * 2.0 + indent_px + 12.0 + 14.5 + 8.0 + 14.0;
+    let input_w = (sidebar_w - used_w).max(40.0);
 
     ui.container()
         .full_width()
@@ -1029,7 +1297,7 @@ fn draw_inline_create_row(
         .padding_bottom(pad_v)
         .gap(4.0)
         .radius_all(0.0)
-        .bg(colors.accent.with_alpha(0.08))
+        .bg(colors.accent.with_alpha(0.06))
         .show(|ui| {
             // Indent spacer
             if indent_px > 0.0 {
@@ -1044,56 +1312,59 @@ fn draw_inline_create_row(
                 .show(|ui| {
                     if is_folder_mode {
                         ui.text("\u{f054}")
-                            .size(7.5)
+                            .size(8.0)
                             .color(colors.text_muted)
                             .show();
                     }
                 });
 
-            // Dynamic Icon matching theme icon pack
-            let icon_source = if is_folder_mode {
-                let folder_name = if input_text.is_empty() { "folder" } else { input_text };
+            // Dynamic Icon matching theme icon pack or Notes vault
+            let icon_source = if is_notes_view {
+                if is_folder_mode {
+                    crate::theme::FileIcon::Glyph { glyph: "\u{f0c82}", color: colors.accent }
+                } else {
+                    crate::theme::FileIcon::Glyph { glyph: "\u{f0219}", color: colors.text_muted }
+                }
+            } else if is_folder_mode {
+                let folder_name = if inline.text.is_empty() { "folder" } else { &inline.text };
                 icon_theme.get_icon_for_folder(folder_name, false)
             } else {
-                let file_name = if input_text.is_empty() { "file" } else { input_text };
+                let file_name = if inline.text.is_empty() { "file" } else { &inline.text };
                 icon_theme.get_icon_for_file(file_name, None)
             };
-            icon_source.show(ui, 13.0);
+            icon_source.show(ui, 14.5);
 
-            // Text input box
-            ui.container()
-                .height(20.0)
-                .width(avail_w)
-                .bg(colors.bg_base)
-                .border(colors.accent, 1.0)
-                .radius_all(2.0)
-                .padding(0.0, 4.0, 0.0, 4.0)
-                .row()
-                .valign(Align::Center)
-                .show(|ui| {
-                    if input_text.is_empty() {
-                        let placeholder = if is_folder_mode { "folder name…" } else { "file name…" };
-                        ui.text(placeholder)
-                            .size(11.0)
-                            .color(colors.text_dim)
-                            .show();
-                    } else {
-                        ui.text(input_text)
-                            .size(11.5)
-                            .color(colors.text_primary)
-                            .show();
-                    }
-                    ui.text(cursor_str)
-                        .size(11.5)
-                        .weight(FontWeight::Bold)
-                        .color(colors.accent)
-                        .show();
-                });
+            // Use the actual ui.input widget with explicit width and min_width to prevent overflow
+            let input_seed = 999997198u64;
+            let actual_input_id = {
+                use std::hash::{Hash, Hasher};
+                let mut hasher = std::collections::hash_map::DefaultHasher::new();
+                input_seed.hash(&mut hasher);
+                Id::from_u64(hasher.finish())
+            };
+            if ui.focused_id != Some(actual_input_id) {
+                ui.focused_id = Some(actual_input_id);
+            }
 
-            // Hint text
-            ui.text("↵")
-                .size(10.0)
-                .color(colors.text_dim)
+            let placeholder = if is_notes_view {
+                if is_folder_mode { "folder name…" } else { "note name…" }
+            } else if is_folder_mode {
+                "folder name…"
+            } else {
+                "file name…"
+            };
+
+            ui.input(&mut inline.text, input_seed)
+                .width(input_w)
+                .min_width(20.0)
+                .color(colors.text_primary)
+                .no_bg()
+                .no_border()
+                .placeholder(placeholder)
+                .placeholder_color(colors.text_dim)
+                .padding_x(2.0)
+                .padding_y(2.0)
+                .size(11.5)
                 .show();
         });
 }

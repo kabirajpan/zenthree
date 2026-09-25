@@ -83,7 +83,11 @@ pub fn draw_activity_bar(ui: &mut Ui, state: &mut ZenthreeState, height: f32) {
                             state.sidebar_visible = false;
                         } else {
                             state.sidebar_visible = true;
+                            let prev = state.sidebar_view;
                             state.sidebar_view = SidebarView::Explorer;
+                            if prev != SidebarView::Explorer {
+                                state.rebuild_tree();
+                            }
                         }
                         state.save_persistent_state();
                         ui.request_redraw();
@@ -244,7 +248,11 @@ pub fn draw_activity_bar(ui: &mut Ui, state: &mut ZenthreeState, height: f32) {
                             state.sidebar_visible = false;
                         } else {
                             state.sidebar_visible = true;
+                            let prev = state.sidebar_view;
                             state.sidebar_view = SidebarView::Notes;
+                            if prev != SidebarView::Notes {
+                                state.rebuild_tree();
+                            }
                         }
                         state.save_persistent_state();
                         ui.request_redraw();

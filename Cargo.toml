@@ -6,6 +6,7 @@ members = [
     "crates/formatter",
     "crates/agent",
 ]
+default-members = ["crates/zenthree"]
 resolver = "2"
 
 [patch.crates-io]

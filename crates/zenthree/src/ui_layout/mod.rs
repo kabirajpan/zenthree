@@ -18,6 +18,7 @@ pub mod unsaved_dialog;
 pub use title_bar::draw_title_bar;
 pub use sidebar::draw_sidebar;
 pub use git_panel::draw_git_panel;
+#[allow(unused_imports)]
 pub use notes_panel::draw_notes_panel;
 pub use main_buffer::draw_main_buffer;
 pub use status_bar::draw_status_bar;

@@ -2,11 +2,14 @@ pub mod ai;
 pub mod ai_settings;
 pub mod editor;
 pub mod git;
+pub mod notes;
 pub mod persistent;
 pub mod terminal;
 pub mod types;
 pub mod workspace;
 
+#[allow(unused_imports)]
+pub use notes::{NotesState, NotesVaultScope};
 use crate::theme::{ThemeColors, ThemeMode};
 use std::path::{Path, PathBuf};
 
@@ -69,6 +72,7 @@ pub struct ZenthreeState {
     pub explorer_search_active: bool,
     pub explorer_git_status: bool,
     pub git_state: GitRepoState,
+    pub notes_state: NotesState,
     pub explorer_show_hidden: bool,
     pub terminal_visible: bool,
     pub terminal_height: f32,
@@ -193,6 +197,7 @@ impl ZenthreeState {
             explorer_search_active: false,
             explorer_git_status: true,
             git_state: GitRepoState::default(),
+            notes_state: NotesState::new(),
             explorer_show_hidden: false,
             sidebar_visible: true,
             sidebar_width: 250.0,

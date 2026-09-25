@@ -4,13 +4,24 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 impl ZenthreeState {
+    pub fn get_tree_root(&self) -> PathBuf {
+        if self.sidebar_view == SidebarView::Notes {
+            self.notes_state.get_vault_dir(&self.current_dir)
+        } else {
+            self.current_dir.clone()
+        }
+    }
+
     pub fn rebuild_tree(&mut self) {
         self.sidebar_items.clear();
-        if !self.has_workspace {
+        if !self.has_workspace && self.sidebar_view != SidebarView::Notes {
             return;
         }
-        let root = self.current_dir.clone();
-        let git_statuses = if self.explorer_git_status {
+        if self.sidebar_view == SidebarView::Notes {
+            let _ = self.notes_state.ensure_vault_dir(&self.current_dir);
+        }
+        let root = self.get_tree_root();
+        let git_statuses = if self.explorer_git_status && self.sidebar_view == SidebarView::Explorer {
             self.get_git_statuses(&root)
         } else {
             HashMap::new()
@@ -64,6 +75,7 @@ impl ZenthreeState {
         self.set_status(format!("Opened workspace: {}", self.current_dir.display()));
         self.save_persistent_state();
         self.refresh_ai_sessions();
+        self.notes_state.scan_notes(&self.current_dir);
     }
 
     pub fn close_workspace(&mut self) {
@@ -240,13 +252,20 @@ impl ZenthreeState {
     ) {
         if let Ok(entries) = std::fs::read_dir(dir) {
             let mut paths: Vec<_> = entries.filter_map(Result::ok).map(|e| e.path()).collect();
-            // Sort: folders first, then files alphabetically
+            // Sort: folders first, then files alphabetically (pinned notes first in Notes view)
             paths.sort_by(|a, b| {
                 let a_is_dir = a.is_dir();
                 let b_is_dir = b.is_dir();
                 if a_is_dir != b_is_dir {
                     b_is_dir.cmp(&a_is_dir)
                 } else {
+                    if self.sidebar_view == SidebarView::Notes {
+                        let a_pinned = self.notes_state.pinned_paths.contains(a);
+                        let b_pinned = self.notes_state.pinned_paths.contains(b);
+                        if a_pinned != b_pinned {
+                            return b_pinned.cmp(&a_pinned);
+                        }
+                    }
                     a.file_name().cmp(&b.file_name())
                 }
             });
@@ -358,22 +377,26 @@ impl ZenthreeState {
     }
 
     pub fn start_new_file_inline(&mut self, target_dir: Option<PathBuf>) {
-        if !self.has_workspace {
+        if !self.has_workspace && self.sidebar_view != SidebarView::Notes {
             self.new_untitled_file();
             return;
         }
+        if self.sidebar_view == SidebarView::Notes {
+            let _ = self.notes_state.ensure_vault_dir(&self.current_dir);
+        }
+        let root = self.get_tree_root();
         let dir = target_dir.unwrap_or_else(|| {
             if let Some(ref selected) = self.selected_sidebar_path {
                 if selected.is_dir() {
                     selected.clone()
                 } else {
-                    selected.parent().unwrap_or(&self.current_dir).to_path_buf()
+                    selected.parent().unwrap_or(&root).to_path_buf()
                 }
             } else {
-                self.current_dir.clone()
+                root.clone()
             }
         });
-        if dir != self.current_dir {
+        if dir != root {
             self.expanded_dirs.insert(dir.clone());
             self.rebuild_tree();
         }
@@ -385,21 +408,25 @@ impl ZenthreeState {
     }
 
     pub fn start_new_folder_inline(&mut self, target_dir: Option<PathBuf>) {
-        if !self.has_workspace {
+        if !self.has_workspace && self.sidebar_view != SidebarView::Notes {
             return;
         }
+        if self.sidebar_view == SidebarView::Notes {
+            let _ = self.notes_state.ensure_vault_dir(&self.current_dir);
+        }
+        let root = self.get_tree_root();
         let dir = target_dir.unwrap_or_else(|| {
             if let Some(ref selected) = self.selected_sidebar_path {
                 if selected.is_dir() {
                     selected.clone()
                 } else {
-                    selected.parent().unwrap_or(&self.current_dir).to_path_buf()
+                    selected.parent().unwrap_or(&root).to_path_buf()
                 }
             } else {
-                self.current_dir.clone()
+                root.clone()
             }
         });
-        if dir != self.current_dir {
+        if dir != root {
             self.expanded_dirs.insert(dir.clone());
             self.rebuild_tree();
         }
@@ -411,11 +438,18 @@ impl ZenthreeState {
     }
 
     pub fn start_rename_inline(&mut self, target_path: PathBuf) {
-        let initial_name = target_path
+        let mut initial_name = target_path
             .file_name()
             .and_then(|n| n.to_str())
             .unwrap_or("")
             .to_string();
+        if self.sidebar_view == SidebarView::Notes && !target_path.is_dir() {
+            if let Some(s) = initial_name.strip_suffix(".md") {
+                initial_name = s.to_string();
+            } else if let Some(s) = initial_name.strip_suffix(".markdown") {
+                initial_name = s.to_string();
+            }
+        }
         self.inline_tree_input = Some(InlineTreeState {
             mode: InlineTreeInputMode::Rename { target_path },
             text: initial_name,
@@ -442,11 +476,18 @@ impl ZenthreeState {
 
         match inline.mode {
             InlineTreeInputMode::NewFile { ref parent_dir } => {
-                let full_path = parent_dir.join(trimmed);
+                let mut filename = trimmed.to_string();
+                if self.sidebar_view == SidebarView::Notes && !filename.ends_with(".md") && !filename.ends_with(".markdown") {
+                    filename.push_str(".md");
+                }
+                let full_path = parent_dir.join(&filename);
                 if full_path.exists() {
-                    self.set_status(format!("File '{}' already exists", trimmed));
+                    self.set_status(format!("File '{}' already exists", filename));
                     self.inline_tree_input = Some(inline);
                     return false;
+                }
+                if let Some(parent) = full_path.parent() {
+                    let _ = std::fs::create_dir_all(parent);
                 }
                 if let Err(e) = std::fs::write(&full_path, "") {
                     self.set_status(format!("Failed to create file: {}", e));
@@ -455,7 +496,7 @@ impl ZenthreeState {
                 }
                 self.rebuild_tree();
                 self.open_file(&full_path);
-                self.set_status(format!("Created {}", trimmed));
+                self.set_status(format!("Created {}", filename));
                 true
             }
             InlineTreeInputMode::NewFolder { ref parent_dir } => {
@@ -477,13 +518,17 @@ impl ZenthreeState {
                 true
             }
             InlineTreeInputMode::Rename { ref target_path } => {
+                let mut filename = trimmed.to_string();
+                if self.sidebar_view == SidebarView::Notes && !target_path.is_dir() && !filename.ends_with(".md") && !filename.ends_with(".markdown") {
+                    filename.push_str(".md");
+                }
                 let parent = target_path.parent().unwrap_or(&self.current_dir);
-                let new_path = parent.join(trimmed);
+                let new_path = parent.join(&filename);
                 if new_path == *target_path {
                     return true;
                 }
                 if new_path.exists() {
-                    self.set_status(format!("'{}' already exists", trimmed));
+                    self.set_status(format!("'{}' already exists", filename));
                     self.inline_tree_input = Some(inline);
                     return false;
                 }
@@ -498,7 +543,7 @@ impl ZenthreeState {
                     if let Some(ref mut tab_path) = tab.path {
                         if *tab_path == *target_path {
                             *tab_path = new_path.clone();
-                            tab.name = trimmed.to_string();
+                            tab.name = filename.clone();
                         } else if let Ok(rel) = tab_path.strip_prefix(target_path) {
                             *tab_path = new_path.join(rel);
                         }
