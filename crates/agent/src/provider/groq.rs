@@ -201,10 +201,15 @@ impl Provider for GroqProvider {
             body["tools"] = Value::Array(tools.to_vec());
         }
 
+        // Default max_tokens to 1000 for Groq to adhere to the 1000 OTPM on-demand tier limit
+        if body.get("max_tokens").is_none() {
+            body["max_tokens"] = json!(1000);
+        }
+
         // Send the request with 429 retry logic.
-        // On a rate-limit response we read the Retry-After header (or default to 6 s) and
-        // sleep before retrying. We try up to 3 times to handle transient spikes.
-        const MAX_RETRIES: u32 = 3;
+        // Transient spikes with small retry-after (< 10s) are retried up to 2 times.
+        // Long pauses (daily quotas, TPD exhaustion) fail immediately rather than freezing the UI.
+        const MAX_RETRIES: u32 = 2;
         let mut attempts = 0;
         let (status, resp_text) = loop {
             let response = client
@@ -217,7 +222,6 @@ impl Provider for GroqProvider {
 
             let status = response.status();
 
-            // Parse Retry-After before consuming the body
             let retry_secs: u64 = if status.as_u16() == 429 {
                 response
                     .headers()
@@ -225,7 +229,7 @@ impl Provider for GroqProvider {
                     .and_then(|v| v.to_str().ok())
                     .and_then(|s| s.parse::<f64>().ok())
                     .map(|f| (f.ceil() as u64).max(1))
-                    .unwrap_or(6)
+                    .unwrap_or(3)
             } else {
                 0
             };
@@ -234,16 +238,23 @@ impl Provider for GroqProvider {
                 .text()
                 .map_err(|e| ProviderError::Network(e.to_string()))?;
 
-            if status.as_u16() == 429 && attempts < MAX_RETRIES {
+            // If retry_secs is large (> 8s) or quota exhausted, do not freeze the UI with long sleep
+            if status.as_u16() == 429 {
+                let is_daily_quota = resp_text.contains("tokens per day") || resp_text.contains("TPD");
+                if is_daily_quota || retry_secs > 8 || attempts >= MAX_RETRIES {
+                    break (status, resp_text);
+                }
                 attempts += 1;
-                std::thread::sleep(std::time::Duration::from_secs(retry_secs));
+                std::thread::sleep(std::time::Duration::from_secs(retry_secs.min(5)));
                 continue;
             }
 
             break (status, resp_text);
         };
 
+
         if !status.is_success() {
+            eprintln!("[Groq Provider] Error: status {} | Body: {}", status, resp_text);
             // Graceful Error Recovery: If Groq returns 400 Bad Request with tool_use_failed,
             // recover the failed_generation tool call so the agentic loop proceeds without crashing.
             if status.as_u16() == 400 && (resp_text.contains("tool_use_failed") || resp_text.contains("Tool choice is none")) {

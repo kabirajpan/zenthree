@@ -104,7 +104,19 @@ impl Tool for ListDirectoryTool {
         let resolved = if path_obj.is_absolute() {
             path_obj.to_path_buf()
         } else if let Some(ref ws) = self.workspace_root {
-            ws.join(path_obj)
+            let ws_name = ws.file_name().and_then(|n| n.to_str()).unwrap_or("");
+            let clean_rel = if !ws_name.is_empty() {
+                if path_obj == Path::new(ws_name) {
+                    Path::new(".")
+                } else if let Ok(stripped) = path_obj.strip_prefix(ws_name) {
+                    stripped
+                } else {
+                    path_obj
+                }
+            } else {
+                path_obj
+            };
+            ws.join(clean_rel)
         } else {
             path_obj.to_path_buf()
         };

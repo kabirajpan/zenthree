@@ -672,8 +672,8 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
 
     // ─── Floating Menu Panel: Agent Mode ─────────────────────────────────
     if state.agent_mode_menu_open {
-        let menu_w = 130.0;
-        let menu_h = 56.0;
+        let menu_w = 138.0;
+        let menu_h = 62.0;
 
         if let Some(anchor) = ui.next_screen_layout_cache.get(&AGENT_MODE_BTN_ID)
             .or_else(|| ui.screen_layout_cache.get(&AGENT_MODE_BTN_ID)).copied()
@@ -684,7 +684,7 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                 menu_h,
                 Placement::Top,
                 PopoverAlign::Start,
-                4.0,
+                3.0,
                 false,
                 ui.width,
                 ui.height,
@@ -701,7 +701,7 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
             ui.popover(AGENT_MODE_BTN_ID)
                 .placement(Placement::Top)
                 .align(PopoverAlign::Start)
-                .gap(4.0)
+                .gap(3.0)
                 .auto_flip(false)
                 .width(menu_w)
                 .height(menu_h)
@@ -711,47 +711,57 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                 .shadow(Color::rgba(0.0, 0.0, 0.0, 0.65), 0.0, 4.0, 16.0)
                 .padding(3.0, 3.0, 3.0, 3.0)
                 .show(|ui| {
-                    for mode in AgentMode::ALL {
-                        let is_sel = state.agent_mode == mode;
-                        let row_id = ui.id_from(&format!("pop_agent_mode_{:?}", mode));
-                        let row = ui.container()
-                            .id(row_id)
-                            .full_width()
-                            .padding(2.0, 5.0, 2.0, 5.0)
-                            .radius_all(3.5)
-                            .bg(if is_sel { colors.accent.with_alpha(0.12) } else { Color::TRANSPARENT })
-                            .hover_bg(colors.highlight)
-                            .row()
-                            .valign(Align::Center)
-                            .halign(Align::SpaceBetween)
-                            .show(|ui| {
-                                ui.container().row().gap(5.0).valign(Align::Center).show(|ui| {
-                                    ui.text(mode.icon()).size(9.5).show();
-                                    ui.text(mode.display_name())
-                                        .size(9.5)
-                                        .weight(if is_sel { FontWeight::SemiBold } else { FontWeight::Regular })
-                                        .color(if is_sel { colors.accent } else { colors.text_primary })
-                                        .show();
-                                });
-                                if is_sel {
-                                    ui.text("\u{f00c}").size(8.5).color(colors.accent).show();
+                    ui.container()
+                        .full_width()
+                        .column()
+                        .gap(1.5)
+                        .show(|ui| {
+                            for mode in AgentMode::ALL {
+                                let is_sel = state.agent_mode == mode;
+                                let row_id = ui.id_from(&format!("pop_agent_mode_{:?}", mode));
+                                let row = ui.container()
+                                    .id(row_id)
+                                    .full_width()
+                                    .height(26.0)
+                                    .padding(2.0, 6.0, 2.0, 6.0)
+                                    .radius_all(3.5)
+                                    .bg(if is_sel { colors.accent.with_alpha(0.12) } else { Color::TRANSPARENT })
+                                    .hover_bg(colors.highlight)
+                                    .row()
+                                    .valign(Align::Center)
+                                    .halign(Align::SpaceBetween)
+                                    .show(|ui| {
+                                        ui.container().row().gap(5.0).valign(Align::Center).show(|ui| {
+                                            ui.text(mode.icon()).size(10.0).show();
+                                            ui.text(mode.display_name())
+                                                .size(9.5)
+                                                .weight(if is_sel { FontWeight::SemiBold } else { FontWeight::Regular })
+                                                .color(if is_sel { colors.accent } else { colors.text_primary })
+                                                .show();
+                                        });
+                                        if is_sel {
+                                            ui.text("\u{f00c}").size(8.5).color(colors.accent).show();
+                                        }
+                                    });
+                                if row.hovered { ui.cursor_icon = CursorIcon::Pointer; }
+                                if row.clicked {
+                                    ui.clicked = false;
+                                    state.agent_mode = mode;
+                                    state.agent_mode_menu_open = false;
+                                    ui.needs_redraw = true;
                                 }
-                            });
-                        if row.hovered { ui.cursor_icon = CursorIcon::Pointer; }
-                        if row.clicked {
-                            state.agent_mode = mode;
-                            state.agent_mode_menu_open = false;
-                            ui.needs_redraw = true;
-                        }
-                    }
+                            }
+                        });
                 });
         }
     }
 
     // ─── Floating Menu Panel: Model Selector ──────────────────────────────
     if state.ai_model_menu_open {
-        let menu_w = 148.0;
-        let menu_h = 126.0;
+        let menu_w = 180.0;
+        let total_item_h = AiModel::ALL.len() as f32 * 25.5 + 40.0;
+        let max_allowed_h = (ui.height - 110.0).max(250.0);
+        let menu_h = total_item_h.min(340.0).min(max_allowed_h);
 
         if let Some(anchor) = ui.next_screen_layout_cache.get(&MODEL_PICKER_BTN_ID)
             .or_else(|| ui.screen_layout_cache.get(&MODEL_PICKER_BTN_ID)).copied()
@@ -762,7 +772,7 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                 menu_h,
                 Placement::Top,
                 PopoverAlign::Start,
-                4.0,
+                3.0,
                 false,
                 ui.width,
                 ui.height,
@@ -780,7 +790,7 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
             ui.popover(MODEL_PICKER_BTN_ID)
                 .placement(Placement::Top)
                 .align(PopoverAlign::Start)
-                .gap(4.0)
+                .gap(3.0)
                 .auto_flip(false)
                 .width(menu_w)
                 .height(menu_h)
@@ -790,55 +800,67 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                 .shadow(Color::rgba(0.0, 0.0, 0.0, 0.65), 0.0, 4.0, 16.0)
                 .padding(3.0, 3.0, 3.0, 3.0)
                 .show(|ui| {
-                    let mut last_provider: Option<AiProvider> = None;
-                    for model in AiModel::ALL {
-                        if last_provider != Some(model.provider()) {
-                            let label = match model.provider() {
-                                AiProvider::Groq => "GROQ",
-                                AiProvider::Gemini => "GEMINI",
-                            };
-                            if last_provider.is_some() {
-                                ui.container().height(2.0).show(|_| {});
-                            }
-                            ui.container().padding(2.0, 4.0, 1.0, 4.0).show(|ui| {
-                                ui.text(label)
-                                    .size(7.5)
-                                    .weight(FontWeight::Bold)
-                                    .color(colors.text_muted.with_alpha(0.6))
-                                    .show();
-                            });
-                            last_provider = Some(model.provider());
-                        }
-
-                        let is_selected = state.selected_ai_model == model;
-                        let row_id = ui.id_from(&format!("pop_model_opt_{}", model.model_id()));
-                        let row = ui.container()
-                            .id(row_id)
-                            .full_width()
-                            .padding(2.0, 5.0, 2.0, 5.0)
-                            .radius_all(3.5)
-                            .bg(if is_selected { colors.accent.with_alpha(0.08) } else { Color::TRANSPARENT })
-                            .hover_bg(colors.highlight)
-                            .row()
-                            .valign(Align::Center)
-                            .halign(Align::SpaceBetween)
-                            .show(|ui| {
-                                ui.text(model.display_name())
-                                    .size(9.5)
-                                    .weight(if is_selected { FontWeight::Medium } else { FontWeight::Regular })
-                                    .color(if is_selected { colors.accent } else { colors.text_primary })
-                                    .show();
-                                if is_selected {
-                                    ui.text("\u{f00c}")
-                                        .size(8.5)
-                                        .color(colors.accent)
-                                        .show();
+                    ui.container()
+                        .full_width()
+                        .height(menu_h - 6.0)
+                        .column()
+                        .gap(1.2)
+                        .scroll_y(true)
+                        .show(|ui| {
+                            let mut last_provider: Option<AiProvider> = None;
+                            for model in AiModel::ALL {
+                                if last_provider != Some(model.provider()) {
+                                    let label = match model.provider() {
+                                        AiProvider::Groq => "GROQ",
+                                        AiProvider::Gemini => "GEMINI",
+                                    };
+                                    if last_provider.is_some() {
+                                        ui.container().height(2.5).show(|_| {});
+                                    }
+                                    ui.container().padding(2.0, 5.0, 1.0, 5.0).show(|ui| {
+                                        ui.text(label)
+                                            .size(7.5)
+                                            .weight(FontWeight::Bold)
+                                            .color(colors.text_muted.with_alpha(0.65))
+                                            .show();
+                                    });
+                                    last_provider = Some(model.provider());
                                 }
-                            });
 
-                        if row.hovered { ui.cursor_icon = CursorIcon::Pointer; }
-                        if row.clicked { select_model = Some(model); }
-                    }
+                                let is_selected = state.selected_ai_model == model;
+                                let row_id = ui.id_from(&format!("pop_model_opt_{}", model.model_id()));
+                                let row = ui.container()
+                                    .id(row_id)
+                                    .full_width()
+                                    .height(24.0)
+                                    .padding(2.0, 6.0, 2.0, 6.0)
+                                    .radius_all(3.5)
+                                    .bg(if is_selected { colors.accent.with_alpha(0.10) } else { Color::TRANSPARENT })
+                                    .hover_bg(colors.highlight)
+                                    .row()
+                                    .valign(Align::Center)
+                                    .halign(Align::SpaceBetween)
+                                    .show(|ui| {
+                                        ui.text(model.display_name())
+                                            .size(9.5)
+                                            .weight(if is_selected { FontWeight::Medium } else { FontWeight::Regular })
+                                            .color(if is_selected { colors.accent } else { colors.text_primary })
+                                            .show();
+                                        if is_selected {
+                                            ui.text("\u{f00c}")
+                                                .size(8.5)
+                                                .color(colors.accent)
+                                                .show();
+                                        }
+                                    });
+
+                                if row.hovered { ui.cursor_icon = CursorIcon::Pointer; }
+                                if row.clicked {
+                                    ui.clicked = false;
+                                    select_model = Some(model);
+                                }
+                            }
+                        });
                 });
 
             if let Some(model) = select_model {
@@ -1327,17 +1349,22 @@ fn draw_ai_chat_content(
                                                                             } else {
                                                                                 state.current_dir.join(path_obj)
                                                                             };
-                                                                            let file_exists = resolved_path.is_file();
+                                                                            let is_dir = resolved_path.is_dir();
+                                                                            let file_exists = resolved_path.is_file() || is_dir;
 
                                                                             let fname = path_obj.file_name().and_then(|s| s.to_str()).unwrap_or(path.as_str());
                                                                             let ext = path_obj.extension().and_then(|s| s.to_str()).unwrap_or("");
-                                                                            let (icon_glyph, icon_color) = if file_exists {
+                                                                            let (icon_glyph, icon_color) = if is_dir {
+                                                                                ("\u{f07b}", colors.accent)
+                                                                            } else if file_exists {
                                                                                 crate::mini_icons::get_mini_file_icon(&fname.to_lowercase(), &ext.to_lowercase())
                                                                             } else {
                                                                                 ("\u{f00d}", Color { r: 248.0 / 255.0, g: 113.0 / 255.0, b: 113.0 / 255.0, a: 0.9 })
                                                                             };
 
-                                                                            let (action_verb, verb_color, badge) = if !file_exists {
+                                                                            let (action_verb, verb_color, badge) = if is_dir {
+                                                                                ("Explored", colors.text_muted, String::new())
+                                                                            } else if !file_exists {
                                                                                 (
                                                                                     "Not found",
                                                                                     Color { r: 248.0 / 255.0, g: 113.0 / 255.0, b: 113.0 / 255.0, a: 0.9 },
@@ -2973,7 +3000,7 @@ fn draw_ai_chat_content(
                             // Bottom bar of input dock: Mode & Model pills on left, Send button on right
                             ui.container()
                                 .full_width()
-                                .height(24.0)
+                                .height(26.0)
                                 .row()
                                 .valign(Align::Center)
                                 .halign(Align::SpaceBetween)
@@ -2982,20 +3009,20 @@ fn draw_ai_chat_content(
                                     ui.container()
                                         .row()
                                         .valign(Align::Center)
-                                        .gap(6.0)
+                                        .gap(8.0)
                                         .show(|ui| {
                                             // 1. Agent Mode button
                                             let mode_btn = ui.container()
                                                 .raw_id(AGENT_MODE_BTN_ID)
                                                 .clickable(true)
-                                                .padding(2.5, 7.0, 2.5, 7.0)
-                                                .radius_all(5.0)
+                                                .padding(3.5, 8.0, 3.5, 8.0)
+                                                .radius_all(6.0)
                                                 .bg(if state.agent_mode_menu_open { pill_hover_bg } else { pill_bg })
                                                 .hover_bg(pill_hover_bg)
                                                 .border(pill_border, 1.0)
                                                 .row()
                                                 .valign(Align::Center)
-                                                .gap(4.0)
+                                                .gap(5.0)
                                                 .show(|ui| {
                                                     ui.text(state.agent_mode.icon())
                                                         .size(9.5)
@@ -3013,6 +3040,7 @@ fn draw_ai_chat_content(
                                                 });
                                             if mode_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
                                             if mode_btn.clicked {
+                                                ui.clicked = false;
                                                 state.agent_mode_menu_open = !state.agent_mode_menu_open;
                                                 if state.agent_mode_menu_open {
                                                     state.ai_model_menu_open = false;
@@ -3024,14 +3052,14 @@ fn draw_ai_chat_content(
                                             let model_btn = ui.container()
                                                 .raw_id(MODEL_PICKER_BTN_ID)
                                                 .clickable(true)
-                                                .padding(2.5, 7.0, 2.5, 7.0)
-                                                .radius_all(5.0)
+                                                .padding(3.5, 8.0, 3.5, 8.0)
+                                                .radius_all(6.0)
                                                 .bg(if state.ai_model_menu_open { pill_hover_bg } else { pill_bg })
                                                 .hover_bg(pill_hover_bg)
                                                 .border(pill_border, 1.0)
                                                 .row()
                                                 .valign(Align::Center)
-                                                .gap(4.0)
+                                                .gap(5.0)
                                                 .show(|ui| {
                                                     ui.text(state.selected_ai_model.display_name())
                                                         .size(10.0)
@@ -3045,6 +3073,7 @@ fn draw_ai_chat_content(
                                                 });
                                             if model_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
                                             if model_btn.clicked {
+                                                ui.clicked = false;
                                                 state.ai_model_menu_open = !state.ai_model_menu_open;
                                                 if state.ai_model_menu_open {
                                                     state.agent_mode_menu_open = false;

@@ -129,22 +129,44 @@ pub enum AiProvider {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum AiModel {
+    // ── Groq ─────────────────────────────────────────────────────────────────
     GroqGptOss120b,
     GroqGptOss20b,
     GroqQwen3_8_27b,
+    // ── Gemini (alias / always-latest) ───────────────────────────────────────
     GeminiFlashLatest,
     GeminiProLatest,
+    // ── Gemini 2.x ───────────────────────────────────────────────────────────
     Gemini25Flash,
+    Gemini25Pro,
+    Gemini25FlashLite,
+    // ── Gemini 3.x ───────────────────────────────────────────────────────────
+    Gemini35Flash,
+    Gemini35FlashLite,
+    Gemini36Flash,
+    Gemini37Flash,
+    Gemini38Flash,
 }
 
 impl AiModel {
-    pub const ALL: [AiModel; 6] = [
+    pub const ALL: [AiModel; 13] = [
+        // Groq
         AiModel::GroqGptOss120b,
         AiModel::GroqGptOss20b,
         AiModel::GroqQwen3_8_27b,
+        // Gemini aliases
         AiModel::GeminiFlashLatest,
         AiModel::GeminiProLatest,
+        // Gemini 2.x
         AiModel::Gemini25Flash,
+        AiModel::Gemini25Pro,
+        AiModel::Gemini25FlashLite,
+        // Gemini 3.x
+        AiModel::Gemini35Flash,
+        AiModel::Gemini35FlashLite,
+        AiModel::Gemini36Flash,
+        AiModel::Gemini37Flash,
+        AiModel::Gemini38Flash,
     ];
 
     pub fn provider(&self) -> AiProvider {
@@ -152,40 +174,61 @@ impl AiModel {
             AiModel::GroqGptOss120b | AiModel::GroqGptOss20b | AiModel::GroqQwen3_8_27b => {
                 AiProvider::Groq
             }
-            AiModel::GeminiFlashLatest | AiModel::GeminiProLatest | AiModel::Gemini25Flash => {
-                AiProvider::Gemini
-            }
+            _ => AiProvider::Gemini,
         }
     }
 
     pub fn model_id(&self) -> &'static str {
         match self {
-            AiModel::GroqGptOss120b => "openai/gpt-oss-120b",
-            AiModel::GroqGptOss20b => "openai/gpt-oss-20b",
-            AiModel::GroqQwen3_8_27b => "qwen/qwen3.8-27b",
+            // Groq
+            AiModel::GroqGptOss120b    => "openai/gpt-oss-120b",
+            AiModel::GroqGptOss20b     => "openai/gpt-oss-20b",
+            AiModel::GroqQwen3_8_27b   => "qwen/qwen3.8-27b",
+            // Gemini aliases
             AiModel::GeminiFlashLatest => "gemini-flash-latest",
-            AiModel::GeminiProLatest => "gemini-pro-latest",
-            AiModel::Gemini25Flash => "gemini-2.5-flash",
+            AiModel::GeminiProLatest   => "gemini-pro-latest",
+            // Gemini 2.x
+            AiModel::Gemini25Flash     => "gemini-2.5-flash",
+            AiModel::Gemini25Pro       => "gemini-2.5-pro",
+            AiModel::Gemini25FlashLite => "gemini-2.5-flash-lite",
+            // Gemini 3.x
+            AiModel::Gemini35Flash     => "gemini-3.5-flash",
+            AiModel::Gemini35FlashLite => "gemini-3.5-flash-lite",
+            AiModel::Gemini36Flash     => "gemini-3.6-flash",
+            AiModel::Gemini37Flash     => "gemini-3.7-flash",
+            AiModel::Gemini38Flash     => "gemini-3.8-flash",
         }
     }
 
     pub fn display_name(&self) -> &'static str {
         match self {
-            AiModel::GroqGptOss120b => "GPT-OSS 120B",
-            AiModel::GroqGptOss20b => "GPT-OSS 20B",
-            AiModel::GroqQwen3_8_27b => "Qwen3.8 27B",
-            AiModel::GeminiFlashLatest => "Gemini Flash",
-            AiModel::GeminiProLatest => "Gemini Pro",
-            AiModel::Gemini25Flash => "Gemini 2.5 Flash",
+            // Groq
+            AiModel::GroqGptOss120b    => "GPT-OSS 120B",
+            AiModel::GroqGptOss20b     => "GPT-OSS 20B",
+            AiModel::GroqQwen3_8_27b   => "Qwen 3.8 27B",
+            // Gemini aliases
+            AiModel::GeminiFlashLatest => "Gemini Flash (Latest)",
+            AiModel::GeminiProLatest   => "Gemini Pro (Latest)",
+            // Gemini 2.x
+            AiModel::Gemini25Flash     => "Gemini 2.5 Flash",
+            AiModel::Gemini25Pro       => "Gemini 2.5 Pro",
+            AiModel::Gemini25FlashLite => "Gemini 2.5 Flash Lite",
+            // Gemini 3.x
+            AiModel::Gemini35Flash     => "Gemini 3.5 Flash",
+            AiModel::Gemini35FlashLite => "Gemini 3.5 Flash Lite",
+            AiModel::Gemini36Flash     => "Gemini 3.6 Flash",
+            AiModel::Gemini37Flash     => "Gemini 3.7 Flash",
+            AiModel::Gemini38Flash     => "Gemini 3.8 Flash",
         }
     }
 }
 
 impl Default for AiModel {
     fn default() -> Self {
-        AiModel::GroqGptOss120b
+        AiModel::Gemini35Flash
     }
 }
+
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum AgentMode {

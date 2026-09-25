@@ -345,42 +345,43 @@ impl FlyBrain {
         let sum_exp: f32 = logits.iter().map(|&l| (l - max_logit).exp()).sum();
         let conf = (1.0 / sum_exp) * 100.0;
 
-        let (raw_intent, intent, is_danger, tools, explanation) = match best_class {
+        let (raw_intent, intent, is_danger, explanation) = match best_class {
             0 => (
                 "DISCUSSION",
                 AgentIntent::Discussion,
                 false,
-                vec!["search".into(), "read_file".into(), "list_directory".into(), "activate_skill".into()],
                 "Safe read-only consultation mode detected. Safe inspection tools provisioned; buffer mutation strictly locked.".to_string(),
             ),
             1 => (
                 "INSPECTION",
                 AgentIntent::Exploration,
                 false,
-                vec!["search".into(), "read_file".into(), "list_directory".into(), "activate_skill".into()],
                 "Read-only inspection intent detected. Workspace navigation and exploration tools provisioned; buffer mutation strictly locked.".to_string(),
             ),
             2 => (
                 "PLANNING",
                 AgentIntent::Action(ActionCategory::General),
                 false,
-                vec!["read_file".into(), "search".into(), "activate_skill".into()],
                 "Architectural roadmap query detected. High-level planning graph tools provisioned.".to_string(),
             ),
             3 => (
                 "EXECUTION",
-                AgentIntent::Action(ActionCategory::Debug),
+                AgentIntent::Action(ActionCategory::Implement),
                 false,
-                vec!["edit_file".into(), "write_file".into(), "run_terminal".into(), "get_diagnostics".into()],
-                "Code mutation / build intent detected. Edit and terminal execution tools provisioned.".to_string(),
+                "Code mutation / build intent detected. Full action suite provisioned.".to_string(),
             ),
             _ => (
                 "REFLEX_LOCK",
                 AgentIntent::Discussion,
                 true,
-                Vec::new(),
                 "Physical safety reflex lock engaged in < 0.05 ms. Autonomous execution of workspace-wiping commands is strictly prohibited.".to_string(),
             ),
+        };
+
+        let tools: Vec<String> = if is_danger {
+            Vec::new()
+        } else {
+            intent.initial_tools().into_iter().map(|s| s.to_string()).collect()
         };
 
         ReflexDecision {

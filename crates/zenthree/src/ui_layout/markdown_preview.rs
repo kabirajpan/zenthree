@@ -28,45 +28,26 @@ pub fn draw_markdown_buffer_preview(
     };
     let blocks = parse_markdown_blocks_impl(&content);
 
-    let editor_x = ui.cursor_x;
-    let editor_y = ui.cursor_y;
     let editor_w = width;
     let editor_h = height;
+    let scroll_id = Id::from_u64(999_888_000 + tab_idx as u64);
 
-    // Handle scroll wheel
-    let is_hovered = ui.mouse_in_rect(editor_x + ui.offset_x, editor_y + ui.offset_y, editor_w, editor_h);
-    if is_hovered {
-        let mut scroll_delta_y = 0.0;
-        ui.input_events.retain(|event| {
-            if let zenthra_platform::event::PlatformEvent::MouseWheel { delta_y, .. } = event {
-                scroll_delta_y += *delta_y;
-                false
-            } else {
-                true
-            }
-        });
-        if scroll_delta_y.abs() > 0.001 {
-            let tab = &mut state.tabs[tab_idx];
-            tab.scroll_y = (tab.scroll_y - scroll_delta_y * 36.0).max(0.0);
-            ui.needs_redraw = true;
-        }
+    let tab_scroll = state.tabs[tab_idx].scroll_y;
+    if !ui.scroll_state.contains_key(&scroll_id) && tab_scroll > 0.0 {
+        ui.scroll_state.insert(scroll_id, (0.0, tab_scroll));
     }
 
-    let scroll_y = state.tabs[tab_idx].scroll_y;
-
-    // Outer container clipped to editor area
+    // Outer container with native scroll_y and clipping
     ui.container()
+        .id(scroll_id)
         .width(editor_w)
         .height(editor_h)
         .bg(colors.bg_editor)
-        .clip(true)
+        .column()
+        .scroll_y(true)
         .show(|ui| {
             let doc_max_w = (editor_w - 80.0).clamp(320.0, 920.0);
             let side_padding = ((editor_w - doc_max_w) / 2.0).max(28.0);
-
-            // Apply scroll offset
-            let start_y = ui.cursor_y - scroll_y;
-            ui.cursor_y = start_y;
 
             let mut copy_code_clicked: Option<String> = None;
 
@@ -404,4 +385,8 @@ pub fn draw_markdown_buffer_preview(
                 ui.needs_redraw = true;
             }
         });
+
+    if let Some(&(_sx, sy)) = ui.scroll_state.get(&scroll_id) {
+        state.tabs[tab_idx].scroll_y = sy;
+    }
 }

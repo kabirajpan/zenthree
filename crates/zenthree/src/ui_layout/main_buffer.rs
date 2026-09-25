@@ -311,9 +311,10 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                         .bg(colors.bg_editor)
                         .row()
                         .valign(Align::Center)
+                        .halign(Align::SpaceBetween)
                         .padding_left(12.0)
                         .padding_right(12.0)
-                        .gap(4.0);
+                        .no_wrap();
 
                     if is_scrolled {
                         let shadow_col = if state.theme == crate::theme::ThemeMode::Dark {
@@ -328,62 +329,69 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                     let mut toggle_markdown_preview = false;
 
                     path_container.show(|ui| {
-                        let total_segs = segments.len();
-                        for (idx, seg) in segments.iter().enumerate() {
-                            let is_last = idx == total_segs - 1;
-                            let seg_id = Id::from_u64(999998000 + (active_tab_idx as u64 * 100) + idx as u64);
+                        // Left: Breadcrumb hierarchy
+                        ui.container()
+                            .row()
+                            .valign(Align::Center)
+                            .gap(4.0)
+                            .show(|ui| {
+                                let total_segs = segments.len();
+                                for (idx, seg) in segments.iter().enumerate() {
+                                    let is_last = idx == total_segs - 1;
+                                    let seg_id = Id::from_u64(999998000 + (active_tab_idx as u64 * 100) + idx as u64);
 
-                            let is_open = state.active_breadcrumb_popup.as_ref().map(|p| {
-                                p.selected_name == seg.name
-                            }).unwrap_or(false);
+                                    let is_open = state.active_breadcrumb_popup.as_ref().map(|p| {
+                                        p.selected_name == seg.name
+                                    }).unwrap_or(false);
 
-                            let seg_x = ui.cursor_x;
+                                    let seg_x = ui.cursor_x;
 
-                            let seg_resp = ui.container()
-                                .id(seg_id)
-                                .row()
-                                .valign(Align::Center)
-                                .gap(4.0)
-                                .radius_all(0.0)
-                                .padding(2.0, 4.0, 2.0, 4.0)
-                                .hover_bg(colors.highlight)
-                                .bg(if is_open { colors.highlight } else { Color::TRANSPARENT })
-                                .show(|ui| {
-                                    if is_last {
-                                        let fname = tab.path.as_ref()
-                                            .and_then(|p| p.file_name())
-                                            .and_then(|n| n.to_str())
-                                            .unwrap_or(&seg.name);
-                                        let file_icon_source = icon_theme.get_icon_for_file(fname, tab.path.as_deref());
+                                    let seg_resp = ui.container()
+                                        .id(seg_id)
+                                        .row()
+                                        .valign(Align::Center)
+                                        .gap(4.0)
+                                        .radius_all(0.0)
+                                        .padding(2.0, 4.0, 2.0, 4.0)
+                                        .hover_bg(colors.highlight)
+                                        .bg(if is_open { colors.highlight } else { Color::TRANSPARENT })
+                                        .show(|ui| {
+                                            if is_last {
+                                                let fname = tab.path.as_ref()
+                                                    .and_then(|p| p.file_name())
+                                                    .and_then(|n| n.to_str())
+                                                    .unwrap_or(&seg.name);
+                                                let file_icon_source = icon_theme.get_icon_for_file(fname, tab.path.as_deref());
 
-                                        file_icon_source.show(ui, 11.5);
+                                                file_icon_source.show(ui, 11.5);
 
-                                        ui.text(&seg.name)
-                                            .size(11.5)
-                                            .color(colors.text_primary)
-                                            .show();
-                                    } else {
-                                        ui.text(&seg.name)
-                                            .size(11.5)
+                                                ui.text(&seg.name)
+                                                    .size(11.5)
+                                                    .color(colors.text_primary)
+                                                    .show();
+                                            } else {
+                                                ui.text(&seg.name)
+                                                    .size(11.5)
+                                                    .color(colors.text_muted)
+                                                    .show();
+                                            }
+                                        });
+
+                                    if seg_resp.clicked {
+                                        segment_clicked = Some((idx, seg_x));
+                                    }
+
+                                    if !is_last {
+                                        ui.text("\u{f054}")
+                                            .size(8.0)
                                             .color(colors.text_muted)
                                             .show();
                                     }
-                                });
+                                }
+                            });
 
-                            if seg_resp.clicked {
-                                segment_clicked = Some((idx, seg_x));
-                            }
-
-                            if !is_last {
-                                ui.text("\u{f054}")
-                                    .size(8.0)
-                                    .color(colors.text_muted)
-                                    .show();
-                            }
-                        }
-
+                        // Right: Markdown Edit / Preview Toggle
                         if tab.is_markdown() {
-                            ui.spacing((width - ui.cursor_x - 110.0).max(12.0));
                             let preview_btn_id = Id::from_u64(999999000 + active_tab_idx as u64);
                             let (icon, label) = if tab.is_markdown_preview {
                                 ("\u{f044}", "Edit Source")
@@ -395,14 +403,14 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                                 .row()
                                 .valign(Align::Center)
                                 .gap(4.0)
-                                .padding(1.0, 7.0, 1.0, 7.0)
+                                .padding(2.0, 8.0, 2.0, 8.0)
                                 .radius_all(4.0)
                                 .bg(if tab.is_markdown_preview { colors.accent.with_alpha(0.18) } else { colors.bg_sidebar.with_alpha(0.7) })
                                 .border(if tab.is_markdown_preview { colors.accent.with_alpha(0.4) } else { colors.border.with_alpha(0.3) }, 0.5)
                                 .hover_bg(colors.highlight)
                                 .show(|ui| {
                                     ui.text(icon).size(9.0).color(if tab.is_markdown_preview { colors.accent } else { colors.text_muted }).show();
-                                    ui.text(label).size(10.0).weight(FontWeight::Medium).color(if tab.is_markdown_preview { colors.accent } else { colors.text_muted }).show();
+                                    ui.text(label).size(10.5).weight(FontWeight::Medium).color(if tab.is_markdown_preview { colors.accent } else { colors.text_muted }).show();
                                 });
 
                             if toggle_resp.hovered {

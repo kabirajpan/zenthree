@@ -2,7 +2,7 @@ use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 use serde_json::Value;
 
-use crate::traits::tool::Tool;
+use crate::traits::tool::{Tool, ToolRisk};
 use crate::types::error::ToolError;
 use super::diagnostics::GetDiagnosticsTool;
 use super::fs::{DeleteFileTool, EditFileTool, ListDirectoryTool, ReadFileTool, RenameFileTool, WriteFileTool};
@@ -48,7 +48,7 @@ impl ToolRegistry {
         registry.register(EditFileTool);
         registry.register(ListDirectoryTool::new());
         registry.register(SearchTool::new());
-        registry.register(RunTerminalTool);
+        registry.register(RunTerminalTool::new());
 
         let plan_state = Arc::new(Mutex::new(PlanState::default()));
         registry.register(CreatePlanTool::new(plan_state.clone()));
@@ -155,6 +155,21 @@ impl ToolRegistry {
         let mut names: Vec<&str> = self.tools.keys().map(|k| k.as_str()).collect();
         names.sort();
         names
+    }
+
+    /// Sorted list of all registered tool names matching a specific risk level.
+    pub fn list_names_by_risk(&self, risk: ToolRisk) -> Vec<&str> {
+        let mut names: Vec<&str> = self.tools.values()
+            .filter(|t| t.risk() == risk)
+            .map(|t| t.name())
+            .collect();
+        names.sort();
+        names
+    }
+
+    /// Sorted list of all registered safe (ReadOnly) tool names.
+    pub fn safe_names(&self) -> Vec<&str> {
+        self.list_names_by_risk(ToolRisk::ReadOnly)
     }
 
     /// Total count of registered tools.

@@ -81,6 +81,9 @@ impl Agent {
         if tools.find("list_directory").is_some() {
             tools.register(crate::tools::ListDirectoryTool::new().with_workspace(ws_path.clone()));
         }
+        if tools.find("run_terminal").is_some() {
+            tools.register(crate::tools::RunTerminalTool::new().with_workspace(ws_path.clone()));
+        }
         Self {
             provider,
             tools,
@@ -126,9 +129,20 @@ impl Agent {
         self.explicit_intent = Some(intent.clone());
         self.explicit_tools = None;
         self.active_tools.clear();
-        for t in intent.initial_tools() {
-            self.active_tools.insert(t.to_string());
+        match intent {
+            AgentIntent::Discussion | AgentIntent::Exploration => {
+                for name in self.tools.safe_names() {
+                    self.active_tools.insert(name.to_string());
+                }
+            }
+            AgentIntent::Action(_) => {
+                for name in self.tools.list_names() {
+                    self.active_tools.insert(name.to_string());
+                }
+            }
         }
+
+
     }
 
     /// Add a tool to the session cache dynamically (e.g. via discovery).
@@ -235,10 +249,21 @@ impl Agent {
             self.active_tools = tools;
         } else if let Some(intent) = self.explicit_intent.take() {
             self.active_tools.clear();
-            for t in intent.initial_tools() {
-                self.active_tools.insert(t.to_string());
+            match intent {
+                AgentIntent::Discussion | AgentIntent::Exploration => {
+                    for name in self.tools.safe_names() {
+                        self.active_tools.insert(name.to_string());
+                    }
+                }
+                AgentIntent::Action(_) => {
+                    for name in self.tools.list_names() {
+                        self.active_tools.insert(name.to_string());
+                    }
+                }
             }
         } else {
+
+
             // Biological Connectome Reflex Engine: Classify user intent & enforce physical safety lockout
             if let Some(decision) = self.reflex.classify(user_input) {
                 if decision.is_danger {
@@ -250,9 +275,22 @@ impl Agent {
                     return Ok(lock_msg);
                 }
                 self.active_tools.clear();
-                for t in decision.intent.initial_tools() {
-                    self.active_tools.insert(t.to_string());
+                match decision.intent {
+                    AgentIntent::Discussion | AgentIntent::Exploration => {
+                        // Safe read-only inspection mode: dynamically provision all ReadOnly tools
+                        for name in self.tools.safe_names() {
+                            self.active_tools.insert(name.to_string());
+                        }
+                    }
+                    AgentIntent::Action(_) => {
+                        // Execution / mutation mode: dynamically provision ALL registered tools (zero whitelist)
+                        for name in self.tools.list_names() {
+                            self.active_tools.insert(name.to_string());
+                        }
+                    }
                 }
+
+
             } else {
                 // Fallback (when bio-reflex engine offline): provision all tools registered in self.tools
                 self.active_tools.clear();

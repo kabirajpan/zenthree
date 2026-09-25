@@ -190,7 +190,19 @@ impl ReadFileTool {
         let resolved = if path_obj.is_absolute() {
             path_obj.to_path_buf()
         } else if let Some(ref ws) = self.workspace_root {
-            ws.join(path_obj)
+            let ws_name = ws.file_name().and_then(|n| n.to_str()).unwrap_or("");
+            let clean_rel = if !ws_name.is_empty() {
+                if path_obj == Path::new(ws_name) {
+                    Path::new(".")
+                } else if let Ok(stripped) = path_obj.strip_prefix(ws_name) {
+                    stripped
+                } else {
+                    path_obj
+                }
+            } else {
+                path_obj
+            };
+            ws.join(clean_rel)
         } else {
             path_obj.to_path_buf()
         };
@@ -216,6 +228,22 @@ impl ReadFileTool {
             )));
         }
         if path.is_dir() {
+            if let Ok(entries) = fs::read_dir(path) {
+                let mut list = Vec::new();
+                for entry in entries.flatten() {
+                    let name = entry.file_name().to_string_lossy().to_string();
+                    if entry.file_type().map(|t| t.is_dir()).unwrap_or(false) {
+                        list.push(format!("{}/", name));
+                    } else {
+                        list.push(name);
+                    }
+                }
+                list.sort();
+                return Ok(Value::String(format!(
+                    "[directory: {} contains {} items: {}]\nHint: Call read_file on individual files inside this directory to view their code.",
+                    path_str, list.len(), list.join(", ")
+                )));
+            }
             return Err(ToolError::ExecutionFailed(format!(
                 "Path is a directory, not a file: '{}'. Hint: Use search(path: \"{}\", in: \"files\") or list_directory to inspect its contents.",
                 path_str, path_str

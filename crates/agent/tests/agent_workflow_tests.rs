@@ -370,7 +370,7 @@ fn test_live_groq_snake_game_human_message() {
         .join("tests")
         .join("snake_game");
 
-    if let Some(mut agent) = agent::create_agent_for_model_and_workspace("groq", "qwen/qwen3.8-27b", &snake_dir) {
+    if let Some(mut agent) = agent::create_agent_for_model_and_workspace("groq", "openai/gpt-oss-120b", &snake_dir) {
         let mut on_event = |ev: AgentEvent| {
             println!("[Agent Event] {:?}", ev);
         };
@@ -387,20 +387,25 @@ fn test_live_groq_snake_game_human_message() {
 }
 
 #[test]
-#[ignore = "live provider test: requires GROQ_API_KEY or GEMINI_API_KEY"]
-fn test_live_provider_with_tested_environment_project() {
+#[ignore = "live provider test: requires GEMINI_API_KEY"]
+fn test_live_gemini_human_message_loop() {
     let (_temp, sandbox) = setup_sandbox();
-    if let Some(mut agent) = agent::create_agent_for_model_and_workspace("groq", "qwen/qwen3.8-27b", &sandbox) {
+    if let Some(mut agent) = agent::create_agent_for_model_and_workspace("gemini", "gemini-3.5-flash", &sandbox) {
         let mut events = Vec::new();
-        let mut on_event = |ev: AgentEvent| events.push(ev);
+        let mut on_event = |ev: AgentEvent| {
+            println!("[Agent Event] {:?}", ev);
+            events.push(ev);
+        };
         let mut ask_approval = |_req: ApprovalRequest| ApprovalDecision::Approve;
 
         let human_message = "Read Cargo.toml in this project and tell me the package name and version.";
         let res = agent.run(human_message, &mut on_event, &mut ask_approval);
+        println!("Live Gemini Agent Result: {:?}", res);
         assert!(res.is_ok(), "Live agent failed: {:?}", res.err());
         let reply = res.unwrap();
         println!("Live agent reply: {}", reply);
         assert!(!reply.is_empty());
     }
 }
+
 

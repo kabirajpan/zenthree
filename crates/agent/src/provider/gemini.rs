@@ -301,14 +301,19 @@ impl Provider for GeminiProvider {
                 .text()
                 .map_err(|e| ProviderError::Network(e.to_string()))?;
 
-            if status.as_u16() == 429 && attempts < MAX_RETRIES {
+            if status.as_u16() == 429 {
+                let is_daily_quota = resp_text.contains("Quota exceeded") || resp_text.contains("RESOURCE_EXHAUSTED");
+                if is_daily_quota || retry_secs > 8 || attempts >= MAX_RETRIES {
+                    break (status, resp_text);
+                }
                 attempts += 1;
-                std::thread::sleep(std::time::Duration::from_secs(retry_secs));
+                std::thread::sleep(std::time::Duration::from_secs(retry_secs.min(5)));
                 continue;
             }
 
             break (status, resp_text);
         };
+
 
         if !status.is_success() {
             return Err(ProviderError::Malformed(format!(

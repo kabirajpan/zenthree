@@ -4,7 +4,21 @@ use crate::traits::tool::{Tool, ToolRisk};
 use crate::types::error::ToolError;
 
 /// Tool for running terminal commands (build, test, lint, etc.).
-pub struct RunTerminalTool;
+#[derive(Default)]
+pub struct RunTerminalTool {
+    workspace: Option<std::path::PathBuf>,
+}
+
+impl RunTerminalTool {
+    pub fn new() -> Self {
+        Self { workspace: None }
+    }
+
+    pub fn with_workspace(mut self, workspace: impl Into<std::path::PathBuf>) -> Self {
+        self.workspace = Some(workspace.into());
+        self
+    }
+}
 
 impl Tool for RunTerminalTool {
     fn name(&self) -> &str {
@@ -53,6 +67,8 @@ impl Tool for RunTerminalTool {
 
         if let Some(cwd) = args.get("cwd").and_then(|v| v.as_str()) {
             cmd.current_dir(cwd);
+        } else if let Some(ref ws) = self.workspace {
+            cmd.current_dir(ws);
         }
 
         let output = cmd.output()

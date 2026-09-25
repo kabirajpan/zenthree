@@ -148,24 +148,24 @@ impl ZenthreeState {
                     let tools_manifest = agent.tools().manifest();
                     let mut sys_msg = format!(
                         "You are ZENE, an advanced AI coding assistant embedded in the Zenthree IDE.\n\
-                        Workspace: {}\n\n\
+                        Workspace: {}\n\
+                        Platform: {} ({})\n\n\
                         Available Tools (Level 1 Manifest):\n{}\n\n\
                         Available Workflow Skills:\n{}\n\n\
                         Guidelines:\n\
+                        - CASUAL CHAT & GREETINGS: When the user simply says 'hi', 'hello', or greets you, reply warmly, concisely, and conversationally. Do NOT call file reading or directory listing tools unless the user specifically asks a question about the workspace or requests a task.\n\
                         - STRICT PROJECT BOUNDARY: You must operate EXCLUSIVELY inside the current workspace project root ('./'). You are strictly forbidden from navigating to parent directories ('..') or inspecting files outside this project.\n\
-                        - Tools follow lazy loading: use available tools when needed.\n\
-                        - MANDATORY ACTION PLAN PROTOCOL: Whenever a task requires action (modifying code, creating files, or executing commands), you MUST FIRST formulate and call `create_plan` with a title and sequential steps, and present the implementation plan to the user BEFORE making any edits or modifications.\n\
-                        - Use `search`, `read_file`, and `list_directory` exclusively to explore files, symbols, and directory trees.\n\
-                        - EFFICIENT EXPLORATION: Once you have read a file or gathered sufficient context to answer the user's question, DO NOT read the same file again. Immediately synthesize your answer or create your plan. Never enter repetitive inspection loops.\n\
-                        - DEPTH-FIRST SEARCH (DFS) EXPLORATION: When exploring a project, always follow a Depth-First Search order: first inspect root-level files and configuration at './', then explore one directory branch completely to its leaves before moving to sibling directories. Never jump back and forth erratically between different directories.\n\
-                        - STRICT VERIFIED FILE READING: You are strictly forbidden from guessing, speculating, or anticipating file names or paths. NEVER call `read_file` on any path unless that exact path was explicitly returned by a prior `list_directory` or `search` tool call in this session. If you need to see what files exist inside a directory, you MUST call `list_directory` on that directory first.\n\
-                        - EFFICIENT FILE READING: Call `read_file(path: \"...\")` directly to read complete files (it automatically provides up to 500 lines). DO NOT pass arbitrary line ranges like `start_line: 1, end_line: 200` unless you specifically need a narrow slice of a known large file. DO NOT call `peek: true` on small files (<300 lines); read them directly.\n\
-                        - NEVER use `run_terminal` to read files, search code, or view directory trees. Reserve `run_terminal` strictly for compiler tests and build commands.\n\
+                        - DIRECT ACTION & IMMEDIATE EXECUTION: When the user asks you to create, scaffold, implement, fix, or run something, take immediate action using your available tools. Do NOT pause execution or create unnecessary markdown planning files for straightforward user tasks. Execute commands and edits directly.\n\
+                        - PROJECT ROOT & SCAFFOLDING: The current workspace directory is already the project root. All terminal commands run natively with this directory as their working directory (no need to prefix commands with `cd /path/to/project &&`). You are strictly forbidden from creating projects in /tmp or outside the workspace. When scaffolding or initializing a new application (e.g. using `bun create vite`, `npm create`, `cargo new`), always scaffold directly into `./` with non-interactive and overwrite flags (e.g. `bun create vite ./ --template react --no-interactive --overwrite`) so files are created directly at the workspace root without failing if existing files (like plans or configs) already exist. Never create a redundant nested subfolder unless the user explicitly requested a subfolder name.\n\
+                        - ARCHITECTURAL PLANNING: Reserve `create_plan` strictly for large, complex multi-file architectural refactors or when the user explicitly asks for a plan.\n\
+                        - Use `search`, `read_file`, and `list_directory` to explore files, symbols, and directory trees.\n\
+                        - EFFICIENT FILE READING: Call `read_file(path: \"...\")` directly to read complete files (it automatically provides up to 500 lines).\n\
                         - Prefer surgical edits using `edit_file` rather than rewriting whole files.\n\
-                        - Call `update_plan_step` as you complete each step of the plan.\n\
-                        - Run `get_diagnostics` or test suites via `run_terminal` to verify your changes.\n\
+                        - Run `get_diagnostics` or test/build suites via `run_terminal` to verify your changes.\n\
                         - Activate workflow skills on demand via `activate_skill(name: \"...\")` for step-by-step guidance.\n\n{}",
                         current_dir.display(),
+                        std::env::consts::OS,
+                        std::env::consts::ARCH,
                         tools_manifest,
                         skills_summary,
                         ws_context_prompt
@@ -633,23 +633,27 @@ impl ZenthreeState {
                                                         } else {
                                                             self.current_dir.join(path_obj)
                                                         };
-                                                        if let Ok(content) = std::fs::read_to_string(&resolved) {
-                                                            let total_lines = content.lines().count();
-                                                            if let (Some(s), Some(e)) = (start_line, end_line) {
-                                                                if s <= 1 && e >= total_lines {
-                                                                    start_line = None;
-                                                                    end_line = None;
-                                                                } else if e > total_lines {
-                                                                    end_line = Some(total_lines);
+                                                        if resolved.is_dir() {
+                                                            ExplorationItem::ExploredDirectory { path }
+                                                        } else {
+                                                            if let Ok(content) = std::fs::read_to_string(&resolved) {
+                                                                let total_lines = content.lines().count();
+                                                                if let (Some(s), Some(e)) = (start_line, end_line) {
+                                                                    if s <= 1 && e >= total_lines {
+                                                                        start_line = None;
+                                                                        end_line = None;
+                                                                    } else if e > total_lines {
+                                                                        end_line = Some(total_lines);
+                                                                    }
                                                                 }
                                                             }
-                                                        }
-                                                        ExplorationItem::AnalyzedFile {
-                                                            path,
-                                                            start_line,
-                                                            end_line,
-                                                            symbol,
-                                                            is_peek,
+                                                            ExplorationItem::AnalyzedFile {
+                                                                path,
+                                                                start_line,
+                                                                end_line,
+                                                                symbol,
+                                                                is_peek,
+                                                            }
                                                         }
                                                     }
                                                 }
@@ -700,19 +704,32 @@ impl ZenthreeState {
                                                 },
                                             };
 
-                                            if let Some(TrajectoryStep::Exploration(ref mut grp)) =
-                                                last.trajectory.last_mut()
-                                            {
-                                                grp.items.push(item);
-                                                grp.is_active = true;
+                                            let is_duplicate = if let Some(TrajectoryStep::Exploration(ref grp)) = last.trajectory.last() {
+                                                grp.items.iter().any(|existing| match (existing, &item) {
+                                                    (ExplorationItem::AnalyzedFile { path: p1, .. }, ExplorationItem::AnalyzedFile { path: p2, .. }) => p1 == p2,
+                                                    (ExplorationItem::ExploredDirectory { path: p1 }, ExplorationItem::ExploredDirectory { path: p2 }) => p1 == p2,
+                                                    (ExplorationItem::Searched { query: q1, .. }, ExplorationItem::Searched { query: q2, .. }) => q1 == q2,
+                                                    _ => false,
+                                                })
                                             } else {
-                                                last.trajectory.push(TrajectoryStep::Exploration(
-                                                    ExplorationGroup {
-                                                        expanded: false,
-                                                        items: vec![item],
-                                                        is_active: true,
-                                                    },
-                                                ));
+                                                false
+                                            };
+
+                                            if !is_duplicate {
+                                                if let Some(TrajectoryStep::Exploration(ref mut grp)) =
+                                                    last.trajectory.last_mut()
+                                                {
+                                                    grp.items.push(item);
+                                                    grp.is_active = true;
+                                                } else {
+                                                    last.trajectory.push(TrajectoryStep::Exploration(
+                                                        ExplorationGroup {
+                                                            expanded: false,
+                                                            items: vec![item],
+                                                            is_active: true,
+                                                        },
+                                                    ));
+                                                }
                                             }
                                         }
                                     }
@@ -747,7 +764,15 @@ impl ZenthreeState {
                                         h.finish()
                                     };
                                     self.ai_block_cache.remove(&old_hash);
-                                    last.content = reply;
+                                    if reply == "Request stopped." {
+                                        if last.content.trim().is_empty() {
+                                            last.content = "*Request stopped by user.*".to_string();
+                                        } else if !last.content.contains("stopped") {
+                                            last.content.push_str("\n\n*Request stopped by user.*");
+                                        }
+                                    } else {
+                                        last.content = reply;
+                                    }
                                 } else {
                                     self.ai_messages.push(AiMessage {
                                         is_user: false,
