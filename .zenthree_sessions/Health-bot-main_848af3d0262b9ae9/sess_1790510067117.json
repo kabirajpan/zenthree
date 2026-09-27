@@ -1,0 +1,31 @@
+{
+  "id": "sess_1790510067117",
+  "title": "Explore the project folder and explain me whats inside the f...",
+  "project_path": "\\\\?\\C:\\Users\\Prasa\\Downloads\\Health-bot-main\\Health-bot-main",
+  "project_name": "Health-bot-main",
+  "created_at": 1790510067,
+  "updated_at": 1790510067,
+  "messages": [
+    {
+      "is_user": true,
+      "content": "Explore the project folder and explain me whats inside the folder",
+      "code_snippet": null,
+      "thoughts": null,
+      "expanded": false,
+      "trajectory": [],
+      "is_working": false
+    },
+    {
+      "is_user": false,
+      "content": "",
+      "code_snippet": null,
+      "thoughts": null,
+      "expanded": false,
+      "trajectory": [],
+      "is_working": true
+    }
+  ],
+  "agent_mode": "Agent",
+  "model": "GroqQwen3_8_27b",
+  "session_json": null
+}

@@ -837,6 +837,78 @@ pub fn generate_state_frame(state: OrbStateKind, size: f32, t: f32, size_factor:
     }
 }
 
+pub fn draw_inline_thinking_orb(
+    ui: &mut Ui,
+    kind: OrbStateKind,
+    x: f32,
+    y: f32,
+    size: f32,
+    time_sec: f32,
+) {
+    let size_factor = if size <= 36.0 { 1.8 } else { 1.15 };
+    let frame = generate_state_frame(kind, size, time_sec, size_factor);
+    let clip = [x, y, size, size];
+    ui.draws.reserve(frame.lines.len() * 15 + frame.dots.len());
+
+    for line in &frame.lines {
+        let dx = line.x2 - line.x1;
+        let dy = line.y2 - line.y1;
+        let len = (dx * dx + dy * dy).sqrt().max(1.0);
+        let steps = ((len / 3.8).ceil() as usize).max(1);
+        let line_w = (line.w * 1.15).max(0.85);
+        let color = [
+            0.35 + 0.65 * (1.0 - line.white),
+            0.50 + 0.50 * (1.0 - line.white),
+            0.90,
+            (line.a * 0.85).clamp(0.0, 1.0),
+        ];
+
+        for step in 0..=steps {
+            let fraction = step as f32 / steps as f32;
+            let px = x + line.x1 + dx * fraction - line_w * 0.5;
+            let py = y + line.y1 + dy * fraction - line_w * 0.5;
+            ui.draws.push(DrawCommand::Rect(RectDraw {
+                instance: RectInstance {
+                    pos: [px, py],
+                    size: [line_w, line_w],
+                    color,
+                    radius: [line_w * 0.5; 4],
+                    clip_rect: clip,
+                    ..Default::default()
+                },
+            }));
+        }
+    }
+
+    for dot in &frame.dots {
+        let dot_size = (dot.r * 2.0).max(1.2);
+        let brightness = (1.0 - dot.white).clamp(0.05, 1.0);
+        let color = match kind {
+            OrbStateKind::Connecting => [brightness * 0.85 + 0.15, brightness * 0.90 + 0.10, 1.0, dot.a.clamp(0.1, 1.0)],
+            OrbStateKind::Working => [1.0, brightness * 0.85 + 0.15, brightness * 0.50, dot.a.clamp(0.1, 1.0)],
+            OrbStateKind::Searching => [brightness * 0.40 + 0.10, brightness * 0.95 + 0.05, 1.0, dot.a.clamp(0.1, 1.0)],
+            OrbStateKind::Solving => [brightness * 0.70 + 0.30, brightness * 0.80 + 0.20, 1.0, dot.a.clamp(0.1, 1.0)],
+            OrbStateKind::Listening => [brightness * 0.50 + 0.50, 1.0, brightness * 0.80 + 0.20, dot.a.clamp(0.1, 1.0)],
+            OrbStateKind::Weaving => [1.0, brightness * 0.60 + 0.20, brightness * 0.85 + 0.15, dot.a.clamp(0.1, 1.0)],
+            OrbStateKind::Composing => [brightness * 0.85 + 0.15, brightness * 0.70 + 0.10, 1.0, dot.a.clamp(0.1, 1.0)],
+            OrbStateKind::Breathing => [brightness * 0.75 + 0.25, brightness * 0.90 + 0.10, 1.0, dot.a.clamp(0.1, 1.0)],
+            OrbStateKind::Shaping => [1.0, 1.0, 1.0, dot.a.clamp(0.1, 1.0)],
+        };
+        let px = x + dot.x - dot.r;
+        let py = y + dot.y - dot.r;
+        ui.draws.push(DrawCommand::Rect(RectDraw {
+            instance: RectInstance {
+                pos: [px, py],
+                size: [dot_size, dot_size],
+                color,
+                radius: [dot.r; 4],
+                clip_rect: clip,
+                ..Default::default()
+            },
+        }));
+    }
+}
+
 // ============================================================================
 // 4. FLOATING WINDOW UI RENDERER
 // ============================================================================

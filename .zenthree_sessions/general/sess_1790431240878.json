@@ -1,0 +1,49 @@
+{
+  "id": "sess_1790431240878",
+  "title": "Hey Hi",
+  "project_path": "general",
+  "project_name": "General",
+  "created_at": 1790431240,
+  "updated_at": 1790431274,
+  "messages": [
+    {
+      "is_user": true,
+      "content": "Hey Hi",
+      "code_snippet": null,
+      "thoughts": null,
+      "expanded": false,
+      "trajectory": [],
+      "is_working": false
+    },
+    {
+      "is_user": false,
+      "content": "Agent error: Malformed provider response: Gemini API error (status 404 Not Found): {\n  \"error\": {\n    \"code\": 404,\n    \"message\": \"This model models/gemini-2.5-pro is no longer available to new users. Please update your code to use models/gemini-3.1-pro-preview for the latest features and improvements. We recommend you to use the Interactions API (https://ai.google.dev/gemini-api/docs/get-started).\",\n    \"status\": \"NOT_FOUND\"\n  }\n}\n",
+      "code_snippet": null,
+      "thoughts": null,
+      "expanded": false,
+      "trajectory": [],
+      "is_working": false
+    },
+    {
+      "is_user": true,
+      "content": "Hey hi",
+      "code_snippet": null,
+      "thoughts": null,
+      "expanded": false,
+      "trajectory": [],
+      "is_working": false
+    },
+    {
+      "is_user": false,
+      "content": "Hey there! 👋 Welcome! How can I help you out today with your Zenthree project?",
+      "code_snippet": null,
+      "thoughts": null,
+      "expanded": false,
+      "trajectory": [],
+      "is_working": false
+    }
+  ],
+  "agent_mode": "Agent",
+  "model": "GroqQwen3_8_27b",
+  "session_json": "{\n  \"session_id\": \"default\",\n  \"conversation\": [\n    {\n      \"role\": \"System\",\n      \"content\": \"You are ZENE, an advanced AI coding assistant embedded in the Zenthree IDE.\\nWorkspace: C:\\\\Users\\\\Prasa\\\\OneDrive\\\\Desktop\\\\Projects\\\\zenthra-v2\\\\apps\\\\zenthree\\nPlatform: windows (x86_64)\\n\\nAvailable Tools (Level 1 Manifest):\\nactivate_skill       : Activate and load the detailed step-by-step instructions for a specific workflow skill (e.g. 'explore', 'plan', 'implement', 'debug', 'verify', 'review'). Call this when beginning a phase of work to follow best practices and tool guidance.\\ncreate_plan          : Create an explicit multi-step implementation plan before performing modifications or actions. Call this first whenever a task requires code changes or execution.\\nedit_file            : Apply a targeted patch to a file by replacing unique target text with replacement text. Safer and cheaper than rewriting the whole file.\\nget_diagnostics      : Fetch current compiler errors and warnings for the project or a specific file to detect bugs and verify code fixes.\\nlist_directory       : List files and subdirectories in a directory path. Depth 1 (default) provides a flat listing with file sizes and subdirectory child counts. Depth 2 or higher provides a visual hierarchy tree (like 'tree'). Set show_all: true (or no_cap: true) to completely disable capping and display all items.\\nread_file            : Read file content safely. Supports line ranges (1-indexed), symbol extraction (e.g. symbol: 'fn_name'), file inspection with peek: true, and batch reading with paths: [...].\\nrun_terminal         : Run builds, test suites, linters, or package manager commands in the terminal (e.g. 'cargo check', 'cargo test', 'npm install'). DO NOT use this tool to read files, find files, or list directories (use 'read_file' and 'search' instead).\\nsearch               : Universal search across tools, skills, folders, files, symbols (definitions), or content. Combine scopes with '+' (e.g. 'symbols', 'tools+skills', 'folders+files', 'symbols+content', or 'all').\\nupdate_plan_step     : Update the status of a specific step in the current plan ('pending', 'in_progress', 'completed', 'failed').\\nwrite_file           : Create a new file or completely overwrite an existing file with content. Automatically creates parent directories.\\n\\nAvailable Workflow Skills:\\n- debug: Diagnose and resolve software failures systematically using concrete evidence, diagnostics, and root-cause analysis.\\n- explore: Understand project layout, manifests, entry points, and architecture using exploration tools.\\n- implement: Execute targeted, minimal, style-preserving code modifications with diff discipline using file tools.\\n- plan: Formulate structured, phased execution plans and track live progress using planning tools.\\n- review: Inspect diffs for correctness, security vulnerabilities, edge cases, and maintainability before task completion.\\n- verify: Validate changes using dynamic checks, tests, compiler diagnostics, and linters to prove correctness.\\n\\n\\nGuidelines:\\n- CASUAL CHAT & GREETINGS: When the user simply says 'hi', 'hello', or greets you, reply warmly, concisely, and conversationally. Do NOT call file reading or directory listing tools unless the user specifically asks a question about the workspace or requests a task.\\n- STRICT PROJECT BOUNDARY: You must operate EXCLUSIVELY inside the current workspace project root ('./'). You are strictly forbidden from navigating to parent directories ('..') or inspecting files outside this project.\\n- DIRECT ACTION & IMMEDIATE EXECUTION: When the user asks you to create, scaffold, implement, fix, or run something, take immediate action using your available tools. Do NOT pause execution or create unnecessary markdown planning files for straightforward user tasks. Execute commands and edits directly.\\n- PROJECT ROOT & SCAFFOLDING: The current workspace directory is already the project root. All terminal commands run natively with this directory as their working directory (no need to prefix commands with `cd /path/to/project &&`). You are strictly forbidden from creating projects in /tmp or outside the workspace. When scaffolding or initializing a new application (e.g. using `bun create vite`, `npm create`, `cargo new`), always scaffold directly into `./` with non-interactive and overwrite flags (e.g. `bun create vite ./ --template react --no-interactive --overwrite`) so files are created directly at the workspace root without failing if existing files (like plans or configs) already exist. Never create a redundant nested subfolder unless the user explicitly requested a subfolder name.\\n- ARCHITECTURAL PLANNING: Reserve `create_plan` strictly for large, complex multi-file architectural refactors or when the user explicitly asks for a plan.\\n- Use `search`, `read_file`, and `list_directory` to explore files, symbols, and directory trees.\\n- EFFICIENT FILE READING: Call `read_file(path: \\\"...\\\")` directly to read complete files (it automatically provides up to 500 lines).\\n- Prefer surgical edits using `edit_file` rather than rewriting whole files.\\n- Run `get_diagnostics` or test/build suites via `run_terminal` to verify your changes.\\n- Activate workflow skills on demand via `activate_skill(name: \\\"...\\\")` for step-by-step guidance.\\n\\n\",\n      \"tool_calls\": null,\n      \"tool_call_id\": null\n    },\n    {\n      \"role\": \"User\",\n      \"content\": \"Hey hi\",\n      \"tool_calls\": null,\n      \"tool_call_id\": null\n    },\n    {\n      \"role\": \"Assistant\",\n      \"content\": \"Hey there! 👋 Welcome! How can I help you out today with your Zenthree project?\",\n      \"tool_calls\": null,\n      \"tool_call_id\": null\n    }\n  ]\n}"
+}

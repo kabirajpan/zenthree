@@ -2860,24 +2860,56 @@ fn draw_ai_chat_content(
                                 "Ask..."
                             };
 
-                            let input_w = (input_dock_w - 16.0).max(80.0);
-                            let text_res = ui.text_area(&mut state.ai_input, "ai_prompt_text_area")
-                                .width(input_w)
-                                .height(prompt_box_h)
-                                .max_height(MAX_PROMPT_H)
-                                .scrollable(true)
-                                .size(prompt_text_size)
-                                .line_height(1.30)
-                                .color(Color::rgb(244.0 / 255.0, 244.0 / 255.0, 245.0 / 255.0)) // text-zinc-100
-                                .bg(input_box_bg)
-                                .border(Color::TRANSPARENT, 0.0)
-                                .focus_border(Color::TRANSPARENT, 0.0)
-                                .padding(2.0, 2.0, 2.0, 2.0)
-                                .placeholder(placeholder)
-                                .placeholder_color(Color::rgb(88.0 / 255.0, 88.0 / 255.0, 99.0 / 255.0)) // #585863
-                                .wrap(zenthra_text::prelude::TextWrap::Word)
-                                .submit_on_enter(true)
-                                .show();
+                            let input_w = (input_dock_w - 50.0).max(64.0);
+                            let orb_id = Id::from_u64(999999990);
+                            let mut input_submitted = false;
+                            ui.container()
+                                .full_width()
+                                .row()
+                                .valign(Align::Center)
+                                .gap(4.0)
+                                .show(|ui| {
+                                    ui.container()
+                                        .id(orb_id)
+                                        .width(30.0)
+                                        .height(30.0)
+                                        .radius_all(8.0)
+                                        .render_mode(zenthra::RenderMode::Continuous)
+                                        .show(|ui| {
+                                            let orb_kind = crate::ui_layout::thinking_orbs_demo_window::OrbStateKind::ALL
+                                                [state.thinking_orbs_demo_mode % crate::ui_layout::thinking_orbs_demo_window::OrbStateKind::ALL.len()];
+                                            let orb_time = state.orb_animation_start.elapsed().as_secs_f32();
+                                            let orb_x = ui.cursor_x;
+                                            let orb_y = ui.cursor_y;
+                                            crate::ui_layout::thinking_orbs_demo_window::draw_inline_thinking_orb(
+                                                ui,
+                                                orb_kind,
+                                                orb_x,
+                                                orb_y,
+                                                30.0,
+                                                orb_time,
+                                            );
+                                        });
+
+                                    let text_res = ui.text_area(&mut state.ai_input, "ai_prompt_text_area")
+                                        .width(input_w)
+                                        .height(prompt_box_h)
+                                        .max_height(MAX_PROMPT_H)
+                                        .scrollable(true)
+                                        .size(prompt_text_size)
+                                        .line_height(1.30)
+                                        .color(Color::rgb(244.0 / 255.0, 244.0 / 255.0, 245.0 / 255.0))
+                                        .bg(input_box_bg)
+                                        .border(Color::TRANSPARENT, 0.0)
+                                        .focus_border(Color::TRANSPARENT, 0.0)
+                                        .padding(2.0, 2.0, 2.0, 2.0)
+                                        .placeholder(placeholder)
+                                        .placeholder_color(Color::rgb(88.0 / 255.0, 88.0 / 255.0, 99.0 / 255.0))
+                                        .wrap(zenthra_text::prelude::TextWrap::Word)
+                                        .submit_on_enter(true)
+                                        .show();
+                                    input_submitted = text_res.submitted;
+                                });
 
 
                             // Bottom bar of input dock: Mode & Model pills on left, Send button on right
@@ -3037,7 +3069,7 @@ fn draw_ai_chat_content(
                                             }
                                             ui.needs_redraw = true;
                                         }
-                                    } else if trigger_send || text_res.submitted || send_btn.clicked {
+                                    } else if trigger_send || input_submitted || send_btn.clicked {
                                         let msg = state.ai_input.trim().to_string();
                                         if !msg.is_empty() {
                                             state.send_ai_message(&msg);
