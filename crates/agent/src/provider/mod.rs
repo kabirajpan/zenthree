@@ -17,13 +17,9 @@ pub fn get_key(name: &str) -> Option<String> {
         }
     }
 
-    // Try finding .env file
+    // Try finding .env file only in the current directory
     let candidate_paths = [
-        ".env",
-        "../.env",
-        "../../.env",
-        "apps/zenthree/.env",
-        "/home/kabir/Desktop/projects/personal/framworks/zenthra-v2/apps/zenthree/.env",
+        "./.env",
     ];
 
     for path_str in &candidate_paths {

@@ -41,6 +41,14 @@ pub fn create_agent_for_model_and_workspace(
     Some(Agent::with_workspace(provider, tools, workspace))
 }
 
+/// Constructs an `Agent` for General Chat mode with NO workspace attached.
+/// Has no filesystem mutating tools or terminal tools.
+pub fn create_agent_without_workspace(provider_name: &str, model_id: &str) -> Option<Agent> {
+    let provider = provider::create_provider_for(provider_name, model_id)?;
+    let tools = ToolRegistry::new();
+    Some(Agent::without_workspace(provider, tools))
+}
+
 /// Constructs an `Agent` initialized with ONLY the 2 read-only tools:
 /// `read_file` and `get_diagnostics`.
 ///

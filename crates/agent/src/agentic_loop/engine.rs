@@ -54,6 +54,25 @@ impl Agent {
         Self::with_workspace(provider, tools, cwd)
     }
 
+    /// Create an agent without a workspace root (General Chat mode).
+    /// Safe: does not bind to any directory, does not register filesystem/terminal tools.
+    pub fn without_workspace(provider: Box<dyn Provider>, tools: ToolRegistry) -> Self {
+        let skills = Arc::new(crate::skills::SkillRegistry::default());
+        let ast = Arc::new(crate::ast::DynamicAstEngine::new());
+        Self {
+            provider,
+            tools,
+            conversation: Vec::new(),
+            config: AgentConfig::default(),
+            skills,
+            active_tools: HashSet::new(),
+            ast,
+            explicit_intent: None,
+            explicit_tools: None,
+            reflex: crate::orchestrator::BioReflexClient::default(),
+        }
+    }
+
     /// Create an agent initialized for a specific workspace root, discovering project skills.
     pub fn with_workspace(
         provider: Box<dyn Provider>,

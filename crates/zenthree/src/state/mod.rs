@@ -186,21 +186,20 @@ impl ZenthreeState {
     }
 
     pub fn new() -> Self {
-        // Try workspace argument, fallback to std::env::current_dir(), fallback to home dir
+        // Try workspace argument, fallback to home dir (never open launch directory as workspace by default)
         let args: Vec<String> = std::env::args().collect();
-        let mut current_dir = std::env::current_dir()
-            .unwrap_or_else(|_| dirs::home_dir().unwrap_or_else(|| PathBuf::from(".")));
+        let mut current_dir = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
         let mut has_workspace = false;
 
-        if args.len() > 1 {
-            let path = PathBuf::from(&args[1]);
+        let target_arg = args.iter().skip(1).find(|a| !a.starts_with('-')).map(PathBuf::from);
+        if let Some(path) = target_arg {
             if path.exists() {
                 if path.is_dir() {
-                    current_dir = path;
+                    current_dir = path.canonicalize().unwrap_or(path);
                     has_workspace = true;
                 } else if path.is_file() {
                     if let Some(parent) = path.parent() {
-                        current_dir = parent.to_path_buf();
+                        current_dir = parent.canonicalize().unwrap_or_else(|_| parent.to_path_buf());
                         has_workspace = true;
                     }
                 }
@@ -351,24 +350,30 @@ impl ZenthreeState {
         state.refresh_ai_sessions();
 
         // If CLI argument was explicitly provided, open specified file or workspace
-        if args.len() > 1 {
-            let path = PathBuf::from(&args[1]);
+        let target_arg = args.iter().skip(1).find(|a| !a.starts_with('-')).map(PathBuf::from);
+        let mut opened_cli_target = false;
+        if let Some(path) = target_arg {
             if path.exists() {
                 if path.is_dir() {
                     state.open_workspace(path);
+                    opened_cli_target = true;
                 } else if path.is_file() {
                     state.open_file(&path);
                     if let Some(parent) = path.parent() {
                         state.current_dir = parent.to_path_buf();
                         state.has_workspace = true;
                     }
+                    opened_cli_target = true;
                 }
             }
-        } else {
+        }
+
+        if !opened_cli_target {
             // Default startup without arguments:
             // DO NOT open any project by default.
             // Start clean with an empty untitled buffer!
             state.has_workspace = false;
+            state.current_dir = dirs::home_dir().unwrap_or_else(|| PathBuf::from("."));
             state.sidebar_items.clear();
             state.tabs.clear();
             state.new_untitled_file();

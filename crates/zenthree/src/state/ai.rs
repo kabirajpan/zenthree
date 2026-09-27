@@ -78,8 +78,9 @@ impl ZenthreeState {
             // ArcSignal::with_mut already calls trigger_redraw_hook() — no timer needed
         };
         let prompt = trimmed.to_string();
-        // Pass workspace dir so tools run on the right project
+        // Pass workspace dir and workspace state so tools run only on open projects
         let current_dir = self.current_dir.clone();
+        let has_workspace = self.has_workspace;
         // Pass existing session JSON so the agent remembers prior conversation
         let session_json = self.ai_session_json.clone();
         let is_fresh_session = session_json.is_none();
@@ -113,22 +114,35 @@ impl ZenthreeState {
 
         let cancel_for_thread = cancel_token.clone();
         std::thread::spawn(move || {
-            // Set CWD so all tools (get_project_structure, search_codebase, etc.)
-            // operate on the user's workspace, not the binary's launch directory.
-            let _ = std::env::set_current_dir(&current_dir);
+            if has_workspace {
+                // Set CWD so all tools (get_project_structure, search_codebase, etc.)
+                // operate on the user's workspace, not the binary's launch directory.
+                let _ = std::env::set_current_dir(&current_dir);
+            }
 
             if cancel_for_thread.load(std::sync::atomic::Ordering::Relaxed) {
                 return;
             }
 
-            if let Some(agent) = agent::create_agent_for_model_and_workspace(
-                match selected_model.provider() {
-                    crate::state::AiProvider::Gemini => "gemini",
-                    crate::state::AiProvider::Groq => "groq",
-                },
-                selected_model.model_id(),
-                &current_dir,
-            ) {
+            let provider_name = match selected_model.provider() {
+                crate::state::AiProvider::Gemini => "gemini",
+                crate::state::AiProvider::Groq => "groq",
+            };
+
+            let maybe_agent = if has_workspace {
+                agent::create_agent_for_model_and_workspace(
+                    provider_name,
+                    selected_model.model_id(),
+                    &current_dir,
+                )
+            } else {
+                agent::create_agent_without_workspace(
+                    provider_name,
+                    selected_model.model_id(),
+                )
+            };
+
+            if let Some(agent) = maybe_agent {
                 let mut agent = agent.with_cancellation_token(cancel_for_thread.clone());
 
                 // Dynamically register all IDE languages into the agent's AST engine
@@ -144,37 +158,53 @@ impl ZenthreeState {
 
                 // On the first turn inject a system message with workspace context, git context, ZENE skills, and Level 1 Tool Manifest
                 if is_fresh_session {
-                    let skills_summary = agent.skills().prompt_summary();
-                    let tools_manifest = agent.tools().manifest();
-                    let mut sys_msg = format!(
-                        "You are ZENE, an advanced AI coding assistant embedded in the Zenthree IDE.\n\
-                        Workspace: {}\n\
-                        Platform: {} ({})\n\n\
-                        Available Tools (Level 1 Manifest):\n{}\n\n\
-                        Available Workflow Skills:\n{}\n\n\
-                        Guidelines:\n\
-                        - CASUAL CHAT & GREETINGS: When the user simply says 'hi', 'hello', or greets you, reply warmly, concisely, and conversationally. Do NOT call file reading or directory listing tools unless the user specifically asks a question about the workspace or requests a task.\n\
-                        - STRICT PROJECT BOUNDARY: You must operate EXCLUSIVELY inside the current workspace project root ('./'). You are strictly forbidden from navigating to parent directories ('..') or inspecting files outside this project.\n\
-                        - DIRECT ACTION & IMMEDIATE EXECUTION: When the user asks you to create, scaffold, implement, fix, or run something, take immediate action using your available tools. Do NOT pause execution or create unnecessary markdown planning files for straightforward user tasks. Execute commands and edits directly.\n\
-                        - PROJECT ROOT & SCAFFOLDING: The current workspace directory is already the project root. All terminal commands run natively with this directory as their working directory (no need to prefix commands with `cd /path/to/project &&`). You are strictly forbidden from creating projects in /tmp or outside the workspace. When scaffolding or initializing a new application (e.g. using `bun create vite`, `npm create`, `cargo new`), always scaffold directly into `./` with non-interactive and overwrite flags (e.g. `bun create vite ./ --template react --no-interactive --overwrite`) so files are created directly at the workspace root without failing if existing files (like plans or configs) already exist. Never create a redundant nested subfolder unless the user explicitly requested a subfolder name.\n\
-                        - ARCHITECTURAL PLANNING: Reserve `create_plan` strictly for large, complex multi-file architectural refactors or when the user explicitly asks for a plan.\n\
-                        - Use `search`, `read_file`, and `list_directory` to explore files, symbols, and directory trees.\n\
-                        - EFFICIENT FILE READING: Call `read_file(path: \"...\")` directly to read complete files (it automatically provides up to 500 lines).\n\
-                        - Prefer surgical edits using `edit_file` rather than rewriting whole files.\n\
-                        - Run `get_diagnostics` or test/build suites via `run_terminal` to verify your changes.\n\
-                        - Activate workflow skills on demand via `activate_skill(name: \"...\")` for step-by-step guidance.\n\n{}",
-                        current_dir.display(),
-                        std::env::consts::OS,
-                        std::env::consts::ARCH,
-                        tools_manifest,
-                        skills_summary,
-                        ws_context_prompt
-                    );
-                    if let Some(ref git_ctx) = git_context_prompt {
-                        sys_msg.push_str("\n\n");
-                        sys_msg.push_str(git_ctx);
+                    if has_workspace {
+                        let skills_summary = agent.skills().prompt_summary();
+                        let tools_manifest = agent.tools().manifest();
+                        let mut sys_msg = format!(
+                            "You are ZENE, an advanced AI coding assistant embedded in the Zenthree IDE.\n\
+                            Workspace: {}\n\
+                            Platform: {} ({})\n\n\
+                            Available Tools (Level 1 Manifest):\n{}\n\n\
+                            Available Workflow Skills:\n{}\n\n\
+                            Guidelines:\n\
+                            - CASUAL CHAT & GREETINGS: When the user simply says 'hi', 'hello', or greets you, reply warmly, concisely, and conversationally. Do NOT call file reading or directory listing tools unless the user specifically asks a question about the workspace or requests a task.\n\
+                            - STRICT PROJECT BOUNDARY: You must operate EXCLUSIVELY inside the current workspace project root ('./'). You are strictly forbidden from navigating to parent directories ('..') or inspecting files outside this project.\n\
+                            - DIRECT ACTION & IMMEDIATE EXECUTION: When the user asks you to create, scaffold, implement, fix, or run something, take immediate action using your available tools. Do NOT pause execution or create unnecessary markdown planning files for straightforward user tasks. Execute commands and edits directly.\n\
+                            - PROJECT ROOT & SCAFFOLDING: The current workspace directory is already the project root. All terminal commands run natively with this directory as their working directory (no need to prefix commands with `cd /path/to/project &&`). You are strictly forbidden from creating projects in /tmp or outside the workspace. When scaffolding or initializing a new application (e.g. using `bun create vite`, `npm create`, `cargo new`), always scaffold directly into `./` with non-interactive and overwrite flags (e.g. `bun create vite ./ --template react --no-interactive --overwrite`) so files are created directly at the workspace root without failing if existing files (like plans or configs) already exist. Never create a redundant nested subfolder unless the user explicitly requested a subfolder name.\n\
+                            - ARCHITECTURAL PLANNING: Reserve `create_plan` strictly for large, complex multi-file architectural refactors or when the user explicitly asks for a plan.\n\
+                            - Use `search`, `read_file`, and `list_directory` to explore files, symbols, and directory trees.\n\
+                            - EFFICIENT FILE READING: Call `read_file(path: \"...\")` directly to read complete files (it automatically provides up to 500 lines).\n\
+                            - Prefer surgical edits using `edit_file` rather than rewriting whole files.\n\
+                            - Run `get_diagnostics` or test/build suites via `run_terminal` to verify your changes.\n\
+                            - Activate workflow skills on demand via `activate_skill(name: \"...\")` for step-by-step guidance.\n\n{}",
+                            current_dir.display(),
+                            std::env::consts::OS,
+                            std::env::consts::ARCH,
+                            tools_manifest,
+                            skills_summary,
+                            ws_context_prompt
+                        );
+                        if let Some(ref git_ctx) = git_context_prompt {
+                            sys_msg.push_str("\n\n");
+                            sys_msg.push_str(git_ctx);
+                        }
+                        agent.push_system_message(sys_msg);
+                    } else {
+                        let sys_msg = format!(
+                            "You are ZENE, an advanced AI coding assistant embedded in the Zenthree IDE.\n\
+                            Mode: General Chat (No workspace folder open)\n\
+                            Platform: {} ({})\n\n\
+                            Guidelines:\n\
+                            - NO WORKSPACE OPEN: There is currently NO workspace or project folder open in Zenthree.\n\
+                            - You do NOT have a workspace directory and must NOT execute commands or create/edit/delete files on the local filesystem.\n\
+                            - Provide helpful, clear explanations and code blocks in markdown for general programming questions, design patterns, algorithms, or snippets.\n\
+                            - If the user asks you to create a project, scaffold an application, or edit files, politely inform them: 'No project folder is currently open in Zenthree. Please open a project folder (via File -> Open Folder or the Open Folder button in the sidebar) before scaffolding or modifying project files.'",
+                            std::env::consts::OS,
+                            std::env::consts::ARCH,
+                        );
+                        agent.push_system_message(sys_msg);
                     }
-                    agent.push_system_message(sys_msg);
                 }
 
                 let mut final_text = String::new();

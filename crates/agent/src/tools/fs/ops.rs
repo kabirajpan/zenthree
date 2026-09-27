@@ -38,7 +38,12 @@ impl Tool for DeleteFileTool {
             .and_then(|v| v.as_str())
             .ok_or_else(|| ToolError::InvalidArgs("Missing required parameter 'path'".to_string()))?;
 
-        let path = Path::new(path_str);
+        let trimmed = path_str.trim();
+        if trimmed == "." || trimmed == "./" || trimmed == ".." || trimmed.is_empty() || trimmed == "/" {
+            return Err(ToolError::ExecutionFailed("Refusing to delete project root or parent directory".to_string()));
+        }
+
+        let path = Path::new(trimmed);
         if !path.exists() {
             return Err(ToolError::ExecutionFailed(format!("File does not exist: {}", path_str)));
         }

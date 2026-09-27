@@ -107,6 +107,7 @@ impl ZenthreeState {
         // 4. Close workspace
         self.fs_watcher.stop();
         self.has_workspace = false;
+        self.current_dir = dirs::home_dir().unwrap_or_else(|| std::path::PathBuf::from("."));
         self.sidebar_items.clear();
         self.expanded_dirs.clear();
         self.set_status("Workspace closed");

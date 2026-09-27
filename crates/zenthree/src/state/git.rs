@@ -4,21 +4,15 @@ use std::path::Path;
 
 impl ZenthreeState {
     pub fn refresh_git_status(&mut self) {
-        let root = if self.has_workspace {
-            self.current_dir.clone()
-        } else if let Some(active_idx) = self.active_tab {
-            if let Some(tab) = self.tabs.get(active_idx) {
-                if let Some(ref p) = tab.path {
-                    p.parent().unwrap_or(&self.current_dir).to_path_buf()
-                } else {
-                    self.current_dir.clone()
-                }
-            } else {
-                self.current_dir.clone()
-            }
-        } else {
-            self.current_dir.clone()
-        };
+        if !self.has_workspace {
+            self.git_state.is_repo = false;
+            self.git_state.branch.clear();
+            self.git_state.staged.clear();
+            self.git_state.unstaged.clear();
+            return;
+        }
+
+        let root = &self.current_dir;
 
         let is_inside = std::process::Command::new("git")
             .args(["rev-parse", "--is-inside-work-tree"])
