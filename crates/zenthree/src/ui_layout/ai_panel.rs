@@ -588,10 +588,23 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                 .auto_flip(false)
                 .width(menu_w)
                 .height(menu_h)
-                .bg(Color::rgb(22.0 / 255.0, 22.0 / 255.0, 25.0 / 255.0)) // #161619
-                .border(Color::rgb(45.0 / 255.0, 45.0 / 255.0, 54.0 / 255.0), 1.0) // #2d2d36
+                .bg(if colors.bg_base.r > 0.5 {
+                    colors.bg_editor
+                } else {
+                    Color::rgb(22.0 / 255.0, 22.0 / 255.0, 25.0 / 255.0)
+                })
+                .border(if colors.bg_base.r > 0.5 {
+                    colors.border
+                } else {
+                    Color::rgb(45.0 / 255.0, 45.0 / 255.0, 54.0 / 255.0)
+                }, 1.0)
                 .radius_all(6.0)
-                .shadow(Color::rgba(0.0, 0.0, 0.0, 0.65), 0.0, 4.0, 16.0)
+                .shadow(
+                    Color::rgba(0.0, 0.0, 0.0, if colors.bg_base.r > 0.5 { 0.18 } else { 0.65 }),
+                    0.0,
+                    4.0,
+                    16.0,
+                )
                 .padding(3.0, 3.0, 3.0, 3.0)
                 .show(|ui| {
                     ui.container()
@@ -615,7 +628,10 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                     .halign(Align::SpaceBetween)
                                     .show(|ui| {
                                         ui.container().row().gap(5.0).valign(Align::Center).show(|ui| {
-                                            ui.text(mode.icon()).size(10.0).show();
+                                            ui.text(mode.icon())
+                                                .size(10.0)
+                                                .color(colors.text_muted)
+                                                .show();
                                             ui.text(mode.display_name())
                                                 .size(9.5)
                                                 .weight(if is_sel { FontWeight::SemiBold } else { FontWeight::Regular })
@@ -645,6 +661,22 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
         let total_item_h = AiModel::ALL.len() as f32 * 25.5 + 40.0;
         let max_allowed_h = (ui.height - 110.0).max(250.0);
         let menu_h = total_item_h.min(340.0).min(max_allowed_h);
+        let is_light = colors.bg_base.r > 0.5;
+        let menu_bg = if is_light {
+            colors.bg_editor
+        } else {
+            Color::rgb(22.0 / 255.0, 22.0 / 255.0, 25.0 / 255.0)
+        };
+        let menu_border = if is_light {
+            colors.border
+        } else {
+            Color::rgb(45.0 / 255.0, 45.0 / 255.0, 54.0 / 255.0)
+        };
+        let menu_shadow = if is_light {
+            Color::rgba(0.0, 0.0, 0.0, 0.18)
+        } else {
+            Color::rgba(0.0, 0.0, 0.0, 0.65)
+        };
 
         if let Some(anchor) = ui.next_screen_layout_cache.get(&MODEL_PICKER_BTN_ID)
             .or_else(|| ui.screen_layout_cache.get(&MODEL_PICKER_BTN_ID)).copied()
@@ -677,10 +709,10 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                 .auto_flip(false)
                 .width(menu_w)
                 .height(menu_h)
-                .bg(Color::rgb(22.0 / 255.0, 22.0 / 255.0, 25.0 / 255.0)) // #161619
-                .border(Color::rgb(45.0 / 255.0, 45.0 / 255.0, 54.0 / 255.0), 1.0) // #2d2d36
+                .bg(menu_bg)
+                .border(menu_border, 1.0)
                 .radius_all(6.0)
-                .shadow(Color::rgba(0.0, 0.0, 0.0, 0.65), 0.0, 4.0, 16.0)
+                .shadow(menu_shadow, 0.0, 4.0, 16.0)
                 .padding(3.0, 3.0, 3.0, 3.0)
                 .show(|ui| {
                     ui.container()
@@ -2866,7 +2898,7 @@ fn draw_ai_chat_content(
                             ui.container()
                                 .full_width()
                                 .row()
-                                .valign(Align::Center)
+                                .valign(Align::Top)
                                 .gap(4.0)
                                 .show(|ui| {
                                     ui.container()
@@ -2888,6 +2920,7 @@ fn draw_ai_chat_content(
                                                 orb_y,
                                                 30.0,
                                                 orb_time,
+                                                colors,
                                             );
                                         });
 
@@ -2898,13 +2931,14 @@ fn draw_ai_chat_content(
                                         .scrollable(true)
                                         .size(prompt_text_size)
                                         .line_height(1.30)
-                                        .color(Color::rgb(244.0 / 255.0, 244.0 / 255.0, 245.0 / 255.0))
+                                        .color(colors.text_primary)
+                                        .cursor_color(colors.text_primary)
                                         .bg(input_box_bg)
                                         .border(Color::TRANSPARENT, 0.0)
                                         .focus_border(Color::TRANSPARENT, 0.0)
                                         .padding(2.0, 2.0, 2.0, 2.0)
                                         .placeholder(placeholder)
-                                        .placeholder_color(Color::rgb(88.0 / 255.0, 88.0 / 255.0, 99.0 / 255.0))
+                                        .placeholder_color(colors.text_muted)
                                         .wrap(zenthra_text::prelude::TextWrap::Word)
                                         .submit_on_enter(true)
                                         .show();
@@ -2941,16 +2975,16 @@ fn draw_ai_chat_content(
                                                 .show(|ui| {
                                                     ui.text(state.agent_mode.icon())
                                                         .size(9.5)
-                                                        .color(Color::rgb(161.0 / 255.0, 161.0 / 255.0, 170.0 / 255.0)) // text-zinc-400
+                                                        .color(colors.text_muted)
                                                         .show();
                                                     ui.text(state.agent_mode.display_name())
                                                         .size(10.0)
                                                         .weight(FontWeight::Medium)
-                                                        .color(Color::rgb(228.0 / 255.0, 228.0 / 255.0, 233.0 / 255.0)) // text-zinc-200
+                                                        .color(colors.text_primary)
                                                         .show();
                                                     ui.text(if state.agent_mode_menu_open { "\u{f077}" } else { "\u{f078}" })
                                                         .size(7.0)
-                                                        .color(Color::rgb(154.0 / 255.0, 154.0 / 255.0, 165.0 / 255.0))
+                                                        .color(colors.text_muted)
                                                         .show();
                                                 });
                                             if mode_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
@@ -2979,11 +3013,11 @@ fn draw_ai_chat_content(
                                                     ui.text(state.selected_ai_model.display_name())
                                                         .size(10.0)
                                                         .weight(FontWeight::Medium)
-                                                        .color(Color::rgb(228.0 / 255.0, 228.0 / 255.0, 233.0 / 255.0)) // text-zinc-200
+                                                        .color(colors.text_primary)
                                                         .show();
                                                     ui.text(if state.ai_model_menu_open { "\u{f077}" } else { "\u{f078}" })
                                                         .size(7.0)
-                                                        .color(Color::rgb(154.0 / 255.0, 154.0 / 255.0, 165.0 / 255.0))
+                                                        .color(colors.text_muted)
                                                         .show();
                                                 });
                                             if model_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }

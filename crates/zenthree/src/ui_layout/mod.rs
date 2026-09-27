@@ -119,6 +119,8 @@ pub fn draw_about_dialog(ui: &mut Ui, state: &mut ZenthreeState) {
                 .size(11.5)
                 .color(colors.text_muted)
                 .align(Align::Center)
+                .max_width(win_w - 32.0)
+                .wrap(true)
                 .show();
 
             ui.spacing(8.0);

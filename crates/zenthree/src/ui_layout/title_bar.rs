@@ -612,6 +612,7 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                     if prev != Some(if h { 1.0 } else { 0.0 }) { ui.needs_redraw = true; }
                     if user_resp.clicked {
                         state.user_profile_open = !state.user_profile_open;
+                        ui.consume_click();
                         ui.request_redraw();
                     }
 
@@ -715,9 +716,10 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
         let pop_w = 230.0;
         let pop_x = (ui.width - pop_w - 12.0).max(10.0);
         let pop_y = BAR_H + 4.0;
+        let profile_popup_id = Id::from_u64(999999089);
 
         ui.container()
-            .id(Id::from_u64(999999089))
+            .raw_id(profile_popup_id)
             .absolute(pop_x, pop_y)
             .overlay()
             .width(pop_w)
@@ -828,8 +830,11 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                     });
 
                 // Close button
+                let close_profile_id = Id::from_u64(999999088);
                 let close_prof = ui.container()
+                    .raw_id(close_profile_id)
                     .full_width()
+                    .clickable(true)
                     .padding(5.0, 0.0, 5.0, 0.0)
                     .bg(colors.bg_base)
                     .hover_bg(colors.highlight)
@@ -843,11 +848,30 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                             .show();
                     });
 
-                if close_prof.clicked {
+                let close_rect = ui.screen_layout_cache.get(&close_profile_id)
+                    .or_else(|| ui.next_screen_layout_cache.get(&close_profile_id))
+                    .copied();
+                let pointer_over_close = close_rect
+                    .map(|rect| ui.mouse_in_rect(rect.origin.x, rect.origin.y, rect.size.width, rect.size.height))
+                    .unwrap_or(false);
+                if close_prof.clicked || (ui.clicked && pointer_over_close) {
                     state.user_profile_open = false;
+                    ui.consume_click();
                     ui.needs_redraw = true;
                 }
             });
+
+        let profile_rect = ui.next_screen_layout_cache.get(&profile_popup_id)
+            .or_else(|| ui.screen_layout_cache.get(&profile_popup_id))
+            .copied();
+        if ui.clicked
+            && profile_rect
+                .map(|rect| !ui.mouse_in_rect(rect.origin.x, rect.origin.y, rect.size.width, rect.size.height))
+                .unwrap_or(false)
+        {
+            state.user_profile_open = false;
+            ui.request_redraw();
+        }
     }
 
     // Click outside (light dismiss) handling for menus
@@ -879,4 +903,3 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
         },
     }));
 }
-

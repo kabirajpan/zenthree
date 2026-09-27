@@ -1445,7 +1445,7 @@ fn draw_menu_item(
 
 fn draw_no_folder_view(ui: &mut Ui, state: &mut ZenthreeState, sidebar_w: f32) {
     let colors = use_context::<ThemeColors>().map(|c| *c).unwrap_or_else(|| state.colors());
-    let inner_w = (sidebar_w - 24.0).max(120.0);
+    let inner_w = (sidebar_w - 24.0).max(1.0);
 
     // Section header
     ui.container()
@@ -1458,7 +1458,7 @@ fn draw_no_folder_view(ui: &mut Ui, state: &mut ZenthreeState, sidebar_w: f32) {
             ui.text("NO FOLDER OPENED")
                 .size(10.5)
                 .weight(FontWeight::Bold)
-                .color(colors.text_muted)
+                .color(colors.text_primary.with_alpha(1.0))
                 .show();
         });
 
@@ -1476,9 +1476,9 @@ fn draw_no_folder_view(ui: &mut Ui, state: &mut ZenthreeState, sidebar_w: f32) {
         .gap(12.0)
         .valign(Align::Top)
         .show(|ui| {
-            ui.text("You have not yet opened a folder or project.")
+            ui.text("You have not yet\nopened a folder or\nproject.")
                 .size(11.0)
-                .color(colors.text_muted)
+                .color(colors.text_primary.with_alpha(1.0))
                 .max_width(inner_w)
                 .wrap(true)
                 .show();
@@ -1519,26 +1519,40 @@ fn draw_no_folder_view(ui: &mut Ui, state: &mut ZenthreeState, sidebar_w: f32) {
             }
 
             ui.container()
+                .width(inner_w)
                 .padding_top(8.0)
                 .column()
                 .gap(4.0)
                 .show(|ui| {
+                    let shortcut_color = if colors.bg_base.r > 0.5 {
+                        colors.text_primary.with_alpha(0.6)
+                    } else {
+                        colors.text_muted
+                    };
                     ui.text("Shortcuts:")
                         .size(9.5)
                         .weight(FontWeight::Bold)
-                        .color(colors.text_dim)
+                        .color(shortcut_color)
+                        .max_width(inner_w)
+                        .wrap(true)
                         .show();
-                    ui.text("Ctrl+Shift+O  Open Folder")
+                    ui.text("Ctrl+Shift+O\nOpen Folder")
                         .size(9.0)
-                        .color(colors.text_dim)
+                        .color(shortcut_color)
+                        .max_width(inner_w)
+                        .wrap(true)
                         .show();
-                    ui.text("Ctrl+O        Open File")
+                    ui.text("Ctrl+O\nOpen File")
                         .size(9.0)
-                        .color(colors.text_dim)
+                        .color(shortcut_color)
+                        .max_width(inner_w)
+                        .wrap(true)
                         .show();
-                    ui.text("Ctrl+N        New File")
+                    ui.text("Ctrl+N\nNew File")
                         .size(9.0)
-                        .color(colors.text_dim)
+                        .color(shortcut_color)
+                        .max_width(inner_w)
+                        .wrap(true)
                         .show();
                 });
         });
@@ -1593,5 +1607,3 @@ mod tests {
         assert_eq!(truncated, "very_long…");
     }
 }
-
-

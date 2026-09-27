@@ -844,10 +844,21 @@ pub fn draw_inline_thinking_orb(
     y: f32,
     size: f32,
     time_sec: f32,
+    colors: &ThemeColors,
 ) {
     let size_factor = if size <= 36.0 { 1.8 } else { 1.15 };
     let frame = generate_state_frame(kind, size, time_sec, size_factor);
     let clip = [x, y, size, size];
+    let is_light = colors.bg_base.r > 0.5;
+    let theme_color = if is_light {
+        [colors.accent.r * 0.68, colors.accent.g * 0.68, colors.accent.b * 0.68]
+    } else {
+        [
+            colors.accent.r * 0.80 + 0.20,
+            colors.accent.g * 0.80 + 0.20,
+            colors.accent.b * 0.80 + 0.20,
+        ]
+    };
     ui.draws.reserve(frame.lines.len() * 15 + frame.dots.len());
 
     for line in &frame.lines {
@@ -856,10 +867,11 @@ pub fn draw_inline_thinking_orb(
         let len = (dx * dx + dy * dy).sqrt().max(1.0);
         let steps = ((len / 3.8).ceil() as usize).max(1);
         let line_w = (line.w * 1.15).max(0.85);
+        let shade = 0.55 + (1.0 - line.white.clamp(0.0, 1.0)) * 0.45;
         let color = [
-            0.35 + 0.65 * (1.0 - line.white),
-            0.50 + 0.50 * (1.0 - line.white),
-            0.90,
+            theme_color[0] * shade,
+            theme_color[1] * shade,
+            theme_color[2] * shade,
             (line.a * 0.85).clamp(0.0, 1.0),
         ];
 
@@ -883,17 +895,13 @@ pub fn draw_inline_thinking_orb(
     for dot in &frame.dots {
         let dot_size = (dot.r * 2.0).max(1.2);
         let brightness = (1.0 - dot.white).clamp(0.05, 1.0);
-        let color = match kind {
-            OrbStateKind::Connecting => [brightness * 0.85 + 0.15, brightness * 0.90 + 0.10, 1.0, dot.a.clamp(0.1, 1.0)],
-            OrbStateKind::Working => [1.0, brightness * 0.85 + 0.15, brightness * 0.50, dot.a.clamp(0.1, 1.0)],
-            OrbStateKind::Searching => [brightness * 0.40 + 0.10, brightness * 0.95 + 0.05, 1.0, dot.a.clamp(0.1, 1.0)],
-            OrbStateKind::Solving => [brightness * 0.70 + 0.30, brightness * 0.80 + 0.20, 1.0, dot.a.clamp(0.1, 1.0)],
-            OrbStateKind::Listening => [brightness * 0.50 + 0.50, 1.0, brightness * 0.80 + 0.20, dot.a.clamp(0.1, 1.0)],
-            OrbStateKind::Weaving => [1.0, brightness * 0.60 + 0.20, brightness * 0.85 + 0.15, dot.a.clamp(0.1, 1.0)],
-            OrbStateKind::Composing => [brightness * 0.85 + 0.15, brightness * 0.70 + 0.10, 1.0, dot.a.clamp(0.1, 1.0)],
-            OrbStateKind::Breathing => [brightness * 0.75 + 0.25, brightness * 0.90 + 0.10, 1.0, dot.a.clamp(0.1, 1.0)],
-            OrbStateKind::Shaping => [1.0, 1.0, 1.0, dot.a.clamp(0.1, 1.0)],
-        };
+        let shade = 0.45 + brightness * 0.55;
+        let color = [
+            theme_color[0] * shade,
+            theme_color[1] * shade,
+            theme_color[2] * shade,
+            dot.a.clamp(0.1, 1.0),
+        ];
         let px = x + dot.x - dot.r;
         let py = y + dot.y - dot.r;
         ui.draws.push(DrawCommand::Rect(RectDraw {

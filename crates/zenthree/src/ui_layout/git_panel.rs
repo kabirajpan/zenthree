@@ -141,13 +141,13 @@ pub fn draw_source_control_panel(ui: &mut Ui, state: &mut ZenthreeState, panel_w
 
             // 1. Not a workspace
             if !state.has_workspace {
-                draw_empty_no_workspace(ui, state);
+                draw_empty_no_workspace(ui, state, panel_w);
                 return;
             }
 
             // 2. Workspace exists but not a git repo
             if !state.git_state.is_repo {
-                draw_empty_not_a_repo(ui, state);
+                draw_empty_not_a_repo(ui, state, panel_w);
                 return;
             }
 
@@ -1080,8 +1080,9 @@ pub fn draw_source_control_panel(ui: &mut Ui, state: &mut ZenthreeState, panel_w
         });
 }
 
-fn draw_empty_no_workspace(ui: &mut Ui, state: &mut ZenthreeState) {
+fn draw_empty_no_workspace(ui: &mut Ui, state: &mut ZenthreeState, panel_w: f32) {
     let colors = use_context::<ThemeColors>().map(|c| *c).unwrap_or_else(|| state.colors());
+    let text_width = (panel_w - 32.0).max(1.0);
 
     ui.container()
         .full_width()
@@ -1105,6 +1106,9 @@ fn draw_empty_no_workspace(ui: &mut Ui, state: &mut ZenthreeState) {
             ui.text("Open a folder or repository to view source control.")
                 .size(11.0)
                 .color(colors.text_muted)
+                .align(Align::Center)
+                .max_width(text_width)
+                .wrap(true)
                 .show();
 
             let open_btn = ui.button("Open Folder")
@@ -1126,8 +1130,9 @@ fn draw_empty_no_workspace(ui: &mut Ui, state: &mut ZenthreeState) {
         });
 }
 
-fn draw_empty_not_a_repo(ui: &mut Ui, state: &mut ZenthreeState) {
+fn draw_empty_not_a_repo(ui: &mut Ui, state: &mut ZenthreeState, panel_w: f32) {
     let colors = use_context::<ThemeColors>().map(|c| *c).unwrap_or_else(|| state.colors());
+    let text_width = (panel_w - 32.0).max(1.0);
 
     ui.container()
         .full_width()
@@ -1152,6 +1157,9 @@ fn draw_empty_not_a_repo(ui: &mut Ui, state: &mut ZenthreeState) {
             ui.text("The open folder is not a Git repository.")
                 .size(11.0)
                 .color(colors.text_muted)
+                .align(Align::Center)
+                .max_width(text_width)
+                .wrap(true)
                 .show();
 
             let init_btn = ui.button("Initialize Repository")
