@@ -322,7 +322,13 @@ impl Agent {
         let mut last_call_signature = String::new();
         let mut consecutive_repeat_count = 0;
 
-        for _iteration in 0..self.config.max_iterations {
+        for iteration in 0..self.config.max_iterations {
+            // Adaptive Throttling: Inject a 3-second delay between consecutive iterations
+            // to prevent bursting and hitting API rate limits (e.g., Gemini's 15 RPM).
+            if iteration > 0 {
+                std::thread::sleep(std::time::Duration::from_secs(3));
+            }
+
             // Situation J: Check for user cancellation at safe checkpoint
             if self.is_cancelled() {
                 let cancel_msg = "Agent execution was cancelled by the user.".to_string();
