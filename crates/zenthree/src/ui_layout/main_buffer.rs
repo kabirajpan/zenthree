@@ -562,6 +562,7 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                         }
                     }
 
+                    let is_modal_open = state.is_modal_or_dialog_open();
                     {
                         let tab_mut = &mut state.tabs[active_tab_idx];
                         let line_height_pixels = (state.font_size * 1.54).round().max(14.0);
@@ -589,7 +590,7 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                                 }
                             }
 
-                            if !is_dragging && ui.clicked && !is_near_panel_edge && !is_resizing && !is_occluded_by_ai {
+                            if !is_dragging && ui.clicked && !is_near_panel_edge && !is_resizing && !is_occluded_by_ai && !is_modal_open && !ui.is_occluded(scrollbar_id, ui.mouse_x, ui.mouse_y) {
                                 let max_sb_hit_x = editor_x + editor_w - 5.0;
                                 let max_sb_hit_y = editor_y + track_h - (if terminal_visible { 6.0 } else { 0.0 });
                                 let mouse_in_track = ui.mouse_x >= scrollbar_x - 4.0 && ui.mouse_x <= max_sb_hit_x
@@ -624,7 +625,7 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                             }
                         }
 
-                        let is_hovered = !is_occluded_by_ai && ui.mouse_in_rect(editor_x + ui.offset_x, editor_y + ui.offset_y, editor_w, editor_h);
+                        let is_hovered = !is_occluded_by_ai && !is_modal_open && !ui.is_occluded(editor_id, ui.mouse_x, ui.mouse_y) && ui.mouse_in_rect(editor_x + ui.offset_x, editor_y + ui.offset_y, editor_w, editor_h);
                         if is_hovered {
                             let mut scroll_delta_y = 0.0;
                             ui.input_events.retain(|event| {
@@ -1348,7 +1349,7 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                     });
 
                     // Set focus and mouse selection logic on click
-                    let is_hovered = ui.mouse_in_rect(editor_x + ui.offset_x, editor_y + ui.offset_y, editor_w, editor_h);
+                    let is_hovered = !state.is_modal_or_dialog_open() && !ui.is_occluded(editor_id, ui.mouse_x, ui.mouse_y) && ui.mouse_in_rect(editor_x + ui.offset_x, editor_y + ui.offset_y, editor_w, editor_h);
                     if ui.clicked && is_hovered {
                         // Avoid positioning the cursor if clicking on the scrollbar or panel edges
                         let scrollbar_w = 6.0;

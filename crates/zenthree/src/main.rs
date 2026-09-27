@@ -34,6 +34,7 @@ fn main() {
         .transparent(true)
         .blur(initial_blur)
         .load_font_data(font_bytes)
+        .register_custom_shader("spherical_polyhedra", include_str!("shaders/spherical_polyhedra.wgsl"))
         .with_ui(move |ui| {
             // Track global modifier key states from input events
             for event in &ui.input_events {
@@ -100,6 +101,15 @@ fn main() {
             // Provide reactive ThemeColors to the UI tree via Context API
             provide_context(colors);
 
+            // When any modal/dialog is open, activate modal mode so all bottom/background widgets are completely shielded
+            ui.modal_active = state.is_modal_or_dialog_open();
+
+            // When resizing any panel, disable scrollbars and scroll gestures across the UI
+            ui.resize_active = state.active_resize_sidebar
+                || state.active_resize_ai_panel
+                || state.active_resize_terminal
+                || state.git_state.active_resize_graph;
+
             // Main Background Container: vertical layout
             ui.container()
                 .fill()
@@ -141,10 +151,7 @@ fn main() {
                         state.sidebar_width = actual_sb_w;
                     }
 
-                    // Orb side panel width (only visible when orb is open AND AI panel is docked)
-                    let orb_panel_w = if state.orb_window_open && state.ai_panel_visible && !state.ai_panel_expanded { 80.0 } else { 0.0 };
-
-                    let center_w = (ui_width - activity_bar_w - actual_sb_w - if state.ai_panel_visible && !state.ai_panel_expanded { actual_ai_w } else { 0.0 } - orb_panel_w).max(min_editor_w);
+                    let center_w = (ui_width - activity_bar_w - actual_sb_w - if state.ai_panel_visible && !state.ai_panel_expanded { actual_ai_w } else { 0.0 }).max(min_editor_w);
 
                     let term_h = if state.terminal_visible {
                         state.terminal_height.min(middle_h - 80.0).max(60.0)
@@ -170,9 +177,6 @@ fn main() {
                                 // When expanded, the AI Agent Panel sits in the buffer area
                                 let expanded_w = (ui_width - activity_bar_w - actual_sb_w).max(200.0);
                                 ui_layout::draw_ai_panel(ui, &mut state, expanded_w, middle_h);
-                                if state.orb_window_open {
-                                    ui_layout::draw_orb_side_panel(ui, &mut state, middle_h);
-                                }
                             } else {
                                 ui.container()
                                     .width(center_w)
@@ -189,9 +193,6 @@ fn main() {
                                 // Right: AI Agent Panel (docked mode)
                                 if state.ai_panel_visible {
                                     ui_layout::draw_ai_panel(ui, &mut state, actual_ai_w, middle_h);
-                                    if state.orb_window_open {
-                                        ui_layout::draw_orb_side_panel(ui, &mut state, middle_h);
-                                    }
                                 }
                             }
                         });
@@ -208,6 +209,7 @@ fn main() {
                     ui_layout::draw_ai_settings_dialog(ui, &mut state);
                     ui_layout::draw_editor_settings_dialog(ui, &mut state);
                     ui_layout::draw_unsaved_changes_dialog(ui, &mut state);
+                    ui_layout::draw_thinking_orbs_demo_window(ui, &mut state);
                 });
         })
         .run();

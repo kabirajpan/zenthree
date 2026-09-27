@@ -643,12 +643,13 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
             let mut clicked_item_action: Option<(PathBuf, bool, bool)> = None;
             let mut inline_rendered = false;
             let mut do_start_new_note = false;
+            let is_modal_open = state.is_modal_or_dialog_open();
 
             let tree_resp = ui.container()
                 .full_width()
                 .fill_y()
                 .scroll_y(true)
-                .padding(2.0, scroll_padding_h, 2.0, scroll_padding_h)
+                .padding(2.0, 4.0, 2.0, scroll_padding_h)
                 .gap(1.0)
                 .show(|ui| {
                     if is_notes_view && items.is_empty() && state.inline_tree_input.is_none() {
@@ -965,11 +966,11 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
                             }
                         });
 
-                        if resp.clicked {
+                        if resp.clicked && !is_modal_open {
                             clicked_item_action = Some((node.path.clone(), node.is_dir, node.is_expanded));
                         }
 
-                        if ui.right_clicked && resp.hovered {
+                        if ui.right_clicked && resp.hovered && !is_modal_open {
                             right_clicked_node = Some((node.path.clone(), node.is_dir));
                         }
 
@@ -1063,6 +1064,8 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
         // Light dismiss on click outside
         if (ui.clicked || ui.right_clicked) && !mouse_in_menu {
             close_menu = true;
+            ui.consume_click();
+            ui.consume_right_click();
         }
 
         let root = state.get_tree_root();
@@ -1193,10 +1196,17 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
 
     // Detect if mouse is hovering over 6-pixel splitter bounds
     let handle_width = 6.0;
-    let is_hovered = ui.mouse_in_rect(splitter_x - handle_width / 2.0, splitter_y, handle_width, splitter_h);
+    let handle_id = Id::from_u64(999997199);
+    let is_blocked = ui.modal_active || state.is_modal_or_dialog_open() || ui.is_occluded(handle_id, ui.mouse_x, ui.mouse_y);
+    let is_hovered = !is_blocked && ui.mouse_in_rect(splitter_x - handle_width / 2.0, splitter_y, handle_width, splitter_h);
+
+    if is_blocked {
+        state.active_resize_sidebar = false;
+    }
 
     if is_hovered || state.active_resize_sidebar {
         ui.cursor_icon = CursorIcon::ColResize;
+        ui.resize_active = true;
     }
 
     if is_hovered && ui.mouse_down && ui.active_drag.is_none() {

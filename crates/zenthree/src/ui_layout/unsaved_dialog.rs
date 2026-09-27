@@ -4,7 +4,7 @@ use crate::theme::ThemeColors;
 
 pub fn draw_unsaved_changes_dialog(ui: &mut Ui, state: &mut ZenthreeState) {
     let colors = use_context::<ThemeColors>().map(|c| *c).unwrap_or_else(|| state.colors());
-    let dialog = match state.unsaved_changes_dialog.as_ref() {
+    let dialog = match state.unsaved_changes_dialog.as_mut() {
         Some(d) => d,
         None => return,
     };
@@ -12,6 +12,20 @@ pub fn draw_unsaved_changes_dialog(ui: &mut Ui, state: &mut ZenthreeState) {
     let viewport = ui.current_viewport;
     let win_w = 460.0f32.min(viewport.size.width - 32.0);
     let center_x = viewport.origin.x + (viewport.size.width - win_w) / 2.0;
+
+    let is_switch = dialog.target_workspace.is_some();
+    let unsaved_count = dialog.unsaved_files.len();
+
+    let approx_h = 190.0f32 + (unsaved_count.min(4) as f32 * 20.0);
+    let center_y = viewport.origin.y + (viewport.size.height - approx_h) / 2.0;
+
+    let modal_id = Id::from_u64(999996002);
+    let modal_key = Id::from_u64((modal_id.raw() << 8) | 5);
+    ui.interaction_state.insert(modal_key, 1.0);
+    ui.modal_window_id = Some(modal_id);
+    let prev_win_id = ui.current_window_id;
+    ui.current_window_id = Some(modal_id);
+    ui.record_layout(modal_id, zenthra_core::Rect::new(center_x, center_y, win_w, approx_h));
 
     // Semi-transparent backdrop overlay across entire viewport to block clicks behind
     ui.container()
@@ -33,9 +47,6 @@ pub fn draw_unsaved_changes_dialog(ui: &mut Ui, state: &mut ZenthreeState) {
     let mut do_discard = false;
     let mut do_cancel = false;
 
-    let is_switch = dialog.target_workspace.is_some();
-    let unsaved_count = dialog.unsaved_files.len();
-
     // Check keyboard events for Escape or Enter
     for event in &ui.input_events {
         if let zenthra_platform::event::PlatformEvent::KeyDown { key } = event {
@@ -48,11 +59,18 @@ pub fn draw_unsaved_changes_dialog(ui: &mut Ui, state: &mut ZenthreeState) {
         }
     }
 
-    let approx_h = 190.0f32 + (unsaved_count.min(4) as f32 * 20.0);
-    let center_y = viewport.origin.y + (viewport.size.height - approx_h) / 2.0;
+    // Outside click detection: ignore click that opened the dialog
+    if dialog.just_opened {
+        dialog.just_opened = false;
+    } else {
+        let mouse_in_dialog = ui.mouse_in_rect(center_x, center_y, win_w, approx_h);
+        if ui.clicked && !mouse_in_dialog {
+            do_cancel = true;
+        }
+    }
 
     let mut card = ui.container()
-        .id(Id::from_u64(999996002))
+        .id(modal_id)
         .absolute(center_x, center_y)
         .overlay()
         .width(win_w)
@@ -236,6 +254,11 @@ pub fn draw_unsaved_changes_dialog(ui: &mut Ui, state: &mut ZenthreeState) {
                 });
         });
 
+    if do_save || do_discard || do_cancel {
+        ui.interaction_state.remove(&modal_key);
+        ui.consume_click();
+    }
+
     if do_save {
         state.save_unsaved_and_proceed();
         ui.request_redraw();
@@ -246,4 +269,6 @@ pub fn draw_unsaved_changes_dialog(ui: &mut Ui, state: &mut ZenthreeState) {
         state.cancel_unsaved_dialog();
         ui.request_redraw();
     }
+
+    ui.current_window_id = prev_win_id;
 }

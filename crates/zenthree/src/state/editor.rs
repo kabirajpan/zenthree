@@ -115,6 +115,7 @@ impl ZenthreeState {
                     language_name: ext.name.to_string(),
                     file_name,
                     dont_show_again_checked: false,
+                    just_opened: true,
                 });
             }
         }

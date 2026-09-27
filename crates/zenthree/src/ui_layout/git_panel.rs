@@ -723,15 +723,22 @@ pub fn draw_source_control_panel(ui: &mut Ui, state: &mut ZenthreeState, panel_w
                 let splitter_x = ui.cursor_x;
                 let splitter_y = ui.cursor_y;
                 let splitter_w = panel_w;
-                let is_splitter_hovered = ui.mouse_in_rect(
+                let splitter_id = Id::from_u64(999997422);
+                let is_blocked = ui.modal_active || state.is_modal_or_dialog_open() || ui.is_occluded(splitter_id, ui.mouse_x, ui.mouse_y);
+                let is_splitter_hovered = !is_blocked && ui.mouse_in_rect(
                     splitter_x,
                     splitter_y - splitter_h / 2.0,
                     splitter_w,
                     splitter_h,
                 );
 
+                if is_blocked {
+                    state.git_state.active_resize_graph = false;
+                }
+
                 if is_splitter_hovered || state.git_state.active_resize_graph {
                     ui.cursor_icon = CursorIcon::RowResize;
+                    ui.resize_active = true;
                 }
 
                 if is_splitter_hovered && ui.mouse_down && ui.active_drag.is_none() {

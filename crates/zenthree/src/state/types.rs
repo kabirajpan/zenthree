@@ -34,6 +34,7 @@ pub struct UnsavedChangesDialog {
     pub target_workspace: Option<PathBuf>,
     /// List of unsaved file names or paths
     pub unsaved_files: Vec<String>,
+    pub just_opened: bool,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -383,6 +384,7 @@ pub struct LanguagePromptDialog {
     pub language_name: String,
     pub file_name: String,
     pub dont_show_again_checked: bool,
+    pub just_opened: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]

@@ -47,6 +47,7 @@ pub struct ZenthreeState {
     /// Kept alive for the lifetime of ZenthreeState.
     pub _status_clear_effect: zenthra_state::Effect,
     pub about_open: bool,
+    pub about_just_opened: bool,
     pub editor_settings_open: bool,
     pub editor_settings_tab: EditorSettingsTab,
     pub editor_settings_just_opened: bool,
@@ -152,13 +153,38 @@ pub struct ZenthreeState {
     pub orb_window_dragging: bool,
     #[allow(dead_code)]
     pub orb_window_drag_offset: (f32, f32),
+    #[allow(dead_code)]
     pub orb_animation_start: std::time::Instant,
+    pub orb_mode_index: usize,
+
+    /// Thinking Orbs (9-Mode Official Showcase) floating window state
+    pub thinking_orbs_demo_open: bool,
+    pub thinking_orbs_demo_pos: (f32, f32),
+    pub thinking_orbs_demo_dragging: bool,
+    pub thinking_orbs_demo_drag_offset: (f32, f32),
+    pub thinking_orbs_demo_mode: usize,
+    pub thinking_orbs_demo_size_preset: usize, // 0 = 64px, 1 = 20px, 2 = 120px
+    pub thinking_orbs_demo_speed: f32,
+    pub thinking_orbs_demo_paused: bool,
+    pub thinking_orbs_demo_pause_time: f32,
 
     /// Pending unsaved changes confirmation dialog when switching workspaces
     pub unsaved_changes_dialog: Option<UnsavedChangesDialog>,
 }
 
 impl ZenthreeState {
+    /// Returns true if any modal dialog, settings window, prompt, or popup is open.
+    pub fn is_modal_or_dialog_open(&self) -> bool {
+        self.about_open
+            || self.editor_settings_open
+            || self.ai_settings.open
+            || self.active_language_prompt.is_some()
+            || self.unsaved_changes_dialog.is_some()
+            || self.user_profile_open
+            || self.show_modified_files_popup
+            || self.tree_context_menu.is_some()
+    }
+
     pub fn new() -> Self {
         // Try workspace argument, fallback to std::env::current_dir(), fallback to home dir
         let args: Vec<String> = std::env::args().collect();
@@ -219,6 +245,7 @@ impl ZenthreeState {
             // Placeholder — will be replaced with the real effect after construction.
             _status_clear_effect: zenthra_state::Effect::run(|| {}),
             about_open: false,
+            about_just_opened: false,
             editor_settings_open: false,
             editor_settings_tab: EditorSettingsTab::Appearance,
             editor_settings_just_opened: false,
@@ -298,11 +325,21 @@ impl ZenthreeState {
             ai_menu_open: false,
             ai_settings: AiSettingsState::default(),
             custom_sessions_dir: None,
-            orb_window_open: false,
+            orb_window_open: true,
             orb_window_pos: (0.0, 0.0),
             orb_window_dragging: false,
             orb_window_drag_offset: (0.0, 0.0),
             orb_animation_start: std::time::Instant::now(),
+            orb_mode_index: 0,
+            thinking_orbs_demo_open: true,
+            thinking_orbs_demo_pos: (0.0, 0.0),
+            thinking_orbs_demo_dragging: false,
+            thinking_orbs_demo_drag_offset: (0.0, 0.0),
+            thinking_orbs_demo_mode: 4, // Default to connecting (web) mode, the one user requested!
+            thinking_orbs_demo_size_preset: 0, // 64px avatar preset
+            thinking_orbs_demo_speed: 1.0,
+            thinking_orbs_demo_paused: false,
+            thinking_orbs_demo_pause_time: 0.0,
             unsaved_changes_dialog: None,
         };
 

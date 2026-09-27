@@ -41,9 +41,19 @@ pub fn draw_editor_settings_dialog(ui: &mut Ui, state: &mut ZenthreeState) {
         true
     });
 
+    let modal_id = Id::from_u64(999999811);
+    let modal_key = Id::from_u64((modal_id.raw() << 8) | 5);
+    ui.interaction_state.insert(modal_key, 1.0);
+    ui.modal_window_id = Some(modal_id);
+    let prev_win_id = ui.current_window_id;
+    ui.current_window_id = Some(modal_id);
+    ui.record_layout(modal_id, zenthra_core::Rect::new(center_x, center_y, win_w, win_h));
+
     if close_on_esc {
         state.editor_settings_open = false;
+        ui.interaction_state.remove(&modal_key);
         state.save_persistent_state();
+        ui.current_window_id = prev_win_id;
         ui.needs_redraw = true;
         return;
     }
@@ -55,7 +65,10 @@ pub fn draw_editor_settings_dialog(ui: &mut Ui, state: &mut ZenthreeState) {
         let mouse_in_dialog = ui.mouse_in_rect(center_x, center_y, win_w, win_h);
         if ui.clicked && !mouse_in_dialog {
             state.editor_settings_open = false;
+            ui.interaction_state.remove(&modal_key);
+            ui.consume_click();
             state.save_persistent_state();
+            ui.current_window_id = prev_win_id;
             ui.needs_redraw = true;
             return;
         }
@@ -244,6 +257,8 @@ pub fn draw_editor_settings_dialog(ui: &mut Ui, state: &mut ZenthreeState) {
                         });
                 });
         });
+
+    ui.current_window_id = prev_win_id;
 }
 
 fn draw_appearance_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColors) {

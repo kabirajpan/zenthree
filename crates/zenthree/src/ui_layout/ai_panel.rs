@@ -152,7 +152,7 @@ fn draw_ai_chat_header(
                     }
 
                     // Floating Thinking Orb Window Toggle Button
-                    let is_orb_active = state.orb_window_open;
+                    let is_orb_active = state.thinking_orbs_demo_open;
                     let orb_btn = ui.container()
                         .clickable(true)
                         .width(22.0)
@@ -174,9 +174,9 @@ fn draw_ai_chat_header(
                         });
                     if orb_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
                     if orb_btn.clicked {
-                        state.orb_window_open = !state.orb_window_open;
-                        if state.orb_window_open {
-                            state.set_status("Thinking Orb Window activated");
+                        state.thinking_orbs_demo_open = !state.thinking_orbs_demo_open;
+                        if state.thinking_orbs_demo_open {
+                            state.set_status("Thinking Orb Showcase Window activated");
                         }
                         ui.needs_redraw = true;
                     }
@@ -239,15 +239,22 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
 
     if !state.ai_panel_expanded {
         let handle_w = 6.0;
-        let is_splitter_hovered = ui.mouse_in_rect(
+        let handle_id = Id::from_u64(999998899);
+        let is_blocked = ui.modal_active || state.is_modal_or_dialog_open() || ui.is_occluded(handle_id, ui.mouse_x, ui.mouse_y);
+        let is_splitter_hovered = !is_blocked && ui.mouse_in_rect(
             splitter_x - handle_w / 2.0,
             splitter_y,
             handle_w,
             height,
         );
 
+        if is_blocked {
+            state.active_resize_ai_panel = false;
+        }
+
         if is_splitter_hovered || state.active_resize_ai_panel {
             ui.cursor_icon = CursorIcon::ColResize;
+            ui.resize_active = true;
         }
 
         if is_splitter_hovered && ui.mouse_down && ui.active_drag.is_none() {

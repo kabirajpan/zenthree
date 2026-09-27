@@ -11,7 +11,7 @@ pub mod ai_settings_dialog;
 pub mod editor_settings_dialog;
 pub mod git_panel;
 pub mod notes_panel;
-pub mod thinking_orb_window;
+pub mod thinking_orbs_demo_window;
 pub mod markdown_preview;
 pub mod unsaved_dialog;
 
@@ -29,9 +29,7 @@ pub use extensions_panel::draw_extensions_panel;
 pub use activity_bar::{draw_activity_bar, ACTIVITY_BAR_WIDTH};
 pub use ai_settings_dialog::draw_ai_settings_dialog;
 pub use editor_settings_dialog::draw_editor_settings_dialog;
-pub use thinking_orb_window::draw_orb_side_panel;
-#[allow(unused_imports)]
-pub use thinking_orb_window::draw_thinking_orb_window;
+pub use thinking_orbs_demo_window::draw_thinking_orbs_demo_window;
 pub use markdown_preview::draw_markdown_buffer_preview;
 pub use unsaved_dialog::draw_unsaved_changes_dialog;
 
@@ -59,8 +57,30 @@ pub fn draw_about_dialog(ui: &mut Ui, state: &mut ZenthreeState) {
         colors.bg_sidebar
     };
 
+    let modal_id = Id::from_u64(999999088);
+    let modal_key = Id::from_u64((modal_id.raw() << 8) | 5);
+    ui.interaction_state.insert(modal_key, 1.0);
+    ui.modal_window_id = Some(modal_id);
+    let prev_win_id = ui.current_window_id;
+    ui.current_window_id = Some(modal_id);
+    ui.record_layout(modal_id, zenthra_core::Rect::new(center_x, center_y, win_w, win_h));
+
+    // Outside click dismisses dialog and consumes click: ignore click that opened the dialog
+    if state.about_just_opened {
+        state.about_just_opened = false;
+    } else {
+        let mouse_in_dialog = ui.mouse_in_rect(center_x, center_y, win_w, win_h);
+        if ui.clicked && !mouse_in_dialog {
+            state.about_open = false;
+            ui.interaction_state.remove(&modal_key);
+            ui.consume_click();
+            ui.request_redraw();
+            return;
+        }
+    }
+
     let mut card = ui.container()
-        .id(Id::from_u64(999999088))
+        .id(modal_id)
         .absolute(center_x, center_y)
         .overlay()
         .width(win_w)
@@ -118,7 +138,11 @@ pub fn draw_about_dialog(ui: &mut Ui, state: &mut ZenthreeState) {
 
             if close_btn.clicked {
                 state.about_open = false;
+                ui.interaction_state.remove(&modal_key);
+                ui.consume_click();
                 ui.request_redraw();
             }
         });
+
+    ui.current_window_id = prev_win_id;
 }

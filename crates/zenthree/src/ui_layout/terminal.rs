@@ -15,15 +15,22 @@ pub fn draw_terminal_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, h
     let splitter_x = ui.cursor_x;
     let splitter_y = ui.cursor_y;
     let splitter_w = width;
-    let is_splitter_hovered = ui.mouse_in_rect(
+    let splitter_handle_id = Id::from_u64(999999805);
+    let is_blocked = ui.modal_active || state.is_modal_or_dialog_open() || ui.is_occluded(splitter_handle_id, ui.mouse_x, ui.mouse_y);
+    let is_splitter_hovered = !is_blocked && ui.mouse_in_rect(
         splitter_x,
         splitter_y - splitter_h / 2.0,
         splitter_w,
         splitter_h,
     );
 
+    if is_blocked {
+        state.active_resize_terminal = false;
+    }
+
     if is_splitter_hovered || state.active_resize_terminal {
         ui.cursor_icon = CursorIcon::RowResize;
+        ui.resize_active = true;
     }
 
     if is_splitter_hovered && ui.mouse_down && ui.active_drag.is_none() {
@@ -338,7 +345,7 @@ pub fn draw_terminal_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, h
             let term_body_x = ui.cursor_x;
             let term_body_y = ui.cursor_y;
 
-            let is_term_hovered = ui.mouse_in_rect(term_body_x, term_body_y, width, body_h);
+            let is_term_hovered = !is_blocked && !ui.is_occluded(term_id, ui.mouse_x, ui.mouse_y) && ui.mouse_in_rect(term_body_x, term_body_y, width, body_h);
             if is_term_hovered {
                 ui.cursor_icon = CursorIcon::Text;
             }

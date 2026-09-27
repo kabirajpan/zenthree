@@ -233,6 +233,12 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                             ui.request_redraw();
                         }
 
+                        let orbs_mark = if state.thinking_orbs_demo_open { "● " } else { "  " };
+                        if ui.menu_item(&format!("{}Thinking Orbs (9-Mode Showcase)", orbs_mark)).show().clicked {
+                            state.thinking_orbs_demo_open = !state.thinking_orbs_demo_open;
+                            ui.request_redraw();
+                        }
+
                         ui.spacing(4.0);
 
                         // Cascading Submenu: Appearance
@@ -440,6 +446,7 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                     ui.menu("Help").show(|ui| {
                         if ui.menu_item("About Zenthree").show().clicked {
                             state.about_open = true;
+                            state.about_just_opened = true;
                             ui.request_redraw();
                         }
                     });

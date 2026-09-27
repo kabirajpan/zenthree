@@ -1,5 +1,6 @@
 use crate::state::ZenthreeState;
 use crate::theme::ThemeColors;
+use crate::ui_layout::thinking_orb_engine::OrbMode;
 use zenthra::{Align, Color, CursorIcon, FontWeight, Id, Ui};
 use zenthra_state::use_context;
 
@@ -13,64 +14,98 @@ pub fn draw_thinking_orb_window(ui: &mut Ui, state: &mut ZenthreeState) {
         .map(|c| *c)
         .unwrap_or_else(|| state.colors());
 
-    let win_w = 210.0;
-    let win_h = 224.0;
-    let win_radius = 12.0;
+    let win_w = 268.0;
+    let win_h = 265.0;
+    let win_radius = 14.0;
 
     // Initialize position on first open
     if state.orb_window_pos.0 <= 1.0 && state.orb_window_pos.1 <= 1.0 {
         state.orb_window_pos = ((ui.width - win_w - 24.0).max(20.0), 64.0);
     }
 
-    let mut pos_x = state.orb_window_pos.0;
-    let mut pos_y = state.orb_window_pos.1;
+    let mut pos_x = state.orb_window_pos.0.round();
+    let mut pos_y = state.orb_window_pos.1.round();
 
-    // Clamp inside viewport
-    pos_x = pos_x.clamp(10.0, (ui.width - win_w - 10.0).max(10.0));
-    pos_y = pos_y.clamp(10.0, (ui.height - win_h - 10.0).max(10.0));
-    state.orb_window_pos = (pos_x, pos_y);
+    const HEADER_H: f32 = 32.0;
 
-    // Card background: frosted glass or solid sidebar
+    // ── Dragging Interaction (handled directly on window coordinates) ──
+    let in_header_drag_area = ui.mouse_in_rect(pos_x, pos_y, win_w - 36.0, HEADER_H);
+    if in_header_drag_area && !state.orb_window_dragging {
+        ui.cursor_icon = CursorIcon::Grab;
+        if ui.mouse_down {
+            state.orb_window_dragging = true;
+            state.orb_window_drag_offset = (ui.mouse_x - pos_x, ui.mouse_y - pos_y);
+        }
+    }
+
+    if state.orb_window_dragging {
+        if ui.mouse_down {
+            ui.cursor_icon = CursorIcon::Grabbing;
+            ui.consume_pointer();
+            pos_x = (ui.mouse_x - state.orb_window_drag_offset.0).clamp(10.0, (ui.width - win_w - 10.0).max(10.0)).round();
+            pos_y = (ui.mouse_y - state.orb_window_drag_offset.1).clamp(10.0, (ui.height - win_h - 10.0).max(10.0)).round();
+            state.orb_window_pos = (pos_x, pos_y);
+            ui.needs_redraw = true;
+        } else {
+            state.orb_window_dragging = false;
+        }
+    }
+
+    // Card background: frosted glass with high opacity for sharp contrast
     let card_bg = if state.glassmorphism {
-        colors.bg_sidebar.with_alpha((state.glass_opacity * 1.15).clamp(0.45, 0.95))
+        colors.bg_sidebar.with_alpha(0.92)
     } else {
         colors.bg_sidebar
     };
 
+    let card_id = Id::from_u64(999999880);
+    let prev_win_id = ui.current_window_id;
+    ui.current_window_id = Some(card_id);
+    ui.record_layout(card_id, zenthra_core::Rect::new(pos_x, pos_y, win_w, win_h));
+    let overlay_key = Id::from_u64((card_id.raw() << 8) | 99);
+    ui.interaction_state.insert(overlay_key, 1.0);
+    ui.active_overlays.push(card_id);
+    ui.active_overlay_stack.push(card_id);
+
     let mut card = ui.container()
-        .id(Id::from_u64(999999880))
+        .id(card_id)
         .absolute(pos_x, pos_y)
         .overlay()
         .width(win_w)
         .height(win_h)
         .bg(card_bg)
-        .border(colors.border.with_alpha(0.45), 1.0)
+        .border(colors.border.with_alpha(0.75), 1.0)
         .radius_all(win_radius)
-        .shadow(Color::rgba(0.0, 0.0, 0.0, 0.40), 0.0, 8.0, 24.0);
+        .shadow(Color::rgba(0.0, 0.0, 0.0, 0.45), 0.0, 10.0, 30.0);
 
     if state.glassmorphism {
-        card = card.backdrop_blur(state.blur_strength.max(4.0));
+        card = card.backdrop_blur(state.blur_strength.max(6.0));
     }
 
     let mut do_close = false;
     let mut do_open_ai_panel = false;
 
+    // Get current mode
+    let current_mode = match state.orb_mode_index % 4 {
+        1 => OrbMode::Thinking,
+        2 => OrbMode::Searching,
+        3 => OrbMode::Analyzing,
+        _ => OrbMode::Default,
+    };
+
     card.column()
-        .clip(true)
         .show(|ui| {
             // ── Top Header / Drag Handle ──────────────────────────────────────
-            const HEADER_H: f32 = 30.0;
-            let header_bg = colors.highlight.with_alpha(0.02);
+            let header_bg = colors.highlight.with_alpha(0.04);
 
-            let header_resp = ui.container()
+            ui.container()
                 .id(Id::from_u64(999999881))
-                .clickable(true)
                 .full_width()
                 .height(HEADER_H)
                 .radius_top(win_radius)
                 .bg(header_bg)
-                .padding_left(10.0)
-                .padding_right(8.0)
+                .padding_left(12.0)
+                .padding_right(10.0)
                 .row()
                 .valign(Align::Center)
                 .halign(Align::SpaceBetween)
@@ -79,11 +114,11 @@ pub fn draw_thinking_orb_window(ui: &mut Ui, state: &mut ZenthreeState) {
                     ui.container()
                         .row()
                         .valign(Align::Center)
-                        .gap(6.0)
+                        .gap(7.0)
                         .show(|ui| {
                             let is_working = state.is_ai_working();
                             let dot_col = if is_working {
-                                Color::rgb(250.0 / 255.0, 160.0 / 255.0, 20.0 / 255.0) // Amber pulse
+                                Color::rgb(250.0 / 255.0, 160.0 / 255.0, 20.0 / 255.0)
                             } else {
                                 colors.accent
                             };
@@ -95,29 +130,25 @@ pub fn draw_thinking_orb_window(ui: &mut Ui, state: &mut ZenthreeState) {
                                 .show(|_| {});
 
                             ui.text("Thinking Orb")
-                                .size(11.0)
+                                .size(12.0)
                                 .weight(FontWeight::SemiBold)
                                 .color(colors.text_primary)
                                 .show();
                         });
 
                     // Right: Close button
-                    let close_btn = ui.container()
+                    let close_btn = ui.button("✕")
                         .id(Id::from_u64(999999882))
-                        .clickable(true)
-                        .width(18.0)
-                        .height(18.0)
-                        .radius_all(3.0)
+                        .width(20.0)
+                        .height(20.0)
+                        .padding_all(0.0)
+                        .radius_all(4.0)
                         .bg(Color::TRANSPARENT)
                         .hover_bg(colors.highlight)
-                        .halign(Align::Center)
-                        .valign(Align::Center)
-                        .show(|ui| {
-                            ui.text("✕")
-                                .size(9.5)
-                                .color(colors.text_muted)
-                                .show();
-                        });
+                        .text_color(colors.text_muted)
+                        .size(11.0)
+                        .show();
+
                     if close_btn.hovered {
                         ui.cursor_icon = CursorIcon::Pointer;
                     }
@@ -126,162 +157,129 @@ pub fn draw_thinking_orb_window(ui: &mut Ui, state: &mut ZenthreeState) {
                     }
                 });
 
-            // Thin separator replacing border_bottom
+            // Thin separator
             ui.container()
                 .full_width()
                 .height(1.0)
-                .bg(colors.border.with_alpha(0.25))
+                .bg(colors.border.with_alpha(0.35))
                 .show(|_| {});
 
-            // Dragging interaction
-            if header_resp.hovered {
-                ui.cursor_icon = CursorIcon::Grab;
-            }
-            if header_resp.pressed && ui.mouse_down {
-                if !state.orb_window_dragging {
-                    state.orb_window_dragging = true;
-                    state.orb_window_drag_offset = (ui.mouse_x - pos_x, ui.mouse_y - pos_y);
+            // ── Orb Animation Stage (Spherical Polyhedra GPU Shader) ─────────
+            const STAGE_H: f32 = 125.0;
+
+            let orb_stage_y = pos_y + HEADER_H + 1.0;
+            let in_orb_stage = ui.mouse_in_rect(pos_x, orb_stage_y, win_w, STAGE_H);
+            if in_orb_stage {
+                ui.cursor_icon = CursorIcon::Pointer;
+                if ui.clicked {
+                    do_open_ai_panel = true;
+                    ui.consume_click();
                 }
             }
-            if !ui.mouse_down {
-                state.orb_window_dragging = false;
-            }
-            if state.orb_window_dragging {
-                ui.cursor_icon = CursorIcon::Grabbing;
-                let new_x = (ui.mouse_x - state.orb_window_drag_offset.0).clamp(10.0, (ui.width - win_w - 10.0).max(10.0));
-                let new_y = (ui.mouse_y - state.orb_window_drag_offset.1).clamp(10.0, (ui.height - win_h - 10.0).max(10.0));
-                state.orb_window_pos = (new_x, new_y);
-                ui.needs_redraw = true;
-            }
 
-            // ── Orb Animation Stage ──────────────────────────────────────────
-            // NOTE: .absolute() inside nested .show() closures resolves against
-            // prev_global_ox which is 0 at deep nesting → layers were invisible.
-            // Fix: reserve a fixed-height flow slot, then draw all orb layers as
-            // overlay containers with real screen coords (pos_x + offset).
-            let t = state.orb_animation_start.elapsed().as_secs_f32();
             let is_working = state.is_ai_working();
-            let speed = if is_working { 3.2 } else { 1.2 };
-            let pulse = (t * speed).sin() * 0.5 + 0.5;
-            let pulse_slow = (t * (speed * 0.5)).cos() * 0.5 + 0.5;
 
-            // Stage dimensions and center in screen space
-            // Header (30) + separator (1) = 31px from card top
-            const STAGE_H: f32 = 130.0;
-            const STAGE_W: f32 = 210.0; // == win_w
-            let stage_screen_cx = pos_x + STAGE_W / 2.0;
-            let stage_screen_cy = pos_y + 31.0 + STAGE_H / 2.0;
+            // Modes: 0=Default (Pure Sphere), 1=Thinking, 2=Searching, 3=Analyzing
+            let (sel_mode, tint) = match current_mode {
+                OrbMode::Default => (0.0, [1.0, 1.0, 1.0]),
+                OrbMode::Thinking => (1.0, [1.0, 0.78, 0.28]),
+                OrbMode::Searching => (2.0, [0.15, 0.92, 1.0]),
+                OrbMode::Analyzing => (3.0, [0.75, 0.38, 1.0]),
+            };
 
-            // Reserve layout space so subsequent flow items position correctly
-            let orb_click_resp = ui.container()
-                .id(Id::from_u64(999999889))
-                .clickable(true)
+            // Dynamic thinking/searching/analyzing animation intensity & speed multipliers
+            let is_active_mode = is_working || current_mode != OrbMode::Default;
+            let active_intensity = if is_active_mode { 1.0 } else { 0.0 };
+
+            let speed_mult = match current_mode {
+                OrbMode::Thinking => 1.5,
+                OrbMode::Searching => 1.3,
+                OrbMode::Analyzing => 1.1,
+                OrbMode::Default => 1.0,
+            };
+
+            // Compute interactive mouse tilt when hovering over orb stage
+            let stage_screen_cx = pos_x + win_w / 2.0;
+            let stage_screen_cy = orb_stage_y + STAGE_H / 2.0;
+            let (mouse_x_norm, mouse_y_norm) = if in_orb_stage {
+                (
+                    ((ui.mouse_x - stage_screen_cx) / (win_w * 0.5)).clamp(-1.0, 1.0),
+                    ((ui.mouse_y - stage_screen_cy) / (STAGE_H * 0.5)).clamp(-1.0, 1.0),
+                )
+            } else {
+                (0.0, 0.0)
+            };
+
+            let shader_params = [
+                sel_mode,
+                tint[0],
+                tint[1],
+                tint[2],
+                active_intensity,
+                speed_mult,
+                mouse_x_norm,
+                mouse_y_norm,
+            ];
+
+            // Custom spherical polyhedra raymarching container
+            ui.container()
+                .id(Id::from_u64(999999883))
                 .full_width()
                 .height(STAGE_H)
-                .bg(Color::TRANSPARENT)
+                .post_process_shader_with_params("spherical_polyhedra", shader_params)
                 .show(|_| {});
 
-            if orb_click_resp.hovered {
-                ui.cursor_icon = CursorIcon::Pointer;
-            }
-            if orb_click_resp.clicked {
-                do_open_ai_panel = true;
-            }
-
-            // ── Layer 1: Outer Ambient Aura (overlay, real screen coords) ────
-            let aura_size = 72.0 + pulse * 14.0;
-            let aura_color = if is_working {
-                Color::rgba(245.0 / 255.0, 140.0 / 255.0, 30.0 / 255.0, 0.16 + pulse * 0.14)
-            } else {
-                colors.accent.with_alpha(0.09 + pulse * 0.08)
-            };
+            // ── Mode Switcher Selector Pills ─────────────────────────────────
             ui.container()
-                .id(Id::from_u64(999999891))
-                .overlay()
-                .absolute(stage_screen_cx - aura_size / 2.0, stage_screen_cy - aura_size / 2.0)
-                .width(aura_size)
-                .height(aura_size)
-                .radius_all(aura_size / 2.0)
-                .bg(aura_color)
-                .show(|_| {});
+                .full_width()
+                .padding_left(8.0)
+                .padding_right(8.0)
+                .padding_bottom(6.0)
+                .row()
+                .halign(Align::Center)
+                .valign(Align::Center)
+                .gap(4.0)
+                .show(|ui| {
+                    for (idx, mode) in OrbMode::ALL.iter().enumerate() {
+                        let is_active = state.orb_mode_index % OrbMode::ALL.len() == idx;
+                        let pill_bg = if is_active {
+                            colors.accent.with_alpha(0.25)
+                        } else {
+                            colors.highlight.with_alpha(0.06)
+                        };
+                        let pill_text_col = if is_active {
+                            colors.accent
+                        } else {
+                            colors.text_muted
+                        };
+                        let pill_border = if is_active {
+                            colors.accent.with_alpha(0.70)
+                        } else {
+                            colors.border.with_alpha(0.30)
+                        };
 
-            // ── Layer 2: Harmonic Halo ────────────────────────────────────────
-            let halo_size = 56.0 + pulse_slow * 8.0;
-            let halo_color = if is_working {
-                Color::rgba(230.0 / 255.0, 70.0 / 255.0, 160.0 / 255.0, 0.25 + pulse * 0.15)
-            } else {
-                Color::rgba(130.0 / 255.0, 90.0 / 255.0, 240.0 / 255.0, 0.18 + pulse * 0.10)
-            };
-            ui.container()
-                .id(Id::from_u64(999999892))
-                .overlay()
-                .absolute(stage_screen_cx - halo_size / 2.0, stage_screen_cy - halo_size / 2.0)
-                .width(halo_size)
-                .height(halo_size)
-                .radius_all(halo_size / 2.0)
-                .bg(halo_color)
-                .show(|_| {});
+                        let pill_btn = ui.button(mode.label())
+                            .id(Id::from_u64(999999910 + idx as u64))
+                            .height(24.0)
+                            .padding_x(7.5)
+                            .padding_y(3.0)
+                            .radius_all(6.0)
+                            .bg(pill_bg)
+                            .hover_bg(if is_active { pill_bg } else { colors.highlight.with_alpha(0.14) })
+                            .text_color(pill_text_col)
+                            .border(pill_border, 1.0)
+                            .size(10.0)
+                            .show();
 
-            // ── Layer 3: Core Luminous Sphere ─────────────────────────────────
-            let core_size = 42.0;
-            let core_color = if is_working {
-                Color::rgb(0.95, 0.40 + pulse * 0.35, 0.15 + pulse_slow * 0.30)
-            } else {
-                colors.accent
-            };
-            let core_glow = if is_working {
-                Color::rgba(1.0, 140.0 / 255.0, 20.0 / 255.0, 0.65)
-            } else {
-                colors.accent.with_alpha(0.55)
-            };
-            ui.container()
-                .id(Id::from_u64(999999893))
-                .overlay()
-                .absolute(stage_screen_cx - core_size / 2.0, stage_screen_cy - core_size / 2.0)
-                .width(core_size)
-                .height(core_size)
-                .radius_all(core_size / 2.0)
-                .bg(core_color)
-                .border(Color::rgba(1.0, 1.0, 1.0, 0.45 + pulse * 0.30), 1.5)
-                .shadow(core_glow, 0.0, 0.0, 16.0 + pulse * 10.0)
-                .show(|_| {});
-
-            // ── Layer 3b: Specular Glint (top-left highlight) ─────────────────
-            ui.container()
-                .id(Id::from_u64(999999894))
-                .overlay()
-                .absolute(
-                    stage_screen_cx - core_size / 2.0 + 6.0,
-                    stage_screen_cy - core_size / 2.0 + 6.0,
-                )
-                .width(11.0)
-                .height(11.0)
-                .radius_all(5.5)
-                .bg(Color::rgba(1.0, 1.0, 1.0, 0.70))
-                .show(|_| {});
-
-            // ── Layer 4: Orbiting Energy Spark ────────────────────────────────
-            let orbit_speed = if is_working { 4.5 } else { 1.6 };
-            let angle = t * orbit_speed;
-            let orbit_r = 30.0 + pulse * 4.0;
-            let dot_size = 5.5;
-            let dot_screen_x = stage_screen_cx + angle.cos() * orbit_r - dot_size / 2.0;
-            let dot_screen_y = stage_screen_cy + angle.sin() * orbit_r - dot_size / 2.0;
-            let dot_color = if is_working {
-                Color::rgb(1.0, 0.90, 0.30)
-            } else {
-                Color::rgba(1.0, 1.0, 1.0, 0.85)
-            };
-            ui.container()
-                .id(Id::from_u64(999999895))
-                .overlay()
-                .absolute(dot_screen_x, dot_screen_y)
-                .width(dot_size)
-                .height(dot_size)
-                .radius_all(dot_size / 2.0)
-                .bg(dot_color)
-                .shadow(dot_color, 0.0, 0.0, 6.0)
-                .show(|_| {});
+                        if pill_btn.hovered {
+                            ui.cursor_icon = CursorIcon::Pointer;
+                        }
+                        if pill_btn.clicked {
+                            state.orb_mode_index = idx;
+                            ui.needs_redraw = true;
+                        }
+                    }
+                });
 
             // ── Status Readout & Clickable Action ────────────────────────────
             ui.container()
@@ -289,56 +287,53 @@ pub fn draw_thinking_orb_window(ui: &mut Ui, state: &mut ZenthreeState) {
                 .halign(Align::Center)
                 .valign(Align::Center)
                 .column()
-                .gap(5.0)
+                .gap(4.0)
+                .padding_bottom(8.0)
                 .show(|ui| {
-                    let status_pill = ui.container()
-                        .clickable(true)
-                        .padding(3.5, 10.0, 3.5, 10.0)
-                        .radius_all(10.0)
+                    let label = match current_mode {
+                        OrbMode::Default => "Default · Ready",
+                        OrbMode::Thinking => "Thinking...",
+                        OrbMode::Searching => "Searching...",
+                        OrbMode::Analyzing => "Analyzing neural web...",
+                    };
+                    let bullet = if is_active_mode { "● " } else { "● " };
+                    let status_label = format!("{}{}", bullet, label);
+
+                    let status_btn = ui.button(&status_label)
+                        .id(Id::from_u64(999999890))
+                        .height(24.0)
+                        .padding_x(12.0)
+                        .padding_y(3.0)
+                        .radius_all(12.0)
                         .bg(colors.highlight)
-                        .hover_bg(colors.highlight.with_alpha(0.08))
-                        .border(colors.border.with_alpha(0.35), 0.75)
-                        .row()
-                        .valign(Align::Center)
-                        .gap(5.0)
-                        .show(|ui| {
-                            let label = if is_working {
-                                "Thinking..."
-                            } else {
-                                "AI Ready"
-                            };
-                            let icon_color = if is_working {
-                                Color::rgb(250.0 / 255.0, 160.0 / 255.0, 20.0 / 255.0)
-                            } else {
-                                colors.accent
-                            };
+                        .hover_bg(colors.highlight.with_alpha(0.20))
+                        .text_color(if is_working {
+                            Color::rgb(250.0 / 255.0, 160.0 / 255.0, 20.0 / 255.0)
+                        } else {
+                            colors.text_primary
+                        })
+                        .border(colors.border.with_alpha(0.50), 1.0)
+                        .size(10.5)
+                        .show();
 
-                            ui.text("●")
-                                .size(7.0)
-                                .color(icon_color)
-                                .show();
-
-                            ui.text(label)
-                                .size(10.5)
-                                .weight(FontWeight::Medium)
-                                .color(colors.text_primary)
-                                .show();
-                        });
-
-                    if status_pill.hovered {
+                    if status_btn.hovered {
                         ui.cursor_icon = CursorIcon::Pointer;
                     }
-                    if status_pill.clicked {
+                    if status_btn.clicked {
                         do_open_ai_panel = true;
                     }
 
                     // Secondary helper text
                     ui.text("Click orb to open AI chat")
-                        .size(9.0)
-                        .color(colors.text_muted.with_alpha(0.70))
+                        .size(9.5)
+                        .color(colors.text_muted.with_alpha(0.80))
                         .show();
                 });
         });
+
+    if ui.clicked && ui.mouse_in_rect(pos_x, pos_y, win_w, win_h) {
+        ui.consume_click();
+    }
 
     if do_close {
         state.orb_window_open = false;
@@ -352,13 +347,16 @@ pub fn draw_thinking_orb_window(ui: &mut Ui, state: &mut ZenthreeState) {
         ui.needs_redraw = true;
     }
 
-    // Smooth ~30 FPS animation frame request while window is open
-    ui.request_redraw_after(std::time::Duration::from_millis(33));
+    // Restore window ID & overlays
+    ui.active_overlay_stack.retain(|&id| id != card_id);
+    ui.current_window_id = prev_win_id;
+
+    // Hardware V-Sync synchronized animation loop
+    ui.request_redraw();
 }
 
-/// Renders the orb as a fixed-width side panel (normal in-flow layout, no
-/// absolute/overlay tricks). Call it in a `row()` context next to the AI panel
-/// to preview the orb without floating-window coordinate issues.
+/// Renders the orb inside the fixed-width side panel next to the AI chat
+#[allow(dead_code)]
 pub fn draw_orb_side_panel(ui: &mut Ui, state: &mut ZenthreeState, height: f32) {
     let colors = use_context::<ThemeColors>()
         .map(|c| *c)
@@ -383,84 +381,49 @@ pub fn draw_orb_side_panel(ui: &mut Ui, state: &mut ZenthreeState, height: f32) 
         panel = panel.backdrop_blur(state.blur_strength.max(4.0));
     }
 
+    let current_mode = match state.orb_mode_index % 4 {
+        1 => OrbMode::Thinking,
+        2 => OrbMode::Searching,
+        3 => OrbMode::Analyzing,
+        _ => OrbMode::Default,
+    };
+
     panel.column()
         .halign(Align::Center)
         .valign(Align::Center)
-        .gap(10.0)
+        .gap(8.0)
         .show(|ui| {
-            let t = state.orb_animation_start.elapsed().as_secs_f32();
             let is_working = state.is_ai_working();
-            let speed = if is_working { 3.2 } else { 1.2 };
-            let pulse = (t * speed).sin() * 0.5 + 0.5;
-            let pulse_slow = (t * speed * 0.5).cos() * 0.5 + 0.5;
+            let stage_size = 54.0;
+            let (sel_mode, tint) = match current_mode {
+                OrbMode::Default => (0.0, [1.0, 1.0, 1.0]),
+                OrbMode::Thinking => (1.0, [1.0, 0.78, 0.28]),
+                OrbMode::Searching => (2.0, [0.15, 0.92, 1.0]),
+                OrbMode::Analyzing => (3.0, [0.75, 0.38, 1.0]),
+            };
 
-            // ── Stage: fixed 68×68 area, layers as in-flow centered circles ─
-            // We draw from outermost (aura) inward so each one paints on top.
-            // Using a stack container with centered children.
-            let stage_size = 68.0;
+            let is_active_mode = is_working || current_mode != OrbMode::Default;
+            let active_intensity = if is_active_mode { 1.0 } else { 0.0 };
+            let speed_mult = match current_mode {
+                OrbMode::Thinking => 1.5,
+                OrbMode::Searching => 1.3,
+                OrbMode::Analyzing => 1.1,
+                OrbMode::Default => 1.0,
+            };
+            let shader_params = [
+                sel_mode, tint[0], tint[1], tint[2],
+                active_intensity, speed_mult, 0.0, 0.0,
+            ];
 
             ui.container()
                 .id(Id::from_u64(999999871))
                 .width(stage_size)
                 .height(stage_size)
-                .halign(Align::Center)
-                .valign(Align::Center)
-                .show(|ui| {
-                    // Aura — uses padding trick: negative margin via centering
-                    let aura_size = 52.0 + pulse * 10.0;
-                    let aura_color = if is_working {
-                        Color::rgba(245.0 / 255.0, 140.0 / 255.0, 30.0 / 255.0, 0.18 + pulse * 0.14)
-                    } else {
-                        colors.accent.with_alpha(0.10 + pulse * 0.09)
-                    };
-                    ui.container()
-                        .width(aura_size)
-                        .height(aura_size)
-                        .radius_all(aura_size / 2.0)
-                        .bg(aura_color)
-                        .halign(Align::Center)
-                        .show(|_| {});
-
-                    // Halo
-                    let halo_size = 40.0 + pulse_slow * 6.0;
-                    let halo_color = if is_working {
-                        Color::rgba(230.0 / 255.0, 70.0 / 255.0, 160.0 / 255.0, 0.28 + pulse * 0.16)
-                    } else {
-                        Color::rgba(130.0 / 255.0, 90.0 / 255.0, 240.0 / 255.0, 0.20 + pulse * 0.12)
-                    };
-                    ui.container()
-                        .width(halo_size)
-                        .height(halo_size)
-                        .radius_all(halo_size / 2.0)
-                        .bg(halo_color)
-                        .halign(Align::Center)
-                        .show(|_| {});
-
-                    // Core
-                    let core_size = 28.0;
-                    let core_color = if is_working {
-                        Color::rgb(0.95, 0.40 + pulse * 0.35, 0.15 + pulse_slow * 0.30)
-                    } else {
-                        colors.accent
-                    };
-                    let core_glow = if is_working {
-                        Color::rgba(1.0, 140.0 / 255.0, 20.0 / 255.0, 0.65)
-                    } else {
-                        colors.accent.with_alpha(0.55)
-                    };
-                    ui.container()
-                        .width(core_size)
-                        .height(core_size)
-                        .radius_all(core_size / 2.0)
-                        .bg(core_color)
-                        .border(Color::rgba(1.0, 1.0, 1.0, 0.40 + pulse * 0.30), 1.5)
-                        .shadow(core_glow, 0.0, 0.0, 12.0 + pulse * 8.0)
-                        .halign(Align::Center)
-                        .show(|_| {});
-                });
+                .post_process_shader_with_params("spherical_polyhedra", shader_params)
+                .show(|_| {});
 
             // Status label
-            let label = if is_working { "Thinking" } else { "Ready" };
+            let label = current_mode.label();
             let label_color = if is_working {
                 Color::rgb(250.0 / 255.0, 160.0 / 255.0, 20.0 / 255.0)
             } else {
@@ -473,19 +436,18 @@ pub fn draw_orb_side_panel(ui: &mut Ui, state: &mut ZenthreeState, height: f32) 
                 .gap(4.0)
                 .show(|ui| {
                     ui.container()
-                        .width(5.0)
-                        .height(5.0)
-                        .radius_all(2.5)
+                        .width(4.5)
+                        .height(4.5)
+                        .radius_all(2.25)
                         .bg(label_color)
                         .show(|_| {});
                     ui.text(label)
-                        .size(9.0)
+                        .size(8.5)
                         .weight(FontWeight::Medium)
                         .color(colors.text_muted)
                         .show();
                 });
         });
 
-    // Keep animating
-    ui.request_redraw_after(std::time::Duration::from_millis(33));
+    ui.request_redraw_after(std::time::Duration::from_millis(16));
 }

@@ -131,6 +131,7 @@ impl ZenthreeState {
             self.unsaved_changes_dialog = Some(UnsavedChangesDialog {
                 target_workspace: Some(path),
                 unsaved_files: self.unsaved_tab_names(),
+                just_opened: true,
             });
         } else {
             self.open_workspace(path);
@@ -142,6 +143,7 @@ impl ZenthreeState {
             self.unsaved_changes_dialog = Some(UnsavedChangesDialog {
                 target_workspace: None,
                 unsaved_files: self.unsaved_tab_names(),
+                just_opened: true,
             });
         } else {
             self.close_workspace();
