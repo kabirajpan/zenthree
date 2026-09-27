@@ -16,6 +16,10 @@
 .env
 .env.local
 
+# Local application sessions
+.zenthree_sessions/
+/python_demo/
+
 # Backup files
 *~
 *.bak
