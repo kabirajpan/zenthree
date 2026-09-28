@@ -14,9 +14,7 @@ use zenthra::prelude::*;
 
 fn main() {
     // Only load .env from the current working directory, do NOT search parent directories.
-    if let Err(e) = dotenvy::from_path("./.env") {
-        eprintln!("Warning: Could not load ./.env file: {}", e);
-    }
+    let _ = dotenvy::from_path("./.env");
     env_logger::init();
 
     // Initialize the modular state (loads persistent state from disk)

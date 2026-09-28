@@ -1,6 +1,6 @@
 use crate::state::{EditorSettingsTab, ZenthreeState};
 use crate::theme::ThemeColors;
-use zenthra::{Align, Color, CursorIcon, FontWeight, Id, Ui};
+use zenthra::{Align, Color, CursorIcon, FontWeight, Id, Ui, Wrap};
 
 pub fn draw_editor_settings_dialog(ui: &mut Ui, state: &mut ZenthreeState) {
     if !state.editor_settings_open {
@@ -291,6 +291,7 @@ fn draw_appearance_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeCol
                             ui.text("Wayland/OS frosted glassmorphism, blur strength, panel opacity, and editor typography.")
                                 .size(11.0)
                                 .color(colors.text_muted)
+                                .auto_wrap()
                                 .show();
                         });
 
@@ -298,15 +299,16 @@ fn draw_appearance_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeCol
                         .clickable(true)
                         .padding(4.0, 10.0, 4.0, 10.0)
                         .radius_all(5.0)
-                        .bg(colors.highlight)
-                        .hover_bg(colors.accent.with_alpha(0.12))
-                        .border(colors.border.with_alpha(0.30), 1.0)
+                        .bg(colors.accent.with_alpha(0.10))
+                        .hover_bg(colors.accent.with_alpha(0.20))
+                        .border(colors.accent.with_alpha(0.35), 1.0)
                         .row()
                         .valign(Align::Center)
                         .gap(5.0)
                         .show(|ui| {
                             ui.text("↺")
                                 .size(12.0)
+                                .weight(FontWeight::Bold)
                                 .color(colors.accent)
                                 .show();
                             ui.text("Reset Defaults")
@@ -350,6 +352,7 @@ fn draw_appearance_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeCol
                             ui.text("Request OS/Wayland compositor to blur the desktop behind translucent surfaces (On/Off)")
                                 .size(11.0)
                                 .color(colors.text_muted)
+                                .auto_wrap()
                                 .show();
                         });
 
@@ -416,6 +419,7 @@ fn draw_appearance_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeCol
                                     ui.text("Backdrop blur radius for modal dialogs, cards, and floating panels (Default: 24px)")
                                         .size(11.0)
                                         .color(colors.text_muted)
+                                        .auto_wrap()
                                         .show();
                                 });
 
@@ -431,7 +435,8 @@ fn draw_appearance_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeCol
                                         .height(22.0)
                                         .radius_all(4.0)
                                         .bg(colors.highlight)
-                                        .hover_bg(colors.highlight)
+                                        .border(colors.border.with_alpha(0.30), 1.0)
+                                        .hover_bg(colors.accent.with_alpha(0.18))
                                         .valign(Align::Center)
                                         .halign(Align::Center)
                                         .show(|ui| {
@@ -472,7 +477,8 @@ fn draw_appearance_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeCol
                                         .height(22.0)
                                         .radius_all(4.0)
                                         .bg(colors.highlight)
-                                        .hover_bg(colors.highlight)
+                                        .border(colors.border.with_alpha(0.30), 1.0)
+                                        .hover_bg(colors.accent.with_alpha(0.18))
                                         .valign(Align::Center)
                                         .halign(Align::Center)
                                         .show(|ui| {
@@ -501,11 +507,13 @@ fn draw_appearance_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeCol
                                 });
                         });
 
-                    // Preset chips + Reset button
+                    // Preset chips + Reset button (wraps gracefully if narrow)
                     ui.container()
+                        .full_width()
                         .row()
                         .valign(Align::Center)
                         .gap(5.0)
+                        .wrap(Wrap::Wrap)
                         .show(|ui| {
                             let presets = [
                                 ("Subtle", 12.0f32, false),
@@ -525,7 +533,8 @@ fn draw_appearance_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeCol
                                     .padding(3.0, 8.0, 3.0, 8.0)
                                     .radius_all(4.0)
                                     .bg(if is_sel { colors.accent.with_alpha(0.20) } else { colors.highlight })
-                                    .border(if is_sel { colors.accent } else { Color::TRANSPARENT }, 1.0)
+                                    .border(if is_sel { colors.accent } else { colors.border.with_alpha(0.30) }, 1.0)
+                                    .hover_bg(if is_sel { colors.accent.with_alpha(0.28) } else { colors.accent.with_alpha(0.10) })
                                     .show(|ui| {
                                         ui.text(&chip_text)
                                             .size(10.0)
@@ -543,14 +552,24 @@ fn draw_appearance_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeCol
                             if (state.blur_strength - 24.0).abs() >= 1.0 {
                                 let reset_chip = ui.container()
                                     .clickable(true)
-                                    .padding(3.0, 7.0, 3.0, 7.0)
+                                    .padding(3.0, 8.0, 3.0, 8.0)
                                     .radius_all(4.0)
-                                    .bg(colors.highlight.with_alpha(0.5))
-                                    .border(colors.border.with_alpha(0.3), 1.0)
+                                    .bg(colors.accent.with_alpha(0.12))
+                                    .border(colors.accent.with_alpha(0.40), 1.0)
+                                    .hover_bg(colors.accent.with_alpha(0.24))
+                                    .row()
+                                    .valign(Align::Center)
+                                    .gap(4.0)
                                     .show(|ui| {
-                                        ui.text("↺ 24px")
-                                            .size(9.5)
-                                            .color(colors.text_muted)
+                                        ui.text("↺")
+                                            .size(10.5)
+                                            .weight(FontWeight::Bold)
+                                            .color(colors.accent)
+                                            .show();
+                                        ui.text("24px")
+                                            .size(10.0)
+                                            .weight(FontWeight::SemiBold)
+                                            .color(colors.text_primary)
                                             .show();
                                     });
                                 if reset_chip.hovered { ui.cursor_icon = CursorIcon::Pointer; }
@@ -564,29 +583,35 @@ fn draw_appearance_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeCol
                     // Informative note regarding internal UI blur vs native OS compositor desktop blur
                     ui.container()
                         .full_width()
-                        .padding(7.0, 10.0, 7.0, 10.0)
+                        .padding(8.0, 12.0, 8.0, 12.0)
                         .radius_all(5.0)
                         .bg(colors.highlight.with_alpha(0.04))
                         .border(colors.border.with_alpha(0.12), 1.0)
                         .row()
-                        .valign(Align::Center)
-                        .gap(8.0)
+                        .valign(Align::Top)
+                        .gap(10.0)
                         .show(|ui| {
-                            ui.text(zenthra::icons::NF_FA_INFO)
-                                .size(11.0)
-                                .color(colors.accent)
-                                .show();
+                            ui.container()
+                                .padding_top(1.0)
+                                .show(|ui| {
+                                    ui.text(zenthra::icons::NF_FA_INFO)
+                                        .size(11.5)
+                                        .color(colors.accent)
+                                        .show();
+                                });
                             ui.container()
                                 .column()
-                                .gap(1.0)
+                                .gap(3.0)
                                 .show(|ui| {
                                     ui.text("Adjusts Zenthra's GPU Dual-Kawase blur radius across internal modal dialogs, cards, and floating panels.")
                                         .size(10.5)
                                         .color(colors.text_primary)
+                                        .auto_wrap()
                                         .show();
                                     ui.text("Note: Native OS window blur behind transparent surfaces is an on/off request handled directly by your Wayland compositor (e.g. COSMIC, KDE, or Hyprland).")
                                         .size(9.5)
                                         .color(colors.text_muted)
+                                        .auto_wrap()
                                         .show();
                                 });
                         });
@@ -639,6 +664,7 @@ fn draw_appearance_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeCol
                                     ui.text("Translucency of editor and sidebar panels (Default: 55%)")
                                         .size(11.0)
                                         .color(colors.text_muted)
+                                        .auto_wrap()
                                         .show();
                                 });
 
@@ -654,7 +680,8 @@ fn draw_appearance_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeCol
                                         .height(22.0)
                                         .radius_all(4.0)
                                         .bg(colors.highlight)
-                                        .hover_bg(colors.highlight)
+                                        .border(colors.border.with_alpha(0.30), 1.0)
+                                        .hover_bg(colors.accent.with_alpha(0.18))
                                         .valign(Align::Center)
                                         .halign(Align::Center)
                                         .show(|ui| {
@@ -695,7 +722,8 @@ fn draw_appearance_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeCol
                                         .height(22.0)
                                         .radius_all(4.0)
                                         .bg(colors.highlight)
-                                        .hover_bg(colors.highlight)
+                                        .border(colors.border.with_alpha(0.30), 1.0)
+                                        .hover_bg(colors.accent.with_alpha(0.18))
                                         .valign(Align::Center)
                                         .halign(Align::Center)
                                         .show(|ui| {
@@ -724,11 +752,13 @@ fn draw_appearance_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeCol
                                 });
                         });
 
-                    // Preset chips + Reset button
+                    // Preset chips + Reset button (wraps gracefully if narrow)
                     ui.container()
+                        .full_width()
                         .row()
                         .valign(Align::Center)
                         .gap(5.0)
+                        .wrap(Wrap::Wrap)
                         .show(|ui| {
                             let presets = [
                                 ("Light Frost", 0.35f32, false),
@@ -748,7 +778,8 @@ fn draw_appearance_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeCol
                                     .padding(3.0, 8.0, 3.0, 8.0)
                                     .radius_all(4.0)
                                     .bg(if is_sel { colors.accent.with_alpha(0.20) } else { colors.highlight })
-                                    .border(if is_sel { colors.accent } else { Color::TRANSPARENT }, 1.0)
+                                    .border(if is_sel { colors.accent } else { colors.border.with_alpha(0.30) }, 1.0)
+                                    .hover_bg(if is_sel { colors.accent.with_alpha(0.28) } else { colors.accent.with_alpha(0.10) })
                                     .show(|ui| {
                                         ui.text(&chip_text)
                                             .size(10.0)
@@ -766,14 +797,24 @@ fn draw_appearance_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeCol
                             if (state.glass_opacity - 0.55).abs() >= 0.03 {
                                 let reset_chip = ui.container()
                                     .clickable(true)
-                                    .padding(3.0, 7.0, 3.0, 7.0)
+                                    .padding(3.0, 8.0, 3.0, 8.0)
                                     .radius_all(4.0)
-                                    .bg(colors.highlight.with_alpha(0.5))
-                                    .border(colors.border.with_alpha(0.3), 1.0)
+                                    .bg(colors.accent.with_alpha(0.12))
+                                    .border(colors.accent.with_alpha(0.40), 1.0)
+                                    .hover_bg(colors.accent.with_alpha(0.24))
+                                    .row()
+                                    .valign(Align::Center)
+                                    .gap(4.0)
                                     .show(|ui| {
-                                        ui.text("↺ 55%")
-                                            .size(9.5)
-                                            .color(colors.text_muted)
+                                        ui.text("↺")
+                                            .size(10.5)
+                                            .weight(FontWeight::Bold)
+                                            .color(colors.accent)
+                                            .show();
+                                        ui.text("55%")
+                                            .size(10.0)
+                                            .weight(FontWeight::SemiBold)
+                                            .color(colors.text_primary)
                                             .show();
                                     });
                                 if reset_chip.hovered { ui.cursor_icon = CursorIcon::Pointer; }
@@ -832,6 +873,7 @@ fn draw_appearance_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeCol
                                     ui.text("Editor buffer text size and line height (Default: 13px)")
                                         .size(11.0)
                                         .color(colors.text_muted)
+                                        .auto_wrap()
                                         .show();
                                 });
 
@@ -847,7 +889,8 @@ fn draw_appearance_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeCol
                                         .height(22.0)
                                         .radius_all(4.0)
                                         .bg(colors.highlight)
-                                        .hover_bg(colors.highlight)
+                                        .border(colors.border.with_alpha(0.30), 1.0)
+                                        .hover_bg(colors.accent.with_alpha(0.18))
                                         .valign(Align::Center)
                                         .halign(Align::Center)
                                         .show(|ui| {
@@ -888,7 +931,8 @@ fn draw_appearance_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeCol
                                         .height(22.0)
                                         .radius_all(4.0)
                                         .bg(colors.highlight)
-                                        .hover_bg(colors.highlight)
+                                        .border(colors.border.with_alpha(0.30), 1.0)
+                                        .hover_bg(colors.accent.with_alpha(0.18))
                                         .valign(Align::Center)
                                         .halign(Align::Center)
                                         .show(|ui| {
@@ -917,11 +961,13 @@ fn draw_appearance_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeCol
                                 });
                         });
 
-                    // Preset chips + Reset button
+                    // Preset chips + Reset button (wraps gracefully if narrow)
                     ui.container()
+                        .full_width()
                         .row()
                         .valign(Align::Center)
                         .gap(5.0)
+                        .wrap(Wrap::Wrap)
                         .show(|ui| {
                             let sizes = [
                                 (11.0f32, false),
@@ -944,7 +990,8 @@ fn draw_appearance_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeCol
                                     .padding(3.0, 7.0, 3.0, 7.0)
                                     .radius_all(4.0)
                                     .bg(if is_sel { colors.accent.with_alpha(0.20) } else { colors.highlight })
-                                    .border(if is_sel { colors.accent } else { Color::TRANSPARENT }, 1.0)
+                                    .border(if is_sel { colors.accent } else { colors.border.with_alpha(0.30) }, 1.0)
+                                    .hover_bg(if is_sel { colors.accent.with_alpha(0.28) } else { colors.accent.with_alpha(0.10) })
                                     .show(|ui| {
                                         ui.text(&chip_text)
                                             .size(10.0)
@@ -962,14 +1009,24 @@ fn draw_appearance_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeCol
                             if (state.font_size - 13.0).abs() >= 0.1 {
                                 let reset_chip = ui.container()
                                     .clickable(true)
-                                    .padding(3.0, 7.0, 3.0, 7.0)
+                                    .padding(3.0, 8.0, 3.0, 8.0)
                                     .radius_all(4.0)
-                                    .bg(colors.highlight.with_alpha(0.5))
-                                    .border(colors.border.with_alpha(0.3), 1.0)
+                                    .bg(colors.accent.with_alpha(0.12))
+                                    .border(colors.accent.with_alpha(0.40), 1.0)
+                                    .hover_bg(colors.accent.with_alpha(0.24))
+                                    .row()
+                                    .valign(Align::Center)
+                                    .gap(4.0)
                                     .show(|ui| {
-                                        ui.text("↺ 13px")
-                                            .size(9.5)
-                                            .color(colors.text_muted)
+                                        ui.text("↺")
+                                            .size(10.5)
+                                            .weight(FontWeight::Bold)
+                                            .color(colors.accent)
+                                            .show();
+                                        ui.text("13px")
+                                            .size(10.0)
+                                            .weight(FontWeight::SemiBold)
+                                            .color(colors.text_primary)
                                             .show();
                                     });
                                 if reset_chip.hovered { ui.cursor_icon = CursorIcon::Pointer; }
@@ -1018,6 +1075,7 @@ fn draw_appearance_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeCol
                                     ui.text("// Live typography preview at current scale")
                                         .size(state.font_size)
                                         .color(colors.text_dim)
+                                        .auto_wrap()
                                         .show();
                                 });
                             ui.text("}")
@@ -1046,6 +1104,7 @@ fn draw_editor_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColors)
                     ui.text("Configure editing canvas behavior, gutter indicators, and layout scale.")
                         .size(11.5)
                         .color(colors.text_muted)
+                        .auto_wrap()
                         .show();
                 });
 
@@ -1072,6 +1131,7 @@ fn draw_editor_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColors)
                             ui.text("Display row index numbers along the left edge of the buffer")
                                 .size(11.0)
                                 .color(colors.text_muted)
+                                .auto_wrap()
                                 .show();
                         });
 
@@ -1113,6 +1173,7 @@ fn draw_editor_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColors)
                             ui.text("Overall editor scaling factor")
                                 .size(11.0)
                                 .color(colors.text_muted)
+                                .auto_wrap()
                                 .show();
                         });
 
@@ -1171,6 +1232,7 @@ fn draw_terminal_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColor
                     ui.text("Configure native terminal panel defaults and height.")
                         .size(11.5)
                         .color(colors.text_muted)
+                        .auto_wrap()
                         .show();
                 });
 
@@ -1197,6 +1259,7 @@ fn draw_terminal_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColor
                             ui.text("Default opened height in pixels")
                                 .size(11.0)
                                 .color(colors.text_muted)
+                                .auto_wrap()
                                 .show();
                         });
 
@@ -1255,6 +1318,7 @@ fn draw_agent_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColors) 
                     ui.text("Configure AI assistant models, autonomous agents, and tool execution.")
                         .size(11.5)
                         .color(colors.text_muted)
+                        .auto_wrap()
                         .show();
                 });
 
@@ -1280,6 +1344,7 @@ fn draw_agent_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColors) 
                             ui.text("Provider API keys, thinking budget, system prompts, and custom tools")
                                 .size(11.0)
                                 .color(colors.text_muted)
+                                .auto_wrap()
                                 .show();
                         });
 
@@ -1324,6 +1389,7 @@ fn draw_keymaps_tab(ui: &mut Ui, _state: &mut ZenthreeState, colors: &ThemeColor
                     ui.text("Essential shortcuts for fast navigation and productivity.")
                         .size(11.5)
                         .color(colors.text_muted)
+                        .auto_wrap()
                         .show();
                 });
 

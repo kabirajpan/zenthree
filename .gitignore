@@ -1,9 +1,11 @@
 # Rust build artifacts
 /target/
 **/target/
+**/*.rs.bk
 
 # Debug/log files
 *.log
+**/*.log
 
 # Editor/IDE
 .vscode/
@@ -11,13 +13,17 @@
 *.swp
 *.swo
 .DS_Store
+Thumbs.db
 
 # Environment / secrets
 .env
 .env.local
+.env.*
+!.env.example
 
 # Local application sessions
 .zenthree_sessions/
+**/.zenthree_sessions/
 /python_demo/
 
 # Backup files

@@ -4284,7 +4284,6 @@ mod tests {
     fn test_parse_markdown_blocks_quota_error() {
         let err = r#"Agent error: Gemini api error: 429 Too Many Requests: { "error": { "code": 429, "message": "Resource has been exhausted (e.g. check quota).", "status": "RESOURCE_EXHAUSTED", "details": [ { "@type": "type.googleapis.com/google.rpc.QuotaFailure", "violations": [ { "subject": "project:12345", "description": "GenerateRequestsPerMinutePerProjectPerModel-FreeTier" } ] } ] } }"#;
         let blocks = parse_markdown_blocks_impl(err);
-        println!("Blocks: {:#?}", blocks);
         assert_eq!(blocks.len(), 1);
     }
 

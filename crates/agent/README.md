@@ -1,136 +1,212 @@
-# ZENE Agent (`agent`)
+# zene
 
-> **Autonomous Agentic Coding Engine for Rust and Polyglot Projects**
+Autonomous multi-turn coding agent in Rust. Tree-sitter AST perception, 13 tools, 3-tier skill system, and pluggable LLM providers (Gemini, Groq).
 
-`agent` is a high-performance, autonomous coding agent library and CLI. It powers the AI features in the **Zenthree IDE** and can also be run standalone in the terminal or integrated as an embedded crate into any Rust application.
-
----
-
-## Key Features
-
-- **⚡ Bio-Connectome Sensory Reflex Engine**: Fast intent classification (< 50 µs latency) with physical safety reflex locking against dangerous commands.
-- **🛠 Level 1 Essential Toolset**:
-  - `read_file`: Complete and partial file inspections with AST outline preview.
-  - `edit_file`: Surgical find-and-replace code modifications preserving formatting.
-  - `write_file`: Scaffolds and writes new files.
-  - `list_directory`: Recursively list directory contents and file sizes.
-  - `search`: Unified AST symbol, regex, and file search.
-  - `run_terminal`: Native command execution in workspace working directory.
-  - `get_diagnostics`: Compiler syntax and type check verification.
-- **🔌 Multi-Provider Support**:
-  - **Gemini** (`gemini-3.5-flash`, `gemini-3.5-flash-lite`, `gemini-2.5-flash`)
-  - **Groq** (`openai/gpt-oss-120b`, `openai/gpt-oss-20b`, `qwen/qwen3.8-27b`)
-- **🖥 Dual CLI Modes**:
-  - **Normal Mode**: Clean, text-based terminal workflow with progress ticks.
-  - **Advanced Verbose Mode**: Deep diagnostic inspection showing neuro-reflex decisions, latency in µs, formatted tool JSON parameters, and outputs.
+Built as the intelligence layer inside [Zenthree](https://zenthralabs.dev/products/zenthra/apps/zenthree) — open-sourced for developers building autonomous coding agents or terminal workflows.
 
 ---
 
-## Quickstart
+## Installation & CLI Quickstart
 
-### 1. Configure API Keys
-Create or update `.env` in this directory or your workspace root:
-```env
-GEMINI_API_KEY="your-gemini-key"
-GROQ_API_KEY="your-groq-key"
-```
+### 1. Build and install globally
 
-### 2. Test Your Models & Quotas
-Run the diagnostic script to check provider connection and latency:
 ```bash
-./test-models.sh
+git clone git@github.com:kabirajpan/zene.git
+cd zene
+
+# Installs the `zene` and `zene-agent` binaries into ~/.cargo/bin
+cargo install --path .
 ```
 
-### 3. Run in Normal Mode (Clean Text)
-```bash
-# Start an interactive REPL
-./run-normal.sh
+Make sure `~/.cargo/bin` is in your `PATH`.
 
-# Or run a single one-shot instruction
-./run-normal.sh -m gemini-3.5-flash-lite "read Cargo.toml and summarize the project"
+### 2. Configure your API key
+
+ZENE supports **Google Gemini** (recommended) and **Groq**:
+
+```bash
+# Option A: In your current shell or ~/.bashrc / ~/.zshrc
+export GEMINI_API_KEY="your-gemini-key"
+# or
+export GROQ_API_KEY="your-groq-key"
+
+# Option B: Global user config
+mkdir -p ~/.config/zene
+echo 'GEMINI_API_KEY="your-gemini-key"' > ~/.config/zene/.env
+
+# Option C: Local project .env
+echo 'GEMINI_API_KEY="your-gemini-key"' > .env
 ```
 
-### 4. Run in Advanced Verbose Mode (Diagnostics)
-```bash
-# Start an interactive REPL with reflex latency & tool JSON tracing
-./run-verbose.sh
+Free API keys:
+- **Gemini**: [https://aistudio.google.com/app/apikey](https://aistudio.google.com/app/apikey)
+- **Groq**: [https://console.groq.com/keys](https://console.groq.com/keys)
 
-# Or run a single one-shot instruction
-./run-verbose.sh -m gemini-3.5-flash-lite "search for all struct definitions in src/"
+### 3. Run ZENE
+
+```bash
+# Interactive REPL mode in current directory
+zene
+
+# One-shot command on current directory
+zene "Explore this repository and explain the project structure"
+
+# Target a specific workspace
+zene -w /path/to/project "Find and fix compiler warnings in src/main.rs"
+
+# Verbose mode (shows full tool inputs, outputs, and sub-millisecond reflex gate)
+zene -v "Implement a health check endpoint in main.rs"
+
+# Switch model or provider
+zene -p groq -m openai/gpt-oss-120b "Write unit tests for the parser"
+zene -p gemini -m gemini-3.5-flash-lite
+```
+
+Inside the interactive REPL:
+- `:help` — Show commands
+- `:verbose` — Toggle telemetry / raw tool trace
+- `:model <name>` — Switch model live
+- `:workspace <path>` — Change target directory
+- `:clear` — Reset conversation context
+- `:quit` or `:exit` — Exit session
+
+---
+
+## What it does
+
+`zene` runs an autonomous multi-turn agentic loop:
+
+1. **Perception**: Scans files, AST tokens, diagnostics, and git state.
+2. **Sensory Reflex Pre-Filter**: Connectome evaluates intent and safety locks in < 15 microseconds.
+3. **Reasoning & Tool Selection**: Dispatches tasks to high-capacity reasoning models with structured function definitions tailored to the turn.
+4. **Execution & Approval Gate**: Executes filesystem mutations, searches, and terminal commands. Destructive actions can require interactive approval.
+5. **Self-Correction Loop**: Catches compilation errors, test failures, or unknown tools and feeds them back into the context window until fixed.
+
+---
+
+## Bio-Connectome Sensory Reflex Engine (The "Fly Brain")
+
+`zene` embeds a **500-neuron biological connectome neural network** modeled after the adult *Drosophila melanogaster* (fruit fly) neural connectome (3,889 synapses, stored as an embedded 154 KB binary).
+
+### Why is it in the agent?
+
+Conventional LLM coding agents send full tool schemas to cloud APIs on every turn and rely entirely on the cloud model to decide whether to mutate files or execute commands. This creates three critical problems:
+1. **Safety vulnerabilities**: Models can hallucinate destructive shell commands (`rm -rf /`, `git reset --hard`, destructive drive formatting).
+2. **Context & Token Bloat**: Sending 13+ tool definitions on simple conceptual queries (*"how does this algorithm work?"*) wastes context window and increases API cost.
+3. **Tool Hallucinations**: Models often call filesystem search or file creation tools when the user simply said *"hello"*.
+
+### What is it helping?
+
+The Fly Brain acts as an **involuntary biological reflex gate** that runs locally *before* the remote LLM:
+
+1. **⚡ Sub-15 Microsecond Execution (< 0.015 ms)**:
+   Executes completely natively in pure Rust using a 30-step Euler numerical integration over the connectome RNN matrix. It requires **zero external runtimes** (no ONNX, no PyTorch, no LibTorch), zero background daemons, and zero network calls.
+
+2. **🚨 Giant Fiber Safety Reflex Lock**:
+   Modeled after the fruit fly's *giant fiber escape reflex*—an involuntary circuit that fires in milliseconds when a shadow descends—the connectome intercepts catastrophic workspace wipe commands in **< 15 µs**. Workspace buffer mutation is locked *before the prompt is ever transmitted to the LLM*.
+
+3. **🎯 Dynamic Intent & Tool Provisioning**:
+   Classifies incoming user intent into 5 discrete neural firing states to inject only the relevant tools into the conversation turn:
+   - **`DISCUSSION`**: Conceptual questions, architecture, greetings → Locks mutating tools; model cannot touch workspace files.
+   - **`INSPECTION`**: *"Where is X"*, *"find usages"*, *"git diff"* → Provisions high-speed read-only search tools (`read_file`, `list_directory`, `search`, `git_diff`).
+   - **`PLANNING`**: Architecture and refactoring roadmaps → Provisions planning graph tools.
+   - **`EXECUTION`**: *"Fix the compiler error"*, *"implement feature"*, *"run tests"* → Provisions full code mutation, edit, and terminal toolsets.
+   - **`REFLEX_LOCK`**: Catastrophic destruction → Disengages all tools and blocks execution.
+
+## Architecture
+
+```
+src/
+├── agentic_loop/   # Core engine — turn-by-turn multi-turn orchestration loop
+├── ast/            # Tree-sitter AST engine for syntax-aware context
+├── context/        # Context window manager, git diffs, & conversation pruner
+├── orchestrator/   # BioReflexClient, intent classification, and session state
+├── provider/       # Pluggable LLM providers (Gemini, Groq)
+├── skills/         # 3-tier skill discovery & dynamic activation
+├── tools/          # Tool registry + all 13 tool implementations
+├── traits/         # Provider and Tool abstractions
+├── types/          # Message, ToolCall, AgentEvent, ApprovalRequest types
+└── verification/   # Post-tool verification & diagnostics runner
 ```
 
 ---
 
-## CLI Options & Flags
+## Tools
 
-```
-USAGE:
-  ./run-normal.sh [OPTIONS] [PROMPT]
-  ./run-verbose.sh [OPTIONS] [PROMPT]
-  cargo run --bin zene-agent -- [OPTIONS] [PROMPT]
+All 13 tools are implemented natively in Rust:
 
-OPTIONS:
-  -v, --verbose             Enable verbose diagnostic output (reflex latency, tool args & outputs)
-  -p, --provider <NAME>     AI provider: 'gemini' or 'groq' (default: auto from .env)
-  -m, --model <NAME>        Model identifier (e.g. gemini-3.5-flash, openai/gpt-oss-120b)
-  -w, --workspace <DIR>     Target workspace directory (default: current directory)
-  --list-models             List recommended models for each provider
-  -h, --help                Display help message
-```
+| Tool | Category | Action Type | Description |
+|---|---|---|---|
+| `read_file` | Filesystem | Read-only | Reads file contents with line slicing |
+| `write_file` | Filesystem | Destructive | Writes or creates files |
+| `edit_file` | Filesystem | Destructive | Targeted substring search & replace edits |
+| `delete_file` | Filesystem | Destructive | Deletes files with safety checks |
+| `rename_file` | Filesystem | Destructive | Renames or moves files |
+| `list_directory` | Filesystem | Read-only | Recursive directory tree listing |
+| `search` | Search | Read-only | High-speed ripgrep-style content & filename search |
+| `run_terminal` | Terminal | Destructive | Executes shell commands in the workspace |
+| `get_diagnostics` | Diagnostics | Read-only | Captures live compiler / linter diagnostics |
+| `git_status` | Git | Read-only | Git repository status |
+| `git_diff` | Git | Read-only | Git unstaged and staged diffs |
+| `create_plan` | Planning | Read-only | Initializes multi-step task plans |
+| `update_plan_step` | Planning | Read-only | Updates execution status of plan steps |
 
 ---
 
-## Interactive REPL Commands
+## Skills System
 
-When launched without a prompt argument, `zene-agent` enters an interactive session preserving multi-turn memory:
+Skills are `SKILL.md` documents with YAML frontmatter that inject domain-specific context into the agent's instructions dynamically:
 
-| Command | Action |
-|---|---|
-| `:help` | Show command list |
-| `:verbose` | Toggle verbose mode on/off on the fly |
-| `:model <name>` | Switch the active AI model mid-session |
-| `:workspace <dir>` | Change active target workspace directory |
-| `:clear` | Reset conversation memory |
-| `:quit` or `:exit` | Exit the CLI session |
+```
+1. Global  — Built-in skills compiled into the binary (debug, explore, refactor, test, docs, git)
+2. User    — ~/.zene/skills/<name>/SKILL.md (or ~/.zenthree/skills/)
+3. Project — <workspace>/.zene/skills/<name>/SKILL.md (or .zenthree/skills/)
+```
+
+Project skills take precedence over User skills, which take precedence over Global skills.
 
 ---
 
 ## Using as a Rust Library
 
-Add to your `Cargo.toml`:
+You can embed `zene` as a library inside your own Rust tools:
+
 ```toml
 [dependencies]
-agent = { path = "path/to/crates/agent" }
+agent = { git = "https://github.com/kabirajpan/zene.git" }
 ```
 
-### Basic Example:
 ```rust
-use agent::{Agent, create_agent_for_model_and_workspace};
-use agent::types::event::AgentEvent;
-use agent::types::approval::{ApprovalDecision, ApprovalRequest};
+use agent::{create_agent_for_model_and_workspace, types::ApprovalDecision};
 
-fn main() -> Result<(), Box<dyn std::error::Error>> {
+fn main() {
     let mut agent = create_agent_for_model_and_workspace(
         "gemini",
-        "gemini-3.5-flash",
-        "./my-project",
-    ).expect("Failed to initialize agent");
+        "gemini-3.5-flash-lite",
+        "./",
+    ).expect("API credentials not found");
 
-    let mut on_event = |ev: AgentEvent| match ev {
-        AgentEvent::ToolStarted { name, args } => println!("Calling tool: {}", name),
-        AgentEvent::Text(delta) => print!("{}", delta),
-        _ => {}
-    };
+    let mut on_event = |ev| println!("{ev:?}");
+    let mut ask_approval = |_req| ApprovalDecision::Approve;
 
-    let mut ask_approval = |_req: ApprovalRequest| ApprovalDecision::Approve;
-
-    let response = agent.run("Create a hello world rust project", &mut on_event, &mut ask_approval)?;
-    println!("\nFinal Response:\n{}", response);
-    Ok(())
+    let response = agent.run("Find and fix warnings in src/main.rs", &mut on_event, &mut ask_approval);
+    println!("{}", response.unwrap());
 }
 ```
 
 ---
 
+## Testing API Connectivity
+
+Test that your keys and network endpoints are operational:
+
+```bash
+./test-models.sh
+```
+
+---
+
 ## License
-MIT or Apache-2.0.
+
+[Apache 2.0](LICENSE) — free for personal and commercial open-source use.
+Part of [ZenthraLabs](https://zenthralabs.dev) open research.

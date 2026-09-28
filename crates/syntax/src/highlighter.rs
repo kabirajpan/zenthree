@@ -121,7 +121,7 @@ impl SyntaxHighlighter {
                 true
             }
             Err(e) => {
-                eprintln!("[SyntaxHighlighter] Query error for {}: {}", config.name, e);
+                log::error!("[SyntaxHighlighter] Query error for {}: {}", config.name, e);
                 false
             }
         }
@@ -173,7 +173,7 @@ impl SyntaxHighlighter {
 
         if need_lang_change {
             if let Err(e) = self.parser.set_language(&lang_config.language) {
-                eprintln!("[SyntaxHighlighter] Failed to set language: {}", e);
+                log::error!("[SyntaxHighlighter] Failed to set language: {}", e);
                 return HashMap::new();
             }
             self.parse_state = None;
@@ -184,11 +184,16 @@ impl SyntaxHighlighter {
         // with what notify_edit stores.
         let full_text = rope_to_text_with_newline(rope);
 
-        // Safety Guard: Detect out-of-sync state that would cause panics.
+        // Safety Guard: Detect out-of-sync state or content changes when incremental edits weren't tracked.
+        // Discard the previous parse state cleanly so tree-sitter parses the new text cleanly from scratch.
         if let Some(state) = &self.parse_state {
             let root = state.tree.root_node();
-            if root.end_byte() != full_text.len() {
-                eprintln!("[SyntaxHighlighter] Sync discrepancy detected (tree={} bytes, buffer={} bytes). Resetting.", root.end_byte(), full_text.len());
+            if root.end_byte() != full_text.len() || state.text != full_text {
+                log::trace!(
+                    "[SyntaxHighlighter] Buffer changed (tree={} bytes, buffer={} bytes). Reparsing.",
+                    root.end_byte(),
+                    full_text.len()
+                );
                 self.parse_state = None;
             }
         }
@@ -198,7 +203,7 @@ impl SyntaxHighlighter {
         let tree = match self.parser.parse(&full_text, old_tree) {
             Some(t) => t,
             None => {
-                eprintln!("[SyntaxHighlighter] Parse failed");
+                log::warn!("[SyntaxHighlighter] Parse failed");
                 return HashMap::new();
             }
         };

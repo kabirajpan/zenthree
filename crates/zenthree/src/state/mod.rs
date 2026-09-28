@@ -146,6 +146,7 @@ pub struct ZenthreeState {
     pub custom_sessions_dir: Option<std::path::PathBuf>,
 
     /// Floating Thinking Orb window state
+    #[allow(dead_code)]
     pub orb_window_open: bool,
     #[allow(dead_code)]
     pub orb_window_pos: (f32, f32),
@@ -155,6 +156,7 @@ pub struct ZenthreeState {
     pub orb_window_drag_offset: (f32, f32),
     #[allow(dead_code)]
     pub orb_animation_start: std::time::Instant,
+    #[allow(dead_code)]
     pub orb_mode_index: usize,
 
     /// Thinking Orbs (9-Mode Official Showcase) floating window state
@@ -397,6 +399,7 @@ impl ZenthreeState {
         state
     }
 
+    #[allow(dead_code)]
     pub fn is_ai_working(&self) -> bool {
         self.ai_messages.last().map(|m| m.is_working).unwrap_or(false)
     }
