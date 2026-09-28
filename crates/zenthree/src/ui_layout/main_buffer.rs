@@ -89,10 +89,11 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                 let tab_bar_h = 26.0;
 
                 // ─── Tab Bar ────────────────────────────────────────────────
+                let tab_bar_bg = if state.glassmorphism { Color::TRANSPARENT } else { colors.bg_inactive_tab };
                 ui.container()
                     .width(width)
                     .height(tab_bar_h)
-                    .bg(colors.bg_inactive_tab)
+                    .bg(tab_bar_bg)
                     .row()
                     .valign(Align::Center)
                     .show(|ui| {
@@ -107,7 +108,11 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
 
                             let tab_id = Id::from_u64(999994000 + idx as u64);
                             let tab_close_id = Id::from_u64(999995000 + idx as u64);
-                            let bg = if is_active { colors.bg_active_tab } else { colors.bg_inactive_tab };
+                            let (bg, border_col) = if is_active {
+                                (colors.bg_active_tab, if state.glassmorphism { colors.accent.with_alpha(0.60) } else { colors.border })
+                            } else {
+                                (if state.glassmorphism { Color::TRANSPARENT } else { colors.bg_inactive_tab }, if state.glassmorphism { colors.border.with_alpha(0.20) } else { colors.border })
+                            };
                             let text_color = if is_active { colors.text_primary } else { colors.text_muted };
 
                             let icon_source = if let Some(ref path) = state.tabs[idx].path {
@@ -124,7 +129,7 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                                 .id(tab_id)
                                 .height(tab_bar_h)
                                 .bg(bg)
-                                .border(colors.border, 1.0)
+                                .border(border_col, 1.0)
                                 .row()
                                 .valign(Align::Center)
                                 .gap(5.0)
@@ -220,7 +225,7 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                 ui.container()
                     .width(width)
                     .height(1.0)
-                    .bg(colors.border)
+                    .bg(if state.glassmorphism { colors.border.with_alpha(0.25) } else { colors.border })
                     .show(|_| {});
 
                 let path_bar_h = 22.0;
@@ -305,10 +310,16 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                     let is_scrolled = tab.scroll_y > 0.5;
                     let path_bar_bottom = ui.cursor_y + path_bar_h;
 
+                    let path_bg = if state.glassmorphism {
+                        Color::TRANSPARENT
+                    } else {
+                        colors.bg_editor
+                    };
+
                     let mut path_container = ui.container()
                         .width(width)
                         .height(path_bar_h)
-                        .bg(colors.bg_editor)
+                        .bg(path_bg)
                         .row()
                         .valign(Align::Center)
                         .halign(Align::SpaceBetween)
@@ -316,7 +327,7 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                         .padding_right(12.0)
                         .no_wrap();
 
-                    if is_scrolled {
+                    if is_scrolled && !state.glassmorphism {
                         let shadow_col = if state.theme == crate::theme::ThemeMode::Dark {
                             Color::rgba(0.0, 0.0, 0.0, 0.5)
                         } else {
@@ -1025,16 +1036,23 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                             // 1. Draw gutter background
                             let gutter_w = if state.line_numbers_visible { 44.0 } else { 8.0 };
                             if state.line_numbers_visible {
-                                ui.draws.push(DrawCommand::Rect(RectDraw {
-                                    instance: RectInstance {
-                                        pos: [editor_x, editor_y],
-                                        size: [gutter_w, editor_h],
-                                        color: colors.bg_gutter.to_array(),
-                                        radius: [0.0; 4],
-                                        clip_rect: clip,
-                                        ..Default::default()
-                                    }
-                                }));
+                                let gutter_color = if state.glassmorphism {
+                                    Color::TRANSPARENT
+                                } else {
+                                    colors.bg_gutter
+                                };
+                                if gutter_color.a > 0.001 {
+                                    ui.draws.push(DrawCommand::Rect(RectDraw {
+                                        instance: RectInstance {
+                                            pos: [editor_x, editor_y],
+                                            size: [gutter_w, editor_h],
+                                            color: gutter_color.to_array(),
+                                            radius: [0.0; 4],
+                                            clip_rect: clip,
+                                            ..Default::default()
+                                        }
+                                    }));
+                                }
                             }
 
                             if let Some(fs) = ui.font_system.as_ref() {

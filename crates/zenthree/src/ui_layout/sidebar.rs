@@ -1476,7 +1476,7 @@ fn draw_no_folder_view(ui: &mut Ui, state: &mut ZenthreeState, sidebar_w: f32) {
         .gap(12.0)
         .valign(Align::Top)
         .show(|ui| {
-            ui.text("You have not yet\nopened a folder or\nproject.")
+            ui.text("You have not yet opened a folder or project.")
                 .size(11.0)
                 .color(colors.text_primary.with_alpha(1.0))
                 .max_width(inner_w)
@@ -1522,7 +1522,7 @@ fn draw_no_folder_view(ui: &mut Ui, state: &mut ZenthreeState, sidebar_w: f32) {
                 .width(inner_w)
                 .padding_top(8.0)
                 .column()
-                .gap(4.0)
+                .gap(6.0)
                 .show(|ui| {
                     let shortcut_color = if colors.bg_base.r > 0.5 {
                         colors.text_primary.with_alpha(0.6)
@@ -1534,25 +1534,21 @@ fn draw_no_folder_view(ui: &mut Ui, state: &mut ZenthreeState, sidebar_w: f32) {
                         .weight(FontWeight::Bold)
                         .color(shortcut_color)
                         .max_width(inner_w)
-                        .wrap(true)
                         .show();
-                    ui.text("Ctrl+Shift+O\nOpen Folder")
+                    ui.text("Ctrl+Shift+O : Open Folder")
                         .size(9.0)
                         .color(shortcut_color)
                         .max_width(inner_w)
-                        .wrap(true)
                         .show();
-                    ui.text("Ctrl+O\nOpen File")
+                    ui.text("Ctrl+O : Open File")
                         .size(9.0)
                         .color(shortcut_color)
                         .max_width(inner_w)
-                        .wrap(true)
                         .show();
-                    ui.text("Ctrl+N\nNew File")
+                    ui.text("Ctrl+N : New File")
                         .size(9.0)
                         .color(shortcut_color)
                         .max_width(inner_w)
-                        .wrap(true)
                         .show();
                 });
         });

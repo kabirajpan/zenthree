@@ -342,12 +342,12 @@ fn draw_appearance_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeCol
                         .column()
                         .gap(2.0)
                         .show(|ui| {
-                            ui.text("Frosted Glassmorphism")
+                            ui.text("Native Window Blur")
                                 .size(13.0)
                                 .weight(FontWeight::SemiBold)
                                 .color(colors.text_primary)
                                 .show();
-                            ui.text("Enable Wayland ext-background-effect frosted blur & translucent surfaces")
+                            ui.text("Request OS/Wayland compositor to blur the desktop behind translucent surfaces (On/Off)")
                                 .size(11.0)
                                 .color(colors.text_muted)
                                 .show();
@@ -394,7 +394,7 @@ fn draw_appearance_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeCol
                                         .valign(Align::Center)
                                         .gap(7.0)
                                         .show(|ui| {
-                                            ui.text("Frosted Blur Strength")
+                                            ui.text("Internal UI Backdrop Blur")
                                                 .size(13.0)
                                                 .weight(FontWeight::SemiBold)
                                                 .color(colors.text_primary)
@@ -413,7 +413,7 @@ fn draw_appearance_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeCol
                                                     });
                                             }
                                         });
-                                    ui.text("Background blur dispersion radius (Default: 24px)")
+                                    ui.text("Backdrop blur radius for modal dialogs, cards, and floating panels (Default: 24px)")
                                         .size(11.0)
                                         .color(colors.text_muted)
                                         .show();
@@ -559,6 +559,36 @@ fn draw_appearance_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeCol
                                     ui.needs_redraw = true;
                                 }
                             }
+                        });
+
+                    // Informative note regarding internal UI blur vs native OS compositor desktop blur
+                    ui.container()
+                        .full_width()
+                        .padding(7.0, 10.0, 7.0, 10.0)
+                        .radius_all(5.0)
+                        .bg(colors.highlight.with_alpha(0.04))
+                        .border(colors.border.with_alpha(0.12), 1.0)
+                        .row()
+                        .valign(Align::Center)
+                        .gap(8.0)
+                        .show(|ui| {
+                            ui.text(zenthra::icons::NF_FA_INFO)
+                                .size(11.0)
+                                .color(colors.accent)
+                                .show();
+                            ui.container()
+                                .column()
+                                .gap(1.0)
+                                .show(|ui| {
+                                    ui.text("Adjusts Zenthra's GPU Dual-Kawase blur radius across internal modal dialogs, cards, and floating panels.")
+                                        .size(10.5)
+                                        .color(colors.text_primary)
+                                        .show();
+                                    ui.text("Note: Native OS window blur behind transparent surfaces is an on/off request handled directly by your Wayland compositor (e.g. COSMIC, KDE, or Hyprland).")
+                                        .size(9.5)
+                                        .color(colors.text_muted)
+                                        .show();
+                                });
                         });
                 });
 

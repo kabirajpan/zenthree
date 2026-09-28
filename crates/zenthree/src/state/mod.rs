@@ -614,7 +614,12 @@ impl ZenthreeState {
     }
 
     pub fn colors(&self) -> ThemeColors {
-        ThemeColors::get_custom(self.theme, &self.accent_color).with_glassmorphism(self.glassmorphism, self.theme, self.glass_opacity)
+        ThemeColors::get_custom(self.theme, &self.accent_color).with_glassmorphism(
+            self.glassmorphism,
+            self.theme,
+            self.glass_opacity,
+            self.blur_strength,
+        )
     }
 
     pub fn set_font_size(&mut self, size: f32) {

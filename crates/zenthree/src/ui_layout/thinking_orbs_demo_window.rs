@@ -790,7 +790,7 @@ pub fn frame_morph(size: f32, t: f32, size_factor: f32) -> OrbFrame {
     }
 
     let n = if size < 40.0 { 18 } else { 38 };
-    let re = 0.021 * 1.35 * sprd * size_factor;
+    let re = 0.021 * 1.35 * sprd * size_factor * 0.5;
     let pulse = 1.0 + 0.02 * (local * 3.1).sin();
     let c2 = size / 2.0;
 
@@ -813,7 +813,7 @@ pub fn frame_morph(size: f32, t: f32, size_factor: f32) -> OrbFrame {
             x: c2 + x * size,
             y: c2 + y * size,
             z: 0.0,
-            r: (re * size).max(0.7),
+            r: (re * size).max(0.5),
             white: 0.1,
             a: 1.0,
         });

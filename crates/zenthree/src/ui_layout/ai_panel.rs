@@ -17,7 +17,7 @@ fn draw_ai_chat_header(
 ) {
     const HEADER_H: f32 = 36.0;
     let header_bg = if state.glassmorphism {
-        colors.bg_base.with_alpha((state.glass_opacity * 0.60).clamp(0.20, 0.80))
+        Color::TRANSPARENT
     } else {
         colors.bg_sidebar
     };
@@ -336,17 +336,13 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
         let hist_w = HISTORY_SIDEBAR_W.min(ai_panel_w * 0.45);
         let chat_w = (ai_panel_w - hist_w).max(200.0);
 
-        let mut panel_container = ui.container()
+        let panel_container = ui.container()
             .id(ai_id)
             .width(ai_panel_w)
             .height(height)
             .max_height(height)
             .clip(true)
             .bg(panel_bg);
-
-        if state.glassmorphism {
-            panel_container = panel_container.backdrop_blur(state.blur_strength.max(4.0));
-        }
 
         panel_container
             .row()
@@ -364,7 +360,7 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                         ui.container()
                             .width(chat_w)
                             .height(1.0)
-                            .bg(colors.border)
+                            .bg(if state.glassmorphism { colors.border.with_alpha(0.25) } else { colors.border })
                             .show(|_| {});
 
                         let chat_content_h = height - HEADER_H - 1.0;
@@ -386,17 +382,13 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
         draw_session_history_panel(ui, state, ai_panel_w, height, &colors);
     } else {
         // History CLOSED (Docked or Expanded): Chat takes full panel width
-        let mut panel_container = ui.container()
+        let panel_container = ui.container()
             .id(ai_id)
             .width(ai_panel_w)
             .height(height)
             .max_height(height)
             .clip(true)
             .bg(panel_bg);
-
-        if state.glassmorphism {
-            panel_container = panel_container.backdrop_blur(state.blur_strength.max(4.0));
-        }
 
         panel_container
             .column()
@@ -406,7 +398,7 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                 ui.container()
                     .width(ai_panel_w)
                     .height(1.0)
-                    .bg(colors.border)
+                    .bg(if state.glassmorphism { colors.border.with_alpha(0.25) } else { colors.border })
                     .show(|_| {});
 
                 let content_h = height - HEADER_H - 1.0;
@@ -2318,33 +2310,43 @@ fn draw_ai_chat_content(
                         .show(|ui| {
                     let is_light = colors.bg_base.r > 0.5;
                     let input_box_bg = if state.glassmorphism {
-                        colors.bg_base.with_alpha((state.glass_opacity * 0.75).clamp(0.25, 0.90))
+                        colors.bg_base.with_alpha((state.glass_opacity * 0.40).clamp(0.12, 0.55))
                     } else if is_light {
                         Color::rgb(248.0 / 255.0, 248.0 / 255.0, 250.0 / 255.0)
                     } else {
                         Color::rgb(22.0 / 255.0, 22.0 / 255.0, 25.0 / 255.0) // #161619
                     };
-                    let input_border_col = if is_light {
+                    let input_border_col = if state.glassmorphism {
+                        colors.border.with_alpha(0.35)
+                    } else if is_light {
                         colors.border
                     } else {
                         Color::rgb(39.0 / 255.0, 39.0 / 255.0, 46.0 / 255.0) // #27272e
                     };
-                    let input_shadow_col = if is_light {
+                    let input_shadow_col = if state.glassmorphism {
+                        Color::rgba(0.0, 0.0, 0.0, 0.12)
+                    } else if is_light {
                         Color::rgba(0.0, 0.0, 0.0, 0.08)
                     } else {
                         Color::rgba(0.0, 0.0, 0.0, 0.60) // shadow-2xl
                     };
-                    let pill_bg = if is_light {
+                    let pill_bg = if state.glassmorphism {
+                        Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, 0.06)
+                    } else if is_light {
                         Color::rgba(0.0, 0.0, 0.0, 0.05)
                     } else {
                         Color::rgb(32.0 / 255.0, 32.0 / 255.0, 37.0 / 255.0) // #202025
                     };
-                    let pill_hover_bg = if is_light {
+                    let pill_hover_bg = if state.glassmorphism {
+                        Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, 0.14)
+                    } else if is_light {
                         colors.highlight
                     } else {
                         Color::rgb(39.0 / 255.0, 39.0 / 255.0, 47.0 / 255.0) // #27272f
                     };
-                    let pill_border = if is_light {
+                    let pill_border = if state.glassmorphism {
+                        colors.border.with_alpha(0.25)
+                    } else if is_light {
                         colors.border
                     } else {
                         Color::rgb(45.0 / 255.0, 45.0 / 255.0, 54.0 / 255.0) // #2d2d36
@@ -2850,10 +2852,6 @@ fn draw_ai_chat_content(
                         input_box_builder = input_box_builder.border(outline_col, outline_w);
                     }
 
-                    if state.glassmorphism {
-                        input_box_builder = input_box_builder.backdrop_blur(state.blur_strength.max(4.0));
-                    }
-
                     let prompt_text_size = state.ai_settings.effective_text_size().pt();
 
                     let input_box = input_box_builder.show(|ui| {
@@ -2933,7 +2931,7 @@ fn draw_ai_chat_content(
                                         .line_height(1.30)
                                         .color(colors.text_primary)
                                         .cursor_color(colors.text_primary)
-                                        .bg(input_box_bg)
+                                        .bg(if state.glassmorphism { Color::TRANSPARENT } else { input_box_bg })
                                         .border(Color::TRANSPARENT, 0.0)
                                         .focus_border(Color::TRANSPARENT, 0.0)
                                         .padding(2.0, 2.0, 2.0, 2.0)
@@ -3716,22 +3714,18 @@ fn draw_session_history_panel(
         colors.bg_sidebar
     };
     let header_bg = if state.glassmorphism {
-        colors.bg_base.with_alpha((state.glass_opacity * 0.60).clamp(0.20, 0.80))
+        Color::TRANSPARENT
     } else {
         colors.bg_sidebar
     };
 
-    let mut hist_builder = ui.container()
+    let hist_builder = ui.container()
         .width(panel_w)
         .height(panel_h)
         .max_height(panel_h)
         .bg(hist_bg)
         .column()
         .clip(true);
-
-    if state.glassmorphism {
-        hist_builder = hist_builder.backdrop_blur(state.blur_strength.max(4.0));
-    }
 
     hist_builder.show(|ui| {
             // ── Top Header Bar (Full height aligned with chat header) ────────

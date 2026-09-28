@@ -14,10 +14,16 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
     const BAR_H: f32 = 36.0;
     const RIGHT_W: f32 = 236.0;
 
+    let titlebar_bg = if state.glassmorphism {
+        colors.bg_sidebar.with_alpha((state.glass_opacity * 0.55).clamp(0.18, 0.65))
+    } else {
+        colors.bg_sidebar
+    };
+
     ui.container()
         .full_width()
         .height(BAR_H)
-        .bg(colors.bg_sidebar)
+        .bg(titlebar_bg)
         .row()
         .valign(Align::Center)
         .halign(Align::SpaceBetween) // Use SpaceBetween: Left menus vs Right controls
@@ -262,7 +268,7 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                                 ui.request_redraw();
                             }
                             let glass_mark = if state.glassmorphism { "● " } else { "  " };
-                            if ui.menu_item(&format!("{}Window Blur / Glassmorphism", glass_mark)).show().clicked {
+                            if ui.menu_item(&format!("{}Native Window Blur", glass_mark)).show().clicked {
                                 state.glassmorphism = !state.glassmorphism;
                                 ui.set_blur(state.glassmorphism);
                                 state.save_persistent_state();
@@ -381,9 +387,9 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                             }
                         });
 
-                        // Glassmorphism Mode Toggle
+                        // Native Window Blur Mode Toggle
                         let glass_mark = if state.glassmorphism { "● " } else { "  " };
-                        if ui.menu_item(&format!("{}Glassmorphism (Frosted Glass)", glass_mark)).show().clicked {
+                        if ui.menu_item(&format!("{}Native Window Blur", glass_mark)).show().clicked {
                             state.glassmorphism = !state.glassmorphism;
                             ui.set_blur(state.glassmorphism);
                             state.save_persistent_state();

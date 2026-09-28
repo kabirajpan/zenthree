@@ -91,29 +91,42 @@ impl ThemeColors {
             },
         }
     }
-    pub fn with_glassmorphism(mut self, enabled: bool, mode: ThemeMode, opacity: f32) -> Self {
+    pub fn with_glassmorphism(mut self, enabled: bool, mode: ThemeMode, opacity: f32, blur_strength: f32) -> Self {
         if enabled {
             let op = opacity.clamp(0.15, 0.95);
+            // Normalized blur factor from 4.0 (subtle/crystalline) to 64.0 (heavy frosted diffusion)
+            let blur_norm = ((blur_strength.clamp(4.0, 64.0) - 4.0) / 60.0).clamp(0.0, 1.0);
+            let diffuse_shift = (blur_strength.clamp(4.0, 64.0) - 24.0) / 100.0;
+            let eff_op = (op + diffuse_shift * 0.20).clamp(0.12, 0.98);
+
             match mode {
                 ThemeMode::Dark => {
-                    self.bg_base = Color::rgba(12.0 / 255.0, 14.0 / 255.0, 20.0 / 255.0, op * 0.72);
-                    self.bg_sidebar = Color::rgba(18.0 / 255.0, 20.0 / 255.0, 28.0 / 255.0, op * 0.82);
-                    self.bg_editor = Color::rgba(16.0 / 255.0, 18.0 / 255.0, 24.0 / 255.0, op);
-                    self.bg_gutter = Color::rgba(16.0 / 255.0, 18.0 / 255.0, 24.0 / 255.0, op);
-                    self.bg_active_tab = Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, 0.12);
-                    self.bg_inactive_tab = Color::rgba(0.0, 0.0, 0.0, 0.20);
-                    self.border = Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, 0.12);
-                    self.highlight = Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, 0.04);
+                    let frost_sheen = (0.02 + blur_norm * 0.06).clamp(0.02, 0.08);
+                    let border_alpha = (0.08 + blur_norm * 0.10).clamp(0.06, 0.20);
+                    let tab_alpha = (0.08 + blur_norm * 0.10).clamp(0.06, 0.20);
+
+                    self.bg_base = Color::rgba(12.0 / 255.0, 14.0 / 255.0, 20.0 / 255.0, eff_op * 0.72);
+                    self.bg_sidebar = Color::rgba(18.0 / 255.0, 20.0 / 255.0, 28.0 / 255.0, eff_op * 0.82);
+                    self.bg_editor = Color::rgba(16.0 / 255.0, 18.0 / 255.0, 24.0 / 255.0, eff_op * 0.85);
+                    self.bg_gutter = Color::rgba(16.0 / 255.0, 18.0 / 255.0, 24.0 / 255.0, eff_op * 0.85);
+                    self.bg_active_tab = Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, tab_alpha);
+                    self.bg_inactive_tab = Color::rgba(18.0 / 255.0, 20.0 / 255.0, 28.0 / 255.0, (eff_op * 0.75).clamp(0.15, 0.85));
+                    self.border = Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, border_alpha);
+                    self.highlight = Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, frost_sheen);
                 }
                 ThemeMode::Light => {
-                    self.bg_base = Color::rgba(240.0 / 255.0, 242.0 / 255.0, 248.0 / 255.0, op * 0.72);
-                    self.bg_sidebar = Color::rgba(235.0 / 255.0, 238.0 / 255.0, 245.0 / 255.0, op * 0.85);
-                    self.bg_editor = Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, op);
-                    self.bg_gutter = Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, op);
-                    self.bg_active_tab = Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, 0.75);
-                    self.bg_inactive_tab = Color::rgba(230.0 / 255.0, 232.0 / 255.0, 240.0 / 255.0, 0.35);
-                    self.border = Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, 0.25);
-                    self.highlight = Color::rgba(0.0, 0.0, 0.0, 0.04);
+                    let frost_sheen = (0.02 + blur_norm * 0.06).clamp(0.02, 0.08);
+                    let border_alpha = (0.18 + blur_norm * 0.14).clamp(0.15, 0.35);
+                    let tab_alpha = (0.65 + blur_norm * 0.18).clamp(0.55, 0.88);
+
+                    self.bg_base = Color::rgba(240.0 / 255.0, 242.0 / 255.0, 248.0 / 255.0, eff_op * 0.72);
+                    self.bg_sidebar = Color::rgba(235.0 / 255.0, 238.0 / 255.0, 245.0 / 255.0, eff_op * 0.85);
+                    self.bg_editor = Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, eff_op * 0.85);
+                    self.bg_gutter = Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, eff_op * 0.85);
+                    self.bg_active_tab = Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, tab_alpha);
+                    self.bg_inactive_tab = Color::rgba(235.0 / 255.0, 238.0 / 255.0, 245.0 / 255.0, (eff_op * 0.75).clamp(0.20, 0.85));
+                    self.border = Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, border_alpha);
+                    self.highlight = Color::rgba(0.0, 0.0, 0.0, frost_sheen);
                 }
             }
         }
