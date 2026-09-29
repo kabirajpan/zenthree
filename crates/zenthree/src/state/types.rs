@@ -585,6 +585,8 @@ pub struct AiMessage {
     pub code_snippet: Option<String>,
     pub thoughts: Option<String>,
     #[serde(default)]
+    pub thoughts_expanded: bool,
+    #[serde(default)]
     pub expanded: bool,
     #[serde(default)]
     pub trajectory: Vec<TrajectoryStep>,
@@ -648,6 +650,8 @@ impl AiMessage {
 #[derive(Debug, Clone)]
 pub enum AiUiUpdate {
     Status(String),
+    Thought(String),
+    TextDelta(String),
     ToolStart {
         name: String,
         args: serde_json::Value,

@@ -1,6 +1,117 @@
 use crate::state::types::*;
 use crate::state::ZenthreeState;
 
+#[derive(Default)]
+struct InlineThoughtParser {
+    in_thought: bool,
+    buffer: String,
+}
+
+impl InlineThoughtParser {
+    fn new() -> Self {
+        Self::default()
+    }
+
+    fn feed(
+        &mut self,
+        chunk: &str,
+        mut on_thought: impl FnMut(String),
+        mut on_text: impl FnMut(String),
+    ) {
+        self.buffer.push_str(chunk);
+
+        loop {
+            if !self.in_thought {
+                let thought_start = self
+                    .buffer
+                    .find("<thought>")
+                    .map(|idx| (idx, 9))
+                    .or_else(|| self.buffer.find("<thinking>").map(|idx| (idx, 10)));
+
+                if let Some((start_idx, tag_len)) = thought_start {
+                    if start_idx > 0 {
+                        let text_part = self.buffer[..start_idx].to_string();
+                        on_text(text_part);
+                    }
+                    self.buffer = self.buffer[start_idx + tag_len..].to_string();
+                    self.in_thought = true;
+                } else {
+                    let mut partial = false;
+                    for tag in &["<thought>", "<thinking>"] {
+                        for len in 1..tag.len() {
+                            if self.buffer.ends_with(&tag[..len]) {
+                                partial = true;
+                                break;
+                            }
+                        }
+                        if partial {
+                            break;
+                        }
+                    }
+
+                    if partial {
+                        break;
+                    } else {
+                        let text_part = std::mem::take(&mut self.buffer);
+                        if !text_part.is_empty() {
+                            on_text(text_part);
+                        }
+                        break;
+                    }
+                }
+            } else {
+                let thought_end = self
+                    .buffer
+                    .find("</thought>")
+                    .map(|idx| (idx, 10))
+                    .or_else(|| self.buffer.find("</thinking>").map(|idx| (idx, 11)));
+
+                if let Some((end_idx, tag_len)) = thought_end {
+                    if end_idx > 0 {
+                        let thought_part = self.buffer[..end_idx].to_string();
+                        on_thought(thought_part);
+                    }
+                    self.buffer = self.buffer[end_idx + tag_len..].to_string();
+                    self.in_thought = false;
+                } else {
+                    let mut partial = false;
+                    for tag in &["</thought>", "</thinking>"] {
+                        for len in 1..tag.len() {
+                            if self.buffer.ends_with(&tag[..len]) {
+                                partial = true;
+                                break;
+                            }
+                        }
+                        if partial {
+                            break;
+                        }
+                    }
+
+                    if partial {
+                        break;
+                    } else {
+                        let thought_part = std::mem::take(&mut self.buffer);
+                        if !thought_part.is_empty() {
+                            on_thought(thought_part);
+                        }
+                        break;
+                    }
+                }
+            }
+        }
+    }
+
+    fn finish(self, mut on_thought: impl FnMut(String), mut on_text: impl FnMut(String)) {
+        if !self.buffer.is_empty() {
+            if self.in_thought {
+                on_thought(self.buffer);
+            } else {
+                on_text(self.buffer);
+            }
+        }
+    }
+}
+
 impl ZenthreeState {
     pub fn cancel_active_ai(&mut self) {
         if let Some(ref token) = self.ai_cancel_token {
@@ -45,6 +156,7 @@ impl ZenthreeState {
             content: trimmed.to_string(),
             code_snippet: None,
             thoughts: None,
+            thoughts_expanded: false,
             expanded: false,
             trajectory: Vec::new(),
             is_working: false,
@@ -55,6 +167,7 @@ impl ZenthreeState {
             content: String::new(),
             code_snippet: None,
             thoughts: None,
+            thoughts_expanded: false,
             expanded: false,
             trajectory: Vec::new(),
             is_working: true,
@@ -206,23 +319,72 @@ impl ZenthreeState {
                         );
                         agent.push_system_message(sys_msg);
                     }
+                } else if has_workspace {
+                    let skills_summary = agent.skills().prompt_summary();
+                    let tools_manifest = agent.tools().manifest();
+                    let mut sys_msg = format!(
+                        "You are ZENE, an advanced AI coding assistant embedded in the Zenthree IDE.\n\
+                        Workspace: {}\n\
+                        Platform: {} ({})\n\n\
+                        Available Tools (Level 1 Manifest):\n{}\n\n\
+                        Available Workflow Skills:\n{}\n\n\
+                        Guidelines:\n\
+                        - CASUAL CHAT & GREETINGS: When the user simply says 'hi', 'hello', or greets you, reply warmly, concisely, and conversationally. Do NOT call file reading or directory listing tools unless the user specifically asks a question about the workspace or requests a task.\n\
+                        - STRICT PROJECT BOUNDARY: You must operate EXCLUSIVELY inside the current workspace project root ('./'). You are strictly forbidden from navigating to parent directories ('..') or inspecting files outside this project.\n\
+                        - DIRECT ACTION & IMMEDIATE EXECUTION: When the user asks you to create, scaffold, implement, fix, or run something, take immediate action using your available tools. Do NOT pause execution or create unnecessary markdown planning files for straightforward user tasks. Execute commands and edits directly.\n\
+                        - PROJECT ROOT & SCAFFOLDING: The current workspace directory is already the project root. All terminal commands run natively with this directory as their working directory (no need to prefix commands with `cd /path/to/project &&`). You are strictly forbidden from creating projects in /tmp or outside the workspace. When scaffolding or initializing a new application (e.g. using `bun create vite`, `npm create`, `cargo new`), always scaffold directly into `./` with non-interactive and overwrite flags (e.g. `bun create vite ./ --template react --no-interactive --overwrite`) so files are created directly at the workspace root without failing if existing files (like plans or configs) already exist. Never create a redundant nested subfolder unless the user explicitly requested a subfolder name.\n\
+                        - ARCHITECTURAL PLANNING: Reserve `create_plan` strictly for large, complex multi-file architectural refactors or when the user explicitly asks for a plan.\n\
+                        - Use `search`, `read_file`, and `list_directory` to explore files, symbols, and directory trees.\n\
+                        - EFFICIENT FILE READING: Call `read_file(path: \"...\")` directly to read complete files (it automatically provides up to 500 lines).\n\
+                        - Prefer surgical edits using `edit_file` rather than rewriting whole files.\n\
+                        - Run `get_diagnostics` or test/build suites via `run_terminal` to verify your changes.\n\
+                        - Activate workflow skills on demand via `activate_skill(name: \"...\")` for step-by-step guidance.\n\n{}",
+                        current_dir.display(),
+                        std::env::consts::OS,
+                        std::env::consts::ARCH,
+                        tools_manifest,
+                        skills_summary,
+                        ws_context_prompt
+                    );
+                    if let Some(ref git_ctx) = git_context_prompt {
+                        sys_msg.push_str("\n\n");
+                        sys_msg.push_str(git_ctx);
+                    }
+                    if let Some(first) = agent.conversation_mut().first_mut() {
+                        if first.role == agent::types::Role::System {
+                            first.content = sys_msg;
+                        }
+                    }
                 }
 
                 let mut final_text = String::new();
                 let cancel_for_event = cancel_for_thread.clone();
+                let mut thought_parser = InlineThoughtParser::new();
+                let send_fn = send.clone();
+
                 let mut on_event = |ev: agent::types::AgentEvent| {
                     if cancel_for_event.load(std::sync::atomic::Ordering::Relaxed) {
                         return;
                     }
                     match ev {
                         agent::types::AgentEvent::ToolStarted { name, args } => {
-                            send(AiUiUpdate::ToolStart { name, args });
+                            send_fn(AiUiUpdate::ToolStart { name, args });
                         }
                         agent::types::AgentEvent::ToolFinished { name, .. } => {
-                            send(AiUiUpdate::ToolDone { name });
+                            send_fn(AiUiUpdate::ToolDone { name });
+                        }
+                        agent::types::AgentEvent::Thought(thought) => {
+                            send_fn(AiUiUpdate::Thought(thought));
                         }
                         agent::types::AgentEvent::Text(delta) => {
-                            final_text.push_str(&delta);
+                            thought_parser.feed(
+                                &delta,
+                                |th| send_fn(AiUiUpdate::Thought(th)),
+                                |tx| {
+                                    final_text.push_str(&tx);
+                                    send_fn(AiUiUpdate::TextDelta(tx));
+                                },
+                            );
                         }
                         _ => {}
                     }
@@ -232,6 +394,14 @@ impl ZenthreeState {
 
                 match agent.run(&prompt, &mut on_event, &mut ask_approval) {
                     Ok(text) => {
+                        thought_parser.finish(
+                            |th| send(AiUiUpdate::Thought(th)),
+                            |tx| {
+                                final_text.push_str(&tx);
+                                send(AiUiUpdate::TextDelta(tx));
+                            },
+                        );
+
                         if cancel_for_thread.load(std::sync::atomic::Ordering::Relaxed) {
                             return;
                         }
@@ -250,6 +420,14 @@ impl ZenthreeState {
                         });
                     }
                     Err(e) => {
+                        thought_parser.finish(
+                            |th| send(AiUiUpdate::Thought(th)),
+                            |tx| {
+                                final_text.push_str(&tx);
+                                send(AiUiUpdate::TextDelta(tx));
+                            },
+                        );
+
                         if cancel_for_thread.load(std::sync::atomic::Ordering::Relaxed) {
                             return;
                         }
@@ -309,6 +487,30 @@ impl ZenthreeState {
                                     self.ai_messages.iter_mut().rev().find(|m| !m.is_user)
                                 {
                                     last.content = status;
+                                }
+                            }
+                            AiUiUpdate::TextDelta(chunk) => {
+                                if let Some(last) =
+                                    self.ai_messages.iter_mut().rev().find(|m| !m.is_user)
+                                {
+                                    let old_hash = {
+                                        use std::hash::{Hash, Hasher};
+                                        let mut h =
+                                            std::collections::hash_map::DefaultHasher::new();
+                                        last.content.hash(&mut h);
+                                        h.finish()
+                                    };
+                                    self.ai_block_cache.remove(&old_hash);
+                                    last.content.push_str(&chunk);
+                                }
+                            }
+                            AiUiUpdate::Thought(chunk) => {
+                                if let Some(last) =
+                                    self.ai_messages.iter_mut().rev().find(|m| !m.is_user)
+                                {
+                                    let thoughts = last.thoughts.get_or_insert_with(String::new);
+                                    thoughts.push_str(&chunk);
+                                    last.thoughts_expanded = true;
                                 }
                             }
                             AiUiUpdate::ToolStart { name, args } => {
@@ -805,6 +1007,10 @@ impl ZenthreeState {
                                         } else if !last.content.contains("stopped") {
                                             last.content.push_str("\n\n*Request stopped by user.*");
                                         }
+                                    } else if !last.content.trim().is_empty() {
+                                        if last.content.trim().len() < reply.trim().len() {
+                                            last.content = reply;
+                                        }
                                     } else {
                                         last.content = reply;
                                     }
@@ -814,6 +1020,7 @@ impl ZenthreeState {
                                         content: reply,
                                         code_snippet: None,
                                         thoughts: None,
+                                        thoughts_expanded: false,
                                         expanded: false,
                                         trajectory: Vec::new(),
                                         is_working: false,

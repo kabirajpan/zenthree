@@ -118,11 +118,11 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
             // Wait 200ms for initial notifications
             tokio::time::sleep(Duration::from_millis(200)).await;
 
-            // STEP 4: Send prompt with "hi"
-            println!(">>> SENDING PROMPT WITH 'hi'...");
+            // STEP 4: Send prompt with coding / tool task
+            println!(">>> SENDING PROMPT WITH CODING / TOOL TASK...");
             let prompt_req = PromptRequest::new(
                 session_id.clone(),
-                vec![ContentBlock::Text(TextContent::new("hi"))],
+                vec![ContentBlock::Text(TextContent::new("Read file Cargo.toml and tell me what the workspace members are."))],
             );
 
             let _prompt_resp = match cx.send_request(prompt_req).block_task().await {

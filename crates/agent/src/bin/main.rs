@@ -277,6 +277,12 @@ fn execute_turn(
             }
         }
 
+        AgentEvent::Thought(thought) => {
+            if verbose {
+                print!("{DIM}{thought}{RESET}");
+                let _ = io::stdout().flush();
+            }
+        }
         AgentEvent::Text(delta) => {
             if !stream_started {
                 if !verbose {

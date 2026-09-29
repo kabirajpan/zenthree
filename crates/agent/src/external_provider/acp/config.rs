@@ -97,7 +97,8 @@ impl AcpAgentConfig {
             config.args.push("--uid=".to_string());
         }
 
-        config.auth_method_id = Some("oauth-personal".to_string());
+        // Do not force interactive authenticate on every session; let agent load its configured auth from settings.json
+        config.auth_method_id = None;
         Some(config)
     }
 }

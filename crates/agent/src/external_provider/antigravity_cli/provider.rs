@@ -59,12 +59,23 @@ impl Provider for AntigravityCliProvider {
         _tools: &[Value],
         on_event: &mut dyn FnMut(ProviderEvent),
     ) -> Result<(), ProviderError> {
-        let last_prompt = messages
+        let last_user_msg = messages
             .iter()
             .rev()
             .find(|m| m.role == Role::User)
             .map(|m| m.content.clone())
             .unwrap_or_else(|| "Hello".to_string());
+
+        let system_ctx = messages
+            .iter()
+            .find(|m| m.role == Role::System)
+            .map(|m| m.content.as_str());
+
+        let prompt = if let Some(sys) = system_ctx {
+            format!("[Workspace Context]\n{}\n\n[User Instruction]\n{}", sys, last_user_msg)
+        } else {
+            last_user_msg
+        };
 
         let config = self.config.clone();
 
@@ -92,7 +103,7 @@ impl Provider for AntigravityCliProvider {
                     .map_err(|e| format!("Failed to create ACP session: {}", e))?;
 
                 let _ = client
-                    .prompt(&last_prompt, move |event| {
+                    .prompt(&prompt, move |event| {
                         let _ = tx.send(event);
                     })
                     .await
@@ -106,6 +117,38 @@ impl Provider for AntigravityCliProvider {
             match event {
                 AcpEvent::TextDelta(chunk) => {
                     on_event(ProviderEvent::TextDelta(chunk));
+                }
+                AcpEvent::ThoughtDelta(chunk) => {
+                    on_event(ProviderEvent::ThoughtDelta(chunk));
+                }
+                AcpEvent::ToolCall { title, name, raw_input, .. } => {
+                    let name_candidate = name.unwrap_or_else(|| {
+                        title
+                            .strip_prefix("Running ")
+                            .unwrap_or(&title)
+                            .trim()
+                            .to_string()
+                    });
+
+                    let mapped_name = match name_candidate.as_str() {
+                        "view_file" => "read_file",
+                        "find_file" => "search_codebase",
+                        other => other,
+                    };
+
+                    let mut args = raw_input.unwrap_or_else(|| serde_json::json!({}));
+                    if let serde_json::Value::Object(ref mut map) = args {
+                        if let Some(abs) = map.remove("absolute_path") {
+                            map.insert("path".to_string(), abs);
+                        } else if let Some(dir) = map.remove("directory_path") {
+                            map.insert("path".to_string(), dir);
+                        }
+                    }
+
+                    on_event(ProviderEvent::ExternalToolActivity {
+                        name: mapped_name.to_string(),
+                        args,
+                    });
                 }
                 AcpEvent::TurnCompleted { .. } => {
                     on_event(ProviderEvent::Done);

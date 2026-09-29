@@ -42,6 +42,19 @@ pub enum AcpEvent {
         current: String,
         available: Vec<AcpModel>,
     },
+    /// The agent initiated a tool call.
+    ToolCall {
+        id: String,
+        title: String,
+        name: Option<String>,
+        raw_input: Option<serde_json::Value>,
+    },
+    /// Status update for a previously initiated tool call.
+    ToolCallUpdate {
+        id: String,
+        status: String,
+        raw_output: Option<String>,
+    },
     /// The agent completed its turn.
     TurnCompleted {
         stop_reason: String,

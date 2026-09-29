@@ -992,6 +992,7 @@ fn draw_ai_chat_content(
                             });
                     } else {
                         let mut toggle_expand_idx: Option<usize> = None;
+                        let mut toggle_thoughts_idx: Option<usize> = None;
                         let mut toggle_trajectory_group: Option<(usize, usize)> = None;
                         let mut copy_target_idx: Option<usize> = None;
                         let mut copy_code_snippet: Option<(u64, String)> = None;
@@ -1706,8 +1707,81 @@ fn draw_ai_chat_content(
                                             }
                                         }
 
-                                        // "Working..." indicator — shown only when no tool steps have started yet
-                                        if msg.is_working && full_text.is_empty() && msg.trajectory.is_empty() {
+                                        // ── Sibling 1.5: Collapsible Thought / Reasoning Block ──
+                                        if state.ai_settings.show_thoughts {
+                                            if let Some(ref thoughts) = msg.thoughts {
+                                                if !thoughts.trim().is_empty() {
+                                                    let thought_id = Id::from_u64(999_310_000 + (msg_idx as u64) * 10);
+                                                    let is_expanded = msg.thoughts_expanded;
+                                                    let chevron = if is_expanded { "\u{f078}" } else { "\u{f054}" };
+
+                                                    ui.container()
+                                                        .full_width()
+                                                        .column()
+                                                        .gap(4.0)
+                                                        .bg(Color::rgb(20.0 / 255.0, 20.0 / 255.0, 24.0 / 255.0))
+                                                        .border(Color::rgb(38.0 / 255.0, 38.0 / 255.0, 44.0 / 255.0), 1.0)
+                                                        .radius_all(8.0)
+                                                        .padding(6.0, 10.0, 6.0, 10.0)
+                                                        .show(|ui| {
+                                                            let header_res = ui.container()
+                                                                .id(thought_id)
+                                                                .full_width()
+                                                                .clickable(true)
+                                                                .row()
+                                                                .valign(Align::Center)
+                                                                .gap(6.0)
+                                                                .padding(2.0, 0.0, 2.0, 0.0)
+                                                                .show(|ui| {
+                                                                    ui.text(chevron)
+                                                                        .size(9.0)
+                                                                        .color(colors.text_muted)
+                                                                        .show();
+                                                                    ui.text("\u{f0eb}") // fa-lightbulb
+                                                                        .size(10.0)
+                                                                        .color(colors.accent)
+                                                                        .show();
+                                                                    let title = if msg.is_working && full_text.is_empty() {
+                                                                        "Thinking..."
+                                                                    } else {
+                                                                        "Thought Process"
+                                                                    };
+                                                                    ui.text(title)
+                                                                        .size(10.5)
+                                                                        .weight(FontWeight::Medium)
+                                                                        .color(colors.text_primary)
+                                                                        .show();
+                                                                });
+
+                                                            if header_res.hovered {
+                                                                ui.cursor_icon = CursorIcon::Pointer;
+                                                            }
+                                                            if header_res.clicked {
+                                                                toggle_thoughts_idx = Some(msg_idx);
+                                                            }
+
+                                                            if is_expanded {
+                                                                ui.container()
+                                                                    .full_width()
+                                                                    .padding(4.0, 0.0, 4.0, 16.0)
+                                                                    .show(|ui| {
+                                                                        ui.text(thoughts.trim())
+                                                                            .size(10.0)
+                                                                            .line_height(1.4)
+                                                                            .color(colors.text_muted)
+                                                                            .wrap(zenthra_text::prelude::TextWrap::Word)
+                                                                            .show();
+                                                                    });
+                                                            }
+                                                        });
+                                                }
+                                            }
+                                        }
+
+                                        let has_visible_thoughts = msg.thoughts.as_ref().map_or(false, |t| !t.trim().is_empty());
+
+                                        // "Working..." indicator — shown only when no tool steps or thoughts have started yet
+                                        if msg.is_working && full_text.is_empty() && msg.trajectory.is_empty() && !has_visible_thoughts {
                                             ui.container()
                                                 .row()
                                                 .valign(Align::Center)
@@ -1727,7 +1801,7 @@ fn draw_ai_chat_content(
                                                         .color(colors.accent)
                                                         .show();
                                                 });
-                                        } else if !msg.is_working && full_text.is_empty() && msg.trajectory.is_empty() {
+                                        } else if !msg.is_working && full_text.is_empty() && msg.trajectory.is_empty() && !has_visible_thoughts {
                                             ui.text("No response generated. Please check your model or API quota.")
                                                 .size(10.5)
                                                 .italic()
@@ -2234,6 +2308,12 @@ fn draw_ai_chat_content(
                         if let Some(idx) = toggle_expand_idx {
                             if let Some(m) = state.ai_messages.get_mut(idx) {
                                 m.expanded = !m.expanded;
+                                ui.needs_redraw = true;
+                            }
+                        }
+                        if let Some(idx) = toggle_thoughts_idx {
+                            if let Some(m) = state.ai_messages.get_mut(idx) {
+                                m.thoughts_expanded = !m.thoughts_expanded;
                                 ui.needs_redraw = true;
                             }
                         }

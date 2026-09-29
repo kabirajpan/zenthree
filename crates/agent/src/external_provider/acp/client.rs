@@ -73,6 +73,21 @@ impl AcpClient {
                             .collect();
                         let _ = notif_tx.send(AcpEvent::AvailableCommands(commands));
                     }
+                    agent_client_protocol::schema::v1::SessionUpdate::ToolCall(call) => {
+                        let _ = notif_tx.send(AcpEvent::ToolCall {
+                            id: call.tool_call_id.0.to_string(),
+                            title: call.title,
+                            name: call.name,
+                            raw_input: call.raw_input,
+                        });
+                    }
+                    agent_client_protocol::schema::v1::SessionUpdate::ToolCallUpdate(update) => {
+                        let _ = notif_tx.send(AcpEvent::ToolCallUpdate {
+                            id: update.tool_call_id.0.to_string(),
+                            status: format!("{:?}", update.fields.status),
+                            raw_output: update.fields.raw_output.and_then(|v| v.as_str().map(String::from)),
+                        });
+                    }
                     _ => {}
                 }
                 Ok(())

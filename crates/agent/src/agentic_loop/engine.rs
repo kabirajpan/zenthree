@@ -215,6 +215,11 @@ impl Agent {
         &self.conversation
     }
 
+    /// Mutable reference to conversation history.
+    pub fn conversation_mut(&mut self) -> &mut Vec<Message> {
+        &mut self.conversation
+    }
+
     /// Clear conversation history.
     pub fn clear_conversation(&mut self) {
         self.conversation.clear();
@@ -370,6 +375,9 @@ impl Agent {
                                 assistant_text.push_str(&delta);
                                 on_event(AgentEvent::Text(delta));
                             }
+                            ProviderEvent::ThoughtDelta(thought) => {
+                                on_event(AgentEvent::Thought(thought));
+                            }
                             ProviderEvent::ToolCallComplete {
                                 id,
                                 name,
@@ -381,6 +389,16 @@ impl Agent {
                                     name,
                                     args,
                                     thought_signature,
+                                });
+                            }
+                            ProviderEvent::ExternalToolActivity { name, args } => {
+                                on_event(AgentEvent::ToolStarted {
+                                    name: name.clone(),
+                                    args,
+                                });
+                                on_event(AgentEvent::ToolFinished {
+                                    name,
+                                    result: serde_json::Value::Null,
                                 });
                             }
                             ProviderEvent::Error(err) => {

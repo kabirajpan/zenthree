@@ -6,6 +6,8 @@ use super::approval::ApprovalRequest;
 pub enum ProviderEvent {
     /// Text chunk (render immediately in UI).
     TextDelta(String),
+    /// Thought / reasoning delta (from models with chain-of-thought).
+    ThoughtDelta(String),
     /// Assistant started invoking a tool.
     ToolCallStart { id: String, name: String },
     /// Incremental JSON argument fragment.
@@ -16,6 +18,11 @@ pub enum ProviderEvent {
         name: String,
         args: Value,
         thought_signature: Option<String>,
+    },
+    /// An external agent (e.g. via ACP) executed a tool internally.
+    ExternalToolActivity {
+        name: String,
+        args: Value,
     },
     /// Provider finished this turn.
     Done,
@@ -28,6 +35,8 @@ pub enum ProviderEvent {
 pub enum AgentEvent {
     /// Streaming text delta.
     Text(String),
+    /// Streaming thought / reasoning delta.
+    Thought(String),
     /// Agent started executing a tool.
     ToolStarted { name: String, args: Value },
     /// Agent needs user approval (when approval gate is active).
