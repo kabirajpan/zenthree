@@ -853,7 +853,7 @@ impl ZenthreeState {
                                                 .unwrap_or(&name);
 
                                             let item = match clean_name {
-                                                "read_file" => {
+                                                "read_file" | "view_file" | "client_view_file" => {
                                                     let symbol = args.get("symbol").and_then(|v| v.as_str()).map(String::from);
                                                     let is_peek = args.get("peek").and_then(|v| v.as_bool()).unwrap_or(false);
                                                     let mut start_line = args.get("start_line").and_then(|v| v.as_u64()).map(|u| u as usize);
@@ -894,23 +894,40 @@ impl ZenthreeState {
                                                         }
                                                     }
                                                 }
-                                                "search" => {
-                                                    let query = args.get("query").and_then(|v| v.as_str()).unwrap_or("").to_string();
-                                                    let scope = args.get("in").and_then(|v| v.as_str()).map(String::from);
-                                                    ExplorationItem::Searched { query, scope }
-                                                }
-                                                "search_codebase" | "find_files" => {
+                                                "search" | "search_codebase" | "find_files" | "find_file" | "search_directory" | "grep_search" | "grep" | "file_search" | "search_files" | "find_in_files" => {
                                                     let query = args
                                                         .get("query")
                                                         .or_else(|| args.get("pattern"))
+                                                        .or_else(|| args.get("search_term"))
+                                                        .or_else(|| args.get("term"))
+                                                        .or_else(|| args.get("text"))
+                                                        .or_else(|| args.get("glob"))
+                                                        .or_else(|| args.get("filter"))
                                                         .and_then(|v| v.as_str())
                                                         .unwrap_or("")
                                                         .to_string();
-                                                    ExplorationItem::Searched { query, scope: None }
+                                                    let scope = args
+                                                        .get("in")
+                                                        .or_else(|| args.get("path"))
+                                                        .or_else(|| args.get("search_path"))
+                                                        .or_else(|| args.get("directory"))
+                                                        .or_else(|| args.get("directory_path"))
+                                                        .and_then(|v| v.as_str())
+                                                        .map(String::from);
+                                                    let final_query = if !query.is_empty() {
+                                                        query
+                                                    } else if let Some(ref sc) = scope {
+                                                        sc.clone()
+                                                    } else {
+                                                        "files".to_string()
+                                                    };
+                                                    ExplorationItem::Searched { query: final_query, scope }
                                                 }
-                                                "list_directory" | "get_project_structure" => {
+                                                "list_directory" | "get_project_structure" | "list_dir" => {
                                                     let path = args
                                                         .get("path")
+                                                        .or_else(|| args.get("directory_path"))
+                                                        .or_else(|| args.get("dir"))
                                                         .and_then(|v| v.as_str())
                                                         .unwrap_or(".")
                                                         .to_string();

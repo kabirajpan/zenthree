@@ -131,8 +131,8 @@ impl Provider for AntigravityCliProvider {
                     });
 
                     let mapped_name = match name_candidate.as_str() {
-                        "view_file" => "read_file",
-                        "find_file" => "search_codebase",
+                        "view_file" | "client_view_file" => "read_file",
+                        "find_file" | "search_directory" | "grep_search" | "search_files" | "find_in_files" => "search_codebase",
                         other => other,
                     };
 
@@ -142,6 +142,13 @@ impl Provider for AntigravityCliProvider {
                             map.insert("path".to_string(), abs);
                         } else if let Some(dir) = map.remove("directory_path") {
                             map.insert("path".to_string(), dir);
+                        } else if let Some(sp) = map.remove("search_path") {
+                            map.insert("path".to_string(), sp);
+                        }
+                        if let Some(pat) = map.get("pattern").and_then(|v| v.as_str()).map(String::from) {
+                            if !map.contains_key("query") {
+                                map.insert("query".to_string(), serde_json::Value::String(pat));
+                            }
                         }
                     }
 

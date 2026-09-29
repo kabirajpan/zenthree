@@ -6,7 +6,15 @@ const AGENT_MODE_BTN_ID: Id = Id::from_u64(999999885);
 const MODEL_PICKER_BTN_ID: Id = Id::from_u64(999999886);
 const AI_MORE_BTN_ID: Id = Id::from_u64(999999887);
 
+const SPINNER_FRAMES: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
 
+fn get_thinking_spinner_frame() -> &'static str {
+    let elapsed_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_millis();
+    SPINNER_FRAMES[(elapsed_ms / 80 % SPINNER_FRAMES.len() as u128) as usize]
+}
 
 fn draw_ai_chat_header(
     ui: &mut Ui,
@@ -1418,6 +1426,10 @@ fn draw_ai_chat_content(
                                                                                         .size(10.5)
                                                                                         .color(colors.text_muted)
                                                                                         .show();
+                                                                                    ui.text("\u{f07b}")
+                                                                                        .size(10.5)
+                                                                                        .color(colors.accent)
+                                                                                        .show();
                                                                                     ui.text(&display_dir)
                                                                                         .size(11.5)
                                                                                         .color(colors.text_primary)
@@ -1480,12 +1492,22 @@ fn draw_ai_chat_content(
                                                                                 (None, true) => if summary.is_empty() { "Thinking...".to_string() } else { summary.clone() },
                                                                                 (None, false) => if summary.is_empty() { "Thought".to_string() } else { summary.clone() },
                                                                             };
+                                                                            let is_spinning = grp.is_active && duration_secs.is_none();
+                                                                            if is_spinning {
+                                                                                ui.request_redraw_after(std::time::Duration::from_millis(80));
+                                                                            }
                                                                             ui.container()
                                                                                 .full_width()
                                                                                 .row()
                                                                                 .valign(Align::Center)
                                                                                 .gap(4.0)
                                                                                 .show(|ui| {
+                                                                                    if is_spinning {
+                                                                                        ui.text(get_thinking_spinner_frame())
+                                                                                            .size(11.0)
+                                                                                            .color(colors.accent)
+                                                                                            .show();
+                                                                                    }
                                                                                     ui.text(&thought_label)
                                                                                         .size(11.5)
                                                                                         .italic()
@@ -1725,15 +1747,26 @@ fn draw_ai_chat_content(
                                                                 .valign(Align::Center)
                                                                 .gap(6.0)
                                                                 .show(|ui| {
+                                                                    let is_thinking_active = msg.is_working && full_text.is_empty();
+                                                                    if is_thinking_active {
+                                                                        ui.request_redraw_after(std::time::Duration::from_millis(80));
+                                                                    }
                                                                     ui.text(chevron)
                                                                         .size(7.5)
                                                                         .color(colors.text_muted)
                                                                         .show();
-                                                                    ui.text("\u{f0eb}") // fa-lightbulb
-                                                                        .size(10.5)
-                                                                        .color(colors.accent)
-                                                                        .show();
-                                                                    let title = if msg.is_working && full_text.is_empty() {
+                                                                    if is_thinking_active {
+                                                                        ui.text(get_thinking_spinner_frame())
+                                                                            .size(11.0)
+                                                                            .color(colors.accent)
+                                                                            .show();
+                                                                    } else {
+                                                                        ui.text("\u{f0eb}") // fa-lightbulb
+                                                                            .size(10.5)
+                                                                            .color(colors.accent)
+                                                                            .show();
+                                                                    }
+                                                                    let title = if is_thinking_active {
                                                                         "Thinking..."
                                                                     } else {
                                                                         "Thought Process"
@@ -1778,14 +1811,15 @@ fn draw_ai_chat_content(
 
                                         // "Working..." indicator — shown only when no tool steps or thoughts have started yet
                                         if msg.is_working && full_text.is_empty() && msg.trajectory.is_empty() && !has_visible_thoughts {
+                                            ui.request_redraw_after(std::time::Duration::from_millis(80));
                                             ui.container()
                                                 .row()
                                                 .valign(Align::Center)
                                                 .gap(6.0)
                                                 .padding(3.0, 4.0, 3.0, 4.0)
                                                 .show(|ui| {
-                                                    ui.text("\u{f110}")
-                                                        .size(11.0)
+                                                    ui.text(get_thinking_spinner_frame())
+                                                        .size(12.0)
                                                         .color(colors.accent)
                                                         .show();
                                                     ui.text("Thinking...")
