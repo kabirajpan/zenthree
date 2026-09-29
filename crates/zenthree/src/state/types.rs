@@ -190,12 +190,20 @@ impl Default for GitRepoState {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum AiProvider {
+    Antigravity,
     Groq,
     Gemini,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum AiModel {
+    // ── Google Antigravity (External Agent / OAuth) ───────────────────────────
+    AntigravityGemini38FlashHigh,
+    AntigravityGemini38FlashMedium,
+    AntigravityGemini38FlashLow,
+    AntigravityGemini37FlashHigh,
+    AntigravityGeminiProAgent,
+    AntigravityGemini31ProLow,
     // ── Groq ─────────────────────────────────────────────────────────────────
     GroqGptOss120b,
     GroqGptOss20b,
@@ -216,7 +224,14 @@ pub enum AiModel {
 }
 
 impl AiModel {
-    pub const ALL: [AiModel; 13] = [
+    pub const ALL: [AiModel; 19] = [
+        // Google Antigravity
+        AiModel::AntigravityGemini38FlashHigh,
+        AiModel::AntigravityGemini38FlashMedium,
+        AiModel::AntigravityGemini38FlashLow,
+        AiModel::AntigravityGemini37FlashHigh,
+        AiModel::AntigravityGeminiProAgent,
+        AiModel::AntigravityGemini31ProLow,
         // Groq
         AiModel::GroqGptOss120b,
         AiModel::GroqGptOss20b,
@@ -238,6 +253,12 @@ impl AiModel {
 
     pub fn provider(&self) -> AiProvider {
         match self {
+            AiModel::AntigravityGemini38FlashHigh
+            | AiModel::AntigravityGemini38FlashMedium
+            | AiModel::AntigravityGemini38FlashLow
+            | AiModel::AntigravityGemini37FlashHigh
+            | AiModel::AntigravityGeminiProAgent
+            | AiModel::AntigravityGemini31ProLow => AiProvider::Antigravity,
             AiModel::GroqGptOss120b | AiModel::GroqGptOss20b | AiModel::GroqQwen3_8_27b => {
                 AiProvider::Groq
             }
@@ -247,6 +268,13 @@ impl AiModel {
 
     pub fn model_id(&self) -> &'static str {
         match self {
+            // Google Antigravity
+            AiModel::AntigravityGemini38FlashHigh   => "gemini-3.8-flash-high",
+            AiModel::AntigravityGemini38FlashMedium => "gemini-3.8-flash-medium",
+            AiModel::AntigravityGemini38FlashLow    => "gemini-3.8-flash-low",
+            AiModel::AntigravityGemini37FlashHigh   => "gemini-3.7-flash-high",
+            AiModel::AntigravityGeminiProAgent      => "gemini-pro-agent",
+            AiModel::AntigravityGemini31ProLow      => "gemini-3.1-pro-low",
             // Groq
             AiModel::GroqGptOss120b    => "openai/gpt-oss-120b",
             AiModel::GroqGptOss20b     => "openai/gpt-oss-20b",
@@ -269,6 +297,13 @@ impl AiModel {
 
     pub fn display_name(&self) -> &'static str {
         match self {
+            // Google Antigravity
+            AiModel::AntigravityGemini38FlashHigh   => "Gemini 3.8 Flash (High)",
+            AiModel::AntigravityGemini38FlashMedium => "Gemini 3.8 Flash (Medium)",
+            AiModel::AntigravityGemini38FlashLow    => "Gemini 3.8 Flash (Low)",
+            AiModel::AntigravityGemini37FlashHigh   => "Gemini 3.7 Flash (High)",
+            AiModel::AntigravityGeminiProAgent      => "Gemini 3.1 Pro (High)",
+            AiModel::AntigravityGemini31ProLow      => "Gemini 3.1 Pro (Low)",
             // Groq
             AiModel::GroqGptOss120b    => "GPT-OSS 120B",
             AiModel::GroqGptOss20b     => "GPT-OSS 20B",

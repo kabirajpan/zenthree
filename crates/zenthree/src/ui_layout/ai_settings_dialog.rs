@@ -241,6 +241,9 @@ pub fn draw_ai_settings_dialog(ui: &mut Ui, state: &mut ZenthreeState) {
                                 AiSettingsTab::Model => {
                                     draw_model_tab(ui, state, &colors);
                                 }
+                                AiSettingsTab::ExternalAgents => {
+                                    draw_external_agents_tab(ui, state, &colors);
+                                }
                                 AiSettingsTab::Customization => {
                                     draw_customization_tab(ui, state, &colors);
                                 }
@@ -942,6 +945,286 @@ fn draw_model_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColors) 
                     }
                 });
         });
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 3b. External Agents & Google Antigravity Tab
+// ─────────────────────────────────────────────────────────────────────────────
+
+fn draw_external_agents_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColors) {
+    ui.container()
+        .full_width()
+        .column()
+        .gap(3.0)
+        .show(|ui| {
+            ui.text("External Agents & ACP")
+                .size(14.0)
+                .weight(FontWeight::Bold)
+                .color(colors.text_primary)
+                .show();
+            ui.text("Connect autonomous agents via Google ID OAuth or the Agent Client Protocol")
+                .size(11.0)
+                .color(colors.text_muted)
+                .show();
+        });
+
+    ui.spacing(4.0);
+
+    let auth = agent::external_provider::AntigravityAuthManager::with_default_config();
+    let maybe_token = auth.load_token();
+    let is_connected = maybe_token.is_some();
+
+    // ── Main Card: Google Antigravity ──
+    ui.container()
+        .full_width()
+        .padding(14.0, 16.0, 14.0, 16.0)
+        .radius_all(8.0)
+        .bg(colors.bg_base)
+        .border(colors.border.with_alpha(0.6), 1.0)
+        .column()
+        .gap(12.0)
+        .show(|ui| {
+            // Header row: Logo + Name + Status Badge
+            ui.container()
+                .full_width()
+                .row()
+                .valign(Align::Center)
+                .halign(Align::SpaceBetween)
+                .show(|ui| {
+                    ui.container().row().valign(Align::Center).gap(10.0).show(|ui| {
+                        // Logo pill
+                        ui.container()
+                            .width(32.0)
+                            .height(32.0)
+                            .radius_all(6.0)
+                            .bg(colors.accent.with_alpha(0.18))
+                            .valign(Align::Center)
+                            .halign(Align::Center)
+                            .show(|ui| {
+                                ui.text("A")
+                                    .size(14.0)
+                                    .weight(FontWeight::Bold)
+                                    .color(colors.accent)
+                                    .show();
+                            });
+                        ui.container().column().gap(2.0).show(|ui| {
+                            ui.text("Google Antigravity")
+                                .size(13.0)
+                                .weight(FontWeight::SemiBold)
+                                .color(colors.text_primary)
+                                .show();
+                            ui.text("Google Developer Infrastructure via Agent Client Protocol (ACP)")
+                                .size(10.0)
+                                .color(colors.text_muted)
+                                .show();
+                        });
+                    });
+
+                    // Badge
+                    let (badge_bg, badge_fg, badge_text) = if is_connected {
+                        (Color::rgb(0.15, 0.55, 0.25), Color::rgb(0.2, 0.9, 0.4), "Connected")
+                    } else {
+                        (colors.highlight, colors.text_muted, "Not Connected")
+                    };
+
+                    ui.container()
+                        .padding(3.0, 9.0, 3.0, 9.0)
+                        .radius_all(10.0)
+                        .bg(badge_bg.with_alpha(0.2))
+                        .border(badge_bg.with_alpha(0.6), 0.75)
+                        .show(|ui| {
+                            ui.text(badge_text)
+                                .size(10.0)
+                                .weight(FontWeight::Medium)
+                                .color(badge_fg)
+                                .show();
+                        });
+                });
+
+            // Description
+            ui.text("Google Antigravity autonomous coding agent running via the Agent Client Protocol (ACP). Handles its own authentication and provides access to Gemini 3.8 Flash, Gemini 3.7, and Gemini 3.1 Pro.")
+                .size(10.8)
+                .color(colors.text_muted)
+                .show();
+
+            // Action row
+            ui.container()
+                .full_width()
+                .row()
+                .valign(Align::Center)
+                .halign(Align::SpaceBetween)
+                .show(|ui| {
+                    if let Some(token) = &maybe_token {
+                        ui.container().column().gap(2.0).show(|ui| {
+                            let label = if let Some(email) = &token.account_email {
+                                format!("Logged in as: {}", email)
+                            } else {
+                                "Google Account Session Active (ACP)".to_string()
+                            };
+                            ui.text(&label)
+                                .size(10.0)
+                                .weight(FontWeight::Medium)
+                                .color(colors.text_primary)
+                                .show();
+                            ui.text("Session managed directly by Google Antigravity agent")
+                                .size(9.0)
+                                .color(colors.text_muted)
+                                .show();
+                        });
+
+                        ui.container().row().valign(Align::Center).gap(8.0).show(|ui| {
+                            let logout_btn = ui.container()
+                                .clickable(true)
+                                .padding(5.0, 12.0, 5.0, 12.0)
+                                .radius_all(5.0)
+                                .bg(colors.highlight)
+                                .border(colors.border.with_alpha(0.5), 0.75)
+                                .show(|ui| {
+                                    ui.text("Log Out")
+                                        .size(10.5)
+                                        .color(colors.text_primary)
+                                        .show();
+                                });
+                            if logout_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
+                            if logout_btn.clicked {
+                                auth.clear_token();
+                                ui.needs_redraw = true;
+                            }
+
+                            let is_active = state.selected_ai_model == AiModel::AntigravityGemini38FlashHigh;
+                            let use_btn = ui.container()
+                                .clickable(!is_active)
+                                .padding(5.0, 12.0, 5.0, 12.0)
+                                .radius_all(5.0)
+                                .bg(if is_active { colors.accent.with_alpha(0.4) } else { colors.accent })
+                                .show(|ui| {
+                                    ui.text(if is_active { "Active Model" } else { "Set as Active Model" })
+                                        .size(10.5)
+                                        .weight(FontWeight::Medium)
+                                        .color(Color::WHITE)
+                                        .show();
+                                });
+                            if !is_active && use_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
+                            if !is_active && use_btn.clicked {
+                                state.selected_ai_model = AiModel::AntigravityGemini38FlashHigh;
+                                ui.needs_redraw = true;
+                            }
+                        });
+                    } else {
+                        ui.container().column().gap(2.0).show(|ui| {
+                            ui.text("No active session found")
+                                .size(10.0)
+                                .color(colors.text_muted)
+                                .show();
+                            ui.text("Click to sign in with your Google Account in your browser")
+                                .size(9.0)
+                                .color(colors.text_muted.with_alpha(0.7))
+                                .show();
+                        });
+
+                        static SIGNING_IN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+                        let is_signing_in = SIGNING_IN.load(std::sync::atomic::Ordering::SeqCst);
+
+                        let login_btn = ui.container()
+                            .clickable(!is_signing_in)
+                            .padding(6.0, 14.0, 6.0, 14.0)
+                            .radius_all(5.0)
+                            .bg(if is_signing_in { colors.accent.with_alpha(0.4) } else { colors.accent })
+                            .show(|ui| {
+                                ui.text(if is_signing_in { "Authenticating..." } else { "Sign In via Antigravity" })
+                                    .size(11.0)
+                                    .weight(FontWeight::Medium)
+                                    .color(Color::WHITE)
+                                    .show();
+                            });
+                        if !is_signing_in && login_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
+                        if !is_signing_in && login_btn.clicked {
+                            SIGNING_IN.store(true, std::sync::atomic::Ordering::SeqCst);
+                            std::thread::spawn(|| {
+                                let auth = agent::external_provider::AntigravityAuthManager::with_default_config();
+                                let _ = auth.login_interactive();
+                                SIGNING_IN.store(false, std::sync::atomic::Ordering::SeqCst);
+                            });
+                            ui.needs_redraw = true;
+                        }
+                    }
+                });
+        });
+
+    draw_settings_divider(ui, colors);
+
+    // ── Model Selection for Antigravity ──
+    ui.container()
+        .full_width()
+        .column()
+        .gap(3.0)
+        .show(|ui| {
+            ui.text("Available Antigravity Models")
+                .size(12.0)
+                .weight(FontWeight::SemiBold)
+                .color(colors.text_primary)
+                .show();
+            ui.text("Select which model to route through the Google Antigravity external agent")
+                .size(10.5)
+                .color(colors.text_muted)
+                .show();
+        });
+
+    let models = [
+        (AiModel::AntigravityGemini38FlashHigh, "Gemini 3.8 Flash (High)", "Ultra-fast response with thinking reflection"),
+        (AiModel::AntigravityGemini38FlashMedium, "Gemini 3.8 Flash (Medium)", "Balanced speed and reasoning for coding"),
+        (AiModel::AntigravityGemini38FlashLow, "Gemini 3.8 Flash (Low)", "Fastest latency for simple queries and edits"),
+        (AiModel::AntigravityGemini37FlashHigh, "Gemini 3.7 Flash (High)", "Gemini 3.7 high-reasoning multimodal engine"),
+        (AiModel::AntigravityGeminiProAgent, "Gemini 3.1 Pro (High)", "Deep reasoning engine for multi-file codebases"),
+        (AiModel::AntigravityGemini31ProLow, "Gemini 3.1 Pro (Low)", "Pro-tier model optimized for fast responses"),
+    ];
+
+    for (model, name, desc) in models {
+        let is_selected = state.selected_ai_model == model;
+        let row = ui.container()
+            .clickable(true)
+            .full_width()
+            .padding(8.0, 12.0, 8.0, 12.0)
+            .radius_all(6.0)
+            .bg(if is_selected { colors.accent.with_alpha(0.12) } else { colors.bg_base })
+            .border(if is_selected { colors.accent.with_alpha(0.6) } else { colors.border.with_alpha(0.4) }, 0.75)
+            .row()
+            .valign(Align::Center)
+            .halign(Align::SpaceBetween)
+            .show(|ui| {
+                ui.container().column().gap(2.0).show(|ui| {
+                    ui.text(name)
+                        .size(11.0)
+                        .weight(if is_selected { FontWeight::SemiBold } else { FontWeight::Medium })
+                        .color(if is_selected { colors.accent } else { colors.text_primary })
+                        .show();
+                    ui.text(desc)
+                        .size(9.5)
+                        .color(colors.text_muted)
+                        .show();
+                });
+
+                if is_selected {
+                    ui.container()
+                        .padding(2.0, 6.0, 2.0, 6.0)
+                        .radius_all(4.0)
+                        .bg(colors.accent.with_alpha(0.2))
+                        .show(|ui| {
+                            ui.text("ACTIVE")
+                                .size(9.0)
+                                .weight(FontWeight::Bold)
+                                .color(colors.accent)
+                                .show();
+                        });
+                }
+            });
+
+        if row.hovered { ui.cursor_icon = CursorIcon::Pointer; }
+        if row.clicked {
+            state.selected_ai_model = model;
+            ui.needs_redraw = true;
+        }
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

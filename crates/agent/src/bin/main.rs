@@ -28,17 +28,24 @@ struct CliConfig {
 
 impl Default for CliConfig {
     fn default() -> Self {
+        let has_antigravity_token = agent::external_provider::AntigravityAuthManager::with_default_config()
+            .load_token()
+            .is_some();
+
         let default_prov = if agent::provider::get_key("GEMINI_API_KEY").is_some() {
             "gemini"
-        } else {
+        } else if agent::provider::get_key("GROQ_API_KEY").is_some() {
             "groq"
-        };
-        let default_mod = if default_prov == "gemini" {
-            "gemini-3.5-flash-lite"
+        } else if has_antigravity_token {
+            "antigravity"
         } else {
-            "openai/gpt-oss-120b"
+            "gemini"
         };
-
+        let default_mod = match default_prov {
+            "antigravity" => "gemini-3.8-flash-high",
+            "gemini" => "gemini-3.5-flash-lite",
+            _ => "openai/gpt-oss-120b",
+        };
 
         Self {
             provider: default_prov.to_string(),
@@ -56,17 +63,15 @@ fn print_version() {
 
 fn print_missing_keys_error() {
     eprintln!("\n{RED}{BOLD}✗ Error: No AI provider credentials found.{RESET}");
-    eprintln!("\nZENE requires at least one API key to operate:\n");
-    eprintln!("  1. {CYAN}{BOLD}Google Gemini{RESET} (Recommended):");
+    eprintln!("\nZENE can operate via API keys or your Google Account:\n");
+    eprintln!("  1. {CYAN}{BOLD}Google Antigravity{RESET} (Use your own Google ID via OAuth):");
+    eprintln!("     Login directly: {GREEN}zene --login{RESET} or run with {GREEN}zene -p antigravity{RESET}\n");
+    eprintln!("  2. {CYAN}{BOLD}Google Gemini{RESET} (API Key):");
     eprintln!("     Get key: {DIM}https://aistudio.google.com/app/apikey{RESET}");
     eprintln!("     Set it:  {GREEN}export GEMINI_API_KEY=\"your-key-here\"{RESET}\n");
-    eprintln!("  2. {CYAN}{BOLD}Groq{RESET} (Ultra-low latency inference):");
+    eprintln!("  3. {CYAN}{BOLD}Groq{RESET} (Ultra-low latency inference):");
     eprintln!("     Get key: {DIM}https://console.groq.com/keys{RESET}");
     eprintln!("     Set it:  {GREEN}export GROQ_API_KEY=\"your-key-here\"{RESET}\n");
-    eprintln!("Ways to configure your keys:");
-    eprintln!("  • Shell environment:       {GREEN}export GEMINI_API_KEY=\"...\"{RESET}");
-    eprintln!("  • Project .env file:       {GREEN}echo 'GEMINI_API_KEY=...' >> .env{RESET}");
-    eprintln!("  • User config directory:   {GREEN}mkdir -p ~/.config/zene && echo 'GEMINI_API_KEY=...' > ~/.config/zene/.env{RESET}\n");
 }
 
 fn print_help() {
@@ -78,14 +83,16 @@ fn print_help() {
     println!("  ./run-normal.sh [OPTIONS] [PROMPT]\n");
     println!("{BOLD}OPTIONS:{RESET}");
     println!("  {GREEN}-v, --verbose{RESET}             Enable verbose diagnostic output (reflex latency, full tool args & outputs)");
-    println!("  {GREEN}-p, --provider <NAME>{RESET}     AI provider: 'gemini' or 'groq' (default: auto from env)");
-    println!("  {GREEN}-m, --model <NAME>{RESET}        Model identifier (e.g. gemini-3.5-flash-lite, openai/gpt-oss-120b)");
+    println!("  {GREEN}-p, --provider <NAME>{RESET}     AI provider: 'antigravity', 'gemini', or 'groq'");
+    println!("  {GREEN}-m, --model <NAME>{RESET}        Model identifier (e.g. gemini-3.8-flash-high, gemini-3.5-flash-lite)");
     println!("  {GREEN}-w, --workspace <DIR>{RESET}     Target workspace directory (default: current directory)");
+    println!("  {GREEN}--login{RESET}                   Log in with your Google Account / Google ID for Antigravity");
     println!("  {GREEN}--list-models{RESET}             List recommended models for each provider");
     println!("  {GREEN}-V, --version{RESET}             Print version information");
     println!("  {GREEN}-h, --help{RESET}                Display this help message\n");
     println!("{BOLD}INTERACTIVE COMMANDS:{RESET} (when launched without [PROMPT])");
     println!("  {YELLOW}:help{RESET}                     Show command list");
+    println!("  {YELLOW}:login{RESET}                    Log in with your Google Account");
     println!("  {YELLOW}:verbose{RESET}                  Toggle verbose diagnostic mode on/off");
     println!("  {YELLOW}:model <NAME>{RESET}             Switch model on the fly");
     println!("  {YELLOW}:clear{RESET}                    Reset conversation memory");
@@ -94,13 +101,16 @@ fn print_help() {
 
 fn print_models() {
     println!("{BOLD}{CYAN}Available & Tested Models:{RESET}\n");
-    println!("{BOLD}Gemini Models (Recommended - high rate limits):{RESET}");
+    println!("{BOLD}Google Antigravity Models (Authenticate with your Google ID):{RESET}");
+    for m in agent::external_provider::available_models() {
+        println!("  • {GREEN}{:<24}{RESET} {}", m.id, m.description);
+    }
+    println!("\n{BOLD}Gemini API Models (Via GEMINI_API_KEY):{RESET}");
     println!("  • {GREEN}gemini-3.5-flash-lite{RESET}   Ultra-lightweight, high throughput (Default)");
     println!("  • {GREEN}gemini-3.5-flash{RESET}        Fast, full function-calling, generous daily quota\n");
-    println!("{BOLD}Groq Models (High speed on LPUs):{RESET}");
-    println!("  • {GREEN}openai/gpt-oss-120b{RESET}     High reasoning, full tool calling (Default for Groq)");
-    println!("  • {GREEN}openai/gpt-oss-20b{RESET}      Fast lightweight reasoning");
-    println!("  • {YELLOW}qwen/qwen3.8-27b{RESET}        Note: strict 200k daily token limit on free tier\n");
+    println!("{BOLD}Groq Models (Via GROQ_API_KEY):{RESET}");
+    println!("  • {GREEN}openai/gpt-oss-120b{RESET}     High reasoning, full tool calling");
+    println!("  • {GREEN}openai/gpt-oss-20b{RESET}      Fast lightweight reasoning\n");
 }
 
 fn parse_args() -> Result<CliConfig, i32> {
@@ -123,12 +133,31 @@ fn parse_args() -> Result<CliConfig, i32> {
                 print_models();
                 return Err(0);
             }
+            "--login" | "login" => {
+                println!("{BOLD}{CYAN}Initiating Google Antigravity OAuth Login...{RESET}");
+                let auth = agent::external_provider::AntigravityAuthManager::with_default_config();
+                match auth.login_interactive() {
+                    Ok(()) => {
+                        println!("\n{BOLD}{GREEN}✓ Successfully authenticated via Antigravity!{RESET}");
+                        println!("  Session saved to: {DIM}{}{RESET}", agent::external_provider::antigravity_cli::auth::default_token_path().display());
+                        println!("  You can now run: {BOLD}zene -p antigravity{RESET}\n");
+                        return Err(0);
+                    }
+                    Err(e) => {
+                        eprintln!("\n{BOLD}{RED}✗ Login failed:{RESET} {e}");
+                        return Err(1);
+                    }
+                }
+            }
             "-v" | "--verbose" => {
                 config.verbose = true;
             }
             "-p" | "--provider" => {
                 if i + 1 < args.len() {
                     config.provider = args[i + 1].to_lowercase();
+                    if config.provider == "antigravity" && config.model == "gemini-3.5-flash-lite" {
+                        config.model = "gemini-3.8-flash-high".to_string();
+                    }
                     i += 1;
                 }
             }
@@ -344,6 +373,29 @@ fn run_interactive(mut config: CliConfig) {
                 }
                 ":help" => {
                     print_help();
+                    continue;
+                }
+                ":login" => {
+                    println!("{BOLD}{CYAN}Initiating Google Antigravity OAuth Login...{RESET}");
+                    let auth = agent::external_provider::AntigravityAuthManager::with_default_config();
+                    match auth.login_interactive() {
+                        Ok(_) => {
+                            println!("{GREEN}✓ Successfully authenticated with Google Antigravity!{RESET}");
+                            config.provider = "antigravity".to_string();
+                            config.model = "gemini-3.8-flash-high".to_string();
+                            if let Some(fresh) = agent::create_agent_for_model_and_workspace(
+                                &config.provider,
+                                &config.model,
+                                &config.workspace,
+                            ) {
+                                agent = fresh;
+                                println!("{GREEN}Switched active session to Google Antigravity (Gemini 3.8 Flash).{RESET}");
+                            }
+                        }
+                        Err(e) => {
+                            eprintln!("{RED}Login failed: {e}{RESET}");
+                        }
+                    }
                     continue;
                 }
                 ":verbose" => {

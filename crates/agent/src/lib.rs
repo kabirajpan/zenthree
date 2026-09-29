@@ -1,6 +1,7 @@
 pub mod agentic_loop;
 pub mod ast;
 pub mod context;
+pub mod external_provider;
 pub mod orchestrator;
 pub mod provider;
 pub mod skills;

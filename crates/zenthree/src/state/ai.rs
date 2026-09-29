@@ -125,6 +125,7 @@ impl ZenthreeState {
             }
 
             let provider_name = match selected_model.provider() {
+                crate::state::AiProvider::Antigravity => "antigravity",
                 crate::state::AiProvider::Gemini => "gemini",
                 crate::state::AiProvider::Groq => "groq",
             };

@@ -6,14 +6,16 @@ pub enum AiSettingsTab {
     #[default]
     Appearance,
     Model,
+    ExternalAgents,
     Customization,
 }
 
 impl AiSettingsTab {
-    pub const ALL: [AiSettingsTab; 4] = [
+    pub const ALL: [AiSettingsTab; 5] = [
         AiSettingsTab::General,
         AiSettingsTab::Appearance,
         AiSettingsTab::Model,
+        AiSettingsTab::ExternalAgents,
         AiSettingsTab::Customization,
     ];
 
@@ -22,6 +24,7 @@ impl AiSettingsTab {
             AiSettingsTab::General => "General",
             AiSettingsTab::Appearance => "Appearance",
             AiSettingsTab::Model => "Model",
+            AiSettingsTab::ExternalAgents => "External Agents",
             AiSettingsTab::Customization => "Customization",
         }
     }
@@ -31,6 +34,7 @@ impl AiSettingsTab {
             AiSettingsTab::General => "\u{f013}",       // fa-gear / cog
             AiSettingsTab::Appearance => "\u{f53f}",    // fa-palette
             AiSettingsTab::Model => "\u{f1b2}",         // fa-cube
+            AiSettingsTab::ExternalAgents => "\u{f121}",// fa-code / agent
             AiSettingsTab::Customization => "\u{f1de}", // fa-sliders
         }
     }

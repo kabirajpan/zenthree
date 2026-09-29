@@ -133,6 +133,9 @@ pub fn create_provider_for(provider_name: &str, model_id: &str) -> Option<Box<dy
             let key = get_key("GROQ_API_KEY")?;
             Some(Box::new(GroqProvider::with_model(key, model_id)))
         }
+        "antigravity" | "antigravity_cli" | "google_antigravity" => {
+            Some(Box::new(crate::external_provider::create_antigravity_provider(Some(model_id))))
+        }
         _ => create_default_provider(),
     }
 }

@@ -196,12 +196,33 @@ fn main() {
 
 ---
 
-## Testing API Connectivity
+## Agent Client Protocol (ACP) Integration
 
-Test that your keys and network endpoints are operational:
+ZENE and Zenthree natively support the official **Agent Client Protocol (ACP)** via JSON-RPC 2.0 over standard I/O streams:
 
-```bash
-./test-models.sh
+```rust
+use agent::external_provider::{AcpAgentConfig, AcpClient, AcpEvent};
+
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // 1. Suggest/detect or configure any external ACP agent
+    let config = AcpAgentConfig::suggest_antigravity().expect("Antigravity agent not found");
+
+    // 2. Start subprocess & initialize connection
+    let client = AcpClient::start(config).await?;
+
+    // 3. Create session with current workspace
+    let session_id = client.create_session(std::env::current_dir()?).await?;
+
+    // 4. Stream prompt turns
+    client.prompt("Explain the project architecture", |event| {
+        if let AcpEvent::TextDelta(chunk) = event {
+            print!("{}", chunk);
+        }
+    }).await?;
+
+    Ok(())
+}
 ```
 
 ---

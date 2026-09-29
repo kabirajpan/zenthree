@@ -718,6 +718,7 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                             for model in AiModel::ALL {
                                 if last_provider != Some(model.provider()) {
                                     let label = match model.provider() {
+                                        AiProvider::Antigravity => "GOOGLE ANTIGRAVITY (EXTERNAL AGENT)",
                                         AiProvider::Groq => "GROQ",
                                         AiProvider::Gemini => "GEMINI",
                                     };
