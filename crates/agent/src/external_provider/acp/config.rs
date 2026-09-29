@@ -115,28 +115,51 @@ fn detect_antigravity_binary() -> Option<PathBuf> {
 
     let home = dirs::home_dir()?;
 
-    // 2. Zenthree external agents directory
-    let zenthree_agent_dir = home.join(".local/share/zenthree/external_agents");
-    if let Some(p) = find_binary_in_tree(&zenthree_agent_dir) {
-        return Some(p);
+    // 2. Candidate agent directories across platforms (Windows AppData, Linux ~/.local/share, etc.)
+    let mut search_dirs = Vec::new();
+
+    if let Some(local_data) = dirs::data_local_dir() {
+        search_dirs.push(local_data.join("zed/external_agents/registry/antigravity-acp"));
+        search_dirs.push(local_data.join("zed/external_agents"));
+        search_dirs.push(local_data.join("zenthree/external_agents"));
+        search_dirs.push(local_data.join("Programs/Antigravity"));
     }
 
-    // 3. Zed registry external agents directory (optional detection)
-    let zed_agent_dir = home.join(".local/share/zed/external_agents/registry/antigravity-acp");
-    if let Some(p) = find_binary_in_tree(&zed_agent_dir) {
-        return Some(p);
+    if let Some(config_dir) = dirs::config_dir() {
+        search_dirs.push(config_dir.join("zed/external_agents"));
+        search_dirs.push(config_dir.join("zenthree/external_agents"));
     }
 
-    // 4. Check PATH
+    search_dirs.push(home.join(".local/share/zenthree/external_agents"));
+    search_dirs.push(home.join(".local/share/zed/external_agents/registry/antigravity-acp"));
+    search_dirs.push(home.join(".local/share/zed/external_agents"));
+    search_dirs.push(home.join(".antigravity"));
+    search_dirs.push(home.join(".gemini/antigravity-acp"));
+    search_dirs.push(home.join(".gemini/antigravity"));
+    search_dirs.push(home.join("AppData/Local/zed/external_agents/registry/antigravity-acp"));
+    search_dirs.push(home.join("AppData/Local/zed/external_agents"));
+    search_dirs.push(home.join("AppData/Local/Programs/Antigravity"));
+
+    for dir in &search_dirs {
+        if let Some(p) = find_binary_in_tree(dir) {
+            return Some(p);
+        }
+    }
+
+    // 3. Check PATH for any valid variant (exe, par, extensionless)
     if let Ok(path_env) = std::env::var("PATH") {
         for dir in std::env::split_paths(&path_env) {
-            let candidate1 = dir.join("agy_acp_server.par");
-            if candidate1.exists() {
-                return Some(candidate1);
-            }
-            let candidate2 = dir.join("agy_acp_server");
-            if candidate2.exists() {
-                return Some(candidate2);
+            for name in &[
+                "agy_acp_server.exe",
+                "agy_acp_server.par",
+                "agy_acp_server",
+                "agy.exe",
+                "agy",
+            ] {
+                let candidate = dir.join(name);
+                if candidate.exists() {
+                    return Some(candidate);
+                }
             }
         }
     }

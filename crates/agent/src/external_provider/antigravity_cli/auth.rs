@@ -39,12 +39,37 @@ impl AntigravityAuthManager {
     pub fn load_token(&self) -> Option<OAuthToken> {
         let p = Self::token_path();
         if p.exists() {
-            Some(OAuthToken {
+            return Some(OAuthToken {
                 account_email: None,
-            })
-        } else {
-            None
+            });
         }
+
+        // Secondary candidate paths across Linux, macOS, and Windows
+        if let Some(home) = dirs::home_dir() {
+            let candidates = [
+                home.join(".gemini/antigravity-acp/settings.json"),
+                home.join(".gemini/antigravity/acp_token.json"),
+                home.join(".gemini/antigravity/settings.json"),
+            ];
+            for c in &candidates {
+                if c.exists() {
+                    return Some(OAuthToken {
+                        account_email: None,
+                    });
+                }
+            }
+        }
+
+        if let Some(local_data) = dirs::data_local_dir() {
+            let win_token = local_data.join("gemini/antigravity-acp/acp_token.json");
+            if win_token.exists() {
+                return Some(OAuthToken {
+                    account_email: None,
+                });
+            }
+        }
+
+        None
     }
 
     /// Check if the Antigravity ACP agent binary is installed on this machine.
@@ -56,7 +81,13 @@ impl AntigravityAuthManager {
     pub fn logout(&self) -> Result<(), std::io::Error> {
         let p = Self::token_path();
         if p.exists() {
-            std::fs::remove_file(p)?;
+            let _ = std::fs::remove_file(p);
+        }
+        if let Some(home) = dirs::home_dir() {
+            let alt = home.join(".gemini/antigravity/acp_token.json");
+            if alt.exists() {
+                let _ = std::fs::remove_file(alt);
+            }
         }
         Ok(())
     }
@@ -68,33 +99,43 @@ impl AntigravityAuthManager {
 
     /// Launch interactive authentication via `agy login` or ACP browser flow.
     pub fn login_interactive(&self) -> Result<(), String> {
-        // If `agy` CLI is on PATH, run `agy login`
-        let mut cmd = std::process::Command::new("agy");
-        cmd.arg("login");
-        match cmd.spawn() {
-            Ok(mut child) => {
-                let status = child.wait().map_err(|e| e.to_string())?;
+        // Try `agy login` CLI first (invoked through cmd.exe on Windows for .cmd / .bat / .exe resolution)
+        #[cfg(target_os = "windows")]
+        let mut cmd = {
+            let mut c = std::process::Command::new("cmd.exe");
+            c.args(["/C", "agy", "login"]);
+            c
+        };
+        #[cfg(not(target_os = "windows"))]
+        let mut cmd = {
+            let mut c = std::process::Command::new("agy");
+            c.arg("login");
+            c
+        };
+
+        if let Ok(mut child) = cmd.spawn() {
+            if let Ok(status) = child.wait() {
                 if status.success() {
-                    Ok(())
-                } else {
-                    Err(format!("`agy login` exited with status: {}", status))
+                    return Ok(());
                 }
             }
-            Err(e) => {
-                log::warn!("Could not spawn `agy login`: {}. Spawning ACP server for auth...", e);
-                // Alternatively, starting ACP client with auth_method_id="oauth-personal" will trigger ACP auth
-                if let Some(config) = AcpAgentConfig::suggest_antigravity() {
-                    let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
-                    rt.block_on(async {
-                        let client = super::super::acp::AcpClient::start(config).await?;
-                        let _ = client.create_session(std::env::current_dir().unwrap_or_default()).await;
-                        Ok::<(), String>(())
-                    })?;
-                    Ok(())
-                } else {
-                    Err("Neither `agy` CLI nor `agy_acp_server.par` could be found".to_string())
-                }
-            }
+        }
+
+        // If `agy` CLI is not found or fails, launch the ACP server with `oauth-personal`
+        // which opens the browser for Google account consent directly.
+        if let Some(mut config) = AcpAgentConfig::suggest_antigravity() {
+            // Explicitly set auth_method_id so the ACP handshake triggers AuthenticateRequest
+            config.auth_method_id = Some("oauth-personal".to_string());
+
+            let rt = tokio::runtime::Runtime::new().map_err(|e| e.to_string())?;
+            rt.block_on(async {
+                let client = super::super::acp::AcpClient::start(config).await?;
+                let _ = client.create_session(std::env::current_dir().unwrap_or_default()).await;
+                Ok::<(), String>(())
+            })?;
+            Ok(())
+        } else {
+            Err("Neither `agy` CLI nor `agy_acp_server` binary could be found on this system. Please check your installation.".to_string())
         }
     }
 }
