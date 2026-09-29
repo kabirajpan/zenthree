@@ -92,26 +92,26 @@ impl AiMessageBg {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, Default)]
 pub enum AiTextSize {
-    Compact,    // 10.5px
+    Compact,    // 11.5px
     #[default]
-    Regular,    // 11.5px
-    Large,      // 12.5px
+    Regular,    // 12.5px
+    Large,      // 13.5px
 }
 
 impl AiTextSize {
     pub fn pt(&self) -> f32 {
         match self {
-            AiTextSize::Compact => 10.5,
-            AiTextSize::Regular => 11.5,
-            AiTextSize::Large => 12.5,
+            AiTextSize::Compact => 11.5,
+            AiTextSize::Regular => 12.5,
+            AiTextSize::Large => 13.5,
         }
     }
 
     pub fn display_name(&self) -> &'static str {
         match self {
-            AiTextSize::Compact => "10.5px",
-            AiTextSize::Regular => "11.5px",
-            AiTextSize::Large => "12.5px",
+            AiTextSize::Compact => "11.5px",
+            AiTextSize::Regular => "12.5px",
+            AiTextSize::Large => "13.5px",
         }
     }
 }

@@ -582,7 +582,7 @@ fn draw_folder_row(
 
                     // Folder Name
                     ui.text(&node.name)
-                        .size(11.0)
+                        .size(12.0)
                         .weight(FontWeight::Medium)
                         .color(colors.text_muted)
                         .show();
@@ -700,7 +700,7 @@ fn draw_file_row(
 
                     // Display name (Obsidian-style)
                     ui.text(&node.name)
-                        .size(10.8)
+                        .size(12.0)
                         .weight(if is_active {
                             FontWeight::Bold
                         } else {

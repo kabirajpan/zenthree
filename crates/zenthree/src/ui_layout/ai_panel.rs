@@ -1000,6 +1000,9 @@ fn draw_ai_chat_content(
                         let mut open_implementation_plan = false;
                         let mut proceed_with_plan = false;
 
+                        let base_text_size = state.ai_settings.effective_text_size().pt();
+                        let user_font_sz = (base_text_size + 0.5).max(12.5);
+
                         for (msg_idx, msg) in state.ai_messages.iter().enumerate() {
                             let is_copied = state.copied_ai_msg
                                 .as_ref()
@@ -1050,7 +1053,7 @@ fn draw_ai_chat_content(
                                             ui.container()
                                                 .id(bubble_id)
                                                 .max_width(bubble_max_w)
-                                                .padding(5.0, 12.0, 5.0, 12.0)
+                                                .padding(6.0, 14.0, 6.0, 14.0)
                                                 .bg(user_bg)
                                                 .hover_bg(user_hover_bg)
                                                 .border(user_border, 1.0)
@@ -1061,7 +1064,7 @@ fn draw_ai_chat_content(
                                                 .gap(8.0)
                                                 .show(|ui| {
                                                     ui.text(display_text)
-                                                        .size(11.5)
+                                                        .size(user_font_sz)
                                                         .line_height(1.35)
                                                         .color(user_text_col)
                                                         .show();
@@ -1098,7 +1101,7 @@ fn draw_ai_chat_content(
                                             ui.container()
                                                 .id(bubble_id)
                                                 .max_width(bubble_max_w)
-                                                .padding(7.0, 12.0, 7.0, 12.0)
+                                                .padding(8.0, 14.0, 8.0, 14.0)
                                                 .bg(user_bg)
                                                 .hover_bg(user_hover_bg)
                                                 .border(user_border, 1.0)
@@ -1109,8 +1112,8 @@ fn draw_ai_chat_content(
                                                 .gap(4.0)
                                                 .show(|ui| {
                                                     ui.text(display_text)
-                                                        .size(11.5)
-                                                        .line_height(1.65)
+                                                        .size(user_font_sz)
+                                                        .line_height(1.4)
                                                         .color(user_text_col)
                                                         .max_width(user_text_w)
                                                         .wrap(zenthra_text::prelude::TextWrap::Word)
@@ -1176,9 +1179,9 @@ fn draw_ai_chat_content(
                                 ui.container()
                                     .full_width()
                                     .id(bubble_id)
-                                    .padding(4.0, 4.0, 6.0, 4.0)
+                                    .padding(4.0, 4.0, 8.0, 4.0)
                                     .column()
-                                    .gap(10.0)
+                                    .gap(14.0)
                                     .show(|ui| {
                                         // ── Sibling 1: Trajectory Steps ─────────────────────
                                         for (step_idx, step) in msg.trajectory.iter().enumerate() {
@@ -1188,19 +1191,10 @@ fn draw_ai_chat_content(
                                                     let chevron = if grp.expanded { "\u{f078}" } else { "\u{f054}" };
                                                     let summary = grp.summary_label();
 
-                                                    let mut exp_card = ui.container()
+                                                    let exp_card = ui.container()
                                                         .full_width()
                                                         .column()
                                                         .gap(4.0);
-
-                                                    if grp.is_active {
-                                                        exp_card = exp_card
-                                                            .bg(Color::rgb(22.0 / 255.0, 22.0 / 255.0, 25.0 / 255.0)) // #161619
-                                                            .border(Color::rgb(38.0 / 255.0, 38.0 / 255.0, 44.0 / 255.0), 1.0) // #26262c
-                                                            .radius_all(10.0)
-                                                            .padding(6.0, 8.0, 6.0, 8.0)
-                                                            .shadow(Color::rgba(0.0, 0.0, 0.0, 0.35), 0.0, 2.0, 8.0);
-                                                    }
 
                                                     exp_card.show(|ui| {
                                                         let header_row = ui.container()
@@ -1223,7 +1217,7 @@ fn draw_ai_chat_content(
                                                                         .show(|_| {});
                                                                 }
                                                                 ui.text(&summary)
-                                                                    .size(11.0)
+                                                                    .size(12.0)
                                                                     .color(if grp.is_active { Color::rgb(228.0 / 255.0, 228.0 / 255.0, 233.0 / 255.0) } else { Color::rgb(139.0 / 255.0, 141.0 / 255.0, 152.0 / 255.0) })
                                                                     .show();
 
@@ -1324,20 +1318,20 @@ fn draw_ai_chat_content(
                                                                                 .gap(5.0)
                                                                                 .show(|ui| {
                                                                                     ui.text(action_verb)
-                                                                                        .size(10.0)
+                                                                                        .size(10.5)
                                                                                         .color(verb_color)
                                                                                         .show();
                                                                                     ui.text(icon_glyph)
-                                                                                        .size(10.0)
+                                                                                        .size(10.5)
                                                                                         .color(icon_color)
                                                                                         .show();
                                                                                     ui.text(&display_path)
-                                                                                        .size(10.5)
+                                                                                        .size(11.5)
                                                                                         .color(if file_exists { colors.text_primary } else { colors.text_muted })
                                                                                         .show();
                                                                                     if !badge.is_empty() {
                                                                                         ui.text(&badge)
-                                                                                            .size(9.5)
+                                                                                            .size(10.0)
                                                                                             .color(if file_exists { colors.accent } else { Color { r: 248.0 / 255.0, g: 113.0 / 255.0, b: 113.0 / 255.0, a: 0.8 } })
                                                                                             .show();
                                                                                     }
@@ -1364,11 +1358,11 @@ fn draw_ai_chat_content(
                                                                                 .gap(5.0)
                                                                                 .show(|ui| {
                                                                                     ui.text(action_verb)
-                                                                                        .size(10.0)
+                                                                                        .size(10.5)
                                                                                         .color(colors.text_muted)
                                                                                         .show();
                                                                                     ui.text(&format!("[{}]", list_str))
-                                                                                        .size(10.5)
+                                                                                        .size(11.5)
                                                                                         .color(colors.text_primary)
                                                                                         .show();
                                                                                     });
@@ -1387,11 +1381,11 @@ fn draw_ai_chat_content(
                                                                                 .gap(5.0)
                                                                                 .show(|ui| {
                                                                                     ui.text(&action_verb)
-                                                                                        .size(10.0)
+                                                                                        .size(10.5)
                                                                                         .color(colors.text_muted)
                                                                                         .show();
                                                                                     ui.text(&format!("\"{}\"", query))
-                                                                                        .size(10.0)
+                                                                                        .size(11.5)
                                                                                         .color(colors.text_primary)
                                                                                         .show();
                                                                                 });
@@ -1421,11 +1415,11 @@ fn draw_ai_chat_content(
                                                                                 .gap(5.0)
                                                                                 .show(|ui| {
                                                                                     ui.text(action_verb)
-                                                                                        .size(10.0)
+                                                                                        .size(10.5)
                                                                                         .color(colors.text_muted)
                                                                                         .show();
                                                                                     ui.text(&display_dir)
-                                                                                        .size(10.5)
+                                                                                        .size(11.5)
                                                                                         .color(colors.text_primary)
                                                                                         .show();
                                                                                 });
@@ -1439,11 +1433,11 @@ fn draw_ai_chat_content(
                                                                                 .gap(5.0)
                                                                                 .show(|ui| {
                                                                                     ui.text(action_verb)
-                                                                                        .size(10.0)
+                                                                                        .size(10.5)
                                                                                         .color(colors.text_muted)
                                                                                         .show();
                                                                                     ui.text(name)
-                                                                                        .size(10.5)
+                                                                                        .size(11.5)
                                                                                         .color(colors.accent)
                                                                                         .show();
                                                                                 });
@@ -1457,11 +1451,11 @@ fn draw_ai_chat_content(
                                                                                 .gap(5.0)
                                                                                 .show(|ui| {
                                                                                     ui.text(action_verb)
-                                                                                        .size(10.0)
+                                                                                        .size(10.5)
                                                                                         .color(colors.text_muted)
                                                                                         .show();
                                                                                     ui.text(command)
-                                                                                        .size(10.0)
+                                                                                        .size(11.5)
                                                                                         .color(colors.text_primary)
                                                                                         .show();
                                                                                 });
@@ -1475,7 +1469,7 @@ fn draw_ai_chat_content(
                                                                                 .gap(5.0)
                                                                                 .show(|ui| {
                                                                                     ui.text(action_verb)
-                                                                                        .size(10.0)
+                                                                                        .size(10.5)
                                                                                         .color(colors.text_muted)
                                                                                         .show();
                                                                                 });
@@ -1493,7 +1487,7 @@ fn draw_ai_chat_content(
                                                                                 .gap(4.0)
                                                                                 .show(|ui| {
                                                                                     ui.text(&thought_label)
-                                                                                        .size(10.0)
+                                                                                        .size(11.5)
                                                                                         .italic()
                                                                                         .color(colors.text_muted)
                                                                                         .show();
@@ -1561,26 +1555,26 @@ fn draw_ai_chat_content(
                                                         .gap(5.0)
                                                         .show(|ui| {
                                                             ui.text("Edited")
-                                                                .size(10.5)
+                                                                .size(11.0)
                                                                 .color(colors.text_muted)
                                                                 .show();
                                                             ui.text(icon_glyph)
-                                                                .size(10.5)
+                                                                .size(11.0)
                                                                 .color(icon_color)
                                                                 .show();
                                                             ui.text(fname)
-                                                                .size(10.5)
+                                                                .size(11.5)
                                                                 .color(colors.text_primary)
                                                                 .show();
                                                             if added > 0 {
                                                                 ui.text(&format!("+{}", added))
-                                                                    .size(9.5)
+                                                                    .size(10.5)
                                                                     .color(Color { r: 74.0 / 255.0, g: 222.0 / 255.0, b: 128.0 / 255.0, a: 1.0 })
                                                                     .show();
                                                             }
                                                             if removed > 0 {
                                                                 ui.text(&format!("-{}", removed))
-                                                                    .size(9.5)
+                                                                    .size(10.5)
                                                                     .color(Color { r: 248.0 / 255.0, g: 113.0 / 255.0, b: 113.0 / 255.0, a: 1.0 })
                                                                     .show();
                                                             }
@@ -1600,15 +1594,15 @@ fn draw_ai_chat_content(
                                                         .gap(5.0)
                                                         .show(|ui| {
                                                             ui.text("Ran")
-                                                                .size(10.5)
+                                                                .size(11.0)
                                                                 .color(colors.text_muted)
                                                                 .show();
                                                             ui.text("\u{f120}")
-                                                                .size(9.5)
+                                                                .size(10.5)
                                                                 .color(colors.accent)
                                                                 .show();
                                                             ui.text(&format!("$ {}", command))
-                                                                .size(10.0)
+                                                                .size(11.5)
                                                                 .monospace()
                                                                 .color(colors.text_primary)
                                                                 .show();
@@ -1719,26 +1713,24 @@ fn draw_ai_chat_content(
                                                         .full_width()
                                                         .column()
                                                         .gap(4.0)
-                                                        .bg(Color::rgb(20.0 / 255.0, 20.0 / 255.0, 24.0 / 255.0))
-                                                        .border(Color::rgb(38.0 / 255.0, 38.0 / 255.0, 44.0 / 255.0), 1.0)
-                                                        .radius_all(8.0)
-                                                        .padding(6.0, 10.0, 6.0, 10.0)
                                                         .show(|ui| {
                                                             let header_res = ui.container()
                                                                 .id(thought_id)
                                                                 .full_width()
                                                                 .clickable(true)
+                                                                .padding(2.0, 4.0, 2.0, 4.0)
+                                                                .radius_all(4.0)
+                                                                .hover_bg(colors.highlight)
                                                                 .row()
                                                                 .valign(Align::Center)
                                                                 .gap(6.0)
-                                                                .padding(2.0, 0.0, 2.0, 0.0)
                                                                 .show(|ui| {
                                                                     ui.text(chevron)
-                                                                        .size(9.0)
+                                                                        .size(7.5)
                                                                         .color(colors.text_muted)
                                                                         .show();
                                                                     ui.text("\u{f0eb}") // fa-lightbulb
-                                                                        .size(10.0)
+                                                                        .size(10.5)
                                                                         .color(colors.accent)
                                                                         .show();
                                                                     let title = if msg.is_working && full_text.is_empty() {
@@ -1747,7 +1739,7 @@ fn draw_ai_chat_content(
                                                                         "Thought Process"
                                                                     };
                                                                     ui.text(title)
-                                                                        .size(10.5)
+                                                                        .size(11.5)
                                                                         .weight(FontWeight::Medium)
                                                                         .color(colors.text_primary)
                                                                         .show();
@@ -1761,14 +1753,18 @@ fn draw_ai_chat_content(
                                                             }
 
                                                             if is_expanded {
+                                                                let thought_content_w = (ai_text_w - 20.0).max(40.0);
                                                                 ui.container()
                                                                     .full_width()
-                                                                    .padding(4.0, 0.0, 4.0, 16.0)
+                                                                    .padding_left(16.0)
+                                                                    .padding_top(2.0)
+                                                                    .padding_bottom(4.0)
                                                                     .show(|ui| {
                                                                         ui.text(thoughts.trim())
-                                                                            .size(10.0)
+                                                                            .size(11.5)
                                                                             .line_height(1.4)
                                                                             .color(colors.text_muted)
+                                                                            .max_width(thought_content_w)
                                                                             .wrap(zenthra_text::prelude::TextWrap::Word)
                                                                             .show();
                                                                     });
@@ -1786,24 +1782,21 @@ fn draw_ai_chat_content(
                                                 .row()
                                                 .valign(Align::Center)
                                                 .gap(6.0)
-                                                .padding(3.0, 8.0, 3.0, 8.0)
-                                                .radius_all(6.0)
-                                                .bg(colors.accent.with_alpha(0.08))
-                                                .border(colors.accent.with_alpha(0.2), 0.5)
+                                                .padding(3.0, 4.0, 3.0, 4.0)
                                                 .show(|ui| {
                                                     ui.text("\u{f110}")
-                                                        .size(10.0)
+                                                        .size(11.0)
                                                         .color(colors.accent)
                                                         .show();
-                                                    ui.text("Working...")
-                                                        .size(10.5)
+                                                    ui.text("Thinking...")
+                                                        .size(12.0)
                                                         .italic()
                                                         .color(colors.accent)
                                                         .show();
                                                 });
                                         } else if !msg.is_working && full_text.is_empty() && msg.trajectory.is_empty() && !has_visible_thoughts {
                                             ui.text("No response generated. Please check your model or API quota.")
-                                                .size(10.5)
+                                                .size(11.5)
                                                 .italic()
                                                 .color(colors.text_muted)
                                                 .show();
@@ -1864,7 +1857,7 @@ fn draw_ai_chat_content(
                                                     // Friendly Description
                                                     ui.text(&err_desc)
                                                         .size(11.0)
-                                                        .line_height(1.6)
+                                                        .line_height(1.4)
                                                         .color(colors.text_primary.with_alpha(0.9))
                                                         .max_width((ai_text_w - 24.0).max(60.0))
                                                         .wrap(zenthra_text::prelude::TextWrap::Word)
@@ -1979,286 +1972,333 @@ fn draw_ai_chat_content(
                                                 .and_then(|b| b.downcast_ref::<Vec<MarkdownBlock>>())
                                                 .map(|v| v.as_slice())
                                                 .unwrap_or(&[]);
-                                            for (block_idx, block) in blocks.iter().enumerate() {
-                                                match block {
-                                                    MarkdownBlock::Heading { level, spans } => {
-                                                        let (font_size, pad_t, pad_b) = match level {
-                                                            1 => (14.0_f32, 8.0_f32, 4.0_f32),
-                                                            2 => (12.5, 6.0, 3.0),
-                                                            3 => (11.5, 5.0, 2.0),
-                                                            _ => (11.0, 3.0, 1.0),
-                                                        };
-                                                        ui.container()
-                                                            .padding_top(pad_t)
-                                                            .padding_bottom(pad_b)
-                                                            .show(|ui| {
-                                                                draw_inline_spans(ui, spans, ai_text_w, font_size, FontWeight::Bold, colors.text_primary, colors);
-                                                            });
-                                                    }
-                                                    MarkdownBlock::Rule => {
-                                                        ui.container()
-                                                            .full_width()
-                                                            .height(1.0)
-                                                            .bg(colors.border.with_alpha(0.4))
-                                                            .padding_top(6.0)
-                                                            .padding_bottom(6.0)
-                                                            .show(|_| {});
-                                                    }
-                                                    MarkdownBlock::BlockQuote { kind, spans } => {
-                                                        let (accent_col, badge_label, badge_icon) = match kind {
-                                                            QuoteKind::Note      => (Color::rgb(59.0/255.0, 130.0/255.0, 246.0/255.0), "NOTE", "\u{f05a}"),
-                                                            QuoteKind::Tip       => (Color::rgb(34.0/255.0, 197.0/255.0, 94.0/255.0),  "TIP",  "\u{f0eb}"),
-                                                            QuoteKind::Important => (Color::rgb(139.0/255.0, 92.0/255.0, 246.0/255.0), "IMPORTANT", "\u{f06a}"),
-                                                            QuoteKind::Warning   => (Color::rgb(245.0/255.0, 158.0/255.0, 11.0/255.0), "WARNING", "\u{f071}"),
-                                                            QuoteKind::Caution   => (Color::rgb(239.0/255.0, 68.0/255.0, 68.0/255.0),  "CAUTION", "\u{f057}"),
-                                                            QuoteKind::Plain     => (colors.accent, "", "\u{f10d}"),
-                                                        };
-                                                        let is_keyed = !badge_label.is_empty();
-                                                        // Blockquote: row with left accent bar + content column
-                                                        ui.container()
-                                                            .max_width(ai_text_w)
-                                                            .row()
-                                                            .gap(0.0)
-                                                            .show(|ui| {
-                                                                // Left accent bar
-                                                                ui.container()
-                                                                    .width(3.0)
-                                                                    .bg(accent_col)
-                                                                    .radius(0.0, 0.0, 2.0, 2.0)
-                                                                    .show(|_| {});
-                                                                // Content
-                                                                ui.container()
-                                                                    .bg(accent_col.with_alpha(0.08))
-                                                                    .padding(6.0, 10.0, 6.0, 10.0)
-                                                                    .column()
-                                                                    .gap(4.0)
-                                                                    .show(|ui| {
-                                                                        if is_keyed {
-                                                                            ui.container()
-                                                                                .row()
-                                                                                .valign(Align::Center)
-                                                                                .gap(5.0)
-                                                                                .show(|ui| {
-                                                                                    ui.text(badge_icon)
-                                                                                        .size(9.0)
-                                                                                        .color(accent_col)
-                                                                                        .show();
-                                                                                    ui.text(badge_label)
-                                                                                        .size(9.0)
-                                                                                        .weight(FontWeight::Bold)
-                                                                                        .color(accent_col)
-                                                                                        .show();
-                                                                                });
-                                                                        }
-                                                                        draw_inline_spans(ui, spans, (ai_text_w - 20.0).max(40.0), 11.0, FontWeight::Regular, colors.text_muted, colors);
-                                                                    });
-                                                            });
-                                                    }
-                                                    MarkdownBlock::Table { alignments: _aligns, headers, rows } => {
-                                                        let col_count = headers.len().max(1);
-                                                        let col_w = ((ai_text_w - 2.0) / col_count as f32).max(40.0);
-                                                        ui.container()
-                                                            .max_width(ai_text_w)
-                                                            .radius_all(6.0)
-                                                            .border(colors.border.with_alpha(0.5), 0.5)
-                                                            .clip(true)
-                                                            .column()
-                                                            .show(|ui| {
-                                                                // Header row
+                                            ui.container()
+                                                .full_width()
+                                                .column()
+                                                .gap(0.0)
+                                                .show(|ui| {
+                                                    for (block_idx, block) in blocks.iter().enumerate() {
+                                                        match block {
+                                                            MarkdownBlock::Heading { level, spans } => {
+                                                                let (font_size, pad_t, pad_b) = match level {
+                                                                    1 => (base_text_size + 2.5, if block_idx == 0 { 0.0_f32 } else { 12.0_f32 }, 6.0_f32),
+                                                                    2 => (base_text_size + 1.0, if block_idx == 0 { 0.0 } else { 10.0 }, 5.0),
+                                                                    3 => (base_text_size, if block_idx == 0 { 0.0 } else { 8.0 }, 4.0),
+                                                                    _ => (base_text_size - 0.5, if block_idx == 0 { 0.0 } else { 6.0 }, 3.0),
+                                                                };
                                                                 ui.container()
                                                                     .full_width()
-                                                                    .row()
-                                                                    .gap(0.0)
-                                                                    .bg(colors.bg_sidebar.with_alpha(0.9))
+                                                                    .padding_top(pad_t)
+                                                                    .padding_bottom(pad_b)
                                                                     .show(|ui| {
-                                                                        for (ci, cell) in headers.iter().enumerate() {
-                                                                            let is_last = ci + 1 == col_count;
-                                                                            ui.container()
-                                                                                .width(col_w)
-                                                                                .padding(5.0, 8.0, 5.0, 8.0)
-                                                                                .show(|ui| {
-                                                                                    draw_inline_spans(ui, cell, col_w - 16.0, 10.0, FontWeight::SemiBold, colors.text_primary, colors);
-                                                                                });
-                                                                            if !is_last {
-                                                                                ui.container()
-                                                                                    .width(0.5)
-                                                                                    .bg(colors.border.with_alpha(0.4))
-                                                                                    .show(|_| {});
-                                                                            }
-                                                                        }
+                                                                        draw_inline_spans(ui, spans, ai_text_w, font_size, FontWeight::Bold, colors.text_primary, colors);
                                                                     });
-                                                                // Divider under header
-                                                                ui.container().full_width().height(0.5).bg(colors.border.with_alpha(0.5)).show(|_| {});
-                                                                // Data rows
-                                                                for (ri, row) in rows.iter().enumerate() {
-                                                                    let row_bg = if ri % 2 == 1 {
-                                                                        colors.bg_sidebar.with_alpha(0.3)
-                                                                    } else {
-                                                                        Color::TRANSPARENT
-                                                                    };
-                                                                    ui.container()
-                                                                        .full_width()
-                                                                        .row()
-                                                                        .gap(0.0)
-                                                                        .bg(row_bg)
-                                                                        .show(|ui| {
-                                                                            for (ci, cell) in row.iter().enumerate() {
-                                                                                let is_last = ci + 1 == col_count;
-                                                                                ui.container()
-                                                                                    .width(col_w)
-                                                                                    .padding(4.0, 8.0, 4.0, 8.0)
-                                                                                    .show(|ui| {
-                                                                                        draw_inline_spans(ui, cell, col_w - 16.0, 10.5, FontWeight::Regular, colors.text_muted, colors);
-                                                                                    });
-                                                                                if !is_last {
-                                                                                    ui.container()
-                                                                                        .width(0.5)
-                                                                                        .bg(colors.border.with_alpha(0.3))
-                                                                                        .show(|_| {});
-                                                                                }
-                                                                            }
-                                                                        });
-                                                                    if ri + 1 < rows.len() {
-                                                                        ui.container().full_width().height(0.5).bg(colors.border.with_alpha(0.2)).show(|_| {});
-                                                                    }
-                                                                }
-                                                            });
-                                                    }
-
-                                                    MarkdownBlock::BulletItem { depth, spans, checked } => {
-                                                        let indent = (*depth as f32) * 12.0 + 2.0;
-                                                        let avail_w = (ai_text_w - indent - 16.0).max(40.0);
-                                                        ui.container()
-                                                            .full_width()
-                                                            .row()
-                                                            .valign(Align::Top)
-                                                            .gap(6.0)
-                                                            .padding_left(indent)
-                                                            .show(|ui| {
-                                                                // Bullet or checkbox
-                                                                match checked {
-                                                                    Some(true) => {
-                                                                        ui.text("\u{f14a}")
-                                                                            .size(10.5)
-                                                                            .color(colors.accent)
-                                                                            .show();
-                                                                    }
-                                                                    Some(false) => {
-                                                                        ui.text("\u{f0c8}")
-                                                                            .size(10.5)
-                                                                            .color(colors.text_muted)
-                                                                            .show();
-                                                                    }
-                                                                    None => {
-                                                                        let bullet = if *depth == 0 { "•" } else { "◦" };
-                                                                        ui.text(bullet)
-                                                                            .size(9.0)
-                                                                            .color(colors.accent)
-                                                                            .show();
-                                                                    }
-                                                                }
-                                                                draw_inline_spans(ui, spans, avail_w, 11.0, FontWeight::Regular, colors.text_primary, colors);
-                                                            });
-                                                    }
-                                                    MarkdownBlock::NumberedItem { num, depth, spans } => {
-                                                        let indent = (*depth as f32) * 12.0 + 2.0;
-                                                        let avail_w = (ai_text_w - indent - 22.0).max(40.0);
-                                                        ui.container()
-                                                            .full_width()
-                                                            .row()
-                                                            .valign(Align::Top)
-                                                            .gap(6.0)
-                                                            .padding_left(indent)
-                                                            .show(|ui| {
-                                                                ui.text(&format!("{}." , num))
-                                                                    .size(10.5)
-                                                                    .weight(FontWeight::Medium)
-                                                                    .color(colors.accent)
-                                                                    .show();
-                                                                draw_inline_spans(ui, spans, avail_w, 11.0, FontWeight::Regular, colors.text_primary, colors);
-                                                            });
-                                                    }
-                                                    MarkdownBlock::CodeBlock { lang, code } => {
-                                                        let code_btn_id = Id::from_u64(999_500_000 + (msg_idx as u64) * 1000 + (block_idx as u64));
-                                                        let is_code_copied = state.copied_ai_code_id.as_ref()
-                                                            .map(|(id, t)| *id == code_btn_id.raw() && t.elapsed().as_secs_f32() < 2.0)
-                                                            .unwrap_or(false);
-
-                                                        let lang_display = lang.as_deref().unwrap_or("code").to_uppercase();
-
-                                                        ui.container()
-                                                            .width(code_box_w)
-                                                            .radius_all(6.0)
-                                                            .bg(colors.bg_base.with_alpha(0.85))
-                                                            .border(colors.border.with_alpha(0.5), 0.5)
-                                                            .column()
-                                                            .show(|ui| {
-                                                                // Code card header: language badge + Copy Code button
+                                                            }
+                                                            MarkdownBlock::Rule => {
                                                                 ui.container()
                                                                     .full_width()
-                                                                    .height(22.0)
-                                                                    .padding(0.0, 8.0, 0.0, 8.0)
-                                                                    .bg(colors.bg_sidebar.with_alpha(0.6))
-                                                                    .radius_top(6.0)
-                                                                    .row()
-                                                                    .halign(Align::SpaceBetween)
-                                                                    .valign(Align::Center)
+                                                                    .padding(10.0, 0.0, 10.0, 0.0)
                                                                     .show(|ui| {
-                                                                        ui.text(&lang_display)
-                                                                            .size(9.0)
-                                                                            .weight(FontWeight::Bold)
-                                                                            .color(colors.text_muted)
-                                                                            .show();
-
-                                                                        let copy_code_btn = ui.container()
-                                                                            .id(code_btn_id)
-                                                                            .padding(1.0, 5.0, 1.0, 5.0)
-                                                                            .radius_all(3.0)
-                                                                            .hover_bg(colors.highlight)
+                                                                        ui.container()
+                                                                            .full_width()
+                                                                            .height(1.0)
+                                                                            .bg(colors.border.with_alpha(0.4))
+                                                                            .show(|_| {});
+                                                                    });
+                                                            }
+                                                            MarkdownBlock::BlockQuote { kind, spans } => {
+                                                                let (accent_col, badge_label, badge_icon) = match kind {
+                                                                    QuoteKind::Note      => (Color::rgb(59.0/255.0, 130.0/255.0, 246.0/255.0), "NOTE", "\u{f05a}"),
+                                                                    QuoteKind::Tip       => (Color::rgb(34.0/255.0, 197.0/255.0, 94.0/255.0),  "TIP",  "\u{f0eb}"),
+                                                                    QuoteKind::Important => (Color::rgb(139.0/255.0, 92.0/255.0, 246.0/255.0), "IMPORTANT", "\u{f06a}"),
+                                                                    QuoteKind::Warning   => (Color::rgb(245.0/255.0, 158.0/255.0, 11.0/255.0), "WARNING", "\u{f071}"),
+                                                                    QuoteKind::Caution   => (Color::rgb(239.0/255.0, 68.0/255.0, 68.0/255.0),  "CAUTION", "\u{f057}"),
+                                                                    QuoteKind::Plain     => (colors.accent, "", "\u{f10d}"),
+                                                                };
+                                                                let is_keyed = !badge_label.is_empty();
+                                                                ui.container()
+                                                                    .full_width()
+                                                                    .padding_bottom(8.0)
+                                                                    .show(|ui| {
+                                                                        ui.container()
+                                                                            .max_width(ai_text_w)
                                                                             .row()
-                                                                            .valign(Align::Center)
-                                                                            .gap(4.0)
+                                                                            .gap(0.0)
                                                                             .show(|ui| {
-                                                                                ui.text(if is_code_copied { "\u{f00c}" } else { "\u{f0c5}" })
-                                                                                    .size(9.0)
-                                                                                    .color(if is_code_copied { colors.accent } else { colors.text_muted })
-                                                                                    .show();
-                                                                                ui.text(if is_code_copied { "Copied" } else { "Copy" })
-                                                                                    .size(9.0)
-                                                                                    .color(if is_code_copied { colors.accent } else { colors.text_muted })
+                                                                                // Left accent bar
+                                                                                ui.container()
+                                                                                    .width(3.0)
+                                                                                    .bg(accent_col)
+                                                                                    .radius(0.0, 0.0, 2.0, 2.0)
+                                                                                    .show(|_| {});
+                                                                                // Content
+                                                                                ui.container()
+                                                                                    .bg(accent_col.with_alpha(0.08))
+                                                                                    .padding(6.0, 10.0, 6.0, 10.0)
+                                                                                    .column()
+                                                                                    .gap(4.0)
+                                                                                    .show(|ui| {
+                                                                                        if is_keyed {
+                                                                                            ui.container()
+                                                                                                .row()
+                                                                                                .valign(Align::Center)
+                                                                                                .gap(5.0)
+                                                                                                .show(|ui| {
+                                                                                                    ui.text(badge_icon)
+                                                                                                        .size(9.5)
+                                                                                                        .color(accent_col)
+                                                                                                        .show();
+                                                                                                    ui.text(badge_label)
+                                                                                                        .size(9.5)
+                                                                                                        .weight(FontWeight::Bold)
+                                                                                                        .color(accent_col)
+                                                                                                        .show();
+                                                                                                });
+                                                                                        }
+                                                                                        draw_inline_spans(ui, spans, (ai_text_w - 20.0).max(40.0), (base_text_size - 0.5).max(11.0), FontWeight::Regular, colors.text_muted, colors);
+                                                                                    });
+                                                                            });
+                                                                    });
+                                                            }
+                                                            MarkdownBlock::Table { alignments: _aligns, headers, rows } => {
+                                                                let col_count = headers.len().max(1);
+                                                                let col_w = ((ai_text_w - 2.0) / col_count as f32).max(40.0);
+                                                                ui.container()
+                                                                    .full_width()
+                                                                    .padding_bottom(8.0)
+                                                                    .show(|ui| {
+                                                                        ui.container()
+                                                                            .max_width(ai_text_w)
+                                                                            .radius_all(6.0)
+                                                                            .border(colors.border.with_alpha(0.5), 0.5)
+                                                                            .clip(true)
+                                                                            .column()
+                                                                            .show(|ui| {
+                                                                                // Header row
+                                                                                ui.container()
+                                                                                    .full_width()
+                                                                                    .row()
+                                                                                    .gap(0.0)
+                                                                                    .bg(colors.bg_sidebar.with_alpha(0.9))
+                                                                                    .show(|ui| {
+                                                                                        for (ci, cell) in headers.iter().enumerate() {
+                                                                                            let is_last = ci + 1 == col_count;
+                                                                                            ui.container()
+                                                                                                .width(col_w)
+                                                                                                .padding(5.0, 8.0, 5.0, 8.0)
+                                                                                                .show(|ui| {
+                                                                                                    draw_inline_spans(ui, cell, col_w - 16.0, (base_text_size - 1.0).max(11.0), FontWeight::SemiBold, colors.text_primary, colors);
+                                                                                                });
+                                                                                            if !is_last {
+                                                                                                ui.container()
+                                                                                                    .width(0.5)
+                                                                                                    .bg(colors.border.with_alpha(0.4))
+                                                                                                    .show(|_| {});
+                                                                                            }
+                                                                                        }
+                                                                                    });
+                                                                                // Divider under header
+                                                                                ui.container().full_width().height(0.5).bg(colors.border.with_alpha(0.5)).show(|_| {});
+                                                                                // Data rows
+                                                                                for (ri, row) in rows.iter().enumerate() {
+                                                                                    let row_bg = if ri % 2 == 1 {
+                                                                                        colors.bg_sidebar.with_alpha(0.3)
+                                                                                    } else {
+                                                                                        Color::TRANSPARENT
+                                                                                    };
+                                                                                    ui.container()
+                                                                                        .full_width()
+                                                                                        .row()
+                                                                                        .gap(0.0)
+                                                                                        .bg(row_bg)
+                                                                                        .show(|ui| {
+                                                                                            for (ci, cell) in row.iter().enumerate() {
+                                                                                                let is_last = ci + 1 == col_count;
+                                                                                                ui.container()
+                                                                                                    .width(col_w)
+                                                                                                    .padding(4.0, 8.0, 4.0, 8.0)
+                                                                                                    .show(|ui| {
+                                                                                                        draw_inline_spans(ui, cell, col_w - 16.0, (base_text_size - 1.0).max(11.0), FontWeight::Regular, colors.text_muted, colors);
+                                                                                                    });
+                                                                                                if !is_last {
+                                                                                                    ui.container()
+                                                                                                        .width(0.5)
+                                                                                                        .bg(colors.border.with_alpha(0.3))
+                                                                                                        .show(|_| {});
+                                                                                                }
+                                                                                            }
+                                                                                        });
+                                                                                    if ri + 1 < rows.len() {
+                                                                                        ui.container().full_width().height(0.5).bg(colors.border.with_alpha(0.2)).show(|_| {});
+                                                                                    }
+                                                                                }
+                                                                            });
+                                                                    });
+                                                            }
+
+                                                            MarkdownBlock::BulletItem { depth, spans, checked } => {
+                                                                let indent = (*depth as f32) * 14.0;
+                                                                let marker_w = 16.0;
+                                                                let avail_w = (ai_text_w - indent - marker_w - 6.0).max(40.0);
+                                                                ui.container()
+                                                                    .full_width()
+                                                                    .padding_bottom(4.0)
+                                                                    .row()
+                                                                    .valign(Align::Top)
+                                                                    .gap(6.0)
+                                                                    .padding_left(indent)
+                                                                    .show(|ui| {
+                                                                        ui.container()
+                                                                            .width(marker_w)
+                                                                            .padding_top(2.5) // Optical baseline alignment with base font
+                                                                            .row()
+                                                                            .halign(Align::Center)
+                                                                            .valign(Align::Top)
+                                                                            .show(|ui| {
+                                                                                match checked {
+                                                                                    Some(true) => {
+                                                                                        ui.text("\u{f14a}")
+                                                                                            .size(11.0)
+                                                                                            .color(colors.accent)
+                                                                                            .show();
+                                                                                    }
+                                                                                    Some(false) => {
+                                                                                        ui.text("\u{f0c8}")
+                                                                                            .size(11.0)
+                                                                                            .color(colors.text_muted)
+                                                                                            .show();
+                                                                                    }
+                                                                                    None => {
+                                                                                        let bullet = if *depth == 0 { "•" } else { "◦" };
+                                                                                        ui.text(bullet)
+                                                                                            .size(10.5)
+                                                                                            .color(colors.accent)
+                                                                                            .show();
+                                                                                    }
+                                                                                }
+                                                                            });
+                                                                        draw_inline_spans(ui, spans, avail_w, base_text_size, FontWeight::Regular, colors.text_primary, colors);
+                                                                    });
+                                                            }
+                                                            MarkdownBlock::NumberedItem { num, depth, spans } => {
+                                                                let indent = (*depth as f32) * 14.0;
+                                                                let num_w = 20.0;
+                                                                let avail_w = (ai_text_w - indent - num_w - 6.0).max(40.0);
+                                                                ui.container()
+                                                                    .full_width()
+                                                                    .padding_bottom(4.0)
+                                                                    .row()
+                                                                    .valign(Align::Top)
+                                                                    .gap(6.0)
+                                                                    .padding_left(indent)
+                                                                    .show(|ui| {
+                                                                        ui.container()
+                                                                            .width(num_w)
+                                                                            .padding_top(0.5) // Optical baseline alignment with base font
+                                                                            .row()
+                                                                            .halign(Align::Left)
+                                                                            .valign(Align::Top)
+                                                                            .show(|ui| {
+                                                                                ui.text(&format!("{}.", num))
+                                                                                    .size(12.0)
+                                                                                    .weight(FontWeight::Medium)
+                                                                                    .color(colors.accent)
                                                                                     .show();
                                                                             });
-
-                                                                        if copy_code_btn.hovered {
-                                                                            ui.cursor_icon = CursorIcon::Pointer;
-                                                                        }
-                                                                        if copy_code_btn.clicked {
-                                                                            copy_code_snippet = Some((code_btn_id.raw(), code.clone()));
-                                                                        }
+                                                                        draw_inline_spans(ui, spans, avail_w, base_text_size, FontWeight::Regular, colors.text_primary, colors);
                                                                     });
+                                                            }
+                                                            MarkdownBlock::CodeBlock { lang, code } => {
+                                                                let code_btn_id = Id::from_u64(999_500_000 + (msg_idx as u64) * 1000 + (block_idx as u64));
+                                                                let is_code_copied = state.copied_ai_code_id.as_ref()
+                                                                    .map(|(id, t)| *id == code_btn_id.raw() && t.elapsed().as_secs_f32() < 2.0)
+                                                                    .unwrap_or(false);
 
-                                                                // Code content area
+                                                                let lang_display = lang.as_deref().unwrap_or("code").to_uppercase();
+
                                                                 ui.container()
-                                                                    .padding(6.0, 8.0, 6.0, 8.0)
                                                                     .full_width()
+                                                                    .padding_bottom(8.0)
                                                                     .show(|ui| {
-                                                                        ui.text(code)
-                                                                            .size(10.0)
-                                                                            .monospace()
-                                                                            .line_height(1.65)
-                                                                            .color(colors.text_primary)
-                                                                            .max_width((code_box_w - 18.0).max(40.0))
-                                                                            .wrap(zenthra_text::prelude::TextWrap::Word)
-                                                                            .show();
-                                                                    });
-                                                            });
-                                                    }
-                                                    MarkdownBlock::Paragraph(spans) => {
-                                                        draw_inline_spans(ui, spans, ai_text_w, 11.0, FontWeight::Regular, colors.text_primary, colors);
-                                                    }
+                                                                        ui.container()
+                                                                            .width(code_box_w)
+                                                                            .radius_all(6.0)
+                                                                            .bg(colors.bg_base.with_alpha(0.85))
+                                                                            .border(colors.border.with_alpha(0.5), 0.5)
+                                                                            .column()
+                                                                            .show(|ui| {
+                                                                                // Code card header: language badge + Copy Code button
+                                                                                ui.container()
+                                                                                    .full_width()
+                                                                                    .height(24.0)
+                                                                                    .padding(0.0, 8.0, 0.0, 8.0)
+                                                                                    .bg(colors.bg_sidebar.with_alpha(0.6))
+                                                                                    .radius_top(6.0)
+                                                                                    .row()
+                                                                                    .halign(Align::SpaceBetween)
+                                                                                    .valign(Align::Center)
+                                                                                    .show(|ui| {
+                                                                                        ui.text(&lang_display)
+                                                                                            .size(10.0)
+                                                                                            .weight(FontWeight::Bold)
+                                                                                            .color(colors.text_muted)
+                                                                                            .show();
 
-                                                }
-                                            }
+                                                                                        let copy_code_btn = ui.container()
+                                                                                            .id(code_btn_id)
+                                                                                            .padding(2.0, 6.0, 2.0, 6.0)
+                                                                                            .radius_all(3.0)
+                                                                                            .hover_bg(colors.highlight)
+                                                                                            .row()
+                                                                                            .valign(Align::Center)
+                                                                                            .gap(4.0)
+                                                                                            .show(|ui| {
+                                                                                                ui.text(if is_code_copied { "\u{f00c}" } else { "\u{f0c5}" })
+                                                                                                    .size(9.5)
+                                                                                                    .color(if is_code_copied { colors.accent } else { colors.text_muted })
+                                                                                                    .show();
+                                                                                                ui.text(if is_code_copied { "Copied" } else { "Copy" })
+                                                                                                    .size(9.5)
+                                                                                                    .color(if is_code_copied { colors.accent } else { colors.text_muted })
+                                                                                                    .show();
+                                                                                            });
+
+                                                                                        if copy_code_btn.hovered {
+                                                                                            ui.cursor_icon = CursorIcon::Pointer;
+                                                                                        }
+                                                                                        if copy_code_btn.clicked {
+                                                                                            copy_code_snippet = Some((code_btn_id.raw(), code.clone()));
+                                                                                        }
+                                                                                    });
+
+                                                                                // Code content area
+                                                                                ui.container()
+                                                                                    .padding(8.0, 10.0, 8.0, 10.0)
+                                                                                    .full_width()
+                                                                                    .show(|ui| {
+                                                                                        ui.text(code)
+                                                                                            .size((base_text_size - 1.0).max(10.5))
+                                                                                            .monospace()
+                                                                                            .line_height(1.45)
+                                                                                            .color(colors.text_primary)
+                                                                                            .max_width((code_box_w - 20.0).max(40.0))
+                                                                                            .wrap(zenthra_text::prelude::TextWrap::Word)
+                                                                                            .show();
+                                                                                    });
+                                                                            });
+                                                                    });
+                                                            }
+                                                            MarkdownBlock::Paragraph(spans) => {
+                                                                ui.container()
+                                                                    .full_width()
+                                                                    .padding_bottom(8.0)
+                                                                    .show(|ui| {
+                                                                        draw_inline_spans(ui, spans, ai_text_w, base_text_size, FontWeight::Regular, colors.text_primary, colors);
+                                                                    });
+                                                            }
+                                                        }
+                                                    }
+                                                });
 
                                             // ── Footer: copy button pinned right ──────────────
                                             ui.container()
@@ -3672,7 +3712,7 @@ pub(crate) fn draw_inline_spans(
                     .size(base_size)
                     .weight(base_weight)
                     .color(base_color)
-                    .line_height(1.6)
+                    .line_height(1.4)
                     .max_width(max_width)
                     .wrap(zenthra_text::prelude::TextWrap::Word)
                     .show();
@@ -3720,7 +3760,7 @@ pub(crate) fn draw_inline_spans(
                             .size(base_size)
                             .weight(base_weight)
                             .color(color)
-                            .line_height(1.6)
+                            .line_height(1.4)
                             .max_width(max_width)
                             .wrap(zenthra_text::prelude::TextWrap::Word)
                             .show();
@@ -3730,7 +3770,7 @@ pub(crate) fn draw_inline_spans(
                             .size(base_size)
                             .weight(FontWeight::SemiBold)
                             .color(base_color)
-                            .line_height(1.6)
+                            .line_height(1.4)
                             .max_width(max_width)
                             .wrap(zenthra_text::prelude::TextWrap::Word)
                             .show();
@@ -3741,7 +3781,7 @@ pub(crate) fn draw_inline_spans(
                             .weight(base_weight)
                             .italic()
                             .color(base_color.with_alpha(0.85))
-                            .line_height(1.6)
+                            .line_height(1.4)
                             .max_width(max_width)
                             .wrap(zenthra_text::prelude::TextWrap::Word)
                             .show();
@@ -3752,7 +3792,7 @@ pub(crate) fn draw_inline_spans(
                             .weight(FontWeight::SemiBold)
                             .italic()
                             .color(base_color)
-                            .line_height(1.6)
+                            .line_height(1.4)
                             .max_width(max_width)
                             .wrap(zenthra_text::prelude::TextWrap::Word)
                             .show();

@@ -587,9 +587,9 @@ fn draw_appearance_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeCol
                 .show(|ui| {
                     let current_sz = state.ai_settings.effective_text_size();
                     let sizes = [
-                        (AiTextSize::Compact, "10.5px"),
-                        (AiTextSize::Regular, "11.5px"),
-                        (AiTextSize::Large, "12.5px"),
+                        (AiTextSize::Compact, AiTextSize::Compact.display_name()),
+                        (AiTextSize::Regular, AiTextSize::Regular.display_name()),
+                        (AiTextSize::Large, AiTextSize::Large.display_name()),
                     ];
                     for (size, label) in sizes {
                         let is_active = current_sz == size;

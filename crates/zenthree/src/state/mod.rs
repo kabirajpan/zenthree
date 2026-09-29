@@ -930,7 +930,7 @@ mod tests {
         assert_eq!(state.ai_settings.effective_input_tone(), AiInputTone::Charcoal);
         assert_eq!(state.ai_settings.effective_message_bg(), AiMessageBg::DeepDark);
         assert_eq!(state.ai_settings.effective_text_size(), AiTextSize::Regular);
-        assert_eq!(state.ai_settings.effective_text_size().pt(), 11.5);
+        assert_eq!(state.ai_settings.effective_text_size().pt(), 12.5);
 
         // Switch to custom preset mode and mutate settings
         state.ai_settings.preset_mode = AiPresetMode::Custom;
@@ -939,7 +939,7 @@ mod tests {
         state.ai_settings.input_tone = AiInputTone::Bright;
         state.ai_settings.message_bg = AiMessageBg::Sidebar;
         state.ai_settings.text_size = AiTextSize::Large;
-        assert_eq!(state.ai_settings.effective_text_size().pt(), 12.5);
+        assert_eq!(state.ai_settings.effective_text_size().pt(), 13.5);
 
         // Serialize to PersistentState JSON
         let persistent: PersistentState = (&state).into();
