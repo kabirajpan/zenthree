@@ -5,6 +5,11 @@ use crate::state::{
 use crate::theme::ThemeColors;
 use zenthra::{use_context, Align, Color, CursorIcon, FontWeight, Id, Ui};
 
+static ANTIGRAVITY_LOGIN_RUNNING: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+static ANTIGRAVITY_LOGIN_ERROR: std::sync::Mutex<Option<String>> =
+    std::sync::Mutex::new(None);
+
 pub fn draw_ai_settings_dialog(ui: &mut Ui, state: &mut ZenthreeState) {
     if !state.ai_settings.open {
         return;
@@ -1042,9 +1047,12 @@ fn draw_external_agents_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &The
                 });
 
             // Description
+            let description_width = ui.available_width.max(1.0);
             ui.text("Google Antigravity autonomous coding agent running via the Agent Client Protocol (ACP). Handles its own authentication and provides access to Gemini 3.8 Flash, Gemini 3.7, and Gemini 3.1 Pro.")
                 .size(10.8)
                 .color(colors.text_muted)
+                .max_width(description_width)
+                .auto_wrap()
                 .show();
 
             // Action row
@@ -1111,6 +1119,13 @@ fn draw_external_agents_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &The
                             }
                         });
                     } else {
+                        let is_signing_in = ANTIGRAVITY_LOGIN_RUNNING
+                            .load(std::sync::atomic::Ordering::SeqCst);
+                        let login_error = ANTIGRAVITY_LOGIN_ERROR
+                            .lock()
+                            .unwrap_or_else(std::sync::PoisonError::into_inner)
+                            .clone();
+
                         ui.container().column().gap(2.0).show(|ui| {
                             ui.text("No active session found")
                                 .size(10.0)
@@ -1120,30 +1135,59 @@ fn draw_external_agents_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &The
                                 .size(9.0)
                                 .color(colors.text_muted.with_alpha(0.7))
                                 .show();
+                            if let Some(error) = &login_error {
+                                let error_width = (ui.available_width - 190.0).max(80.0);
+                                ui.text(error)
+                                    .size(9.0)
+                                    .color(Color::from_hex(0xe65050))
+                                    .max_width(error_width)
+                                    .auto_wrap()
+                                    .show();
+                            }
                         });
 
-                        static SIGNING_IN: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
-                        let is_signing_in = SIGNING_IN.load(std::sync::atomic::Ordering::SeqCst);
+                        if is_signing_in {
+                            ui.request_redraw_after(std::time::Duration::from_millis(250));
+                        }
 
-                        let login_btn = ui.container()
-                            .clickable(!is_signing_in)
+                        let login_btn = ui.button(
+                            if is_signing_in { "Authenticating..." } else { "Sign In via Antigravity" },
+                        )
+                            .id(Id::from_u64(999999834))
                             .padding(6.0, 14.0, 6.0, 14.0)
                             .radius_all(5.0)
                             .bg(if is_signing_in { colors.accent.with_alpha(0.4) } else { colors.accent })
-                            .show(|ui| {
-                                ui.text(if is_signing_in { "Authenticating..." } else { "Sign In via Antigravity" })
-                                    .size(11.0)
-                                    .weight(FontWeight::Medium)
-                                    .color(Color::WHITE)
-                                    .show();
-                            });
-                        if !is_signing_in && login_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
-                        if !is_signing_in && login_btn.clicked {
-                            SIGNING_IN.store(true, std::sync::atomic::Ordering::SeqCst);
+                            .hover_bg(colors.accent.with_alpha(0.85))
+                            .text_color(Color::WHITE)
+                            .size(11.0)
+                            .show();
+                        if login_btn.hovered && !is_signing_in {
+                            ui.cursor_icon = CursorIcon::Pointer;
+                        }
+                        if login_btn.clicked && !is_signing_in {
+                            ANTIGRAVITY_LOGIN_ERROR
+                                .lock()
+                                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                                .take();
+                            ANTIGRAVITY_LOGIN_RUNNING
+                                .store(true, std::sync::atomic::Ordering::SeqCst);
                             std::thread::spawn(|| {
                                 let auth = agent::external_provider::AntigravityAuthManager::with_default_config();
-                                let _ = auth.login_interactive();
-                                SIGNING_IN.store(false, std::sync::atomic::Ordering::SeqCst);
+                                let result = auth.login_interactive().and_then(|()| {
+                                    if auth.load_token().is_some() {
+                                        Ok(())
+                                    } else {
+                                        Err("Antigravity login finished without saving credentials. Check that the Antigravity ACP agent is installed and try again.".to_string())
+                                    }
+                                });
+                                if let Err(error) = result {
+                                    *ANTIGRAVITY_LOGIN_ERROR
+                                        .lock()
+                                        .unwrap_or_else(std::sync::PoisonError::into_inner) =
+                                        Some(error);
+                                }
+                                ANTIGRAVITY_LOGIN_RUNNING
+                                    .store(false, std::sync::atomic::Ordering::SeqCst);
                             });
                             ui.needs_redraw = true;
                         }
@@ -1409,4 +1453,3 @@ fn draw_settings_divider(ui: &mut Ui, colors: &ThemeColors) {
         .bg(colors.border.with_alpha(0.35))
         .show(|_| {});
 }
-
