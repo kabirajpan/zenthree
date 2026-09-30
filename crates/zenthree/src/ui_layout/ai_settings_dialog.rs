@@ -1933,10 +1933,18 @@ pub fn draw_antigravity_settings_model_popover(
     let menu_h = (models.len() as f32 * 26.0 + 8.0).min(240.0);
 
     let is_light = colors.bg_base.r > 0.5;
-    let menu_bg = if is_light {
-        Color::rgb(250.0 / 255.0, 250.0 / 255.0, 252.0 / 255.0)
+    let menu_bg = if state.glassmorphism {
+        if is_light {
+            Color::rgba(250.0 / 255.0, 250.0 / 255.0, 252.0 / 255.0, 0.95)
+        } else {
+            Color::rgba(22.0 / 255.0, 22.0 / 255.0, 25.0 / 255.0, 0.96)
+        }
     } else {
-        Color::rgb(22.0 / 255.0, 22.0 / 255.0, 25.0 / 255.0) // fully opaque, never transparent
+        if is_light {
+            Color::rgb(250.0 / 255.0, 250.0 / 255.0, 252.0 / 255.0)
+        } else {
+            Color::rgb(22.0 / 255.0, 22.0 / 255.0, 25.0 / 255.0)
+        }
     };
     let menu_border = if is_light {
         Color::rgb(200.0 / 255.0, 200.0 / 255.0, 208.0 / 255.0)
@@ -1973,7 +1981,7 @@ pub fn draw_antigravity_settings_model_popover(
     }
 
     let mut select_model: Option<AiModel> = None;
-    ui.popover(AG_SETTINGS_MODEL_BTN_ID)
+    let mut popover_builder = ui.popover(AG_SETTINGS_MODEL_BTN_ID)
         .placement(Placement::Bottom)
         .align(PopoverAlign::Start)
         .gap(4.0)
@@ -1984,8 +1992,13 @@ pub fn draw_antigravity_settings_model_popover(
         .border(menu_border, 1.0)
         .radius_all(6.0)
         .shadow(menu_shadow, 0.0, 4.0, 16.0)
-        .padding(4.0, 4.0, 4.0, 4.0)
-        .show(|ui| {
+        .padding(4.0, 4.0, 4.0, 4.0);
+
+    if state.glassmorphism {
+        popover_builder = popover_builder.backdrop_blur(state.blur_strength.max(4.0));
+    }
+
+    popover_builder.show(|ui| {
             ui.container()
                 .full_width()
                 .height(menu_h - 8.0)
