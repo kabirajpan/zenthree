@@ -1216,6 +1216,7 @@ fn draw_ai_chat_content(
                                                             .gap(6.0)
                                                             .show(|ui| {
                                                                 if grp.is_active {
+                                                                    ui.request_redraw_after(std::time::Duration::from_millis(80));
                                                                     ui.container()
                                                                         .width(6.0)
                                                                         .height(6.0)
@@ -1252,6 +1253,10 @@ fn draw_ai_chat_content(
                                                                 .gap(3.0)
                                                                 .show(|ui| {
                                                                 for (item_idx, item) in grp.items.iter().enumerate() {
+                                                                    let is_item_running = grp.is_active && (item_idx + 1 == grp.items.len());
+                                                                    if is_item_running {
+                                                                        ui.request_redraw_after(std::time::Duration::from_millis(80));
+                                                                    }
                                                                     match item {
                                                                         ExplorationItem::AnalyzedFile { path, start_line, end_line, symbol, is_peek } => {
                                                                             let path_obj = std::path::Path::new(path);
@@ -1274,7 +1279,7 @@ fn draw_ai_chat_content(
                                                                             };
 
                                                                             let (action_verb, verb_color, badge) = if is_dir {
-                                                                                ("Explored", colors.text_muted, String::new())
+                                                                                (if is_item_running { "Exploring" } else { "Explored" }, colors.text_muted, String::new())
                                                                             } else if !file_exists {
                                                                                 (
                                                                                     "Not found",
@@ -1282,7 +1287,7 @@ fn draw_ai_chat_content(
                                                                                     " [not found]".to_string(),
                                                                                 )
                                                                             } else {
-                                                                                let verb = match (*is_peek, grp.is_active) {
+                                                                                let verb = match (*is_peek, is_item_running) {
                                                                                     (true, true) => "Peeking",
                                                                                     (true, false) => "Peeked",
                                                                                     (false, true) => "Reading",
@@ -1325,6 +1330,12 @@ fn draw_ai_chat_content(
                                                                                 .valign(Align::Center)
                                                                                 .gap(5.0)
                                                                                 .show(|ui| {
+                                                                                    if is_item_running {
+                                                                                        ui.text(get_thinking_spinner_frame())
+                                                                                            .size(10.5)
+                                                                                            .color(colors.accent)
+                                                                                            .show();
+                                                                                    }
                                                                                     ui.text(action_verb)
                                                                                         .size(10.5)
                                                                                         .color(verb_color)
@@ -1353,7 +1364,7 @@ fn draw_ai_chat_content(
                                                                             }
                                                                         }
                                                                         ExplorationItem::BatchRead { paths } => {
-                                                                            let action_verb = if grp.is_active { "Reading batch" } else { "Read batch" };
+                                                                            let action_verb = if is_item_running { "Reading batch" } else { "Read batch" };
                                                                             let list_str = paths
                                                                                 .iter()
                                                                                 .filter_map(|p| std::path::Path::new(p).file_name().and_then(|s| s.to_str()))
@@ -1365,6 +1376,12 @@ fn draw_ai_chat_content(
                                                                                 .valign(Align::Center)
                                                                                 .gap(5.0)
                                                                                 .show(|ui| {
+                                                                                    if is_item_running {
+                                                                                        ui.text(get_thinking_spinner_frame())
+                                                                                            .size(10.5)
+                                                                                            .color(colors.accent)
+                                                                                            .show();
+                                                                                    }
                                                                                     ui.text(action_verb)
                                                                                         .size(10.5)
                                                                                         .color(colors.text_muted)
@@ -1373,10 +1390,10 @@ fn draw_ai_chat_content(
                                                                                         .size(11.5)
                                                                                         .color(colors.text_primary)
                                                                                         .show();
-                                                                                    });
+                                                                                });
                                                                         }
                                                                         ExplorationItem::Searched { query, scope } => {
-                                                                            let search_prefix = if grp.is_active { "Searching" } else { "Searched" };
+                                                                            let search_prefix = if is_item_running { "Searching" } else { "Searched" };
                                                                             let action_verb = if let Some(ref sc) = scope {
                                                                                 format!("{} {}", search_prefix, sc)
                                                                             } else {
@@ -1388,6 +1405,12 @@ fn draw_ai_chat_content(
                                                                                 .valign(Align::Center)
                                                                                 .gap(5.0)
                                                                                 .show(|ui| {
+                                                                                    if is_item_running {
+                                                                                        ui.text(get_thinking_spinner_frame())
+                                                                                            .size(10.5)
+                                                                                            .color(colors.accent)
+                                                                                            .show();
+                                                                                    }
                                                                                     ui.text(&action_verb)
                                                                                         .size(10.5)
                                                                                         .color(colors.text_muted)
@@ -1399,7 +1422,7 @@ fn draw_ai_chat_content(
                                                                                 });
                                                                         }
                                                                         ExplorationItem::ExploredDirectory { path } => {
-                                                                            let action_verb = if grp.is_active { "Exploring" } else { "Explored" };
+                                                                            let action_verb = if is_item_running { "Exploring" } else { "Explored" };
                                                                             let path_obj = std::path::Path::new(path);
                                                                             let resolved = if path_obj.is_absolute() {
                                                                                 path_obj.to_path_buf()
@@ -1422,6 +1445,12 @@ fn draw_ai_chat_content(
                                                                                 .valign(Align::Center)
                                                                                 .gap(5.0)
                                                                                 .show(|ui| {
+                                                                                    if is_item_running {
+                                                                                        ui.text(get_thinking_spinner_frame())
+                                                                                            .size(10.5)
+                                                                                            .color(colors.accent)
+                                                                                            .show();
+                                                                                    }
                                                                                     ui.text(action_verb)
                                                                                         .size(10.5)
                                                                                         .color(colors.text_muted)
@@ -1437,13 +1466,19 @@ fn draw_ai_chat_content(
                                                                                 });
                                                                         }
                                                                         ExplorationItem::ActivatedSkill { name } => {
-                                                                            let action_verb = if grp.is_active { "Activating skill" } else { "Activated skill" };
+                                                                            let action_verb = if is_item_running { "Activating skill" } else { "Activated skill" };
                                                                             ui.container()
                                                                                 .full_width()
                                                                                 .row()
                                                                                 .valign(Align::Center)
                                                                                 .gap(5.0)
                                                                                 .show(|ui| {
+                                                                                    if is_item_running {
+                                                                                        ui.text(get_thinking_spinner_frame())
+                                                                                            .size(10.5)
+                                                                                            .color(colors.accent)
+                                                                                            .show();
+                                                                                    }
                                                                                     ui.text(action_verb)
                                                                                         .size(10.5)
                                                                                         .color(colors.text_muted)
@@ -1455,16 +1490,26 @@ fn draw_ai_chat_content(
                                                                                 });
                                                                         }
                                                                         ExplorationItem::ExecutedCommand { command } => {
-                                                                            let action_verb = if grp.is_active { "Running" } else { "Ran" };
+                                                                            let action_verb = if is_item_running { "Running" } else { "Ran" };
                                                                             ui.container()
                                                                                 .full_width()
                                                                                 .row()
                                                                                 .valign(Align::Center)
                                                                                 .gap(5.0)
                                                                                 .show(|ui| {
+                                                                                    if is_item_running {
+                                                                                        ui.text(get_thinking_spinner_frame())
+                                                                                            .size(10.5)
+                                                                                            .color(colors.accent)
+                                                                                            .show();
+                                                                                    }
                                                                                     ui.text(action_verb)
                                                                                         .size(10.5)
                                                                                         .color(colors.text_muted)
+                                                                                        .show();
+                                                                                    ui.text("\u{f489}")
+                                                                                        .size(10.5)
+                                                                                        .color(colors.accent)
                                                                                         .show();
                                                                                     ui.text(command)
                                                                                         .size(11.5)
@@ -1473,13 +1518,19 @@ fn draw_ai_chat_content(
                                                                                 });
                                                                         }
                                                                         ExplorationItem::CheckedDiagnostics => {
-                                                                            let action_verb = if grp.is_active { "Checking diagnostics" } else { "Checked diagnostics" };
+                                                                            let action_verb = if is_item_running { "Checking diagnostics" } else { "Checked diagnostics" };
                                                                             ui.container()
                                                                                 .full_width()
                                                                                 .row()
                                                                                 .valign(Align::Center)
                                                                                 .gap(5.0)
                                                                                 .show(|ui| {
+                                                                                    if is_item_running {
+                                                                                        ui.text(get_thinking_spinner_frame())
+                                                                                            .size(10.5)
+                                                                                            .color(colors.accent)
+                                                                                            .show();
+                                                                                    }
                                                                                     ui.text(action_verb)
                                                                                         .size(10.5)
                                                                                         .color(colors.text_muted)
@@ -1487,12 +1538,12 @@ fn draw_ai_chat_content(
                                                                                 });
                                                                         }
                                                                         ExplorationItem::Thought { summary, duration_secs } => {
-                                                                            let thought_label = match (duration_secs, grp.is_active) {
+                                                                            let is_spinning = is_item_running || (grp.is_active && duration_secs.is_none());
+                                                                            let thought_label = match (duration_secs, is_spinning) {
                                                                                 (Some(secs), _) => format!("Thought for {}s", secs),
                                                                                 (None, true) => if summary.is_empty() { "Thinking...".to_string() } else { summary.clone() },
                                                                                 (None, false) => if summary.is_empty() { "Thought".to_string() } else { summary.clone() },
                                                                             };
-                                                                            let is_spinning = grp.is_active && duration_secs.is_none();
                                                                             if is_spinning {
                                                                                 ui.request_redraw_after(std::time::Duration::from_millis(80));
                                                                             }

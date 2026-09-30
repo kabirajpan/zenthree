@@ -219,6 +219,22 @@ impl ReadFileTool {
             }
         }
 
+        let rel_norm = path_str.replace('\\', "/");
+        if rel_norm.contains(".zenthree_sessions") || rel_norm.contains(".zenthree_state.json") {
+            return Err(ToolError::ExecutionFailed(
+                "Access denied: .zenthree_sessions and .zenthree_state.json are internal IDE runtime files and cannot be read as project source code.".to_string(),
+            ));
+        }
+
+        if (rel_norm.starts_with(".zenthree/") || rel_norm.contains("/.zenthree/"))
+            && !rel_norm.contains(".zenthree/notes")
+            && !rel_norm.contains(".zenthree/skills")
+        {
+            return Err(ToolError::ExecutionFailed(
+                "Access denied: '.zenthree/' contains internal IDE metadata. Only '.zenthree/notes/' and '.zenthree/skills/' are accessible.".to_string(),
+            ));
+        }
+
         let path = &resolved;
         if !path.exists() {
             let file_name = path.file_name().and_then(|n| n.to_str()).unwrap_or(path_str);

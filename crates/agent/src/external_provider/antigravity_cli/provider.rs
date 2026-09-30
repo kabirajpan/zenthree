@@ -133,6 +133,7 @@ impl Provider for AntigravityCliProvider {
                     let mapped_name = match name_candidate.as_str() {
                         "view_file" | "client_view_file" => "read_file",
                         "find_file" | "search_directory" | "grep_search" | "search_files" | "find_in_files" => "search_codebase",
+                        "run_command" | "execute_command" | "bash" | "terminal" | "run_terminal" | "sh" | "exec" => "run_terminal",
                         other => other,
                     };
 
@@ -150,10 +151,42 @@ impl Provider for AntigravityCliProvider {
                                 map.insert("query".to_string(), serde_json::Value::String(pat));
                             }
                         }
+                        if let Some(cmd) = map.remove("CommandLine").or_else(|| map.remove("cmd")) {
+                            if !map.contains_key("command") {
+                                map.insert("command".to_string(), cmd);
+                            }
+                        }
                     }
 
+                    let is_explicit_cmd = mapped_name == "run_terminal"
+                        || name_candidate.starts_with("ls ")
+                        || name_candidate == "ls"
+                        || name_candidate.starts_with("env ")
+                        || name_candidate.starts_with("git ")
+                        || name_candidate.starts_with("cargo ")
+                        || name_candidate.starts_with("npm ")
+                        || name_candidate.starts_with("cat ")
+                        || name_candidate.starts_with("grep ")
+                        || name_candidate.contains('|');
+
+                    let final_mapped_name = if is_explicit_cmd {
+                        if let serde_json::Value::Object(ref mut map) = args {
+                            if !map.contains_key("command") {
+                                let cmd_str = if name_candidate != "run_terminal" && name_candidate != "run_command" {
+                                    name_candidate.clone()
+                                } else {
+                                    title.strip_prefix("Running ").unwrap_or(&title).trim().to_string()
+                                };
+                                map.insert("command".to_string(), serde_json::Value::String(cmd_str));
+                            }
+                        }
+                        "run_terminal"
+                    } else {
+                        mapped_name
+                    };
+
                     on_event(ProviderEvent::ExternalToolActivity {
-                        name: mapped_name.to_string(),
+                        name: final_mapped_name.to_string(),
                         args,
                     });
                 }

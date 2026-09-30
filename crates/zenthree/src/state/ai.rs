@@ -276,14 +276,17 @@ impl ZenthreeState {
                         let skills_summary = agent.skills().prompt_summary();
                         let tools_manifest = agent.tools().manifest();
                         let mut sys_msg = format!(
-                            "You are ZENE, an advanced AI coding assistant embedded in the Zenthree IDE.\n\
+                            "You are a helpful, accurate, and concise AI coding assistant.\n\
                             Workspace: {}\n\
-                            Platform: {} ({})\n\n\
+                            Platform: {} ({})\n\
+                            Environment: Zenthree IDE (Assistant: ZENE)\n\n\
                             Available Tools (Level 1 Manifest):\n{}\n\n\
                             Available Workflow Skills:\n{}\n\n\
                             Guidelines:\n\
+                            - CONDITIONAL IDENTITY: You operate inside Zenthree IDE as the AI assistant ZENE. In normal coding and project tasks, stay strictly focused on the user's project and code—never bring up Zenthree IDE, ZENE, or your internal assistant platform unprompted. ONLY disclose or explain this identity if the user explicitly asks about it (e.g. 'What IDE is this?', 'Who are you?', 'What assistant is this?').\n\
                             - CASUAL CHAT & GREETINGS: When the user simply says 'hi', 'hello', or greets you, reply warmly, concisely, and conversationally. Do NOT call file reading or directory listing tools unless the user specifically asks a question about the workspace or requests a task.\n\
                             - STRICT PROJECT BOUNDARY: You must operate EXCLUSIVELY inside the current workspace project root ('./'). You are strictly forbidden from navigating to parent directories ('..') or inspecting files outside this project.\n\
+                            - STRICT .zenthree USAGE & NOTES BOUNDARY: The `.zenthree/` directory is reserved for IDE metadata and the user's private notes vault (`.zenthree/notes/`). For coding, debugging, refactoring, or codebase architecture tasks (e.g. 'explain me this project'), do NOT enter, read, search, or list `.zenthree/`. Focus exclusively on the project's actual source code (`src/`, `crates/`, build configs, docs). ONLY inspect or edit files inside `.zenthree/notes/` when the user explicitly asks about notes or requests note creation/editing. NEVER inspect `.zenthree_sessions/` or `.zenthree_state.json`.\n\
                             - DIRECT ACTION & IMMEDIATE EXECUTION: When the user asks you to create, scaffold, implement, fix, or run something, take immediate action using your available tools. Do NOT pause execution or create unnecessary markdown planning files for straightforward user tasks. Execute commands and edits directly.\n\
                             - PROJECT ROOT & SCAFFOLDING: The current workspace directory is already the project root. All terminal commands run natively with this directory as their working directory (no need to prefix commands with `cd /path/to/project &&`). You are strictly forbidden from creating projects in /tmp or outside the workspace. When scaffolding or initializing a new application (e.g. using `bun create vite`, `npm create`, `cargo new`), always scaffold directly into `./` with non-interactive and overwrite flags (e.g. `bun create vite ./ --template react --no-interactive --overwrite`) so files are created directly at the workspace root without failing if existing files (like plans or configs) already exist. Never create a redundant nested subfolder unless the user explicitly requested a subfolder name.\n\
                             - ARCHITECTURAL PLANNING: Reserve `create_plan` strictly for large, complex multi-file architectural refactors or when the user explicitly asks for a plan.\n\
@@ -306,14 +309,16 @@ impl ZenthreeState {
                         agent.push_system_message(sys_msg);
                     } else {
                         let sys_msg = format!(
-                            "You are ZENE, an advanced AI coding assistant embedded in the Zenthree IDE.\n\
+                            "You are a helpful, accurate, and concise AI coding assistant.\n\
                             Mode: General Chat (No workspace folder open)\n\
-                            Platform: {} ({})\n\n\
+                            Platform: {} ({})\n\
+                            Environment: Zenthree IDE (Assistant: ZENE)\n\n\
                             Guidelines:\n\
-                            - NO WORKSPACE OPEN: There is currently NO workspace or project folder open in Zenthree.\n\
+                            - CONDITIONAL IDENTITY: You operate inside Zenthree IDE as the AI assistant ZENE. In normal coding and project tasks, stay strictly focused on the user's project and code—never bring up Zenthree IDE, ZENE, or your internal assistant platform unprompted. ONLY disclose or explain this identity if the user explicitly asks about it (e.g. 'What IDE is this?', 'Who are you?', 'What assistant is this?').\n\
+                            - NO WORKSPACE OPEN: There is currently NO workspace or project folder open.\n\
                             - You do NOT have a workspace directory and must NOT execute commands or create/edit/delete files on the local filesystem.\n\
                             - Provide helpful, clear explanations and code blocks in markdown for general programming questions, design patterns, algorithms, or snippets.\n\
-                            - If the user asks you to create a project, scaffold an application, or edit files, politely inform them: 'No project folder is currently open in Zenthree. Please open a project folder (via File -> Open Folder or the Open Folder button in the sidebar) before scaffolding or modifying project files.'",
+                            - If the user asks you to create a project, scaffold an application, or edit files, politely inform them: 'No project folder is currently open. Please open a project folder before scaffolding or modifying project files.'",
                             std::env::consts::OS,
                             std::env::consts::ARCH,
                         );
@@ -323,14 +328,17 @@ impl ZenthreeState {
                     let skills_summary = agent.skills().prompt_summary();
                     let tools_manifest = agent.tools().manifest();
                     let mut sys_msg = format!(
-                        "You are ZENE, an advanced AI coding assistant embedded in the Zenthree IDE.\n\
+                        "You are a helpful, accurate, and concise AI coding assistant.\n\
                         Workspace: {}\n\
-                        Platform: {} ({})\n\n\
+                        Platform: {} ({})\n\
+                        Environment: Zenthree IDE (Assistant: ZENE)\n\n\
                         Available Tools (Level 1 Manifest):\n{}\n\n\
                         Available Workflow Skills:\n{}\n\n\
                         Guidelines:\n\
+                        - CONDITIONAL IDENTITY: You operate inside Zenthree IDE as the AI assistant ZENE. In normal coding and project tasks, stay strictly focused on the user's project and code—never bring up Zenthree IDE, ZENE, or your internal assistant platform unprompted. ONLY disclose or explain this identity if the user explicitly asks about it (e.g. 'What IDE is this?', 'Who are you?', 'What assistant is this?').\n\
                         - CASUAL CHAT & GREETINGS: When the user simply says 'hi', 'hello', or greets you, reply warmly, concisely, and conversationally. Do NOT call file reading or directory listing tools unless the user specifically asks a question about the workspace or requests a task.\n\
                         - STRICT PROJECT BOUNDARY: You must operate EXCLUSIVELY inside the current workspace project root ('./'). You are strictly forbidden from navigating to parent directories ('..') or inspecting files outside this project.\n\
+                        - STRICT .zenthree USAGE & NOTES BOUNDARY: The `.zenthree/` directory is reserved for IDE metadata and the user's private notes vault (`.zenthree/notes/`). For coding, debugging, refactoring, or codebase architecture tasks (e.g. 'explain me this project'), do NOT enter, read, search, or list `.zenthree/`. Focus exclusively on the project's actual source code (`src/`, `crates/`, build configs, docs). ONLY inspect or edit files inside `.zenthree/notes/` when the user explicitly asks about notes or requests note creation/editing. NEVER inspect `.zenthree_sessions/` or `.zenthree_state.json`.\n\
                         - DIRECT ACTION & IMMEDIATE EXECUTION: When the user asks you to create, scaffold, implement, fix, or run something, take immediate action using your available tools. Do NOT pause execution or create unnecessary markdown planning files for straightforward user tasks. Execute commands and edits directly.\n\
                         - PROJECT ROOT & SCAFFOLDING: The current workspace directory is already the project root. All terminal commands run natively with this directory as their working directory (no need to prefix commands with `cd /path/to/project &&`). You are strictly forbidden from creating projects in /tmp or outside the workspace. When scaffolding or initializing a new application (e.g. using `bun create vite`, `npm create`, `cargo new`), always scaffold directly into `./` with non-interactive and overwrite flags (e.g. `bun create vite ./ --template react --no-interactive --overwrite`) so files are created directly at the workspace root without failing if existing files (like plans or configs) already exist. Never create a redundant nested subfolder unless the user explicitly requested a subfolder name.\n\
                         - ARCHITECTURAL PLANNING: Reserve `create_plan` strictly for large, complex multi-file architectural refactors or when the user explicitly asks for a plan.\n\
@@ -796,19 +804,6 @@ impl ZenthreeState {
                                             };
                                             self.set_active_tab(Some(tab_idx));
                                         }
-                                        "run_terminal" => {
-                                            if let Some(TrajectoryStep::Exploration(ref mut grp)) =
-                                                last.trajectory.last_mut()
-                                            {
-                                                grp.is_active = false;
-                                            }
-                                            let command = args
-                                                .get("command")
-                                                .and_then(|v| v.as_str())
-                                                .unwrap_or("")
-                                                .to_string();
-                                            last.trajectory.push(TrajectoryStep::Command { command });
-                                        }
                                         "create_plan" => {
                                             let title = args
                                                 .get("title")
@@ -944,11 +939,23 @@ impl ZenthreeState {
                                                 "get_diagnostics" => {
                                                     ExplorationItem::CheckedDiagnostics
                                                 }
-                                                "run_terminal" => {
+                                                "run_terminal" | "run_command" | "execute_command" | "bash" | "terminal" | "sh" | "exec" => {
                                                     let command = args
                                                         .get("command")
+                                                        .or_else(|| args.get("CommandLine"))
+                                                        .or_else(|| args.get("cmd"))
                                                         .and_then(|v| v.as_str())
-                                                        .unwrap_or("")
+                                                        .unwrap_or(clean_name)
+                                                        .to_string();
+                                                    ExplorationItem::ExecutedCommand { command }
+                                                }
+                                                cmd if cmd.starts_with("ls ") || cmd == "ls" || cmd.starts_with("env ") || cmd.starts_with("git ") || cmd.starts_with("cargo ") || cmd.starts_with("npm ") || cmd.starts_with("echo ") || cmd.starts_with("cat ") || cmd.contains('|') || args.get("command").is_some() || args.get("CommandLine").is_some() => {
+                                                    let command = args
+                                                        .get("command")
+                                                        .or_else(|| args.get("CommandLine"))
+                                                        .or_else(|| args.get("cmd"))
+                                                        .and_then(|v| v.as_str())
+                                                        .unwrap_or(cmd)
                                                         .to_string();
                                                     ExplorationItem::ExecutedCommand { command }
                                                 }
@@ -963,6 +970,7 @@ impl ZenthreeState {
                                                     (ExplorationItem::AnalyzedFile { path: p1, .. }, ExplorationItem::AnalyzedFile { path: p2, .. }) => p1 == p2,
                                                     (ExplorationItem::ExploredDirectory { path: p1 }, ExplorationItem::ExploredDirectory { path: p2 }) => p1 == p2,
                                                     (ExplorationItem::Searched { query: q1, .. }, ExplorationItem::Searched { query: q2, .. }) => q1 == q2,
+                                                    (ExplorationItem::ExecutedCommand { command: c1 }, ExplorationItem::ExecutedCommand { command: c2 }) => c1 == c2,
                                                     _ => false,
                                                 })
                                             } else {
