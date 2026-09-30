@@ -1,8 +1,9 @@
-use crate::state::{ZenthreeState, AiModel, AgentMode, SelectedAgent, AntigravityMode, TrajectoryStep, ExplorationItem, path_matches, SessionSummary, AiSettingsTab, AiMessageBg};
+use crate::state::{ZenthreeState, AiModel, AiProvider, AgentMode, SelectedAgent, AntigravityMode, TrajectoryStep, ExplorationItem, path_matches, SessionSummary, AiSettingsTab, AiMessageBg};
 use zenthra::{Color, Ui, Align, FontWeight, Id, CursorIcon, use_context, Placement, PopoverAlign, Wrap};
 use crate::theme::ThemeColors;
 
 const AGENT_MODE_BTN_ID: Id = Id::from_u64(999999885);
+const MODEL_PICKER_BTN_ID: Id = Id::from_u64(999999886);
 const AI_MORE_BTN_ID: Id = Id::from_u64(999999887);
 
 const SPINNER_FRAMES: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
@@ -981,6 +982,216 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
         }
     }
 
+    // ─── Floating Menu Panel: Model Selector ──────────────────────────────
+    draw_ai_model_popover(ui, state, &colors);
+}
+
+fn draw_prompt_model_button(
+    ui: &mut Ui,
+    state: &mut ZenthreeState,
+    colors: &crate::theme::ThemeColors,
+    pill_bg: Color,
+    pill_hover_bg: Color,
+    pill_border: Color,
+) {
+    // Ensure selected model aligns with currently active agent
+    match state.selected_agent {
+        SelectedAgent::Zene => {
+            if state.selected_ai_model.is_antigravity() {
+                state.selected_ai_model = AiModel::Gemini25Flash;
+            }
+        }
+        SelectedAgent::Antigravity => {
+            if !state.selected_ai_model.is_antigravity() {
+                state.selected_ai_model = AiModel::AntigravityGemini38FlashHigh;
+            }
+        }
+    }
+
+    let model_btn = ui.container()
+        .raw_id(MODEL_PICKER_BTN_ID)
+        .clickable(true)
+        .padding(3.5, 8.0, 3.5, 8.0)
+        .radius_all(6.0)
+        .bg(if state.ai_model_menu_open { pill_hover_bg } else { pill_bg })
+        .hover_bg(pill_hover_bg)
+        .border(pill_border, 1.0)
+        .row()
+        .valign(Align::Center)
+        .gap(5.0)
+        .show(|ui| {
+            ui.text(state.selected_ai_model.display_name())
+                .size(10.0)
+                .weight(FontWeight::Medium)
+                .color(colors.text_primary)
+                .show();
+            ui.text(if state.ai_model_menu_open { "\u{f077}" } else { "\u{f078}" })
+                .size(7.0)
+                .color(colors.text_muted)
+                .show();
+        });
+
+    if model_btn.hovered {
+        ui.cursor_icon = CursorIcon::Pointer;
+    }
+    if model_btn.clicked {
+        ui.clicked = false;
+        state.ai_model_menu_open = !state.ai_model_menu_open;
+        if state.ai_model_menu_open {
+            state.agent_mode_menu_open = false;
+        }
+        ui.needs_redraw = true;
+    }
+}
+
+fn draw_ai_model_popover(
+    ui: &mut Ui,
+    state: &mut ZenthreeState,
+    colors: &crate::theme::ThemeColors,
+) {
+    if !state.ai_model_menu_open {
+        return;
+    }
+
+    let models_to_show: Vec<AiModel> = match state.selected_agent {
+        SelectedAgent::Zene => {
+            if state.selected_ai_model.is_antigravity() {
+                state.selected_ai_model = AiModel::Gemini25Flash;
+            }
+            AiModel::ZENE_MODELS.to_vec()
+        }
+        SelectedAgent::Antigravity => {
+            if !state.selected_ai_model.is_antigravity() {
+                state.selected_ai_model = AiModel::AntigravityGemini38FlashHigh;
+            }
+            AiModel::ANTIGRAVITY_MODELS.to_vec()
+        }
+    };
+
+    // Compact width: clean and not too wide
+    let menu_w = 175.0;
+    let total_item_h = models_to_show.len() as f32 * 25.0 + 35.0;
+    let max_allowed_h = (ui.height - 110.0).max(200.0);
+    let menu_h = total_item_h.min(300.0).min(max_allowed_h);
+
+    let is_light = colors.bg_base.r > 0.5;
+    let menu_bg = if is_light {
+        colors.bg_editor
+    } else {
+        Color::rgb(22.0 / 255.0, 22.0 / 255.0, 25.0 / 255.0)
+    };
+    let menu_border = if is_light {
+        colors.border
+    } else {
+        Color::rgb(45.0 / 255.0, 45.0 / 255.0, 54.0 / 255.0)
+    };
+    let menu_shadow = if is_light {
+        Color::rgba(0.0, 0.0, 0.0, 0.18)
+    } else {
+        Color::rgba(0.0, 0.0, 0.0, 0.65)
+    };
+
+    if let Some(anchor) = ui.next_screen_layout_cache.get(&MODEL_PICKER_BTN_ID)
+        .or_else(|| ui.screen_layout_cache.get(&MODEL_PICKER_BTN_ID)).copied()
+    {
+        let (mx, my) = zenthra_widgets::compute_placement_pos(
+            anchor,
+            menu_w,
+            menu_h,
+            Placement::Top,
+            PopoverAlign::Start,
+            3.0,
+            false,
+            ui.width,
+            ui.height,
+        );
+        let mouse_in_menu = ui.mouse_in_rect(mx, my, menu_w, menu_h);
+        let mouse_in_trigger = ui.mouse_in_rect(anchor.origin.x, anchor.origin.y, anchor.size.width, anchor.size.height);
+        if ui.clicked && !mouse_in_menu && !mouse_in_trigger {
+            state.ai_model_menu_open = false;
+            ui.needs_redraw = true;
+            return;
+        }
+    }
+
+    let mut select_model: Option<AiModel> = None;
+    ui.popover(MODEL_PICKER_BTN_ID)
+        .placement(Placement::Top)
+        .align(PopoverAlign::Start)
+        .gap(3.0)
+        .auto_flip(false)
+        .width(menu_w)
+        .height(menu_h)
+        .bg(menu_bg)
+        .border(menu_border, 1.0)
+        .radius_all(6.0)
+        .shadow(menu_shadow, 0.0, 4.0, 16.0)
+        .padding(3.0, 3.0, 3.0, 3.0)
+        .show(|ui| {
+            ui.container()
+                .full_width()
+                .height(menu_h - 6.0)
+                .column()
+                .gap(1.2)
+                .scroll_y(true)
+                .show(|ui| {
+                    let mut last_provider: Option<AiProvider> = None;
+                    for model in models_to_show {
+                        if last_provider != Some(model.provider()) {
+                            let label = match model.provider() {
+                                AiProvider::Antigravity => "GOOGLE ANTIGRAVITY (EXTERNAL AGENT)",
+                                AiProvider::Groq => "GROQ",
+                                AiProvider::Gemini => "GEMINI",
+                            };
+                            if last_provider.is_some() {
+                                ui.container().height(2.5).show(|_| {});
+                            }
+                            ui.container().padding(2.0, 5.0, 1.0, 5.0).show(|ui| {
+                                ui.text(label)
+                                    .size(7.5)
+                                    .weight(FontWeight::Bold)
+                                    .color(colors.text_muted.with_alpha(0.65))
+                                    .show();
+                            });
+                            last_provider = Some(model.provider());
+                        }
+
+                        let is_selected = state.selected_ai_model == model;
+                        let row_id = ui.id_from(&format!("pop_model_opt_{}", model.model_id()));
+                        let row = ui.container()
+                            .id(row_id)
+                            .full_width()
+                            .height(24.0)
+                            .padding(2.0, 6.0, 2.0, 6.0)
+                            .radius_all(3.5)
+                            .bg(if is_selected { colors.accent.with_alpha(0.12) } else { Color::TRANSPARENT })
+                            .hover_bg(colors.highlight)
+                            .row()
+                            .valign(Align::Center)
+                            .show(|ui| {
+                                ui.text(model.display_name())
+                                    .size(9.5)
+                                    .weight(if is_selected { FontWeight::Medium } else { FontWeight::Regular })
+                                    .color(if is_selected { colors.accent } else { colors.text_primary })
+                                    .show();
+                            });
+
+                        if row.hovered { ui.cursor_icon = CursorIcon::Pointer; }
+                        if row.clicked {
+                            ui.clicked = false;
+                            select_model = Some(model);
+                        }
+                    }
+                });
+        });
+
+    if let Some(model) = select_model {
+        state.selected_ai_model = model;
+        state.ai_model_menu_open = false;
+        state.ai_session_json = None;
+        state.save_persistent_state();
+        ui.needs_redraw = true;
+    }
 }
 
 fn draw_ai_chat_content(
@@ -3420,48 +3631,8 @@ fn draw_ai_chat_content(
                                                 ui.needs_redraw = true;
                                             }
 
-                                            // 2. Model Selector (Native Zenthra Dropdown widget)
-                                            let models_to_show: Vec<AiModel> = match state.selected_agent {
-                                                SelectedAgent::Zene => {
-                                                    if state.selected_ai_model.is_antigravity() {
-                                                        state.selected_ai_model = AiModel::Gemini25Flash;
-                                                    }
-                                                    AiModel::ZENE_MODELS.to_vec()
-                                                }
-                                                SelectedAgent::Antigravity => {
-                                                    if !state.selected_ai_model.is_antigravity() {
-                                                        state.selected_ai_model = AiModel::AntigravityGemini38FlashHigh;
-                                                    }
-                                                    AiModel::ANTIGRAVITY_MODELS.to_vec()
-                                                }
-                                            };
-
-                                            let prev_model = state.selected_ai_model;
-                                            ui.dropdown(&mut state.selected_ai_model, models_to_show)
-                                                .id("ai_panel_prompt_model_dropdown")
-                                                .width(175.0)
-                                                .height(24.0)
-                                                .radius_all(6.0)
-                                                .bg(pill_bg)
-                                                .border(pill_border, 1.0)
-                                                .colors(pill_bg, pill_border)
-                                                .text_color(colors.text_primary)
-                                                .hover_bg(pill_hover_bg)
-                                                .menu_bg(if colors.bg_base.r > 0.5 {
-                                                    colors.bg_editor
-                                                } else {
-                                                    Color::rgb(22.0 / 255.0, 22.0 / 255.0, 25.0 / 255.0)
-                                                })
-                                                .menu_max_height(280.0)
-                                                .placement(Placement::Top)
-                                                .gap(4.0)
-                                                .show();
-
-                                            if state.selected_ai_model != prev_model {
-                                                state.ai_session_json = None;
-                                                state.save_persistent_state();
-                                                ui.needs_redraw = true;
-                                            }
+                                            // 2. Model Selector button
+                                            draw_prompt_model_button(ui, state, colors, pill_bg, pill_hover_bg, pill_border);
                                         });
 
                                     // Right: Sleek Send Button (or Stop Button during processing)

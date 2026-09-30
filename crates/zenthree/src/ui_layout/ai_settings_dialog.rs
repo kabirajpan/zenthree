@@ -3,7 +3,9 @@ use crate::state::{
     AiThinkingBudget, SelectedAgent, ZenthreeState,
 };
 use crate::theme::ThemeColors;
-use zenthra::{use_context, Align, Color, CursorIcon, FontWeight, Id, Placement, Ui};
+use zenthra::{use_context, Align, Color, CursorIcon, FontWeight, Id, Placement, PopoverAlign, Ui};
+
+const AG_SETTINGS_MODEL_BTN_ID: Id = Id::from_u64(999999815);
 
 static ANTIGRAVITY_LOGIN_RUNNING: std::sync::atomic::AtomicBool =
     std::sync::atomic::AtomicBool::new(false);
@@ -59,8 +61,12 @@ pub fn draw_ai_settings_dialog(ui: &mut Ui, state: &mut ZenthreeState) {
     ui.record_layout(modal_id, zenthra_core::Rect::new(center_x, center_y, win_w, win_h));
 
     if close_on_esc {
+        if state.ai_settings.antigravity_model_dropdown_open {
+            state.ai_settings.antigravity_model_dropdown_open = false;
+            ui.needs_redraw = true;
+            return;
+        }
         state.ai_settings.open = false;
-        state.ai_settings.antigravity_model_dropdown_open = false;
         ui.interaction_state.remove(&modal_key);
         state.save_persistent_state();
         ui.needs_redraw = true;
@@ -73,6 +79,12 @@ pub fn draw_ai_settings_dialog(ui: &mut Ui, state: &mut ZenthreeState) {
     } else {
         let mouse_in_dialog = ui.mouse_in_rect(center_x, center_y, win_w, win_h);
         if ui.clicked && !mouse_in_dialog {
+            if state.ai_settings.antigravity_model_dropdown_open {
+                state.ai_settings.antigravity_model_dropdown_open = false;
+                ui.consume_click();
+                ui.needs_redraw = true;
+                return;
+            }
             state.ai_settings.open = false;
             ui.interaction_state.remove(&modal_key);
             ui.consume_click();
@@ -265,6 +277,9 @@ pub fn draw_ai_settings_dialog(ui: &mut Ui, state: &mut ZenthreeState) {
                         });
                 });
         });
+
+    // NOTE: The Antigravity model popover is rendered from main.rs at the top level
+    // (after all dialog content) so it correctly draws on top of the dialog card.
 
     ui.current_window_id = prev_win_id;
 }
@@ -1405,7 +1420,7 @@ fn draw_external_agents_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &The
     let maybe_token = auth.load_token();
     let is_connected = maybe_token.is_some();
     let is_antigravity_active = state.selected_agent == SelectedAgent::Antigravity;
-    let is_light = colors.bg_base.r > 0.5;
+    let _is_light = colors.bg_base.r > 0.5;
 
     // ── 1. Google Antigravity Card ──
     ui.container()
@@ -1498,197 +1513,190 @@ fn draw_external_agents_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &The
                 .auto_wrap()
                 .show();
 
-            // Model selection row (native Zenthra dropdown widget)
-            if is_connected {
-                ui.container()
-                    .full_width()
-                    .padding(8.0, 12.0, 8.0, 12.0)
-                    .radius_all(6.0)
-                    .bg(colors.bg_sidebar.with_alpha(0.65))
-                    .border(colors.border.with_alpha(0.4), 0.75)
-                    .row()
-                    .valign(Align::Center)
-                    .halign(Align::SpaceBetween)
-                    .show(|ui| {
-                        ui.container().column().gap(2.0).show(|ui| {
+            // ── Controls row: Model Engine on Left, User & Actions on Right ──
+            ui.container()
+                .full_width()
+                .padding(10.0, 14.0, 10.0, 14.0)
+                .radius_all(6.0)
+                .bg(colors.bg_base)
+                .border(colors.border.with_alpha(0.5), 0.75)
+                .row()
+                .valign(Align::Center)
+                .halign(Align::SpaceBetween)
+                .show(|ui| {
+                    // LEFT: Model Engine (fixed width so right side never overlaps)
+                    ui.container()
+                        .width(210.0)
+                        .column()
+                        .gap(5.0)
+                        .show(|ui| {
                             ui.text("Model Engine")
                                 .size(11.5)
                                 .weight(FontWeight::Medium)
                                 .color(colors.text_primary)
                                 .show();
-                            ui.text("Select which model to route through Google Antigravity")
-                                .size(9.5)
-                                .color(colors.text_muted)
-                                .show();
+
+                            draw_antigravity_settings_model_button(ui, state, colors);
                         });
 
-                        ui.dropdown(&mut state.selected_ai_model, AiModel::ANTIGRAVITY_MODELS.to_vec())
-                            .id("antigravity_settings_model_dropdown")
-                            .width(220.0)
-                            .height(28.0)
-                            .radius_all(5.0)
-                            .bg(colors.bg_base)
-                            .border(colors.border.with_alpha(0.6), 1.0)
-                            .colors(colors.bg_base, colors.border.with_alpha(0.6))
-                            .text_color(colors.text_primary)
-                            .hover_bg(colors.highlight)
-                            .menu_bg(if is_light { colors.bg_editor } else { Color::rgb(22.0 / 255.0, 22.0 / 255.0, 25.0 / 255.0) })
-                            .placement(Placement::Bottom)
-                            .show();
-                    });
-            }
+                    // RIGHT: User icon + email on top, Logout / Switch or Sign In below
+                    ui.container()
+                        .max_width(220.0)
+                        .column()
+                        .gap(8.0)
+                        .halign(Align::Right)
+                        .show(|ui| {
+                            if let Some(token) = &maybe_token {
+                                // User icon + email
+                                ui.container().row().valign(Align::Center).gap(7.0).show(|ui| {
+                                    ui.container()
+                                        .width(22.0)
+                                        .height(22.0)
+                                        .radius_all(11.0)
+                                        .bg(colors.accent.with_alpha(0.18))
+                                        .valign(Align::Center)
+                                        .halign(Align::Center)
+                                        .show(|ui| {
+                                            ui.text("\u{f007}") // fa-user
+                                                .size(9.5)
+                                                .color(colors.accent)
+                                                .show();
+                                        });
 
-            // Action & Account row
-            ui.container()
-                .full_width()
-                .row()
-                .valign(Align::Center)
-                .halign(Align::SpaceBetween)
-                .show(|ui| {
-                    if let Some(token) = &maybe_token {
-                        ui.container().row().valign(Align::Center).gap(9.0).show(|ui| {
-                            ui.container()
-                                .width(28.0)
-                                .height(28.0)
-                                .radius_all(14.0)
-                                .bg(colors.accent.with_alpha(0.18))
-                                .valign(Align::Center)
-                                .halign(Align::Center)
-                                .show(|ui| {
-                                    ui.text("\u{f007}") // fa-user
-                                        .size(11.0)
-                                        .color(colors.accent)
-                                        .show();
-                                });
-
-                            ui.container().column().gap(2.0).show(|ui| {
-                                let email_str = token.account_email.as_deref().unwrap_or("Signed in via Google OAuth");
-                                ui.text(email_str)
-                                    .size(11.0)
-                                    .weight(FontWeight::SemiBold)
-                                    .color(colors.text_primary)
-                                    .show();
-                                ui.text("Google Account Session Active (ACP)")
-                                    .size(9.0)
-                                    .color(colors.text_muted)
-                                    .show();
-                            });
-                        });
-
-                        ui.container().row().valign(Align::Center).gap(8.0).show(|ui| {
-                            let logout_btn = ui.container()
-                                .clickable(true)
-                                .padding(5.0, 12.0, 5.0, 12.0)
-                                .radius_all(5.0)
-                                .bg(colors.highlight)
-                                .border(colors.border.with_alpha(0.5), 0.75)
-                                .show(|ui| {
-                                    ui.text("Log Out")
+                                    let email_str = token.account_email.as_deref().unwrap_or("Signed in via Google OAuth");
+                                    ui.text(email_str)
                                         .size(10.5)
+                                        .weight(FontWeight::SemiBold)
                                         .color(colors.text_primary)
+                                        .max_width(170.0)
+                                        .ellipsis(true)
                                         .show();
                                 });
-                            if logout_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
-                            if logout_btn.clicked {
-                                auth.clear_token();
-                                if state.selected_agent == SelectedAgent::Antigravity {
-                                    state.selected_agent = SelectedAgent::Zene;
-                                }
-                                ui.needs_redraw = true;
-                            }
 
-                            let switch_btn = ui.container()
-                                .clickable(!is_antigravity_active)
-                                .padding(5.0, 12.0, 5.0, 12.0)
-                                .radius_all(5.0)
-                                .bg(if is_antigravity_active { colors.accent.with_alpha(0.35) } else { colors.accent })
-                                .show(|ui| {
-                                    ui.text(if is_antigravity_active { "Active in Chat" } else { "Switch to Agent" })
-                                        .size(10.5)
-                                        .weight(FontWeight::Medium)
-                                        .color(Color::WHITE)
-                                        .show();
-                                });
-                            if !is_antigravity_active && switch_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
-                            if !is_antigravity_active && switch_btn.clicked {
-                                state.selected_agent = SelectedAgent::Antigravity;
-                                ui.needs_redraw = true;
-                            }
-                        });
-                    } else {
-                        let is_signing_in = ANTIGRAVITY_LOGIN_RUNNING
-                            .load(std::sync::atomic::Ordering::SeqCst);
-                        let login_error = ANTIGRAVITY_LOGIN_ERROR
-                            .lock()
-                            .unwrap_or_else(std::sync::PoisonError::into_inner)
-                            .clone();
+                                // Below: Logout and Switch buttons
+                                ui.container().row().valign(Align::Center).gap(8.0).show(|ui| {
+                                    let logout_btn = ui.container()
+                                        .clickable(true)
+                                        .padding(4.5, 12.0, 4.5, 12.0)
+                                        .radius_all(5.0)
+                                        .bg(colors.highlight)
+                                        .border(colors.border.with_alpha(0.5), 0.75)
+                                        .show(|ui| {
+                                            ui.text("Log Out")
+                                                .size(10.5)
+                                                .color(colors.text_primary)
+                                                .show();
+                                        });
+                                    if logout_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
+                                    if logout_btn.clicked {
+                                        auth.clear_token();
+                                        if state.selected_agent == SelectedAgent::Antigravity {
+                                            state.selected_agent = SelectedAgent::Zene;
+                                        }
+                                        ui.needs_redraw = true;
+                                    }
 
-                        ui.container().column().gap(2.0).show(|ui| {
-                            ui.text("No active session found")
-                                .size(10.0)
-                                .color(colors.text_muted)
-                                .show();
-                            ui.text("Click to sign in with your Google Account in your browser")
-                                .size(9.0)
-                                .color(colors.text_muted.with_alpha(0.7))
-                                .show();
-                            if let Some(error) = &login_error {
-                                let error_width = (ui.available_width - 190.0).max(80.0);
-                                ui.text(error)
-                                    .size(9.0)
-                                    .color(Color::from_hex(0xe65050))
-                                    .max_width(error_width)
-                                    .auto_wrap()
-                                    .show();
-                            }
-                        });
-
-                        if is_signing_in {
-                            ui.request_redraw_after(std::time::Duration::from_millis(250));
-                        }
-
-                        let login_btn = ui.button(
-                            if is_signing_in { "Authenticating..." } else { "Sign In via Antigravity" },
-                        )
-                            .id(Id::from_u64(999999834))
-                            .padding(6.0, 14.0, 6.0, 14.0)
-                            .radius_all(5.0)
-                            .bg(if is_signing_in { colors.accent.with_alpha(0.4) } else { colors.accent })
-                            .hover_bg(colors.accent.with_alpha(0.85))
-                            .text_color(Color::WHITE)
-                            .size(11.0)
-                            .show();
-                        if login_btn.hovered && !is_signing_in {
-                            ui.cursor_icon = CursorIcon::Pointer;
-                        }
-                        if login_btn.clicked && !is_signing_in {
-                            ANTIGRAVITY_LOGIN_ERROR
-                                .lock()
-                                .unwrap_or_else(std::sync::PoisonError::into_inner)
-                                .take();
-                            ANTIGRAVITY_LOGIN_RUNNING
-                                .store(true, std::sync::atomic::Ordering::SeqCst);
-                            std::thread::spawn(|| {
-                                let auth = agent::external_provider::AntigravityAuthManager::with_default_config();
-                                let result = auth.login_interactive().and_then(|()| {
-                                    if auth.load_token().is_some() {
-                                        Ok(())
-                                    } else {
-                                        Err("Antigravity login finished without saving credentials. Check that the Antigravity ACP agent is installed and try again.".to_string())
+                                    let switch_btn = ui.container()
+                                        .clickable(!is_antigravity_active)
+                                        .padding(4.5, 12.0, 4.5, 12.0)
+                                        .radius_all(5.0)
+                                        .bg(if is_antigravity_active { colors.accent.with_alpha(0.35) } else { colors.accent })
+                                        .show(|ui| {
+                                            ui.text(if is_antigravity_active { "Active in Chat" } else { "Switch to Agent" })
+                                                .size(10.5)
+                                                .weight(FontWeight::Medium)
+                                                .color(Color::WHITE)
+                                                .show();
+                                        });
+                                    if !is_antigravity_active && switch_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
+                                    if !is_antigravity_active && switch_btn.clicked {
+                                        state.selected_agent = SelectedAgent::Antigravity;
+                                        ui.needs_redraw = true;
                                     }
                                 });
-                                if let Err(error) = result {
-                                    *ANTIGRAVITY_LOGIN_ERROR
-                                        .lock()
-                                        .unwrap_or_else(std::sync::PoisonError::into_inner) =
-                                        Some(error);
+                            } else {
+                                let is_signing_in = ANTIGRAVITY_LOGIN_RUNNING
+                                    .load(std::sync::atomic::Ordering::SeqCst);
+                                let login_error = ANTIGRAVITY_LOGIN_ERROR
+                                    .lock()
+                                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                                    .clone();
+
+                                ui.container().row().valign(Align::Center).gap(6.0).show(|ui| {
+                                    ui.container()
+                                        .width(22.0)
+                                        .height(22.0)
+                                        .radius_all(11.0)
+                                        .bg(colors.border.with_alpha(0.3))
+                                        .valign(Align::Center)
+                                        .halign(Align::Center)
+                                        .show(|ui| {
+                                            ui.text("\u{f007}") // fa-user
+                                                .size(9.5)
+                                                .color(colors.text_muted)
+                                                .show();
+                                        });
+
+                                    ui.text("Not signed in")
+                                        .size(10.0)
+                                        .color(colors.text_muted)
+                                        .show();
+                                });
+
+                                if let Some(error) = &login_error {
+                                    ui.text(error)
+                                        .size(9.0)
+                                        .color(Color::from_hex(0xe65050))
+                                        .show();
                                 }
-                                ANTIGRAVITY_LOGIN_RUNNING
-                                    .store(false, std::sync::atomic::Ordering::SeqCst);
-                            });
-                            ui.needs_redraw = true;
-                        }
-                    }
+
+                                if is_signing_in {
+                                    ui.request_redraw_after(std::time::Duration::from_millis(250));
+                                }
+
+                                let login_btn = ui.button(
+                                    if is_signing_in { "Authenticating..." } else { "Sign In via Antigravity" },
+                                )
+                                    .id(Id::from_u64(999999834))
+                                    .padding(5.0, 14.0, 5.0, 14.0)
+                                    .radius_all(5.0)
+                                    .bg(if is_signing_in { colors.accent.with_alpha(0.4) } else { colors.accent })
+                                    .hover_bg(colors.accent.with_alpha(0.85))
+                                    .text_color(Color::WHITE)
+                                    .size(10.5)
+                                    .show();
+                                if login_btn.hovered && !is_signing_in {
+                                    ui.cursor_icon = CursorIcon::Pointer;
+                                }
+                                if login_btn.clicked && !is_signing_in {
+                                    ANTIGRAVITY_LOGIN_ERROR
+                                        .lock()
+                                        .unwrap_or_else(std::sync::PoisonError::into_inner)
+                                        .take();
+                                    ANTIGRAVITY_LOGIN_RUNNING
+                                        .store(true, std::sync::atomic::Ordering::SeqCst);
+                                    std::thread::spawn(|| {
+                                        let auth = agent::external_provider::AntigravityAuthManager::with_default_config();
+                                        let result = auth.login_interactive().and_then(|()| {
+                                            if auth.load_token().is_some() {
+                                                Ok(())
+                                            } else {
+                                                Err("Antigravity login finished without saving credentials. Check that the Antigravity ACP agent is installed and try again.".to_string())
+                                            }
+                                        });
+                                        if let Err(error) = result {
+                                            *ANTIGRAVITY_LOGIN_ERROR
+                                                .lock()
+                                                .unwrap_or_else(std::sync::PoisonError::into_inner) =
+                                                Some(error);
+                                        }
+                                        ANTIGRAVITY_LOGIN_RUNNING
+                                            .store(false, std::sync::atomic::Ordering::SeqCst);
+                                    });
+                                    ui.needs_redraw = true;
+                                }
+                            }
+                        });
                 });
         });
 
@@ -1859,6 +1867,170 @@ fn draw_external_agents_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &The
                         .show();
                 });
         });
+}
+
+fn draw_antigravity_settings_model_button(
+    ui: &mut Ui,
+    state: &mut ZenthreeState,
+    colors: &ThemeColors,
+) {
+    if !state.selected_ai_model.is_antigravity() {
+        state.selected_ai_model = AiModel::AntigravityGemini38FlashHigh;
+    }
+
+    let is_open = state.ai_settings.antigravity_model_dropdown_open;
+    let model_btn = ui.container()
+        .raw_id(AG_SETTINGS_MODEL_BTN_ID)
+        .clickable(true)
+        .width(200.0)
+        .height(28.0)
+        .padding(4.0, 10.0, 4.0, 10.0)
+        .radius_all(5.0)
+        .bg(if is_open { colors.highlight } else { colors.bg_base })
+        .hover_bg(colors.highlight)
+        .border(colors.border.with_alpha(0.6), 1.0)
+        .row()
+        .valign(Align::Center)
+        .halign(Align::SpaceBetween)
+        .show(|ui| {
+            ui.text(state.selected_ai_model.display_name())
+                .size(10.5)
+                .weight(FontWeight::Medium)
+                .color(colors.text_primary)
+                .show();
+            ui.text(if is_open { "\u{f077}" } else { "\u{f078}" })
+                .size(8.0)
+                .color(colors.text_muted)
+                .show();
+        });
+
+    if model_btn.hovered {
+        ui.cursor_icon = CursorIcon::Pointer;
+    }
+    if model_btn.clicked {
+        ui.clicked = false;
+        state.ai_settings.antigravity_model_dropdown_open = !state.ai_settings.antigravity_model_dropdown_open;
+        ui.needs_redraw = true;
+    }
+}
+
+pub fn draw_antigravity_settings_model_popover(
+    ui: &mut Ui,
+    state: &mut ZenthreeState,
+) {
+    if !state.ai_settings.antigravity_model_dropdown_open {
+        return;
+    }
+
+    let colors = use_context::<ThemeColors>().map(|c| *c).unwrap_or_else(|| state.colors());
+
+    if !state.selected_ai_model.is_antigravity() {
+        state.selected_ai_model = AiModel::AntigravityGemini38FlashHigh;
+    }
+
+    let menu_w = 200.0;
+    let models = AiModel::ANTIGRAVITY_MODELS;
+    let menu_h = (models.len() as f32 * 26.0 + 8.0).min(240.0);
+
+    let is_light = colors.bg_base.r > 0.5;
+    let menu_bg = if is_light {
+        Color::rgb(250.0 / 255.0, 250.0 / 255.0, 252.0 / 255.0)
+    } else {
+        Color::rgb(22.0 / 255.0, 22.0 / 255.0, 25.0 / 255.0) // fully opaque, never transparent
+    };
+    let menu_border = if is_light {
+        Color::rgb(200.0 / 255.0, 200.0 / 255.0, 208.0 / 255.0)
+    } else {
+        Color::rgb(45.0 / 255.0, 45.0 / 255.0, 54.0 / 255.0)
+    };
+    let menu_shadow = if is_light {
+        Color::rgba(0.0, 0.0, 0.0, 0.18)
+    } else {
+        Color::rgba(0.0, 0.0, 0.0, 0.65)
+    };
+
+    if let Some(anchor) = ui.next_screen_layout_cache.get(&AG_SETTINGS_MODEL_BTN_ID)
+        .or_else(|| ui.screen_layout_cache.get(&AG_SETTINGS_MODEL_BTN_ID)).copied()
+    {
+        let (mx, my) = zenthra_widgets::compute_placement_pos(
+            anchor,
+            menu_w,
+            menu_h,
+            Placement::Bottom,
+            PopoverAlign::Start,
+            4.0,
+            true,
+            ui.width,
+            ui.height,
+        );
+        let mouse_in_menu = ui.mouse_in_rect(mx, my, menu_w, menu_h);
+        let mouse_in_trigger = ui.mouse_in_rect(anchor.origin.x, anchor.origin.y, anchor.size.width, anchor.size.height);
+        if ui.clicked && !mouse_in_menu && !mouse_in_trigger {
+            state.ai_settings.antigravity_model_dropdown_open = false;
+            ui.needs_redraw = true;
+            return;
+        }
+    }
+
+    let mut select_model: Option<AiModel> = None;
+    ui.popover(AG_SETTINGS_MODEL_BTN_ID)
+        .placement(Placement::Bottom)
+        .align(PopoverAlign::Start)
+        .gap(4.0)
+        .auto_flip(true)
+        .width(menu_w)
+        .height(menu_h)
+        .bg(menu_bg)
+        .border(menu_border, 1.0)
+        .radius_all(6.0)
+        .shadow(menu_shadow, 0.0, 4.0, 16.0)
+        .padding(4.0, 4.0, 4.0, 4.0)
+        .show(|ui| {
+            ui.container()
+                .full_width()
+                .height(menu_h - 8.0)
+                .column()
+                .gap(1.5)
+                .scroll_y(true)
+                .show(|ui| {
+                    // Models only, NO title/heading, active model highlighted, NO ticks
+                    for model in models {
+                        let is_selected = state.selected_ai_model == model;
+                        let row_id = ui.id_from(&format!("pop_ag_settings_model_{}", model.model_id()));
+                        let row = ui.container()
+                            .id(row_id)
+                            .full_width()
+                            .height(26.0)
+                            .padding(2.0, 8.0, 2.0, 8.0)
+                            .radius_all(4.0)
+                            .bg(if is_selected { colors.accent.with_alpha(0.12) } else { Color::TRANSPARENT })
+                            .hover_bg(colors.highlight)
+                            .row()
+                            .valign(Align::Center)
+                            .show(|ui| {
+                                ui.text(model.display_name())
+                                    .size(10.0)
+                                    .weight(if is_selected { FontWeight::Medium } else { FontWeight::Regular })
+                                    .color(if is_selected { colors.accent } else { colors.text_primary })
+                                    .show();
+                            });
+
+                        if row.hovered { ui.cursor_icon = CursorIcon::Pointer; }
+                        if row.clicked {
+                            ui.clicked = false;
+                            select_model = Some(model);
+                        }
+                    }
+                });
+        });
+
+    if let Some(model) = select_model {
+        state.selected_ai_model = model;
+        state.selected_agent = SelectedAgent::Antigravity;
+        state.ai_settings.antigravity_model_dropdown_open = false;
+        state.save_persistent_state();
+        ui.needs_redraw = true;
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

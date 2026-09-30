@@ -211,6 +211,8 @@ fn main() {
                     ui_layout::draw_editor_settings_dialog(ui, &mut state);
                     ui_layout::draw_unsaved_changes_dialog(ui, &mut state);
                     ui_layout::draw_thinking_orbs_demo_window(ui, &mut state);
+                    // Floating popovers rendered LAST so they appear above all dialog content
+                    ui_layout::draw_antigravity_settings_model_popover(ui, &mut state);
                 });
         })
         .run();

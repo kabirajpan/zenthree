@@ -27,7 +27,7 @@ pub use ai_panel::draw_ai_panel;
 pub use language_dialog::draw_language_prompt_dialog;
 pub use extensions_panel::draw_extensions_panel;
 pub use activity_bar::{draw_activity_bar, ACTIVITY_BAR_WIDTH};
-pub use ai_settings_dialog::draw_ai_settings_dialog;
+pub use ai_settings_dialog::{draw_ai_settings_dialog, draw_antigravity_settings_model_popover};
 pub use editor_settings_dialog::draw_editor_settings_dialog;
 pub use thinking_orbs_demo_window::draw_thinking_orbs_demo_window;
 pub use markdown_preview::draw_markdown_buffer_preview;
