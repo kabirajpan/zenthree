@@ -1,5 +1,8 @@
+pub mod config;
 pub mod gemini;
 pub mod groq;
+
+pub use config::{ZenthreeConfig, KNOWN_PROVIDERS};
 
 use std::fs;
 use std::path::Path;
@@ -8,10 +11,23 @@ use crate::traits::provider::Provider;
 pub use gemini::GeminiProvider;
 pub use groq::GroqProvider;
 
-/// Simple helper to get an API key either from environment variables
-/// or by looking for a `.env` file in current directory, parent directories,
-/// or user configuration directories (~/.config/zene/.env, ~/.zene/.env, ~/.zenthree/.env).
+/// Simple helper to get an API key.
+/// Priority:
+///   1. ~/.zenthree/config.json (primary)
+///   2. Environment variable
+///   3. .env files (CWD → parent dirs → ~/.config/zene/.env → ~/.zene/.env → ~/.zenthree/.env)
 pub fn get_key(name: &str) -> Option<String> {
+    // 1. config.json — look up by env var name (e.g. "GEMINI_API_KEY" → provider "gemini")
+    let cfg = ZenthreeConfig::load();
+    if let Some(val) = cfg.get_key_by_env_var(name) {
+        return Some(val);
+    }
+    // Also allow direct provider name lookup (e.g. get_key("gemini"))
+    if let Some(val) = cfg.get_provider_key(name) {
+        return Some(val);
+    }
+
+    // 2. Environment variable
     if let Ok(val) = std::env::var(name) {
         if !val.trim().is_empty() {
             return Some(val.trim().to_string());
@@ -35,7 +51,7 @@ pub fn get_key(name: &str) -> Option<String> {
         None
     };
 
-    // 1. Current working directory and climb parent directories (up to 4 levels)
+    // 3. .env files — CWD and parent directories
     if let Ok(mut current) = std::env::current_dir() {
         for _ in 0..5 {
             let env_path = current.join(".env");
@@ -48,7 +64,7 @@ pub fn get_key(name: &str) -> Option<String> {
         }
     }
 
-    // 2. Global user configuration directories
+    // 4. Global user configuration directories
     if let Some(config_dir) = dirs::config_dir() {
         let path = config_dir.join("zene").join(".env");
         if let Some(val) = parse_env_file(&path) {
@@ -69,6 +85,50 @@ pub fn get_key(name: &str) -> Option<String> {
     }
 
     None
+}
+
+/// Returns all available (provider_name, model_id) pairs based on configured keys.
+/// For known providers, uses the built-in model list.
+/// For custom providers, uses the config.json model list.
+pub fn available_models() -> Vec<(String, String)> {
+    let cfg = ZenthreeConfig::load();
+    let mut result = Vec::new();
+    // Known providers first
+    for kp in KNOWN_PROVIDERS {
+        if cfg.get_provider_key(kp.name).is_some() {
+            for model in kp.models {
+                result.push((kp.name.to_string(), model.to_string()));
+            }
+        }
+    }
+    // Custom providers
+    for (name, entry) in &cfg.providers {
+        if entry.key.is_empty() { continue; }
+        // skip if it's a known provider (already added above)
+        if KNOWN_PROVIDERS.iter().any(|kp| kp.name == name.as_str()) { continue; }
+        if let Some(models) = &entry.models {
+            for model in models {
+                result.push((name.clone(), model.clone()));
+            }
+        }
+    }
+    result
+}
+
+/// Persist an API key to ~/.zenthree/config.json.
+/// `provider_name` is the short name like "gemini", "groq", or custom.
+pub fn set_key(provider_name: &str, value: &str) -> Result<(), std::io::Error> {
+    let mut cfg = ZenthreeConfig::load();
+    cfg.set_provider_key(provider_name, value);
+    cfg.save().map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))
+}
+
+/// Remove an API key from ~/.zenthree/config.json.
+/// `provider_name` is the short name like "gemini", "groq", or custom.
+pub fn remove_key(provider_name: &str) -> Result<(), std::io::Error> {
+    let mut cfg = ZenthreeConfig::load();
+    cfg.remove_provider_key(provider_name);
+    cfg.save().map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e))
 }
 
 /// Run completion with Groq

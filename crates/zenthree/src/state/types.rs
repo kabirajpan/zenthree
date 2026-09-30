@@ -251,6 +251,35 @@ impl AiModel {
         AiModel::Gemini38Flash,
     ];
 
+    pub const ANTIGRAVITY_MODELS: [AiModel; 6] = [
+        AiModel::AntigravityGemini38FlashHigh,
+        AiModel::AntigravityGemini38FlashMedium,
+        AiModel::AntigravityGemini38FlashLow,
+        AiModel::AntigravityGemini37FlashHigh,
+        AiModel::AntigravityGeminiProAgent,
+        AiModel::AntigravityGemini31ProLow,
+    ];
+
+    pub const ZENE_MODELS: [AiModel; 13] = [
+        AiModel::GroqGptOss120b,
+        AiModel::GroqGptOss20b,
+        AiModel::GroqQwen3_8_27b,
+        AiModel::GeminiFlashLatest,
+        AiModel::GeminiProLatest,
+        AiModel::Gemini25Flash,
+        AiModel::Gemini25Pro,
+        AiModel::Gemini25FlashLite,
+        AiModel::Gemini35Flash,
+        AiModel::Gemini35FlashLite,
+        AiModel::Gemini36Flash,
+        AiModel::Gemini37Flash,
+        AiModel::Gemini38Flash,
+    ];
+
+    pub fn is_antigravity(&self) -> bool {
+        self.provider() == AiProvider::Antigravity
+    }
+
     pub fn provider(&self) -> AiProvider {
         match self {
             AiModel::AntigravityGemini38FlashHigh
@@ -323,11 +352,30 @@ impl AiModel {
             AiModel::Gemini38Flash     => "Gemini 3.8 Flash",
         }
     }
+
+    #[allow(dead_code)]
+    pub fn short_name(&self) -> &'static str {
+        match self {
+            AiModel::AntigravityGemini38FlashHigh   => "Gemini 3.8 Flash",
+            AiModel::AntigravityGemini38FlashMedium => "Gemini 3.8 Flash",
+            AiModel::AntigravityGemini38FlashLow    => "Gemini 3.8 Flash",
+            AiModel::AntigravityGemini37FlashHigh   => "Gemini 3.7 Flash",
+            AiModel::AntigravityGeminiProAgent      => "Gemini 3.1 Pro",
+            AiModel::AntigravityGemini31ProLow      => "Gemini 3.1 Pro",
+            other => other.display_name(),
+        }
+    }
 }
 
 impl Default for AiModel {
     fn default() -> Self {
         AiModel::Gemini35Flash
+    }
+}
+
+impl std::fmt::Display for AiModel {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        write!(f, "{}", self.display_name())
     }
 }
 
@@ -356,7 +404,7 @@ impl AgentMode {
 
     pub fn icon(&self) -> &'static str {
         match self {
-            AgentMode::Agent => "✦",
+            AgentMode::Agent => "\u{f0833}",
             AgentMode::Chat => "💬",
             AgentMode::Plan => "📋",
         }
@@ -375,6 +423,87 @@ impl AgentMode {
 impl Default for AgentMode {
     fn default() -> Self {
         AgentMode::Agent
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+pub enum SelectedAgent {
+    #[default]
+    Zene,
+    Antigravity,
+}
+
+#[allow(dead_code)]
+impl SelectedAgent {
+    pub const ALL: [Self; 2] = [
+        Self::Zene,
+        Self::Antigravity,
+    ];
+
+    pub fn display_name(&self) -> &'static str {
+        match self {
+            Self::Zene => "ZENE",
+            Self::Antigravity => "Google Antigravity",
+        }
+    }
+
+    pub fn short_name(&self) -> &'static str {
+        match self {
+            Self::Zene => "ZENE",
+            Self::Antigravity => "Antigravity",
+        }
+    }
+
+    pub fn icon(&self) -> &'static str {
+        match self {
+            Self::Zene => "\u{f0833}",
+            Self::Antigravity => "\u{f0833}",
+        }
+    }
+
+    pub fn is_external(&self) -> bool {
+        matches!(self, Self::Antigravity)
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+pub enum AntigravityMode {
+    #[default]
+    Default,
+    AutoEdit,
+    Yolo,
+}
+
+#[allow(dead_code)]
+impl AntigravityMode {
+    pub const ALL: [Self; 3] = [
+        Self::Default,
+        Self::AutoEdit,
+        Self::Yolo,
+    ];
+
+    pub fn display_name(&self) -> &'static str {
+        match self {
+            Self::Default => "default",
+            Self::AutoEdit => "auto_edit",
+            Self::Yolo => "yolo",
+        }
+    }
+
+    pub fn icon(&self) -> &'static str {
+        match self {
+            Self::Default => "\u{f0833}",
+            Self::AutoEdit => "🛠",
+            Self::Yolo => "🚀",
+        }
+    }
+
+    pub fn description(&self) -> &'static str {
+        match self {
+            Self::Default => "Collaborative with safety checkpoints",
+            Self::AutoEdit => "Direct file mutations applied automatically",
+            Self::Yolo => "Autonomous execution with auto-approved tools",
+        }
     }
 }
 

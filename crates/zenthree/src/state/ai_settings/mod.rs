@@ -44,6 +44,25 @@ pub struct AiSettingsState {
     // Customization
     #[serde(default)]
     pub custom_instructions: String,
+
+    // API Keys — transient UI state
+    #[serde(skip)]
+    pub api_key_inputs: std::collections::HashMap<String, String>, // provider_name -> input text
+    #[serde(skip)]
+    pub api_key_save_msg: Option<String>,
+    // Custom provider form
+    #[serde(skip)]
+    pub custom_provider_form_open: bool,
+    #[serde(skip)]
+    pub custom_provider_name: String,
+    #[serde(skip)]
+    pub custom_provider_key: String,
+    #[serde(skip)]
+    pub custom_provider_url: String,
+
+    // External Agents — model selection dropdown
+    #[serde(skip)]
+    pub antigravity_model_dropdown_open: bool,
 }
 
 fn default_true() -> bool {
@@ -73,6 +92,13 @@ impl Default for AiSettingsState {
             temperature: 0.7,
             thinking_budget: AiThinkingBudget::Budget4k,
             custom_instructions: String::new(),
+            api_key_inputs: std::collections::HashMap::new(),
+            api_key_save_msg: None,
+            custom_provider_form_open: false,
+            custom_provider_name: String::new(),
+            custom_provider_key: String::new(),
+            custom_provider_url: String::new(),
+            antigravity_model_dropdown_open: false,
         }
     }
 }

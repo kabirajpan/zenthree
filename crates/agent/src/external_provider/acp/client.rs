@@ -7,7 +7,8 @@ use agent_client_protocol::schema::v1::{
     Implementation, InitializeRequest, NewSessionRequest, PromptRequest,
     ReadTextFileRequest, ReadTextFileResponse, RequestPermissionOutcome,
     RequestPermissionRequest, RequestPermissionResponse, SelectedPermissionOutcome,
-    SessionConfigKind, SessionConfigSelectOptions, SessionNotification, TextContent,
+    SessionConfigId, SessionConfigKind, SessionConfigSelectOptions, SessionConfigValueId,
+    SessionNotification, SetSessionConfigOptionRequest, TextContent,
     WriteTextFileRequest, WriteTextFileResponse,
 };
 use agent_client_protocol::{AcpAgent, Agent, Client, ConnectionTo, LineDirection};
@@ -282,6 +283,18 @@ impl AcpClient {
                         *self.current_model.lock().unwrap() = Some(select_opt.current_value.0.to_string());
                     }
                 }
+            }
+        }
+
+        if let Some(ref target_model) = self.config.default_model {
+            let req = SetSessionConfigOptionRequest::new(
+                resp.session_id.clone(),
+                SessionConfigId::new("model"),
+                SessionConfigValueId::new(target_model.clone()),
+            );
+            if let Ok(_) = self.connection.send_request(req).block_task().await {
+                log::info!("ACP session model switched to: {}", target_model);
+                *self.current_model.lock().unwrap() = Some(target_model.clone());
             }
         }
 

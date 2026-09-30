@@ -5,17 +5,21 @@ pub enum AiSettingsTab {
     General,
     #[default]
     Appearance,
-    Model,
+    ApiKeys,
     ExternalAgents,
+    Mcp,
+    Model,
     Customization,
 }
 
 impl AiSettingsTab {
-    pub const ALL: [AiSettingsTab; 5] = [
+    pub const ALL: [AiSettingsTab; 7] = [
         AiSettingsTab::General,
         AiSettingsTab::Appearance,
-        AiSettingsTab::Model,
+        AiSettingsTab::ApiKeys,
         AiSettingsTab::ExternalAgents,
+        AiSettingsTab::Mcp,
+        AiSettingsTab::Model,
         AiSettingsTab::Customization,
     ];
 
@@ -23,19 +27,23 @@ impl AiSettingsTab {
         match self {
             AiSettingsTab::General => "General",
             AiSettingsTab::Appearance => "Appearance",
-            AiSettingsTab::Model => "Model",
+            AiSettingsTab::ApiKeys => "API Keys",
             AiSettingsTab::ExternalAgents => "External Agents",
-            AiSettingsTab::Customization => "Customization",
+            AiSettingsTab::Mcp => "MCP Servers",
+            AiSettingsTab::Model => "Model & Tuning",
+            AiSettingsTab::Customization => "Rules & Custom",
         }
     }
 
     pub fn icon(&self) -> &'static str {
         match self {
-            AiSettingsTab::General => "\u{f013}",       // fa-gear / cog
-            AiSettingsTab::Appearance => "\u{f53f}",    // fa-palette
-            AiSettingsTab::Model => "\u{f1b2}",         // fa-cube
-            AiSettingsTab::ExternalAgents => "\u{f121}",// fa-code / agent
-            AiSettingsTab::Customization => "\u{f1de}", // fa-sliders
+            AiSettingsTab::General => "\u{f013}",        // fa-gear / cog
+            AiSettingsTab::Appearance => "\u{f53f}",     // fa-palette
+            AiSettingsTab::ApiKeys => "\u{f084}",        // fa-key
+            AiSettingsTab::ExternalAgents => "\u{f121}", // fa-code / agent
+            AiSettingsTab::Mcp => "\u{f1e6}",            // fa-plug
+            AiSettingsTab::Model => "\u{f1b2}",          // fa-cube
+            AiSettingsTab::Customization => "\u{f1de}",  // fa-sliders
         }
     }
 }

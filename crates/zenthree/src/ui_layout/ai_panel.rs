@@ -1,9 +1,8 @@
-use crate::state::{ZenthreeState, AiModel, AiProvider, AgentMode, TrajectoryStep, ExplorationItem, path_matches, SessionSummary, AiSettingsTab, AiMessageBg};
+use crate::state::{ZenthreeState, AiModel, AgentMode, SelectedAgent, AntigravityMode, TrajectoryStep, ExplorationItem, path_matches, SessionSummary, AiSettingsTab, AiMessageBg};
 use zenthra::{Color, Ui, Align, FontWeight, Id, CursorIcon, use_context, Placement, PopoverAlign, Wrap};
 use crate::theme::ThemeColors;
 
 const AGENT_MODE_BTN_ID: Id = Id::from_u64(999999885);
-const MODEL_PICKER_BTN_ID: Id = Id::from_u64(999999886);
 const AI_MORE_BTN_ID: Id = Id::from_u64(999999887);
 
 const SPINNER_FRAMES: &[&str] = &["⠋", "⠙", "⠹", "⠸", "⠼", "⠴", "⠦", "⠧", "⠇", "⠏"];
@@ -86,18 +85,48 @@ fn draw_ai_chat_header(
                         .valign(Align::Center)
                         .gap(7.0)
                         .show(|ui| {
+                            let (dot_color, title_text, badge_text) = match state.selected_agent {
+                                SelectedAgent::Zene => (colors.accent, "ZENE", None),
+                                SelectedAgent::Antigravity => {
+                                    let is_connected = agent::external_provider::AntigravityAuthManager::with_default_config()
+                                        .load_token()
+                                        .is_some();
+                                    let dot = if is_connected {
+                                        Color::rgb(0.2, 0.85, 0.4) // green
+                                    } else {
+                                        Color::rgb(0.9, 0.6, 0.2) // orange
+                                    };
+                                    let badge = if is_connected { "ACP" } else { "Sign In" };
+                                    (dot, "Antigravity", Some(badge))
+                                }
+                            };
+
                             ui.container()
                                 .width(7.0)
                                 .height(7.0)
                                 .radius_all(3.5)
-                                .bg(colors.accent)
+                                .bg(dot_color)
                                 .show(|_| {});
 
-                            ui.text("AI Assistant")
+                            ui.text(title_text)
                                 .size(12.0)
                                 .weight(FontWeight::Bold)
                                 .color(colors.text_primary)
                                 .show();
+
+                            if let Some(badge) = badge_text {
+                                ui.container()
+                                    .padding(1.0, 4.0, 1.0, 4.0)
+                                    .radius_all(3.0)
+                                    .bg(colors.highlight)
+                                    .show(|ui| {
+                                        ui.text(badge)
+                                            .size(8.5)
+                                            .weight(FontWeight::Medium)
+                                            .color(colors.text_muted)
+                                            .show();
+                                    });
+                            }
                         });
                 });
 
@@ -232,6 +261,191 @@ fn draw_ai_chat_header(
                         ui.needs_redraw = true;
                     }
                 });
+        });
+}
+
+fn draw_antigravity_signin_card(
+    ui: &mut Ui,
+    state: &mut ZenthreeState,
+    colors: &ThemeColors,
+    chat_w: f32,
+) {
+    ui.container()
+        .full_width()
+        .padding_top(24.0)
+        .column()
+        .halign(Align::Center)
+        .gap(12.0)
+        .show(|ui| {
+            // Antigravity Pill Icon
+            ui.container()
+                .width(44.0)
+                .height(44.0)
+                .radius_all(22.0)
+                .bg(colors.accent.with_alpha(0.14))
+                .border(colors.accent.with_alpha(0.35), 1.0)
+                .halign(Align::Center)
+                .valign(Align::Center)
+                .show(|ui| {
+                    ui.text("⚡")
+                        .size(18.0)
+                        .color(colors.accent)
+                        .show();
+                });
+
+            ui.container()
+                .column()
+                .halign(Align::Center)
+                .gap(3.0)
+                .show(|ui| {
+                    ui.text("Google Antigravity")
+                        .size(14.0)
+                        .weight(FontWeight::Bold)
+                        .color(colors.text_primary)
+                        .show();
+
+                    ui.text("Autonomous Coding Agent (ACP)")
+                        .size(10.5)
+                        .color(colors.text_muted)
+                        .show();
+                });
+
+            // Feature Box
+            let box_w = (chat_w - 32.0).clamp(200.0, 320.0);
+            ui.container()
+                .width(box_w)
+                .padding(10.0, 12.0, 10.0, 12.0)
+                .radius_all(6.0)
+                .bg(colors.bg_base)
+                .border(colors.border.with_alpha(0.6), 1.0)
+                .column()
+                .gap(6.0)
+                .show(|ui| {
+                    let bullets = [
+                        "Direct local Google OAuth authentication",
+                        "Access to Gemini 3.8 Flash & Pro models",
+                        "Client-delegated filesystem & terminal tools",
+                    ];
+                    for b in bullets {
+                        ui.container().row().gap(6.0).valign(Align::Center).show(|ui| {
+                            ui.text("✓")
+                                .size(9.0)
+                                .color(colors.accent)
+                                .show();
+                            ui.text(b)
+                                .size(9.5)
+                                .color(colors.text_muted)
+                                .show();
+                        });
+                    }
+                });
+
+            // Sign In Button
+            let is_authenticating = state.antigravity_signing_in;
+            let btn_text = if is_authenticating {
+                "Waiting for browser..."
+            } else {
+                "Sign In via Antigravity"
+            };
+
+            let signin_btn = ui.container()
+                .clickable(!is_authenticating)
+                .width(box_w)
+                .height(30.0)
+                .radius_all(6.0)
+                .bg(colors.accent)
+                .hover_bg(colors.accent.with_alpha(0.85))
+                .halign(Align::Center)
+                .valign(Align::Center)
+                .row()
+                .gap(6.0)
+                .show(|ui| {
+                    if is_authenticating {
+                        ui.text(get_thinking_spinner_frame())
+                            .size(10.0)
+                            .color(Color::WHITE)
+                            .show();
+                    } else {
+                        ui.text("⚡")
+                            .size(10.0)
+                            .color(Color::WHITE)
+                            .show();
+                    }
+                    ui.text(btn_text)
+                        .size(10.5)
+                        .weight(FontWeight::SemiBold)
+                        .color(Color::WHITE)
+                        .show();
+                });
+            if signin_btn.hovered && !is_authenticating { ui.cursor_icon = CursorIcon::Pointer; }
+            if signin_btn.clicked && !is_authenticating {
+                state.antigravity_signing_in = true;
+                std::thread::spawn(|| {
+                    let auth = agent::external_provider::AntigravityAuthManager::with_default_config();
+                    let _ = auth.login_interactive();
+                });
+                state.set_status("Antigravity sign-in initiated in browser...");
+                ui.needs_redraw = true;
+            }
+
+            // Return to ZENE button
+            let back_btn = ui.container()
+                .clickable(true)
+                .padding(3.0, 8.0, 3.0, 8.0)
+                .radius_all(4.0)
+                .hover_bg(colors.highlight)
+                .row()
+                .gap(4.0)
+                .valign(Align::Center)
+                .show(|ui| {
+                    ui.text("⟵ Switch back to ZENE")
+                        .size(9.5)
+                        .color(colors.text_muted)
+                        .show();
+                });
+            if back_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
+            if back_btn.clicked {
+                state.selected_agent = SelectedAgent::Zene;
+                ui.needs_redraw = true;
+            }
+        });
+}
+
+fn draw_antigravity_connected_welcome(
+    ui: &mut Ui,
+    _state: &mut ZenthreeState,
+    colors: &ThemeColors,
+) {
+    ui.container()
+        .full_width()
+        .padding_top(40.0)
+        .column()
+        .halign(Align::Center)
+        .gap(6.0)
+        .show(|ui| {
+            // Subtle status dot + Antigravity
+            ui.container()
+                .row()
+                .halign(Align::Center)
+                .valign(Align::Center)
+                .gap(5.0)
+                .show(|ui| {
+                    ui.text("●")
+                        .size(6.0)
+                        .color(Color::rgb(74.0 / 255.0, 222.0 / 255.0, 128.0 / 255.0))
+                        .show();
+                    ui.text("Antigravity")
+                        .size(10.0)
+                        .weight(FontWeight::Medium)
+                        .color(colors.text_muted)
+                        .show();
+                });
+
+            ui.text("How can I help you today?")
+                .size(13.0)
+                .weight(FontWeight::Medium)
+                .color(colors.text_primary)
+                .show();
         });
 }
 
@@ -416,8 +630,8 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
 
     // ─── Floating Menu Panel: AI 3-Dot More Menu ──────────────────────────
     if state.ai_menu_open {
-        let menu_w = 145.0;
-        let menu_h = 92.0;
+        let menu_w = 180.0;
+        let menu_h = 165.0;
 
         if let Some(anchor) = ui.next_screen_layout_cache.get(&AI_MORE_BTN_ID)
             .or_else(|| ui.screen_layout_cache.get(&AI_MORE_BTN_ID)).copied()
@@ -465,91 +679,159 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
             }
 
             popover_builder.show(|ui| {
-                    // Option 1: MCP Servers (UI only)
-                    let mcp_btn = ui.container()
-                        .full_width()
-                        .padding(4.0, 7.0, 4.0, 7.0)
-                        .radius_all(3.5)
-                        .hover_bg(colors.highlight)
-                        .clickable(true)
-                        .row()
-                        .valign(Align::Center)
-                        .gap(7.0)
-                        .show(|ui| {
-                            ui.text("\u{f1e6}") // plug icon
-                                .size(10.0)
+                ui.container()
+                    .full_width()
+                    .column()
+                    .gap(1.0)
+                    .show(|ui| {
+                        // ── SECTION 1: NATIVE AGENT ──
+                        ui.container().padding(3.0, 6.0, 2.0, 6.0).show(|ui| {
+                            ui.text("NATIVE AGENT")
+                                .size(8.5)
+                                .weight(FontWeight::Bold)
                                 .color(colors.text_muted)
                                 .show();
-                            ui.text("MCP")
-                                .size(11.0)
-                                .color(colors.text_primary)
-                                .show();
                         });
-                    if mcp_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
-                    if mcp_btn.clicked {
-                        state.ai_menu_open = false;
-                        state.set_status("MCP Servers (UI placeholder)");
-                        ui.needs_redraw = true;
-                    }
 
-                    // Option 2: Providers (UI only)
-                    let prov_btn = ui.container()
-                        .full_width()
-                        .padding(4.0, 7.0, 4.0, 7.0)
-                        .radius_all(3.5)
-                        .hover_bg(colors.highlight)
-                        .clickable(true)
-                        .row()
-                        .valign(Align::Center)
-                        .gap(7.0)
-                        .show(|ui| {
-                            ui.text("\u{f233}") // server icon
-                                .size(10.0)
+                        let is_zene_active = state.selected_agent == SelectedAgent::Zene;
+                        let zene_btn = ui.container()
+                            .full_width()
+                            .padding(4.0, 6.0, 4.0, 6.0)
+                            .radius_all(3.5)
+                            .bg(if is_zene_active { colors.highlight } else { Color::TRANSPARENT })
+                            .hover_bg(colors.highlight)
+                            .clickable(true)
+                            .row()
+                            .valign(Align::Center)
+                            .halign(Align::SpaceBetween)
+                            .show(|ui| {
+                                ui.container().row().valign(Align::Center).gap(6.0).show(|ui| {
+                                    ui.text("✦")
+                                        .size(10.0)
+                                        .color(colors.accent)
+                                        .show();
+                                    ui.text("ZENE")
+                                        .size(10.5)
+                                        .weight(if is_zene_active { FontWeight::SemiBold } else { FontWeight::Regular })
+                                        .color(colors.text_primary)
+                                        .show();
+                                });
+                                if is_zene_active {
+                                    ui.text("✓")
+                                        .size(9.5)
+                                        .color(colors.accent)
+                                        .show();
+                                }
+                            });
+                        if zene_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
+                        if zene_btn.clicked {
+                            ui.clicked = false;
+                            state.selected_agent = SelectedAgent::Zene;
+                            state.ai_menu_open = false;
+                            ui.needs_redraw = true;
+                        }
+
+                        // Divider
+                        ui.container().full_width().padding(2.0, 4.0, 2.0, 4.0).show(|ui| {
+                            ui.container().full_width().height(1.0).bg(colors.border.with_alpha(0.4)).show(|_| {});
+                        });
+
+                        // ── SECTION 2: EXTERNAL AGENTS ──
+                        ui.container().padding(2.0, 6.0, 2.0, 6.0).show(|ui| {
+                            ui.text("EXTERNAL AGENTS")
+                                .size(8.5)
+                                .weight(FontWeight::Bold)
                                 .color(colors.text_muted)
                                 .show();
-                            ui.text("Provider")
-                                .size(11.0)
-                                .color(colors.text_primary)
-                                .show();
                         });
-                    if prov_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
-                    if prov_btn.clicked {
-                        state.ai_menu_open = false;
-                        state.set_status("AI Providers (UI placeholder)");
-                        ui.needs_redraw = true;
-                    }
 
-                    // Option 3: Settings (opens AI & Agent Settings modal!)
-                    let set_btn = ui.container()
-                        .full_width()
-                        .padding(4.0, 7.0, 4.0, 7.0)
-                        .radius_all(3.5)
-                        .hover_bg(colors.highlight)
-                        .clickable(true)
-                        .row()
-                        .valign(Align::Center)
-                        .gap(7.0)
-                        .show(|ui| {
-                            ui.text("\u{f013}") // gear icon
-                                .size(10.0)
-                                .color(colors.accent)
-                                .show();
-                            ui.text("Settings")
-                                .size(11.0)
-                                .weight(FontWeight::Medium)
-                                .color(colors.text_primary)
-                                .show();
+                        let is_ag_active = state.selected_agent == SelectedAgent::Antigravity;
+                        let auth = agent::external_provider::AntigravityAuthManager::with_default_config();
+                        let is_ag_connected = auth.load_token().is_some();
+
+                        let ag_btn = ui.container()
+                            .full_width()
+                            .padding(4.0, 6.0, 4.0, 6.0)
+                            .radius_all(3.5)
+                            .bg(if is_ag_active { colors.highlight } else { Color::TRANSPARENT })
+                            .hover_bg(colors.highlight)
+                            .clickable(true)
+                            .row()
+                            .valign(Align::Center)
+                            .halign(Align::SpaceBetween)
+                            .show(|ui| {
+                                ui.container().row().valign(Align::Center).gap(6.0).show(|ui| {
+                                    ui.text("⚡")
+                                        .size(10.0)
+                                        .color(colors.accent)
+                                        .show();
+                                    ui.text("Google Antigravity")
+                                        .size(10.5)
+                                        .weight(if is_ag_active { FontWeight::SemiBold } else { FontWeight::Regular })
+                                        .color(colors.text_primary)
+                                        .show();
+                                });
+                                if is_ag_active {
+                                    ui.text("✓")
+                                        .size(9.5)
+                                        .color(colors.accent)
+                                        .show();
+                                } else if is_ag_connected {
+                                    ui.text("●")
+                                        .size(7.0)
+                                        .color(Color::rgb(0.2, 0.85, 0.4))
+                                        .show();
+                                } else {
+                                    ui.text("Sign In")
+                                        .size(8.0)
+                                        .color(colors.text_muted)
+                                        .show();
+                                }
+                            });
+                        if ag_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
+                        if ag_btn.clicked {
+                            ui.clicked = false;
+                            state.selected_agent = SelectedAgent::Antigravity;
+                            state.ai_menu_open = false;
+                            ui.needs_redraw = true;
+                        }
+
+                        // Divider
+                        ui.container().full_width().padding(2.0, 4.0, 2.0, 4.0).show(|ui| {
+                            ui.container().full_width().height(1.0).bg(colors.border.with_alpha(0.4)).show(|_| {});
                         });
-                    if set_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
-                    if set_btn.clicked {
-                        ui.clicked = false;
-                        state.ai_menu_open = false;
-                        state.ai_settings.open = true;
-                        state.ai_settings.just_opened = true;
-                        state.ai_settings.active_tab = AiSettingsTab::Appearance;
-                        ui.needs_redraw = true;
-                    }
-                });
+
+                        // ── SECTION 3: SETTINGS ──
+                        let set_btn = ui.container()
+                            .full_width()
+                            .padding(4.0, 6.0, 4.0, 6.0)
+                            .radius_all(3.5)
+                            .hover_bg(colors.highlight)
+                            .clickable(true)
+                            .row()
+                            .valign(Align::Center)
+                            .gap(6.0)
+                            .show(|ui| {
+                                ui.text("\u{f013}") // gear icon
+                                    .size(9.5)
+                                    .color(colors.text_muted)
+                                    .show();
+                                ui.text("AI & Agent Settings...")
+                                    .size(10.5)
+                                    .color(colors.text_primary)
+                                    .show();
+                            });
+                        if set_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
+                        if set_btn.clicked {
+                            ui.clicked = false;
+                            state.ai_menu_open = false;
+                            state.ai_settings.open = true;
+                            state.ai_settings.just_opened = true;
+                            state.ai_settings.active_tab = AiSettingsTab::ExternalAgents;
+                            ui.needs_redraw = true;
+                        }
+                    });
+            });
         }
     }
 
@@ -612,182 +894,93 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                         .column()
                         .gap(1.5)
                         .show(|ui| {
-                            for mode in AgentMode::ALL {
-                                let is_sel = state.agent_mode == mode;
-                                let row_id = ui.id_from(&format!("pop_agent_mode_{:?}", mode));
-                                let row = ui.container()
-                                    .id(row_id)
-                                    .full_width()
-                                    .height(26.0)
-                                    .padding(2.0, 6.0, 2.0, 6.0)
-                                    .radius_all(3.5)
-                                    .bg(if is_sel { colors.accent.with_alpha(0.12) } else { Color::TRANSPARENT })
-                                    .hover_bg(colors.highlight)
-                                    .row()
-                                    .valign(Align::Center)
-                                    .halign(Align::SpaceBetween)
-                                    .show(|ui| {
-                                        ui.container().row().gap(5.0).valign(Align::Center).show(|ui| {
-                                            ui.text(mode.icon())
-                                                .size(10.0)
-                                                .color(colors.text_muted)
-                                                .show();
-                                            ui.text(mode.display_name())
-                                                .size(9.5)
-                                                .weight(if is_sel { FontWeight::SemiBold } else { FontWeight::Regular })
-                                                .color(if is_sel { colors.accent } else { colors.text_primary })
-                                                .show();
-                                        });
-                                        if is_sel {
-                                            ui.text("\u{f00c}").size(8.5).color(colors.accent).show();
+                            match state.selected_agent {
+                                SelectedAgent::Zene => {
+                                    for mode in AgentMode::ALL {
+                                        let is_sel = state.agent_mode == mode;
+                                        let row_id = ui.id_from(&format!("pop_agent_mode_{:?}", mode));
+                                        let row = ui.container()
+                                            .id(row_id)
+                                            .full_width()
+                                            .height(26.0)
+                                            .padding(2.0, 6.0, 2.0, 6.0)
+                                            .radius_all(3.5)
+                                            .bg(if is_sel { colors.accent.with_alpha(0.12) } else { Color::TRANSPARENT })
+                                            .hover_bg(colors.highlight)
+                                            .row()
+                                            .valign(Align::Center)
+                                            .halign(Align::SpaceBetween)
+                                            .show(|ui| {
+                                                ui.container().row().gap(5.0).valign(Align::Center).show(|ui| {
+                                                    ui.text(mode.icon())
+                                                        .size(10.0)
+                                                        .color(colors.text_muted)
+                                                        .show();
+                                                    ui.text(mode.display_name())
+                                                        .size(9.5)
+                                                        .weight(if is_sel { FontWeight::SemiBold } else { FontWeight::Regular })
+                                                        .color(if is_sel { colors.accent } else { colors.text_primary })
+                                                        .show();
+                                                });
+                                                if is_sel {
+                                                    ui.text("\u{f00c}").size(8.5).color(colors.accent).show();
+                                                }
+                                            });
+                                        if row.hovered { ui.cursor_icon = CursorIcon::Pointer; }
+                                        if row.clicked {
+                                            ui.clicked = false;
+                                            state.agent_mode = mode;
+                                            state.agent_mode_menu_open = false;
+                                            ui.needs_redraw = true;
                                         }
-                                    });
-                                if row.hovered { ui.cursor_icon = CursorIcon::Pointer; }
-                                if row.clicked {
-                                    ui.clicked = false;
-                                    state.agent_mode = mode;
-                                    state.agent_mode_menu_open = false;
-                                    ui.needs_redraw = true;
-                                }
-                            }
-                        });
-                });
-        }
-    }
-
-    // ─── Floating Menu Panel: Model Selector ──────────────────────────────
-    if state.ai_model_menu_open {
-        let menu_w = 180.0;
-        let total_item_h = AiModel::ALL.len() as f32 * 25.5 + 40.0;
-        let max_allowed_h = (ui.height - 110.0).max(250.0);
-        let menu_h = total_item_h.min(340.0).min(max_allowed_h);
-        let is_light = colors.bg_base.r > 0.5;
-        let menu_bg = if is_light {
-            colors.bg_editor
-        } else {
-            Color::rgb(22.0 / 255.0, 22.0 / 255.0, 25.0 / 255.0)
-        };
-        let menu_border = if is_light {
-            colors.border
-        } else {
-            Color::rgb(45.0 / 255.0, 45.0 / 255.0, 54.0 / 255.0)
-        };
-        let menu_shadow = if is_light {
-            Color::rgba(0.0, 0.0, 0.0, 0.18)
-        } else {
-            Color::rgba(0.0, 0.0, 0.0, 0.65)
-        };
-
-        if let Some(anchor) = ui.next_screen_layout_cache.get(&MODEL_PICKER_BTN_ID)
-            .or_else(|| ui.screen_layout_cache.get(&MODEL_PICKER_BTN_ID)).copied()
-        {
-            let (mx, my) = zenthra_widgets::compute_placement_pos(
-                anchor,
-                menu_w,
-                menu_h,
-                Placement::Top,
-                PopoverAlign::Start,
-                3.0,
-                false,
-                ui.width,
-                ui.height,
-            );
-            let mouse_in_menu = ui.mouse_in_rect(mx, my, menu_w, menu_h);
-            let mouse_in_trigger = ui.mouse_in_rect(anchor.origin.x, anchor.origin.y, anchor.size.width, anchor.size.height);
-            if ui.clicked && !mouse_in_menu && !mouse_in_trigger {
-                state.ai_model_menu_open = false;
-                ui.needs_redraw = true;
-            }
-        }
-
-        if state.ai_model_menu_open {
-            let mut select_model: Option<AiModel> = None;
-            ui.popover(MODEL_PICKER_BTN_ID)
-                .placement(Placement::Top)
-                .align(PopoverAlign::Start)
-                .gap(3.0)
-                .auto_flip(false)
-                .width(menu_w)
-                .height(menu_h)
-                .bg(menu_bg)
-                .border(menu_border, 1.0)
-                .radius_all(6.0)
-                .shadow(menu_shadow, 0.0, 4.0, 16.0)
-                .padding(3.0, 3.0, 3.0, 3.0)
-                .show(|ui| {
-                    ui.container()
-                        .full_width()
-                        .height(menu_h - 6.0)
-                        .column()
-                        .gap(1.2)
-                        .scroll_y(true)
-                        .show(|ui| {
-                            let mut last_provider: Option<AiProvider> = None;
-                            for model in AiModel::ALL {
-                                if last_provider != Some(model.provider()) {
-                                    let label = match model.provider() {
-                                        AiProvider::Antigravity => "GOOGLE ANTIGRAVITY (EXTERNAL AGENT)",
-                                        AiProvider::Groq => "GROQ",
-                                        AiProvider::Gemini => "GEMINI",
-                                    };
-                                    if last_provider.is_some() {
-                                        ui.container().height(2.5).show(|_| {});
                                     }
-                                    ui.container().padding(2.0, 5.0, 1.0, 5.0).show(|ui| {
-                                        ui.text(label)
-                                            .size(7.5)
-                                            .weight(FontWeight::Bold)
-                                            .color(colors.text_muted.with_alpha(0.65))
-                                            .show();
-                                    });
-                                    last_provider = Some(model.provider());
                                 }
-
-                                let is_selected = state.selected_ai_model == model;
-                                let row_id = ui.id_from(&format!("pop_model_opt_{}", model.model_id()));
-                                let row = ui.container()
-                                    .id(row_id)
-                                    .full_width()
-                                    .height(24.0)
-                                    .padding(2.0, 6.0, 2.0, 6.0)
-                                    .radius_all(3.5)
-                                    .bg(if is_selected { colors.accent.with_alpha(0.10) } else { Color::TRANSPARENT })
-                                    .hover_bg(colors.highlight)
-                                    .row()
-                                    .valign(Align::Center)
-                                    .halign(Align::SpaceBetween)
-                                    .show(|ui| {
-                                        ui.text(model.display_name())
-                                            .size(9.5)
-                                            .weight(if is_selected { FontWeight::Medium } else { FontWeight::Regular })
-                                            .color(if is_selected { colors.accent } else { colors.text_primary })
-                                            .show();
-                                        if is_selected {
-                                            ui.text("\u{f00c}")
-                                                .size(8.5)
-                                                .color(colors.accent)
-                                                .show();
+                                SelectedAgent::Antigravity => {
+                                    for mode in AntigravityMode::ALL {
+                                        let is_sel = state.antigravity_mode == mode;
+                                        let row_id = ui.id_from(&format!("pop_ag_mode_{:?}", mode));
+                                        let row = ui.container()
+                                            .id(row_id)
+                                            .full_width()
+                                            .height(26.0)
+                                            .padding(2.0, 6.0, 2.0, 6.0)
+                                            .radius_all(3.5)
+                                            .bg(if is_sel { colors.accent.with_alpha(0.12) } else { Color::TRANSPARENT })
+                                            .hover_bg(colors.highlight)
+                                            .row()
+                                            .valign(Align::Center)
+                                            .halign(Align::SpaceBetween)
+                                            .show(|ui| {
+                                                ui.container().row().gap(5.0).valign(Align::Center).show(|ui| {
+                                                    ui.text(mode.icon())
+                                                        .size(10.0)
+                                                        .color(colors.text_muted)
+                                                        .show();
+                                                    ui.text(mode.display_name())
+                                                        .size(9.5)
+                                                        .weight(if is_sel { FontWeight::SemiBold } else { FontWeight::Regular })
+                                                        .color(if is_sel { colors.accent } else { colors.text_primary })
+                                                        .show();
+                                                });
+                                                if is_sel {
+                                                    ui.text("\u{f00c}").size(8.5).color(colors.accent).show();
+                                                }
+                                            });
+                                        if row.hovered { ui.cursor_icon = CursorIcon::Pointer; }
+                                        if row.clicked {
+                                            ui.clicked = false;
+                                            state.antigravity_mode = mode;
+                                            state.agent_mode_menu_open = false;
+                                            ui.needs_redraw = true;
                                         }
-                                    });
-
-                                if row.hovered { ui.cursor_icon = CursorIcon::Pointer; }
-                                if row.clicked {
-                                    ui.clicked = false;
-                                    select_model = Some(model);
+                                    }
                                 }
                             }
                         });
                 });
-
-            if let Some(model) = select_model {
-                state.selected_ai_model = model;
-                state.ai_model_menu_open = false;
-                state.ai_session_json = None;
-                state.save_persistent_state();
-                ui.needs_redraw = true;
-            }
         }
     }
+
 }
 
 fn draw_ai_chat_content(
@@ -963,41 +1156,51 @@ fn draw_ai_chat_content(
                 .gap(20.0)
                 .scroll_y(true)
                 .show(|ui| {
-                    if state.ai_messages.is_empty() {
-                        // Minimalist Welcome State
-                        ui.container()
-                            .full_width()
-                            .padding_top(30.0)
-                            .column()
-                            .halign(Align::Center)
-                            .gap(8.0)
-                            .show(|ui| {
-                                ui.container()
-                                    .width(36.0)
-                                    .height(36.0)
-                                    .radius_all(18.0)
-                                    .bg(colors.accent.with_alpha(0.12))
-                                    .border(colors.accent.with_alpha(0.25), 1.0)
-                                    .halign(Align::Center)
-                                    .valign(Align::Center)
-                                    .show(|ui| {
-                                        ui.text("\u{f005}")
-                                            .size(14.0)
-                                            .color(colors.accent)
-                                            .show();
-                                    });
+                    let is_ag = state.selected_agent == SelectedAgent::Antigravity;
+                    let auth = agent::external_provider::AntigravityAuthManager::with_default_config();
+                    let is_ag_connected = auth.load_token().is_some();
 
-                                ui.text("How can I assist you today?")
-                                    .size(12.0)
-                                    .weight(FontWeight::Medium)
-                                    .color(colors.text_primary)
-                                    .show();
+                    if is_ag && !is_ag_connected {
+                        draw_antigravity_signin_card(ui, state, colors, chat_w);
+                    } else if state.ai_messages.is_empty() {
+                        if is_ag {
+                            draw_antigravity_connected_welcome(ui, state, colors);
+                        } else {
+                            // Minimalist Welcome State
+                            ui.container()
+                                .full_width()
+                                .padding_top(30.0)
+                                .column()
+                                .halign(Align::Center)
+                                .gap(8.0)
+                                .show(|ui| {
+                                    ui.container()
+                                        .width(36.0)
+                                        .height(36.0)
+                                        .radius_all(18.0)
+                                        .bg(colors.accent.with_alpha(0.12))
+                                        .border(colors.accent.with_alpha(0.25), 1.0)
+                                        .halign(Align::Center)
+                                        .valign(Align::Center)
+                                        .show(|ui| {
+                                            ui.text("\u{f005}")
+                                                .size(14.0)
+                                                .color(colors.accent)
+                                                .show();
+                                        });
 
-                                ui.text("Ask questions, refactor code, or generate tests.")
-                                    .size(10.0)
-                                    .color(colors.text_muted)
-                                    .show();
-                            });
+                                    ui.text("How can I assist you today?")
+                                        .size(12.0)
+                                        .weight(FontWeight::Medium)
+                                        .color(colors.text_primary)
+                                        .show();
+
+                                    ui.text("Ask questions, refactor code, or generate tests.")
+                                        .size(10.0)
+                                        .color(colors.text_muted)
+                                        .show();
+                                });
+                        }
                     } else {
                         let mut toggle_expand_idx: Option<usize> = None;
                         let mut toggle_thoughts_idx: Option<usize> = None;
@@ -3090,10 +3293,21 @@ fn draw_ai_chat_content(
                             }
 
                             // Text area
-                            let placeholder = if input_dock_w >= 240.0 {
-                                "Ask anything, @ to mention, / for actions"
-                            } else {
-                                "Ask..."
+                            let placeholder = match state.selected_agent {
+                                SelectedAgent::Zene => {
+                                    if input_dock_w >= 240.0 {
+                                        "Ask ZENE anything, @ for context, / for actions"
+                                    } else {
+                                        "Ask ZENE..."
+                                    }
+                                }
+                                SelectedAgent::Antigravity => {
+                                    if input_dock_w >= 240.0 {
+                                        "Ask Antigravity or type / for commands..."
+                                    } else {
+                                        "Ask Antigravity..."
+                                    }
+                                }
                             };
 
                             let input_w = (input_dock_w - 50.0).max(64.0);
@@ -3165,6 +3379,11 @@ fn draw_ai_chat_content(
                                         .gap(8.0)
                                         .show(|ui| {
                                             // 1. Agent Mode button
+                                            let (mode_icon, mode_name) = match state.selected_agent {
+                                                SelectedAgent::Zene => (state.agent_mode.icon(), state.agent_mode.display_name()),
+                                                SelectedAgent::Antigravity => (state.antigravity_mode.icon(), state.antigravity_mode.display_name()),
+                                            };
+
                                             let mode_btn = ui.container()
                                                 .raw_id(AGENT_MODE_BTN_ID)
                                                 .clickable(true)
@@ -3177,11 +3396,11 @@ fn draw_ai_chat_content(
                                                 .valign(Align::Center)
                                                 .gap(5.0)
                                                 .show(|ui| {
-                                                    ui.text(state.agent_mode.icon())
+                                                    ui.text(mode_icon)
                                                         .size(9.5)
                                                         .color(colors.text_muted)
                                                         .show();
-                                                    ui.text(state.agent_mode.display_name())
+                                                    ui.text(mode_name)
                                                         .size(10.0)
                                                         .weight(FontWeight::Medium)
                                                         .color(colors.text_primary)
@@ -3201,36 +3420,46 @@ fn draw_ai_chat_content(
                                                 ui.needs_redraw = true;
                                             }
 
-                                            // 2. Model Selector button
-                                            let model_btn = ui.container()
-                                                .raw_id(MODEL_PICKER_BTN_ID)
-                                                .clickable(true)
-                                                .padding(3.5, 8.0, 3.5, 8.0)
-                                                .radius_all(6.0)
-                                                .bg(if state.ai_model_menu_open { pill_hover_bg } else { pill_bg })
-                                                .hover_bg(pill_hover_bg)
-                                                .border(pill_border, 1.0)
-                                                .row()
-                                                .valign(Align::Center)
-                                                .gap(5.0)
-                                                .show(|ui| {
-                                                    ui.text(state.selected_ai_model.display_name())
-                                                        .size(10.0)
-                                                        .weight(FontWeight::Medium)
-                                                        .color(colors.text_primary)
-                                                        .show();
-                                                    ui.text(if state.ai_model_menu_open { "\u{f077}" } else { "\u{f078}" })
-                                                        .size(7.0)
-                                                        .color(colors.text_muted)
-                                                        .show();
-                                                });
-                                            if model_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
-                                            if model_btn.clicked {
-                                                ui.clicked = false;
-                                                state.ai_model_menu_open = !state.ai_model_menu_open;
-                                                if state.ai_model_menu_open {
-                                                    state.agent_mode_menu_open = false;
+                                            // 2. Model Selector (Native Zenthra Dropdown widget)
+                                            let models_to_show: Vec<AiModel> = match state.selected_agent {
+                                                SelectedAgent::Zene => {
+                                                    if state.selected_ai_model.is_antigravity() {
+                                                        state.selected_ai_model = AiModel::Gemini25Flash;
+                                                    }
+                                                    AiModel::ZENE_MODELS.to_vec()
                                                 }
+                                                SelectedAgent::Antigravity => {
+                                                    if !state.selected_ai_model.is_antigravity() {
+                                                        state.selected_ai_model = AiModel::AntigravityGemini38FlashHigh;
+                                                    }
+                                                    AiModel::ANTIGRAVITY_MODELS.to_vec()
+                                                }
+                                            };
+
+                                            let prev_model = state.selected_ai_model;
+                                            ui.dropdown(&mut state.selected_ai_model, models_to_show)
+                                                .id("ai_panel_prompt_model_dropdown")
+                                                .width(175.0)
+                                                .height(24.0)
+                                                .radius_all(6.0)
+                                                .bg(pill_bg)
+                                                .border(pill_border, 1.0)
+                                                .colors(pill_bg, pill_border)
+                                                .text_color(colors.text_primary)
+                                                .hover_bg(pill_hover_bg)
+                                                .menu_bg(if colors.bg_base.r > 0.5 {
+                                                    colors.bg_editor
+                                                } else {
+                                                    Color::rgb(22.0 / 255.0, 22.0 / 255.0, 25.0 / 255.0)
+                                                })
+                                                .menu_max_height(280.0)
+                                                .placement(Placement::Top)
+                                                .gap(4.0)
+                                                .show();
+
+                                            if state.selected_ai_model != prev_model {
+                                                state.ai_session_json = None;
+                                                state.save_persistent_state();
                                                 ui.needs_redraw = true;
                                             }
                                         });
