@@ -1051,6 +1051,9 @@ fn draw_api_keys_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColor
 
     // ── Known providers (dynamic) ──
     let known_provider_names: Vec<String> = KNOWN_PROVIDERS.iter().map(|p| p.name.to_string()).collect();
+    let provider_label_width = 152.0;
+    let provider_actions_width = 112.0;
+    let remove_button_color = Color::rgb(0.78, 0.2, 0.2);
 
     for (i, kp) in KNOWN_PROVIDERS.iter().enumerate() {
         let current_key = cfg.get_provider_key(kp.name);
@@ -1070,15 +1073,14 @@ fn draw_api_keys_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColor
         ui.container()
             .full_width()
             .padding(0.0, 0.0, 6.0, 0.0)
-            .column()
-            .gap(6.0)
+            .row()
+            .valign(Align::Center)
+            .gap(8.0)
             .show(|ui| {
-                // Name + action row
                 ui.container()
-                    .full_width()
-                    .row()
+                    .width(provider_label_width)
+                    .height(28.0)
                     .valign(Align::Center)
-                    .halign(Align::SpaceBetween)
                     .show(|ui| {
                         ui.text(kp.display_name)
                             .size(12.0)
@@ -1087,75 +1089,132 @@ fn draw_api_keys_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColor
                             .show();
                     });
 
-                // Key input/display row
-                ui.container()
-                    .full_width()
-                    .row()
-                    .valign(Align::Center)
-                    .halign(Align::SpaceBetween)
-                    .gap(8.0)
-                    .show(|ui| {
-                        if let Some(ref key) = current_key {
-                            let masked = if key.len() > 8 {
-                                format!("{}••••••••••••{}", &key[..4], &key[key.len() - 4..])
-                            } else {
-                                "••••••••".to_string()
-                            };
-                            ui.text(&masked)
-                                .size(10.5)
-                                .color(colors.text_muted)
-                                .show();
+                if let Some(ref key) = current_key {
+                    let input_width =
+                        (ui.available_width - provider_label_width - provider_actions_width - 16.0)
+                            .max(120.0);
+                    let is_revealed = state.ai_settings.revealed_api_keys.contains(kp.name);
+                    let value = if is_revealed {
+                        key.clone()
+                    } else {
+                        "•".repeat((input_width / 5.5).floor() as usize)
+                    };
 
-                            ui.container().row().valign(Align::Center).gap(6.0).show(|ui| {
-                                let rm_btn = ui.container()
-                                    .clickable(true)
-                                    .padding(4.0, 9.0, 4.0, 9.0)
-                                    .radius_all(5.0)
-                                    .bg(colors.highlight)
-                                    .border(colors.border.with_alpha(0.5), 0.75)
-                                    .show(|ui| {
-                                        ui.text("Remove")
-                                            .size(10.0)
-                                            .color(colors.text_primary)
-                                            .show();
-                                    });
-                                if rm_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
-                                if rm_btn.clicked {
-                                    let _ = agent::provider::remove_key(kp.name);
-                                    state.ai_settings.api_key_save_msg =
-                                        Some(format!("{} key removed from config.json", kp.display_name));
-                                    ui.needs_redraw = true;
+                    ui.container()
+                        .width(input_width)
+                        .height(28.0)
+                        .clip(true)
+                        .bg(colors.bg_base.with_alpha(0.6))
+                        .border(colors.border.with_alpha(0.5), 0.75)
+                        .radius_all(4.0)
+                        .padding(0.0, 6.0, 0.0, 6.0)
+                        .row()
+                        .valign(Align::Center)
+                        .show(|ui| {
+                            ui.text(&value)
+                                .size(10.5)
+                                .color(if is_revealed { colors.text_primary } else { colors.text_muted })
+                                .show();
+                        });
+
+                    ui.container()
+                        .width(provider_actions_width)
+                        .height(28.0)
+                        .row()
+                        .valign(Align::Center)
+                        .halign(Align::Right)
+                        .gap(6.0)
+                        .show(|ui| {
+                            let reveal_btn = ui.container()
+                                .clickable(true)
+                                .width(48.0)
+                                .height(26.0)
+                                .valign(Align::Center)
+                                .halign(Align::Center)
+                                .radius_all(5.0)
+                                .bg(colors.accent)
+                                .border(colors.accent.with_alpha(0.85), 0.75)
+                                .show(|ui| {
+                                    ui.text(if is_revealed { "Hide" } else { "Reveal" })
+                                        .size(9.5)
+                                        .color(colors.text_primary)
+                                        .show();
+                                });
+                            if reveal_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
+                            if reveal_btn.clicked {
+                                if is_revealed {
+                                    state.ai_settings.revealed_api_keys.remove(kp.name);
+                                } else {
+                                    state.ai_settings.revealed_api_keys.insert(kp.name.to_string());
                                 }
-                            });
-                        } else {
-                            // Input box
-                            let input_text = state.ai_settings.api_key_inputs
-                                .entry(kp.name.to_string())
-                                .or_insert_with(String::new);
+                                ui.needs_redraw = true;
+                            }
 
-                            ui.text_area(input_text, &input_id)
-                                .width(240.0)
-                                .height(28.0)
-                                .size(10.5)
-                                .color(colors.text_primary)
-                                .bg(colors.bg_base.with_alpha(0.6))
-                                .border(colors.border.with_alpha(0.5), 0.75)
-                                .focus_border(colors.accent.with_alpha(0.8), 1.0)
-                                .radius(4.0, 4.0, 4.0, 4.0)
-                                .padding(4.0, 6.0, 4.0, 6.0)
-                                .placeholder(&format!("Paste {} key...", kp.display_name))
-                                .placeholder_color(colors.text_muted.with_alpha(0.5))
-                                .show();
+                            let rm_btn = ui.container()
+                                .clickable(true)
+                                .width(58.0)
+                                .height(26.0)
+                                .valign(Align::Center)
+                                .halign(Align::Center)
+                                .radius_all(5.0)
+                                .bg(remove_button_color)
+                                .border(remove_button_color.with_alpha(0.85), 0.75)
+                                .show(|ui| {
+                                    ui.text("Remove")
+                                        .size(9.5)
+                                        .color(Color::WHITE)
+                                        .show();
+                                });
+                            if rm_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
+                            if rm_btn.clicked {
+                                let _ = agent::provider::remove_key(kp.name);
+                                state.ai_settings.revealed_api_keys.remove(kp.name);
+                                state.ai_settings.api_key_save_msg =
+                                    Some(format!("{} key removed from config.json", kp.display_name));
+                                ui.needs_redraw = true;
+                            }
+                        });
+                } else {
+                    let input_text = state.ai_settings.api_key_inputs
+                        .entry(kp.name.to_string())
+                        .or_insert_with(String::new);
+                    let input_width =
+                        (ui.available_width - provider_label_width - provider_actions_width - 16.0)
+                            .max(120.0);
 
-                            let key_val = state.ai_settings.api_key_inputs
-                                .get(kp.name)
-                                .map(|s| s.trim().to_string())
-                                .unwrap_or_default();
-                            let can_save = !key_val.is_empty();
+                    ui.text_area(input_text, &input_id)
+                        .width(input_width)
+                        .height(28.0)
+                        .size(10.5)
+                        .color(colors.text_primary)
+                        .bg(colors.bg_base.with_alpha(0.6))
+                        .border(colors.border.with_alpha(0.5), 0.75)
+                        .focus_border(colors.accent.with_alpha(0.8), 1.0)
+                        .radius(4.0, 4.0, 4.0, 4.0)
+                        .padding(4.0, 6.0, 4.0, 6.0)
+                        .placeholder(&format!("Paste {} key...", kp.display_name))
+                        .placeholder_color(colors.text_muted.with_alpha(0.5))
+                        .show();
 
+                    let key_val = state.ai_settings.api_key_inputs
+                        .get(kp.name)
+                        .map(|s| s.trim().to_string())
+                        .unwrap_or_default();
+                    let can_save = !key_val.is_empty();
+
+                    ui.container()
+                        .width(provider_actions_width)
+                        .height(28.0)
+                        .row()
+                        .valign(Align::Center)
+                        .halign(Align::Right)
+                        .show(|ui| {
                             let save_btn = ui.container()
                                 .clickable(can_save)
-                                .padding(5.0, 11.0, 5.0, 11.0)
+                                .width(58.0)
+                                .height(26.0)
+                                .valign(Align::Center)
+                                .halign(Align::Center)
                                 .radius_all(5.0)
                                 .bg(if can_save { colors.accent } else { colors.highlight })
                                 .show(|ui| {
@@ -1173,8 +1232,8 @@ fn draw_api_keys_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColor
                                     Some(format!("{} key saved to config.json", kp.display_name));
                                 ui.needs_redraw = true;
                             }
-                        }
-                    });
+                        });
+                }
             });
     }
 
@@ -1183,14 +1242,7 @@ fn draw_api_keys_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColor
         .filter(|(name, entry)| {
             !known_provider_names.contains(name) && !entry.key.is_empty()
         })
-        .map(|(name, entry)| {
-            let masked = if entry.key.len() > 8 {
-                format!("{}••••••••••••{}", &entry.key[..4], &entry.key[entry.key.len() - 4..])
-            } else {
-                "••••••••".to_string()
-            };
-            (name.clone(), masked)
-        })
+        .map(|(name, entry)| (name.clone(), entry.key.clone()))
         .collect();
 
     if !custom_providers.is_empty() {
@@ -1206,36 +1258,103 @@ fn draw_api_keys_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColor
                 .padding(0.0, 0.0, 6.0, 0.0)
                 .row()
                 .valign(Align::Center)
-                .halign(Align::SpaceBetween)
+                .gap(8.0)
                 .show(|ui| {
-                    ui.container().column().gap(2.0).show(|ui| {
+                    ui.container()
+                        .width(provider_label_width)
+                        .height(28.0)
+                        .valign(Align::Center)
+                        .show(|ui| {
                         ui.text(name)
                             .size(12.0)
                             .weight(FontWeight::Medium)
                             .color(colors.text_primary)
                             .show();
-                        ui.text(masked)
-                            .size(10.0)
-                            .color(colors.text_muted)
-                            .show();
                     });
 
-                    let rm_btn = ui.container()
-                        .clickable(true)
-                        .padding(4.0, 9.0, 4.0, 9.0)
-                        .radius_all(5.0)
-                        .bg(colors.highlight)
+                    let input_width =
+                        (ui.available_width - provider_label_width - provider_actions_width - 16.0)
+                            .max(120.0);
+                    let is_revealed = state.ai_settings.revealed_api_keys.contains(name);
+                    let value = if is_revealed {
+                        masked.clone()
+                    } else {
+                        "•".repeat((input_width / 5.5).floor() as usize)
+                    };
+                    ui.container()
+                        .width(input_width)
+                        .height(28.0)
+                        .clip(true)
+                        .bg(colors.bg_base.with_alpha(0.6))
                         .border(colors.border.with_alpha(0.5), 0.75)
+                        .radius_all(4.0)
+                        .padding(0.0, 6.0, 0.0, 6.0)
+                        .row()
+                        .valign(Align::Center)
                         .show(|ui| {
-                            ui.text("Remove").size(10.0).color(colors.text_primary).show();
+                            ui.text(&value)
+                                .size(10.5)
+                                .color(if is_revealed { colors.text_primary } else { colors.text_muted })
+                                .show();
                         });
-                    if rm_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
-                    if rm_btn.clicked {
-                        let _ = agent::provider::remove_key(name);
-                        state.ai_settings.api_key_save_msg =
-                            Some(format!("'{}' removed from config.json", name));
-                        ui.needs_redraw = true;
-                    }
+
+                    ui.container()
+                        .width(provider_actions_width)
+                        .height(28.0)
+                        .row()
+                        .valign(Align::Center)
+                        .halign(Align::Right)
+                        .gap(6.0)
+                        .show(|ui| {
+                            let reveal_btn = ui.container()
+                                .clickable(true)
+                                .width(48.0)
+                                .height(26.0)
+                                .valign(Align::Center)
+                                .halign(Align::Center)
+                                .radius_all(5.0)
+                                .bg(colors.accent)
+                                .border(colors.accent.with_alpha(0.85), 0.75)
+                                .show(|ui| {
+                                    ui.text(if is_revealed { "Hide" } else { "Reveal" })
+                                        .size(9.5)
+                                        .color(colors.text_primary)
+                                        .show();
+                                });
+                            if reveal_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
+                            if reveal_btn.clicked {
+                                if is_revealed {
+                                    state.ai_settings.revealed_api_keys.remove(name);
+                                } else {
+                                    state.ai_settings.revealed_api_keys.insert(name.clone());
+                                }
+                                ui.needs_redraw = true;
+                            }
+
+                            let rm_btn = ui.container()
+                                .clickable(true)
+                                .width(58.0)
+                                .height(26.0)
+                                .valign(Align::Center)
+                                .halign(Align::Center)
+                                .radius_all(5.0)
+                                .bg(remove_button_color)
+                                .border(remove_button_color.with_alpha(0.85), 0.75)
+                                .show(|ui| {
+                                    ui.text("Remove")
+                                        .size(9.5)
+                                        .color(Color::WHITE)
+                                        .show();
+                                });
+                            if rm_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
+                            if rm_btn.clicked {
+                                let _ = agent::provider::remove_key(name);
+                                state.ai_settings.revealed_api_keys.remove(name);
+                                state.ai_settings.api_key_save_msg =
+                                    Some(format!("'{}' removed from config.json", name));
+                                ui.needs_redraw = true;
+                            }
+                        });
                 });
         }
     }

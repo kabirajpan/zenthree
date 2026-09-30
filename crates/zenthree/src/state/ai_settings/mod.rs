@@ -49,6 +49,8 @@ pub struct AiSettingsState {
     #[serde(skip)]
     pub api_key_inputs: std::collections::HashMap<String, String>, // provider_name -> input text
     #[serde(skip)]
+    pub revealed_api_keys: std::collections::HashSet<String>,
+    #[serde(skip)]
     pub api_key_save_msg: Option<String>,
     // Custom provider form
     #[serde(skip)]
@@ -93,6 +95,7 @@ impl Default for AiSettingsState {
             thinking_budget: AiThinkingBudget::Budget4k,
             custom_instructions: String::new(),
             api_key_inputs: std::collections::HashMap::new(),
+            revealed_api_keys: std::collections::HashSet::new(),
             api_key_save_msg: None,
             custom_provider_form_open: false,
             custom_provider_name: String::new(),
