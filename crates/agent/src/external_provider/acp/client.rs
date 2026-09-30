@@ -279,6 +279,17 @@ impl AcpClient {
                             }
                             _ => {}
                         }
+                        let dynamic_list: Vec<super::super::antigravity_cli::ModelInfo> = parsed_models.iter().map(|m| {
+                            super::super::antigravity_cli::ModelInfo {
+                                id: m.id.clone(),
+                                display_name: m.name.clone(),
+                                max_tokens: 1_048_576,
+                                supports_tools: true,
+                                supports_thinking: true,
+                                description: m.description.clone().unwrap_or_default(),
+                            }
+                        }).collect();
+                        super::super::antigravity_cli::models::set_dynamic_models(dynamic_list);
                         *self.models.lock().unwrap() = parsed_models;
                         *self.current_model.lock().unwrap() = Some(select_opt.current_value.0.to_string());
                     }

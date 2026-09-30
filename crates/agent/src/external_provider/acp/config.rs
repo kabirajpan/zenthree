@@ -104,7 +104,7 @@ impl AcpAgentConfig {
 }
 
 /// Look for the `agy_acp_server` executable across candidate paths without hardcoding a single fixed path.
-fn detect_antigravity_binary() -> Option<PathBuf> {
+pub fn detect_antigravity_binary() -> Option<PathBuf> {
     // 1. Env override
     if let Ok(path_str) = std::env::var("ANTIGRAVITY_ACP_PATH") {
         let p = PathBuf::from(path_str);
@@ -113,31 +113,30 @@ fn detect_antigravity_binary() -> Option<PathBuf> {
         }
     }
 
+    // 2. Primary: Check Zenthree's own managed external agents directory
+    let zenthree_dir = super::super::installer::zenthree_antigravity_dir();
+    if let Some(p) = find_binary_in_tree(&zenthree_dir) {
+        return Some(p);
+    }
+
     let home = dirs::home_dir()?;
 
-    // 2. Candidate agent directories across platforms (Windows AppData, Linux ~/.local/share, etc.)
+    // 3. Native Zenthree and standalone agent directories across platforms
     let mut search_dirs = Vec::new();
 
     if let Some(local_data) = dirs::data_local_dir() {
-        search_dirs.push(local_data.join("zed/external_agents/registry/antigravity-acp"));
-        search_dirs.push(local_data.join("zed/external_agents"));
         search_dirs.push(local_data.join("zenthree/external_agents"));
         search_dirs.push(local_data.join("Programs/Antigravity"));
     }
 
     if let Some(config_dir) = dirs::config_dir() {
-        search_dirs.push(config_dir.join("zed/external_agents"));
         search_dirs.push(config_dir.join("zenthree/external_agents"));
     }
 
     search_dirs.push(home.join(".local/share/zenthree/external_agents"));
-    search_dirs.push(home.join(".local/share/zed/external_agents/registry/antigravity-acp"));
-    search_dirs.push(home.join(".local/share/zed/external_agents"));
     search_dirs.push(home.join(".antigravity"));
     search_dirs.push(home.join(".gemini/antigravity-acp"));
     search_dirs.push(home.join(".gemini/antigravity"));
-    search_dirs.push(home.join("AppData/Local/zed/external_agents/registry/antigravity-acp"));
-    search_dirs.push(home.join("AppData/Local/zed/external_agents"));
     search_dirs.push(home.join("AppData/Local/Programs/Antigravity"));
 
     for dir in &search_dirs {

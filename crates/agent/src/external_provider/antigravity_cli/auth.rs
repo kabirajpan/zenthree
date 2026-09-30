@@ -217,8 +217,17 @@ impl AntigravityAuthManager {
         let _ = self.logout();
     }
 
-    /// Launch interactive authentication via `agy login` or ACP browser flow.
+    /// Launch interactive authentication via `agy login` or ACP browser flow,
+    /// automatically downloading the ACP server into Zenthree if not installed.
     pub fn login_interactive(&self) -> Result<(), String> {
+        self.login_interactive_with_callback(|_| {})
+    }
+
+    /// Launch interactive authentication with real-time status reporting.
+    pub fn login_interactive_with_callback<F>(&self, callback: F) -> Result<(), String>
+    where
+        F: Fn(&str) + Send + Sync,
+    {
         // Try `agy login` CLI first (invoked through cmd.exe on Windows for .cmd / .bat / .exe resolution)
         #[cfg(target_os = "windows")]
         let mut cmd = {
@@ -234,6 +243,7 @@ impl AntigravityAuthManager {
         };
 
         if let Ok(mut child) = cmd.spawn() {
+            callback("Opening Google Antigravity CLI sign in...");
             if let Ok(status) = child.wait() {
                 if status.success() {
                     Self::ensure_session_marker();
@@ -242,9 +252,17 @@ impl AntigravityAuthManager {
             }
         }
 
-        // If `agy` CLI is not found or fails, launch the ACP server with `oauth-personal`
-        // which opens the browser for Google account consent directly.
+        // If binary is missing, automatically download and install into Zenthree
+        if AcpAgentConfig::suggest_antigravity().is_none() {
+            callback("Antigravity server not found. Downloading for Zenthree...");
+            super::super::installer::install_antigravity(|status, _prog| {
+                callback(status);
+            })?;
+        }
+
+        // Launch the ACP server with `oauth-personal` which opens the browser for Google consent directly.
         if let Some(mut config) = AcpAgentConfig::suggest_antigravity() {
+            callback("Launching Google account sign in in browser...");
             // Explicitly set auth_method_id so the ACP handshake triggers AuthenticateRequest
             config.auth_method_id = Some("oauth-personal".to_string());
 
@@ -257,7 +275,7 @@ impl AntigravityAuthManager {
             Self::ensure_session_marker();
             Ok(())
         } else {
-            Err("Neither `agy` CLI nor `agy_acp_server` binary could be found on this system. Please check your installation.".to_string())
+            Err("Unable to locate or start Antigravity ACP server.".to_string())
         }
     }
 

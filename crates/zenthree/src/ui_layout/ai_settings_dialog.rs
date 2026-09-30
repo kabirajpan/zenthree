@@ -11,6 +11,16 @@ static ANTIGRAVITY_LOGIN_RUNNING: std::sync::atomic::AtomicBool =
     std::sync::atomic::AtomicBool::new(false);
 static ANTIGRAVITY_LOGIN_ERROR: std::sync::Mutex<Option<String>> =
     std::sync::Mutex::new(None);
+static ANTIGRAVITY_LOGIN_STATUS: std::sync::Mutex<Option<String>> =
+    std::sync::Mutex::new(None);
+static ANTIGRAVITY_INSTALL_RUNNING: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+static ANTIGRAVITY_INSTALL_ERROR: std::sync::Mutex<Option<String>> =
+    std::sync::Mutex::new(None);
+static ANTIGRAVITY_INSTALL_STATUS: std::sync::Mutex<Option<String>> =
+    std::sync::Mutex::new(None);
+static ANTIGRAVITY_INSTALL_PROGRESS: std::sync::Mutex<f32> =
+    std::sync::Mutex::new(0.0);
 
 pub fn draw_ai_settings_dialog(ui: &mut Ui, state: &mut ZenthreeState) {
     if !state.ai_settings.open {
@@ -240,6 +250,7 @@ pub fn draw_ai_settings_dialog(ui: &mut Ui, state: &mut ZenthreeState) {
 
                     // Right Content Area
                     let scroll_id = Id::from_u64(999999715);
+                    let prev_scroll_y = ui.scroll_state.get(&scroll_id).map(|(_, y)| *y).unwrap_or(0.0);
                     ui.container()
                         .id(scroll_id)
                         .width(content_w)
@@ -275,6 +286,11 @@ pub fn draw_ai_settings_dialog(ui: &mut Ui, state: &mut ZenthreeState) {
                                 }
                             }
                         });
+                    let new_scroll_y = ui.scroll_state.get(&scroll_id).map(|(_, y)| *y).unwrap_or(0.0);
+                    if (new_scroll_y - prev_scroll_y).abs() > 0.5 && state.ai_settings.antigravity_model_dropdown_open {
+                        state.ai_settings.antigravity_model_dropdown_open = false;
+                        ui.needs_redraw = true;
+                    }
                 });
         });
 
@@ -990,6 +1006,7 @@ fn draw_api_keys_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColor
     let cfg = ZenthreeConfig::load();
     let config_path = ZenthreeConfig::config_path();
     let config_path_str = config_path.to_string_lossy().to_string();
+    let is_light = colors.bg_base.r > 0.5;
 
     // ── Header row ──
     ui.container()
@@ -1010,19 +1027,16 @@ fn draw_api_keys_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColor
                     .show();
             });
 
-            let edit_btn = ui.container()
-                .clickable(true)
-                .padding(5.0, 10.0, 5.0, 10.0)
+            let edit_btn = ui.button("Edit config.json ↗")
+                .id(Id::from_u64(999999886))
+                .padding(4.5, 10.0, 4.5, 10.0)
                 .radius_all(5.0)
                 .bg(colors.highlight)
-                .border(colors.border.with_alpha(0.5), 0.75)
-                .show(|ui| {
-                    ui.text("Edit config.json ↗")
-                        .size(10.0)
-                        .weight(FontWeight::Medium)
-                        .color(colors.text_primary)
-                        .show();
-                });
+                .hover_bg(colors.highlight.with_alpha(0.85))
+                .border(colors.border.with_alpha(0.4), 0.75)
+                .text_color(colors.text_primary)
+                .size(10.0)
+                .show();
             if edit_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
             if edit_btn.clicked {
                 if let Ok(path_str) = config_path.to_str().ok_or("") {
@@ -1052,8 +1066,11 @@ fn draw_api_keys_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColor
     // ── Known providers (dynamic) ──
     let known_provider_names: Vec<String> = KNOWN_PROVIDERS.iter().map(|p| p.name.to_string()).collect();
     let provider_label_width = 152.0;
-    let provider_actions_width = 112.0;
-    let remove_button_color = Color::rgb(0.78, 0.2, 0.2);
+    let provider_actions_width = 130.0;
+    let remove_btn_bg = Color::rgba(220.0 / 255.0, 50.0 / 255.0, 50.0 / 255.0, 0.15);
+    let remove_btn_border = Color::rgba(220.0 / 255.0, 50.0 / 255.0, 50.0 / 255.0, 0.45);
+    let remove_btn_fg = Color::rgb(255.0 / 255.0, 100.0 / 255.0, 100.0 / 255.0);
+    let remove_btn_hover = Color::rgba(220.0 / 255.0, 50.0 / 255.0, 50.0 / 255.0, 0.3);
 
     for (i, kp) in KNOWN_PROVIDERS.iter().enumerate() {
         let current_key = cfg.get_provider_key(kp.name);
@@ -1104,10 +1121,10 @@ fn draw_api_keys_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColor
                         .width(input_width)
                         .height(28.0)
                         .clip(true)
-                        .bg(colors.bg_base.with_alpha(0.6))
-                        .border(colors.border.with_alpha(0.5), 0.75)
+                        .bg(colors.bg_base.with_alpha(0.7))
+                        .border(colors.border.with_alpha(0.4), 0.75)
                         .radius_all(4.0)
-                        .padding(0.0, 6.0, 0.0, 6.0)
+                        .padding(0.0, 8.0, 0.0, 8.0)
                         .row()
                         .valign(Align::Center)
                         .show(|ui| {
@@ -1125,21 +1142,16 @@ fn draw_api_keys_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColor
                         .halign(Align::Right)
                         .gap(6.0)
                         .show(|ui| {
-                            let reveal_btn = ui.container()
-                                .clickable(true)
-                                .width(48.0)
-                                .height(26.0)
-                                .valign(Align::Center)
-                                .halign(Align::Center)
-                                .radius_all(5.0)
-                                .bg(colors.accent)
-                                .border(colors.accent.with_alpha(0.85), 0.75)
-                                .show(|ui| {
-                                    ui.text(if is_revealed { "Hide" } else { "Reveal" })
-                                        .size(9.5)
-                                        .color(colors.text_primary)
-                                        .show();
-                                });
+                            let reveal_btn = ui.button(if is_revealed { "Hide" } else { "Reveal" })
+                                .id(Id::from_u64(999999840 + (i as u64) * 2))
+                                .padding(4.0, 10.0, 4.0, 10.0)
+                                .radius_all(4.0)
+                                .bg(if is_revealed { colors.accent.with_alpha(0.18) } else if is_light { Color::rgb(0.92, 0.92, 0.94) } else { colors.bg_base })
+                                .hover_bg(if is_revealed { colors.accent.with_alpha(0.28) } else if is_light { Color::rgb(0.85, 0.85, 0.88) } else { colors.border.with_alpha(0.5) })
+                                .border(if is_revealed { colors.accent.with_alpha(0.6) } else { colors.border.with_alpha(0.5) }, 0.75)
+                                .text_color(if is_revealed { colors.accent } else { colors.text_primary })
+                                .size(10.0)
+                                .show();
                             if reveal_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
                             if reveal_btn.clicked {
                                 if is_revealed {
@@ -1150,21 +1162,16 @@ fn draw_api_keys_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColor
                                 ui.needs_redraw = true;
                             }
 
-                            let rm_btn = ui.container()
-                                .clickable(true)
-                                .width(58.0)
-                                .height(26.0)
-                                .valign(Align::Center)
-                                .halign(Align::Center)
-                                .radius_all(5.0)
-                                .bg(remove_button_color)
-                                .border(remove_button_color.with_alpha(0.85), 0.75)
-                                .show(|ui| {
-                                    ui.text("Remove")
-                                        .size(9.5)
-                                        .color(Color::WHITE)
-                                        .show();
-                                });
+                            let rm_btn = ui.button("Remove")
+                                .id(Id::from_u64(999999841 + (i as u64) * 2))
+                                .padding(4.0, 10.0, 4.0, 10.0)
+                                .radius_all(4.0)
+                                .bg(remove_btn_bg)
+                                .hover_bg(remove_btn_hover)
+                                .border(remove_btn_border, 0.75)
+                                .text_color(remove_btn_fg)
+                                .size(10.0)
+                                .show();
                             if rm_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
                             if rm_btn.clicked {
                                 let _ = agent::provider::remove_key(kp.name);
@@ -1187,13 +1194,13 @@ fn draw_api_keys_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColor
                         .height(28.0)
                         .size(10.5)
                         .color(colors.text_primary)
-                        .bg(colors.bg_base.with_alpha(0.6))
-                        .border(colors.border.with_alpha(0.5), 0.75)
+                        .bg(colors.bg_base.with_alpha(0.7))
+                        .border(colors.border.with_alpha(0.4), 0.75)
                         .focus_border(colors.accent.with_alpha(0.8), 1.0)
                         .radius(4.0, 4.0, 4.0, 4.0)
-                        .padding(4.0, 6.0, 4.0, 6.0)
+                        .padding(4.0, 8.0, 4.0, 8.0)
                         .placeholder(&format!("Paste {} key...", kp.display_name))
-                        .placeholder_color(colors.text_muted.with_alpha(0.5))
+                        .placeholder_color(colors.text_muted.with_alpha(0.45))
                         .show();
 
                     let key_val = state.ai_settings.api_key_inputs
@@ -1209,21 +1216,16 @@ fn draw_api_keys_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColor
                         .valign(Align::Center)
                         .halign(Align::Right)
                         .show(|ui| {
-                            let save_btn = ui.container()
-                                .clickable(can_save)
-                                .width(58.0)
-                                .height(26.0)
-                                .valign(Align::Center)
-                                .halign(Align::Center)
-                                .radius_all(5.0)
+                            let save_btn = ui.button("Save")
+                                .id(Id::from_u64(999999860 + (i as u64)))
+                                .padding(4.5, 14.0, 4.5, 14.0)
+                                .radius_all(4.0)
                                 .bg(if can_save { colors.accent } else { colors.highlight })
-                                .show(|ui| {
-                                    ui.text("Save")
-                                        .size(10.0)
-                                        .weight(FontWeight::Medium)
-                                        .color(if can_save { Color::WHITE } else { colors.text_muted })
-                                        .show();
-                                });
+                                .hover_bg(if can_save { colors.accent.with_alpha(0.85) } else { colors.highlight })
+                                .border(if can_save { colors.accent.with_alpha(0.8) } else { colors.border.with_alpha(0.4) }, 0.75)
+                                .text_color(if can_save { Color::WHITE } else { colors.text_muted })
+                                .size(10.0)
+                                .show();
                             if save_btn.hovered && can_save { ui.cursor_icon = CursorIcon::Pointer; }
                             if save_btn.clicked && can_save {
                                 let _ = agent::provider::set_key(kp.name, &key_val);
@@ -1252,7 +1254,7 @@ fn draw_api_keys_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColor
             .bg(colors.border.with_alpha(0.25))
             .show(|_| {});
 
-        for (name, masked) in &custom_providers {
+        for (idx, (name, masked)) in custom_providers.iter().enumerate() {
             ui.container()
                 .full_width()
                 .padding(0.0, 0.0, 6.0, 0.0)
@@ -1285,10 +1287,10 @@ fn draw_api_keys_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColor
                         .width(input_width)
                         .height(28.0)
                         .clip(true)
-                        .bg(colors.bg_base.with_alpha(0.6))
-                        .border(colors.border.with_alpha(0.5), 0.75)
+                        .bg(colors.bg_base.with_alpha(0.7))
+                        .border(colors.border.with_alpha(0.4), 0.75)
                         .radius_all(4.0)
-                        .padding(0.0, 6.0, 0.0, 6.0)
+                        .padding(0.0, 8.0, 0.0, 8.0)
                         .row()
                         .valign(Align::Center)
                         .show(|ui| {
@@ -1306,21 +1308,16 @@ fn draw_api_keys_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColor
                         .halign(Align::Right)
                         .gap(6.0)
                         .show(|ui| {
-                            let reveal_btn = ui.container()
-                                .clickable(true)
-                                .width(48.0)
-                                .height(26.0)
-                                .valign(Align::Center)
-                                .halign(Align::Center)
-                                .radius_all(5.0)
-                                .bg(colors.accent)
-                                .border(colors.accent.with_alpha(0.85), 0.75)
-                                .show(|ui| {
-                                    ui.text(if is_revealed { "Hide" } else { "Reveal" })
-                                        .size(9.5)
-                                        .color(colors.text_primary)
-                                        .show();
-                                });
+                            let reveal_btn = ui.button(if is_revealed { "Hide" } else { "Reveal" })
+                                .id(Id::from_u64(999999870 + (idx as u64) * 2))
+                                .padding(4.0, 10.0, 4.0, 10.0)
+                                .radius_all(4.0)
+                                .bg(if is_revealed { colors.accent.with_alpha(0.18) } else if is_light { Color::rgb(0.92, 0.92, 0.94) } else { colors.bg_base })
+                                .hover_bg(if is_revealed { colors.accent.with_alpha(0.28) } else if is_light { Color::rgb(0.85, 0.85, 0.88) } else { colors.border.with_alpha(0.5) })
+                                .border(if is_revealed { colors.accent.with_alpha(0.6) } else { colors.border.with_alpha(0.5) }, 0.75)
+                                .text_color(if is_revealed { colors.accent } else { colors.text_primary })
+                                .size(10.0)
+                                .show();
                             if reveal_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
                             if reveal_btn.clicked {
                                 if is_revealed {
@@ -1331,21 +1328,16 @@ fn draw_api_keys_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColor
                                 ui.needs_redraw = true;
                             }
 
-                            let rm_btn = ui.container()
-                                .clickable(true)
-                                .width(58.0)
-                                .height(26.0)
-                                .valign(Align::Center)
-                                .halign(Align::Center)
-                                .radius_all(5.0)
-                                .bg(remove_button_color)
-                                .border(remove_button_color.with_alpha(0.85), 0.75)
-                                .show(|ui| {
-                                    ui.text("Remove")
-                                        .size(9.5)
-                                        .color(Color::WHITE)
-                                        .show();
-                                });
+                            let rm_btn = ui.button("Remove")
+                                .id(Id::from_u64(999999871 + (idx as u64) * 2))
+                                .padding(4.0, 10.0, 4.0, 10.0)
+                                .radius_all(4.0)
+                                .bg(remove_btn_bg)
+                                .hover_bg(remove_btn_hover)
+                                .border(remove_btn_border, 0.75)
+                                .text_color(remove_btn_fg)
+                                .size(10.0)
+                                .show();
                             if rm_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
                             if rm_btn.clicked {
                                 let _ = agent::provider::remove_key(name);
@@ -1370,25 +1362,23 @@ fn draw_api_keys_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColor
 
     // ── + Add Custom Provider ──
     if !state.ai_settings.custom_provider_form_open {
-        let add_btn = ui.container()
-            .clickable(true)
-            .padding(5.0, 10.0, 5.0, 10.0)
+        let add_btn = ui.button("+ Add Custom Provider")
+            .id(Id::from_u64(999999885))
+            .padding(5.0, 12.0, 5.0, 12.0)
             .radius_all(5.0)
-            .bg(colors.highlight)
+            .bg(if is_light { Color::rgb(0.92, 0.92, 0.94) } else { colors.bg_base })
+            .hover_bg(if is_light { Color::rgb(0.85, 0.85, 0.88) } else { colors.border.with_alpha(0.5) })
             .border(colors.border.with_alpha(0.4), 0.75)
-            .show(|ui| {
-                ui.text("+ Add Custom Provider")
-                    .size(10.5)
-                    .weight(FontWeight::Medium)
-                    .color(colors.text_muted)
-                    .show();
-            });
+            .text_color(colors.text_primary)
+            .size(10.5)
+            .show();
         if add_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
         if add_btn.clicked {
             state.ai_settings.custom_provider_form_open = true;
             state.ai_settings.custom_provider_name.clear();
             state.ai_settings.custom_provider_key.clear();
             state.ai_settings.custom_provider_url.clear();
+            ui.needs_redraw = true;
         }
     } else {
         // Inline form
@@ -1396,7 +1386,7 @@ fn draw_api_keys_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColor
             .full_width()
             .padding(12.0, 14.0, 12.0, 14.0)
             .radius_all(7.0)
-            .bg(colors.bg_base)
+            .bg(if is_light { Color::rgb(0.96, 0.96, 0.98) } else { colors.bg_base })
             .border(colors.accent.with_alpha(0.4), 1.0)
             .column()
             .gap(8.0)
@@ -1415,7 +1405,7 @@ fn draw_api_keys_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColor
                         .height(26.0)
                         .size(10.5)
                         .color(colors.text_primary)
-                        .bg(colors.bg_base.with_alpha(0.6))
+                        .bg(if is_light { Color::WHITE } else { colors.bg_base.with_alpha(0.6) })
                         .border(colors.border.with_alpha(0.5), 0.75)
                         .focus_border(colors.accent.with_alpha(0.8), 1.0)
                         .radius(4.0, 4.0, 4.0, 4.0)
@@ -1433,7 +1423,7 @@ fn draw_api_keys_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColor
                         .height(26.0)
                         .size(10.5)
                         .color(colors.text_primary)
-                        .bg(colors.bg_base.with_alpha(0.6))
+                        .bg(if is_light { Color::WHITE } else { colors.bg_base.with_alpha(0.6) })
                         .border(colors.border.with_alpha(0.5), 0.75)
                         .focus_border(colors.accent.with_alpha(0.8), 1.0)
                         .radius(4.0, 4.0, 4.0, 4.0)
@@ -1451,7 +1441,7 @@ fn draw_api_keys_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColor
                         .height(26.0)
                         .size(10.5)
                         .color(colors.text_primary)
-                        .bg(colors.bg_base.with_alpha(0.6))
+                        .bg(if is_light { Color::WHITE } else { colors.bg_base.with_alpha(0.6) })
                         .border(colors.border.with_alpha(0.5), 0.75)
                         .focus_border(colors.accent.with_alpha(0.8), 1.0)
                         .radius(4.0, 4.0, 4.0, 4.0)
@@ -1462,19 +1452,21 @@ fn draw_api_keys_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColor
                 });
 
                 // Buttons
-                ui.container().full_width().row().valign(Align::Center).halign(Align::Right).gap(6.0).show(|ui| {
-                    let cancel_btn = ui.container()
-                        .clickable(true)
-                        .padding(5.0, 10.0, 5.0, 10.0)
+                ui.container().full_width().row().valign(Align::Center).halign(Align::Right).gap(8.0).show(|ui| {
+                    let cancel_btn = ui.button("Cancel")
+                        .id(Id::from_u64(999999887))
+                        .padding(4.5, 12.0, 4.5, 12.0)
                         .radius_all(5.0)
-                        .bg(colors.highlight)
-                        .border(colors.border.with_alpha(0.5), 0.75)
-                        .show(|ui| {
-                            ui.text("Cancel").size(10.0).color(colors.text_muted).show();
-                        });
+                        .bg(if is_light { Color::rgb(0.92, 0.92, 0.94) } else { colors.bg_base })
+                        .hover_bg(if is_light { Color::rgb(0.85, 0.85, 0.88) } else { colors.border.with_alpha(0.5) })
+                        .border(colors.border.with_alpha(0.4), 0.75)
+                        .text_color(colors.text_muted)
+                        .size(10.0)
+                        .show();
                     if cancel_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
                     if cancel_btn.clicked {
                         state.ai_settings.custom_provider_form_open = false;
+                        ui.needs_redraw = true;
                     }
 
                     let name_ok = !state.ai_settings.custom_provider_name.trim().is_empty();
@@ -1482,18 +1474,16 @@ fn draw_api_keys_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColor
                     let url_ok = !state.ai_settings.custom_provider_url.trim().is_empty();
                     let can_add = name_ok && key_ok && url_ok;
 
-                    let add_btn = ui.container()
-                        .clickable(can_add)
-                        .padding(5.0, 11.0, 5.0, 11.0)
+                    let add_btn = ui.button("Add Provider")
+                        .id(Id::from_u64(999999888))
+                        .padding(4.5, 14.0, 4.5, 14.0)
                         .radius_all(5.0)
-                        .bg(if can_add { colors.accent } else { colors.highlight })
-                        .show(|ui| {
-                            ui.text("Add")
-                                .size(10.0)
-                                .weight(FontWeight::Medium)
-                                .color(if can_add { Color::WHITE } else { colors.text_muted })
-                                .show();
-                        });
+                        .bg(if can_add { colors.accent } else if is_light { Color::rgb(0.90, 0.90, 0.92) } else { colors.bg_base })
+                        .hover_bg(if can_add { colors.accent.with_alpha(0.85) } else if is_light { Color::rgb(0.90, 0.90, 0.92) } else { colors.bg_base })
+                        .border(if can_add { colors.accent.with_alpha(0.8) } else { colors.border.with_alpha(0.4) }, 0.75)
+                        .text_color(if can_add { Color::WHITE } else { colors.text_muted })
+                        .size(10.0)
+                        .show();
                     if add_btn.hovered && can_add { ui.cursor_icon = CursorIcon::Pointer; }
                     if add_btn.clicked && can_add {
                         let name = state.ai_settings.custom_provider_name.trim().to_lowercase();
@@ -1537,9 +1527,10 @@ fn draw_external_agents_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &The
 
     let auth = agent::external_provider::AntigravityAuthManager::with_default_config();
     let maybe_token = auth.load_token();
-    let is_connected = maybe_token.is_some();
+    let is_installed = agent::external_provider::is_antigravity_installed();
+    let is_connected = maybe_token.is_some() && is_installed;
     let is_antigravity_active = state.selected_agent == SelectedAgent::Antigravity;
-    let _is_light = colors.bg_base.r > 0.5;
+    let is_light = colors.bg_base.r > 0.5;
 
     // ── 1. Google Antigravity Card ──
     ui.container()
@@ -1603,20 +1594,37 @@ fn draw_external_agents_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &The
                     });
 
                     // Badge
-                    let (badge_bg, badge_fg, badge_text) = if is_connected {
-                        (Color::rgb(0.15, 0.55, 0.25), Color::rgb(0.2, 0.9, 0.4), "Connected")
+                    let (badge_bg, badge_border, badge_fg, badge_text) = if is_connected {
+                        (
+                            Color::rgba(34.0 / 255.0, 197.0 / 255.0, 94.0 / 255.0, 0.12),
+                            Color::rgba(34.0 / 255.0, 197.0 / 255.0, 94.0 / 255.0, 0.35),
+                            Color::rgb(74.0 / 255.0, 222.0 / 255.0, 128.0 / 255.0),
+                            "Connected ●",
+                        )
+                    } else if !is_installed {
+                        (
+                            Color::rgba(234.0 / 255.0, 179.0 / 255.0, 8.0 / 255.0, 0.12),
+                            Color::rgba(234.0 / 255.0, 179.0 / 255.0, 8.0 / 255.0, 0.35),
+                            Color::rgb(250.0 / 255.0, 204.0 / 255.0, 21.0 / 255.0),
+                            "Not Installed",
+                        )
                     } else {
-                        (colors.highlight, colors.text_muted, "Not Connected")
+                        (
+                            colors.highlight,
+                            colors.border.with_alpha(0.5),
+                            colors.text_muted,
+                            "Not Signed In",
+                        )
                     };
 
                     ui.container()
-                        .padding(3.0, 9.0, 3.0, 9.0)
+                        .padding(3.0, 10.0, 3.0, 10.0)
                         .radius_all(10.0)
-                        .bg(badge_bg.with_alpha(0.2))
-                        .border(badge_bg.with_alpha(0.6), 0.75)
+                        .bg(badge_bg)
+                        .border(badge_border, 0.75)
                         .show(|ui| {
                             ui.text(badge_text)
-                                .size(10.0)
+                                .size(9.5)
                                 .weight(FontWeight::Medium)
                                 .color(badge_fg)
                                 .show();
@@ -1655,17 +1663,18 @@ fn draw_external_agents_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &The
                                 .color(colors.text_primary)
                                 .show();
 
-                            draw_antigravity_settings_model_button(ui, state, colors);
+                            draw_antigravity_settings_model_button(ui, state, colors, is_connected);
                         });
 
                     // RIGHT: User icon + email on top, Logout / Switch or Sign In below
                     ui.container()
-                        .max_width(220.0)
+                        .width(260.0)
                         .column()
                         .gap(8.0)
                         .halign(Align::Right)
                         .show(|ui| {
-                            if let Some(token) = &maybe_token {
+                            if is_connected {
+                                let token = maybe_token.as_ref().unwrap();
                                 // User icon + email
                                 ui.container().row().valign(Align::Center).gap(7.0).show(|ui| {
                                     ui.container()
@@ -1687,25 +1696,23 @@ fn draw_external_agents_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &The
                                         .size(10.5)
                                         .weight(FontWeight::SemiBold)
                                         .color(colors.text_primary)
-                                        .max_width(170.0)
+                                        .max_width(200.0)
                                         .ellipsis(true)
                                         .show();
                                 });
 
                                 // Below: Logout and Switch buttons
                                 ui.container().row().valign(Align::Center).gap(8.0).show(|ui| {
-                                    let logout_btn = ui.container()
-                                        .clickable(true)
+                                    let logout_btn = ui.button("Log Out")
+                                        .id(Id::from_u64(999999835))
                                         .padding(4.5, 12.0, 4.5, 12.0)
                                         .radius_all(5.0)
-                                        .bg(colors.highlight)
+                                        .bg(if is_light { Color::rgb(0.92, 0.92, 0.94) } else { colors.bg_base })
+                                        .hover_bg(if is_light { Color::rgb(0.86, 0.86, 0.88) } else { colors.border.with_alpha(0.6) })
                                         .border(colors.border.with_alpha(0.5), 0.75)
-                                        .show(|ui| {
-                                            ui.text("Log Out")
-                                                .size(10.5)
-                                                .color(colors.text_primary)
-                                                .show();
-                                        });
+                                        .text_color(colors.text_primary)
+                                        .size(10.5)
+                                        .show();
                                     if logout_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
                                     if logout_btn.clicked {
                                         auth.clear_token();
@@ -1715,28 +1722,181 @@ fn draw_external_agents_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &The
                                         ui.needs_redraw = true;
                                     }
 
-                                    let switch_btn = ui.container()
-                                        .clickable(!is_antigravity_active)
+                                    let switch_btn = ui.button(if is_antigravity_active { "Active in Chat" } else { "Switch to Agent" })
+                                        .id(Id::from_u64(999999836))
                                         .padding(4.5, 12.0, 4.5, 12.0)
                                         .radius_all(5.0)
                                         .bg(if is_antigravity_active { colors.accent.with_alpha(0.35) } else { colors.accent })
-                                        .show(|ui| {
-                                            ui.text(if is_antigravity_active { "Active in Chat" } else { "Switch to Agent" })
-                                                .size(10.5)
-                                                .weight(FontWeight::Medium)
-                                                .color(Color::WHITE)
-                                                .show();
-                                        });
+                                        .hover_bg(if is_antigravity_active { colors.accent.with_alpha(0.35) } else { colors.accent.with_alpha(0.85) })
+                                        .text_color(Color::WHITE)
+                                        .size(10.5)
+                                        .show();
                                     if !is_antigravity_active && switch_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
                                     if !is_antigravity_active && switch_btn.clicked {
                                         state.selected_agent = SelectedAgent::Antigravity;
                                         ui.needs_redraw = true;
                                     }
+
+                                    // Vibrant Red remove/uninstall button
+                                    let remove_btn = ui.button("\u{f1f8}") // fa-trash
+                                        .id(Id::from_u64(999999837))
+                                        .padding(4.5, 9.0, 4.5, 9.0)
+                                        .radius_all(5.0)
+                                        .bg(Color::rgb(220.0 / 255.0, 40.0 / 255.0, 40.0 / 255.0))
+                                        .hover_bg(Color::rgb(190.0 / 255.0, 30.0 / 255.0, 30.0 / 255.0))
+                                        .border(Color::rgb(180.0 / 255.0, 30.0 / 255.0, 30.0 / 255.0), 0.75)
+                                        .text_color(Color::WHITE)
+                                        .size(10.5)
+                                        .show();
+                                    if remove_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
+                                    if remove_btn.clicked {
+                                        let _ = agent::external_provider::uninstall_antigravity();
+                                        auth.clear_token();
+                                        if state.selected_agent == SelectedAgent::Antigravity {
+                                            state.selected_agent = SelectedAgent::Zene;
+                                        }
+                                        ui.needs_redraw = true;
+                                    }
                                 });
+                            } else if !is_installed {
+                                // ── STEP 1: Manual Installation Required ──
+                                let is_installing = ANTIGRAVITY_INSTALL_RUNNING
+                                    .load(std::sync::atomic::Ordering::SeqCst);
+                                let install_status = ANTIGRAVITY_INSTALL_STATUS
+                                    .lock()
+                                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                                    .clone();
+                                let install_error = ANTIGRAVITY_INSTALL_ERROR
+                                    .lock()
+                                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                                    .clone();
+
+                                ui.container().row().valign(Align::Center).gap(6.0).show(|ui| {
+                                    ui.container()
+                                        .width(22.0)
+                                        .height(22.0)
+                                        .radius_all(11.0)
+                                        .bg(colors.border.with_alpha(0.3))
+                                        .valign(Align::Center)
+                                        .halign(Align::Center)
+                                        .show(|ui| {
+                                            ui.text("\u{f019}") // fa-download
+                                                .size(9.5)
+                                                .color(colors.text_muted)
+                                                .show();
+                                        });
+
+                                    ui.text("Server not installed")
+                                        .size(10.0)
+                                        .color(colors.text_muted)
+                                        .show();
+                                });
+
+                                if let Some(status) = &install_status {
+                                    if is_installing {
+                                        let current_progress = *ANTIGRAVITY_INSTALL_PROGRESS
+                                            .lock()
+                                            .unwrap_or_else(std::sync::PoisonError::into_inner);
+
+                                        ui.text(status)
+                                            .size(9.5)
+                                            .weight(FontWeight::Medium)
+                                            .color(colors.accent)
+                                            .max_width(250.0)
+                                            .auto_wrap()
+                                            .show();
+
+                                        // Built-in progress bar widget
+                                        ui.progress_bar(current_progress)
+                                            .id(Id::from_u64(999999839))
+                                            .width(250.0)
+                                            .track_height(6.0)
+                                            .radius_all(3.0)
+                                            .track_color(if is_light { Color::rgb(0.85, 0.85, 0.88) } else { colors.bg_base })
+                                            .fill_color(colors.accent)
+                                            .show();
+                                    }
+                                }
+
+                                if let Some(error) = &install_error {
+                                    ui.text(error)
+                                        .size(9.0)
+                                        .color(Color::from_hex(0xe65050))
+                                        .max_width(250.0)
+                                        .auto_wrap()
+                                        .show();
+                                }
+
+                                if is_installing {
+                                    ui.request_redraw_after(std::time::Duration::from_millis(100));
+                                }
+
+                                let install_btn = ui.button(if is_installing { "Installing Server..." } else { "Install Antigravity Server" })
+                                    .id(Id::from_u64(999999833))
+                                    .padding(5.0, 14.0, 5.0, 14.0)
+                                    .radius_all(5.0)
+                                    .bg(if is_installing { colors.accent.with_alpha(0.4) } else { colors.accent })
+                                    .hover_bg(colors.accent.with_alpha(0.85))
+                                    .text_color(Color::WHITE)
+                                    .size(10.5)
+                                    .show();
+
+                                if install_btn.hovered && !is_installing {
+                                    ui.cursor_icon = CursorIcon::Pointer;
+                                }
+
+                                if install_btn.clicked && !is_installing {
+                                    ANTIGRAVITY_INSTALL_ERROR
+                                        .lock()
+                                        .unwrap_or_else(std::sync::PoisonError::into_inner)
+                                        .take();
+                                    *ANTIGRAVITY_INSTALL_PROGRESS
+                                        .lock()
+                                        .unwrap_or_else(std::sync::PoisonError::into_inner) = 0.0;
+                                    *ANTIGRAVITY_INSTALL_STATUS
+                                        .lock()
+                                        .unwrap_or_else(std::sync::PoisonError::into_inner) =
+                                        Some("Connecting to Google download server...".to_string());
+                                    ANTIGRAVITY_INSTALL_RUNNING
+                                        .store(true, std::sync::atomic::Ordering::SeqCst);
+
+                                    std::thread::spawn(|| {
+                                        let res = agent::external_provider::install_antigravity(|status_msg, progress_val| {
+                                            *ANTIGRAVITY_INSTALL_STATUS
+                                                .lock()
+                                                .unwrap_or_else(std::sync::PoisonError::into_inner) =
+                                                Some(status_msg.to_string());
+                                            *ANTIGRAVITY_INSTALL_PROGRESS
+                                                .lock()
+                                                .unwrap_or_else(std::sync::PoisonError::into_inner) =
+                                                progress_val;
+                                        });
+                                        if let Err(e) = res {
+                                            *ANTIGRAVITY_INSTALL_ERROR
+                                                .lock()
+                                                .unwrap_or_else(std::sync::PoisonError::into_inner) =
+                                                Some(e);
+                                        }
+                                        *ANTIGRAVITY_INSTALL_STATUS
+                                            .lock()
+                                            .unwrap_or_else(std::sync::PoisonError::into_inner) = None;
+                                        *ANTIGRAVITY_INSTALL_PROGRESS
+                                            .lock()
+                                            .unwrap_or_else(std::sync::PoisonError::into_inner) = 0.0;
+                                        ANTIGRAVITY_INSTALL_RUNNING
+                                            .store(false, std::sync::atomic::Ordering::SeqCst);
+                                    });
+                                    ui.needs_redraw = true;
+                                }
                             } else {
+                                // ── STEP 2: Installed, Manual Sign In ──
                                 let is_signing_in = ANTIGRAVITY_LOGIN_RUNNING
                                     .load(std::sync::atomic::Ordering::SeqCst);
                                 let login_error = ANTIGRAVITY_LOGIN_ERROR
+                                    .lock()
+                                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                                    .clone();
+                                let login_status = ANTIGRAVITY_LOGIN_STATUS
                                     .lock()
                                     .unwrap_or_else(std::sync::PoisonError::into_inner)
                                     .clone();
@@ -1762,10 +1922,24 @@ fn draw_external_agents_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &The
                                         .show();
                                 });
 
+                                if let Some(status) = &login_status {
+                                    if is_signing_in {
+                                        ui.text(status)
+                                            .size(9.5)
+                                            .weight(FontWeight::Medium)
+                                            .color(colors.accent)
+                                            .max_width(250.0)
+                                            .auto_wrap()
+                                            .show();
+                                    }
+                                }
+
                                 if let Some(error) = &login_error {
                                     ui.text(error)
                                         .size(9.0)
                                         .color(Color::from_hex(0xe65050))
+                                        .max_width(250.0)
+                                        .auto_wrap()
                                         .show();
                                 }
 
@@ -1773,47 +1947,79 @@ fn draw_external_agents_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &The
                                     ui.request_redraw_after(std::time::Duration::from_millis(250));
                                 }
 
-                                let login_btn = ui.button(
-                                    if is_signing_in { "Authenticating..." } else { "Sign In via Antigravity" },
-                                )
-                                    .id(Id::from_u64(999999834))
-                                    .padding(5.0, 14.0, 5.0, 14.0)
-                                    .radius_all(5.0)
-                                    .bg(if is_signing_in { colors.accent.with_alpha(0.4) } else { colors.accent })
-                                    .hover_bg(colors.accent.with_alpha(0.85))
-                                    .text_color(Color::WHITE)
-                                    .size(10.5)
-                                    .show();
-                                if login_btn.hovered && !is_signing_in {
-                                    ui.cursor_icon = CursorIcon::Pointer;
-                                }
-                                if login_btn.clicked && !is_signing_in {
-                                    ANTIGRAVITY_LOGIN_ERROR
-                                        .lock()
-                                        .unwrap_or_else(std::sync::PoisonError::into_inner)
-                                        .take();
-                                    ANTIGRAVITY_LOGIN_RUNNING
-                                        .store(true, std::sync::atomic::Ordering::SeqCst);
-                                    std::thread::spawn(|| {
-                                        let auth = agent::external_provider::AntigravityAuthManager::with_default_config();
-                                        let result = auth.login_interactive().and_then(|()| {
-                                            if auth.load_token().is_some() {
-                                                Ok(())
-                                            } else {
-                                                Err("Antigravity login finished without saving credentials. Check that the Antigravity ACP agent is installed and try again.".to_string())
-                                            }
-                                        });
-                                        if let Err(error) = result {
-                                            *ANTIGRAVITY_LOGIN_ERROR
-                                                .lock()
-                                                .unwrap_or_else(std::sync::PoisonError::into_inner) =
-                                                Some(error);
-                                        }
+                                ui.container().row().valign(Align::Center).gap(8.0).show(|ui| {
+                                    let login_btn = ui.button(if is_signing_in { "Authenticating..." } else { "Sign In via Antigravity" })
+                                        .id(Id::from_u64(999999834))
+                                        .padding(5.0, 14.0, 5.0, 14.0)
+                                        .radius_all(5.0)
+                                        .bg(if is_signing_in { colors.accent.with_alpha(0.4) } else { colors.accent })
+                                        .hover_bg(colors.accent.with_alpha(0.85))
+                                        .text_color(Color::WHITE)
+                                        .size(10.5)
+                                        .show();
+                                    if login_btn.hovered && !is_signing_in {
+                                        ui.cursor_icon = CursorIcon::Pointer;
+                                    }
+                                    if login_btn.clicked && !is_signing_in {
+                                        ANTIGRAVITY_LOGIN_ERROR
+                                            .lock()
+                                            .unwrap_or_else(std::sync::PoisonError::into_inner)
+                                            .take();
+                                        *ANTIGRAVITY_LOGIN_STATUS
+                                            .lock()
+                                            .unwrap_or_else(std::sync::PoisonError::into_inner) =
+                                            Some("Opening browser for Google account sign in...".to_string());
                                         ANTIGRAVITY_LOGIN_RUNNING
-                                            .store(false, std::sync::atomic::Ordering::SeqCst);
-                                    });
-                                    ui.needs_redraw = true;
-                                }
+                                            .store(true, std::sync::atomic::Ordering::SeqCst);
+                                        std::thread::spawn(|| {
+                                            let auth = agent::external_provider::AntigravityAuthManager::with_default_config();
+                                            let result = auth.login_interactive_with_callback(|status_msg| {
+                                                *ANTIGRAVITY_LOGIN_STATUS
+                                                    .lock()
+                                                    .unwrap_or_else(std::sync::PoisonError::into_inner) =
+                                                    Some(status_msg.to_string());
+                                            }).and_then(|()| {
+                                                if auth.load_token().is_some() {
+                                                    Ok(())
+                                                } else {
+                                                    Err("Sign in finished without saving credentials. Check your network and try again.".to_string())
+                                                }
+                                            });
+                                            if let Err(error) = result {
+                                                *ANTIGRAVITY_LOGIN_ERROR
+                                                    .lock()
+                                                    .unwrap_or_else(std::sync::PoisonError::into_inner) =
+                                                    Some(error);
+                                            }
+                                            *ANTIGRAVITY_LOGIN_STATUS
+                                                .lock()
+                                                .unwrap_or_else(std::sync::PoisonError::into_inner) = None;
+                                            ANTIGRAVITY_LOGIN_RUNNING
+                                                .store(false, std::sync::atomic::Ordering::SeqCst);
+                                        });
+                                        ui.needs_redraw = true;
+                                    }
+
+                                    // Vibrant Red remove button
+                                    let remove_btn = ui.button("\u{f1f8}") // fa-trash
+                                        .id(Id::from_u64(999999838))
+                                        .padding(5.0, 9.0, 5.0, 9.0)
+                                        .radius_all(5.0)
+                                        .bg(Color::rgb(220.0 / 255.0, 40.0 / 255.0, 40.0 / 255.0))
+                                        .hover_bg(Color::rgb(190.0 / 255.0, 30.0 / 255.0, 30.0 / 255.0))
+                                        .border(Color::rgb(180.0 / 255.0, 30.0 / 255.0, 30.0 / 255.0), 0.75)
+                                        .text_color(Color::WHITE)
+                                        .size(10.5)
+                                        .show();
+                                    if remove_btn.hovered && !is_signing_in { ui.cursor_icon = CursorIcon::Pointer; }
+                                    if remove_btn.clicked && !is_signing_in {
+                                        let _ = agent::external_provider::uninstall_antigravity();
+                                        if state.selected_agent == SelectedAgent::Antigravity {
+                                            state.selected_agent = SelectedAgent::Zene;
+                                        }
+                                        ui.needs_redraw = true;
+                                    }
+                                });
                             }
                         });
                 });
@@ -1992,12 +2198,67 @@ fn draw_antigravity_settings_model_button(
     ui: &mut Ui,
     state: &mut ZenthreeState,
     colors: &ThemeColors,
+    is_connected: bool,
 ) {
-    if !state.selected_ai_model.is_antigravity() {
-        state.selected_ai_model = AiModel::AntigravityGemini38FlashHigh;
+    if !is_connected {
+        // Disabled button when not connected to external agent
+        ui.container()
+            .raw_id(AG_SETTINGS_MODEL_BTN_ID)
+            .clickable(false)
+            .width(200.0)
+            .height(28.0)
+            .padding(4.0, 10.0, 4.0, 10.0)
+            .radius_all(5.0)
+            .bg(colors.bg_base)
+            .border(colors.border.with_alpha(0.3), 1.0)
+            .row()
+            .valign(Align::Center)
+            .halign(Align::SpaceBetween)
+            .show(|ui| {
+                ui.text("Connect to load models")
+                    .size(10.0)
+                    .color(colors.text_muted.with_alpha(0.6))
+                    .show();
+                ui.text("\u{f078}")
+                    .size(8.0)
+                    .color(colors.text_muted.with_alpha(0.4))
+                    .show();
+            });
+        return;
     }
 
+    let dynamic_models = agent::external_provider::available_models();
     let is_open = state.ai_settings.antigravity_model_dropdown_open;
+
+    // Pick display name based on dynamic model selection
+    let display_title = if dynamic_models.is_empty() {
+        "Loading external models...".to_string()
+    } else {
+        if let Some(ref sel_id) = state.ai_settings.selected_antigravity_model_id {
+            dynamic_models
+                .iter()
+                .find(|m| &m.id == sel_id)
+                .map(|m| m.display_name.clone())
+                .unwrap_or_else(|| dynamic_models[0].display_name.clone())
+        } else {
+            dynamic_models[0].display_name.clone()
+        }
+    };
+
+    let is_light = colors.bg_base.r > 0.5;
+    let btn_bg = if is_open {
+        colors.highlight
+    } else if is_light {
+        Color::rgb(245.0 / 255.0, 245.0 / 255.0, 248.0 / 255.0)
+    } else {
+        Color::rgb(24.0 / 255.0, 24.0 / 255.0, 28.0 / 255.0)
+    };
+    let btn_border = if is_open {
+        colors.accent.with_alpha(0.6)
+    } else {
+        colors.border.with_alpha(0.4)
+    };
+
     let model_btn = ui.container()
         .raw_id(AG_SETTINGS_MODEL_BTN_ID)
         .clickable(true)
@@ -2005,14 +2266,14 @@ fn draw_antigravity_settings_model_button(
         .height(28.0)
         .padding(4.0, 10.0, 4.0, 10.0)
         .radius_all(5.0)
-        .bg(if is_open { colors.highlight } else { colors.bg_base })
+        .bg(btn_bg)
         .hover_bg(colors.highlight)
-        .border(colors.border.with_alpha(0.6), 1.0)
+        .border(btn_border, 0.75)
         .row()
         .valign(Align::Center)
         .halign(Align::SpaceBetween)
         .show(|ui| {
-            ui.text(state.selected_ai_model.display_name())
+            ui.text(&display_title)
                 .size(10.5)
                 .weight(FontWeight::Medium)
                 .color(colors.text_primary)
@@ -2042,14 +2303,11 @@ pub fn draw_antigravity_settings_model_popover(
     }
 
     let colors = use_context::<ThemeColors>().map(|c| *c).unwrap_or_else(|| state.colors());
+    let models = agent::external_provider::available_models();
 
-    if !state.selected_ai_model.is_antigravity() {
-        state.selected_ai_model = AiModel::AntigravityGemini38FlashHigh;
-    }
-
-    let menu_w = 200.0;
-    let models = AiModel::ANTIGRAVITY_MODELS;
-    let menu_h = (models.len() as f32 * 26.0 + 8.0).min(240.0);
+    let menu_w = 210.0;
+    let total_h = (models.len().max(1) as f32) * 26.0 + 8.0;
+    let menu_h = total_h.min(160.0);
 
     let is_light = colors.bg_base.r > 0.5;
     let menu_bg = if state.glassmorphism {
@@ -2099,7 +2357,7 @@ pub fn draw_antigravity_settings_model_popover(
         }
     }
 
-    let mut select_model: Option<AiModel> = None;
+    let mut select_model_id: Option<String> = None;
     let mut popover_builder = ui.popover(AG_SETTINGS_MODEL_BTN_ID)
         .placement(Placement::Bottom)
         .align(PopoverAlign::Start)
@@ -2118,46 +2376,63 @@ pub fn draw_antigravity_settings_model_popover(
     }
 
     popover_builder.show(|ui| {
-            ui.container()
-                .full_width()
-                .height(menu_h - 8.0)
-                .column()
-                .gap(1.5)
-                .scroll_y(true)
-                .show(|ui| {
-                    // Models only, NO title/heading, active model highlighted, NO ticks
-                    for model in models {
-                        let is_selected = state.selected_ai_model == model;
-                        let row_id = ui.id_from(&format!("pop_ag_settings_model_{}", model.model_id()));
-                        let row = ui.container()
-                            .id(row_id)
-                            .full_width()
-                            .height(26.0)
-                            .padding(2.0, 8.0, 2.0, 8.0)
-                            .radius_all(4.0)
-                            .bg(if is_selected { colors.accent.with_alpha(0.12) } else { Color::TRANSPARENT })
-                            .hover_bg(colors.highlight)
-                            .row()
-                            .valign(Align::Center)
-                            .show(|ui| {
-                                ui.text(model.display_name())
-                                    .size(10.0)
-                                    .weight(if is_selected { FontWeight::Medium } else { FontWeight::Regular })
-                                    .color(if is_selected { colors.accent } else { colors.text_primary })
-                                    .show();
-                            });
+        let scroll_box_id = Id::from_u64(999999816);
+        ui.container()
+            .id(scroll_box_id)
+            .full_width()
+            .height(menu_h - 8.0)
+            .column()
+            .gap(1.5)
+            .scroll_y(true)
+            .show(|ui| {
+                if models.is_empty() {
+                    ui.container()
+                        .full_width()
+                        .padding(6.0, 8.0, 6.0, 8.0)
+                        .show(|ui| {
+                            ui.text("No models returned by agent")
+                                .size(10.0)
+                                .color(colors.text_muted)
+                                .show();
+                        });
+                    return;
+                }
 
-                        if row.hovered { ui.cursor_icon = CursorIcon::Pointer; }
-                        if row.clicked {
-                            ui.clicked = false;
-                            select_model = Some(model);
-                        }
+                let current_selected = state.ai_settings.selected_antigravity_model_id.as_deref()
+                    .unwrap_or(models[0].id.as_str());
+
+                for model in &models {
+                    let is_selected = model.id == current_selected;
+                    let row_id = ui.id_from(&format!("pop_ag_dynamic_model_{}", model.id));
+                    let row = ui.container()
+                        .id(row_id)
+                        .full_width()
+                        .height(26.0)
+                        .padding(2.0, 8.0, 2.0, 8.0)
+                        .radius_all(4.0)
+                        .bg(if is_selected { colors.accent.with_alpha(0.12) } else { Color::TRANSPARENT })
+                        .hover_bg(colors.highlight)
+                        .row()
+                        .valign(Align::Center)
+                        .show(|ui| {
+                            ui.text(&model.display_name)
+                                .size(10.0)
+                                .weight(if is_selected { FontWeight::Medium } else { FontWeight::Regular })
+                                .color(if is_selected { colors.accent } else { colors.text_primary })
+                                .show();
+                        });
+
+                    if row.hovered { ui.cursor_icon = CursorIcon::Pointer; }
+                    if row.clicked {
+                        ui.clicked = false;
+                        select_model_id = Some(model.id.clone());
                     }
-                });
-        });
+                }
+            });
+    });
 
-    if let Some(model) = select_model {
-        state.selected_ai_model = model;
+    if let Some(model_id) = select_model_id {
+        state.ai_settings.selected_antigravity_model_id = Some(model_id);
         state.selected_agent = SelectedAgent::Antigravity;
         state.ai_settings.antigravity_model_dropdown_open = false;
         state.save_persistent_state();

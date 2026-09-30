@@ -65,6 +65,8 @@ pub struct AiSettingsState {
     // External Agents — model selection dropdown
     #[serde(skip)]
     pub antigravity_model_dropdown_open: bool,
+    #[serde(default)]
+    pub selected_antigravity_model_id: Option<String>,
 }
 
 fn default_true() -> bool {
@@ -102,6 +104,7 @@ impl Default for AiSettingsState {
             custom_provider_key: String::new(),
             custom_provider_url: String::new(),
             antigravity_model_dropdown_open: false,
+            selected_antigravity_model_id: None,
         }
     }
 }
