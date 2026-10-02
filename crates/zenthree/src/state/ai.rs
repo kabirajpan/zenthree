@@ -378,8 +378,11 @@ impl ZenthreeState {
                         agent::types::AgentEvent::ToolStarted { name, args } => {
                             send_fn(AiUiUpdate::ToolStart { name, args });
                         }
-                        agent::types::AgentEvent::ToolFinished { name, .. } => {
-                            send_fn(AiUiUpdate::ToolDone { name });
+                        agent::types::AgentEvent::ToolFinished { name, result } => {
+                            send_fn(AiUiUpdate::ToolDone {
+                                name,
+                                result: Some(result),
+                            });
                         }
                         agent::types::AgentEvent::Thought(thought) => {
                             send_fn(AiUiUpdate::Thought(thought));
@@ -525,8 +528,10 @@ impl ZenthreeState {
                                 if let Some(last) =
                                     self.ai_messages.iter_mut().rev().find(|m| !m.is_user)
                                 {
-                                    match name.as_str() {
-                                        "edit_file" => {
+                                    let clean_tool_name = clean_tool_str(&name);
+
+                                    match clean_tool_name {
+                                        "edit_file" | "client_edit_file" | "replace_file_content" | "multi_replace_file_content" | "client_modify_file" => {
                                             if let Some(TrajectoryStep::Exploration(ref mut grp)) =
                                                 last.trajectory.last_mut()
                                             {
@@ -534,9 +539,20 @@ impl ZenthreeState {
                                             }
                                             let path = args
                                                 .get("path")
+                                                .or_else(|| args.get("file_path"))
+                                                .or_else(|| args.get("filePath"))
+                                                .or_else(|| args.get("TargetFile"))
+                                                .or_else(|| args.get("target_file"))
+                                                .or_else(|| args.get("file"))
                                                 .and_then(|v| v.as_str())
                                                 .unwrap_or("file")
                                                 .to_string();
+                                            let full_content = args
+                                                .get("content")
+                                                .or_else(|| args.get("code_content"))
+                                                .or_else(|| args.get("CodeContent"))
+                                                .and_then(|v| v.as_str());
+
                                             let target = args
                                                 .get("target")
                                                 .and_then(|v| v.as_str())
@@ -572,61 +588,72 @@ impl ZenthreeState {
                                                 path_buf.clone()
                                             };
 
+                                            let existing_rev = self.pending_reviews.iter().find(|r| path_matches(&r.path, &effective_path));
                                             let mut orig_content = String::new();
                                             let mut new_content_str = String::new();
 
-                                            if let Some(idx) = tab_match_idx {
-                                                let current_text = self.tabs[idx].editor.buffer.to_string();
-                                                if current_text.contains(target) {
-                                                    orig_content = current_text;
-                                                    new_content_str = orig_content.replacen(target, replacement, 1);
-                                                } else {
-                                                    let norm_current = current_text.replace("\r\n", "\n");
-                                                    let norm_target = target.replace("\r\n", "\n");
-                                                    if norm_current.contains(&norm_target) {
-                                                        orig_content = current_text;
-                                                        let norm_replacement = replacement.replace("\r\n", "\n");
-                                                        new_content_str = norm_current.replacen(&norm_target, &norm_replacement, 1);
-                                                    } else if current_text.contains(replacement) && !replacement.is_empty() {
-                                                        new_content_str = current_text.clone();
-                                                        orig_content = current_text.replacen(replacement, target, 1);
-                                                    }
+                                            if let Some(full) = full_content {
+                                                new_content_str = full.to_string();
+                                                if let Some(rev) = existing_rev {
+                                                    orig_content = rev.original_content.clone();
+                                                } else if let Ok(disk_content) = std::fs::read_to_string(&effective_path) {
+                                                    orig_content = disk_content;
+                                                } else if let Some(idx) = tab_match_idx {
+                                                    orig_content = self.tabs[idx].editor.buffer.to_string();
                                                 }
-                                            }
-
-                                            if orig_content.is_empty() {
-                                                if let Ok(disk_content) = std::fs::read_to_string(&effective_path) {
-                                                    if disk_content.contains(target) {
-                                                        orig_content = disk_content;
+                                            } else {
+                                                if let Some(idx) = tab_match_idx {
+                                                    let current_text = self.tabs[idx].editor.buffer.to_string();
+                                                    if current_text.contains(target) {
+                                                        orig_content = current_text;
                                                         new_content_str = orig_content.replacen(target, replacement, 1);
                                                     } else {
-                                                        let norm_disk = disk_content.replace("\r\n", "\n");
+                                                        let norm_current = current_text.replace("\r\n", "\n");
                                                         let norm_target = target.replace("\r\n", "\n");
-                                                        if norm_disk.contains(&norm_target) {
-                                                            orig_content = disk_content;
+                                                        if norm_current.contains(&norm_target) {
+                                                            orig_content = current_text;
                                                             let norm_replacement = replacement.replace("\r\n", "\n");
-                                                            new_content_str = norm_disk.replacen(&norm_target, &norm_replacement, 1);
-                                                        } else if disk_content.contains(replacement) && !replacement.is_empty() {
-                                                            new_content_str = disk_content.clone();
-                                                            orig_content = disk_content.replacen(replacement, target, 1);
+                                                            new_content_str = norm_current.replacen(&norm_target, &norm_replacement, 1);
+                                                        } else if current_text.contains(replacement) && !replacement.is_empty() {
+                                                            new_content_str = current_text.clone();
+                                                            orig_content = current_text.replacen(replacement, target, 1);
+                                                        }
+                                                    }
+                                                }
+
+                                                if orig_content.is_empty() {
+                                                    if let Ok(disk_content) = std::fs::read_to_string(&effective_path) {
+                                                        if disk_content.contains(target) {
+                                                            orig_content = disk_content;
+                                                            new_content_str = orig_content.replacen(target, replacement, 1);
                                                         } else {
-                                                            orig_content = disk_content.clone();
-                                                            new_content_str = disk_content;
+                                                            let norm_disk = disk_content.replace("\r\n", "\n");
+                                                            let norm_target = target.replace("\r\n", "\n");
+                                                            if norm_disk.contains(&norm_target) {
+                                                                orig_content = disk_content;
+                                                                let norm_replacement = replacement.replace("\r\n", "\n");
+                                                                new_content_str = norm_disk.replacen(&norm_target, &norm_replacement, 1);
+                                                            } else if disk_content.contains(replacement) && !replacement.is_empty() {
+                                                                new_content_str = disk_content.clone();
+                                                                orig_content = disk_content.replacen(replacement, target, 1);
+                                                            } else {
+                                                                orig_content = disk_content.clone();
+                                                                new_content_str = disk_content;
+                                                            }
                                                         }
                                                     }
                                                 }
                                             }
 
                                             let (diff_lines, preview_text) = crate::state::compute_line_diff(&orig_content, &new_content_str);
-                                            let mut lines_added = diff_lines.iter().filter(|(_, s)| *s == DiffLineState::Added).count();
+                                            let lines_added = diff_lines.iter().filter(|(_, s)| *s == DiffLineState::Added).count();
                                             let lines_removed = diff_lines.iter().filter(|(_, s)| *s == DiffLineState::Removed).count();
-                                            if lines_added == 0 && lines_removed == 0 && !new_content_str.is_empty() {
-                                                lines_added = new_content_str.lines().count().max(1);
-                                            }
                                             last.trajectory.push(TrajectoryStep::FileEdit {
                                                 path: path.clone(),
                                                 lines_added,
                                                 lines_removed,
+                                                is_new: false,
+                                                expanded: false,
                                             });
 
                                             let review = FileDiffReview {
@@ -677,7 +704,7 @@ impl ZenthreeState {
                                             };
                                             self.set_active_tab(Some(tab_idx));
                                         }
-                                        "write_file" => {
+                                        "write_file" | "client_write_file" | "write_to_file" | "create_file" | "client_create_file" | "write_text_file" | "fs/write_text_file" => {
                                             if let Some(TrajectoryStep::Exploration(ref mut grp)) =
                                                  last.trajectory.last_mut()
                                             {
@@ -690,6 +717,8 @@ impl ZenthreeState {
                                                 .to_string();
                                             let content = args
                                                 .get("content")
+                                                .or_else(|| args.get("code_content"))
+                                                .or_else(|| args.get("CodeContent"))
                                                 .and_then(|v| v.as_str())
                                                 .unwrap_or("");
 
@@ -720,20 +749,16 @@ impl ZenthreeState {
                                             };
 
                                             let file_existed = effective_path.exists();
-                                            let (orig_content, is_new_file) = if let Some(idx) = tab_match_idx {
-                                                let prev = self.tabs[idx].editor.buffer.to_string();
-                                                if prev == content || prev.is_empty() {
-                                                    (String::new(), true)
-                                                } else {
-                                                    (prev, false)
-                                                }
+                                            let existing_rev = self.pending_reviews.iter().find(|r| path_matches(&r.path, &effective_path));
+                                            let (orig_content, is_new_file) = if let Some(rev) = existing_rev {
+                                                (rev.original_content.clone(), rev.is_new_file)
                                             } else if file_existed {
                                                 let prev = std::fs::read_to_string(&effective_path).unwrap_or_default();
-                                                if prev == content || prev.is_empty() {
-                                                    (String::new(), true)
-                                                } else {
-                                                    (prev, false)
-                                                }
+                                                (prev, false)
+                                            } else if let Some(idx) = tab_match_idx {
+                                                let prev = self.tabs[idx].editor.buffer.to_string();
+                                                let is_new = !file_existed && prev.is_empty();
+                                                (prev, is_new)
                                             } else {
                                                 (String::new(), true)
                                             };
@@ -745,15 +770,22 @@ impl ZenthreeState {
                                                     .map(|l| (l.to_string(), DiffLineState::Added))
                                                     .collect();
                                             }
-                                            let mut lines_added = diff_lines.iter().filter(|(_, s)| *s == DiffLineState::Added).count();
-                                            let lines_removed = diff_lines.iter().filter(|(_, s)| *s == DiffLineState::Removed).count();
-                                            if lines_added == 0 && (is_new_file || lines_removed == 0) && !content.is_empty() {
-                                                lines_added = content.lines().count().max(1);
-                                            }
+                                            let lines_added = if is_new_file {
+                                                content.lines().count().max(1)
+                                            } else {
+                                                diff_lines.iter().filter(|(_, s)| *s == DiffLineState::Added).count()
+                                            };
+                                            let lines_removed = if is_new_file {
+                                                0
+                                            } else {
+                                                diff_lines.iter().filter(|(_, s)| *s == DiffLineState::Removed).count()
+                                            };
                                             last.trajectory.push(TrajectoryStep::FileEdit {
                                                 path: path.clone(),
                                                 lines_added,
                                                 lines_removed,
+                                                is_new: is_new_file,
+                                                expanded: false,
                                             });
 
                                             let review = FileDiffReview {
@@ -839,16 +871,17 @@ impl ZenthreeState {
                                             }
                                         }
                                         _ => {
-                                            let clean_name = name
+                                            let stripped_name = clean_tool_str(&name);
+                                            let clean_name = stripped_name
                                                 .split(':')
                                                 .last()
-                                                .unwrap_or(&name)
+                                                .unwrap_or(stripped_name)
                                                 .split('.')
                                                 .last()
-                                                .unwrap_or(&name);
+                                                .unwrap_or(stripped_name);
 
                                             let item = match clean_name {
-                                                "read_file" | "view_file" | "client_view_file" => {
+                                                "read_file" | "view_file" | "client_view_file" | "client_read_file" | "read_text_file" | "fs/read_text_file" => {
                                                     let symbol = args.get("symbol").and_then(|v| v.as_str()).map(String::from);
                                                     let is_peek = args.get("peek").and_then(|v| v.as_bool()).unwrap_or(false);
                                                     let mut start_line = args.get("start_line").and_then(|v| v.as_u64()).map(|u| u as usize);
@@ -856,9 +889,22 @@ impl ZenthreeState {
 
                                                     if let Some(paths) = args.get("paths").and_then(|v| v.as_array()) {
                                                         let path_strings = paths.iter().filter_map(|p| p.as_str().map(String::from)).collect();
-                                                        ExplorationItem::BatchRead { paths: path_strings }
+                                                        ExplorationItem::BatchRead {
+                                                            paths: path_strings,
+                                                            output: None,
+                                                            expanded: false,
+                                                        }
                                                     } else {
-                                                        let path = args.get("path").and_then(|v| v.as_str()).unwrap_or("").to_string();
+                                                        let path = args.get("path")
+                                                            .or_else(|| args.get("file_path"))
+                                                            .or_else(|| args.get("filePath"))
+                                                            .or_else(|| args.get("TargetFile"))
+                                                            .or_else(|| args.get("target_file"))
+                                                            .or_else(|| args.get("file"))
+                                                            .or_else(|| args.get("absolute_path"))
+                                                            .and_then(|v| v.as_str())
+                                                            .unwrap_or("")
+                                                            .to_string();
                                                         let path_obj = std::path::Path::new(&path);
                                                         let resolved = if path_obj.is_absolute() {
                                                             path_obj.to_path_buf()
@@ -866,7 +912,11 @@ impl ZenthreeState {
                                                             self.current_dir.join(path_obj)
                                                         };
                                                         if resolved.is_dir() {
-                                                            ExplorationItem::ExploredDirectory { path }
+                                                            ExplorationItem::ExploredDirectory {
+                                                                path,
+                                                                output: None,
+                                                                expanded: false,
+                                                            }
                                                         } else {
                                                             if let Ok(content) = std::fs::read_to_string(&resolved) {
                                                                 let total_lines = content.lines().count();
@@ -885,6 +935,8 @@ impl ZenthreeState {
                                                                 end_line,
                                                                 symbol,
                                                                 is_peek,
+                                                                output: None,
+                                                                expanded: false,
                                                             }
                                                         }
                                                     }
@@ -916,9 +968,14 @@ impl ZenthreeState {
                                                     } else {
                                                         "files".to_string()
                                                     };
-                                                    ExplorationItem::Searched { query: final_query, scope }
+                                                    ExplorationItem::Searched {
+                                                        query: final_query,
+                                                        scope,
+                                                        output: None,
+                                                        expanded: false,
+                                                    }
                                                 }
-                                                "list_directory" | "get_project_structure" | "list_dir" => {
+                                                "list_directory" | "get_project_structure" | "list_dir" | "client_list_dir" | "client_list_directory" | "client_show_directory" | "show_directory" => {
                                                     let path = args
                                                         .get("path")
                                                         .or_else(|| args.get("directory_path"))
@@ -926,7 +983,11 @@ impl ZenthreeState {
                                                         .and_then(|v| v.as_str())
                                                         .unwrap_or(".")
                                                         .to_string();
-                                                    ExplorationItem::ExploredDirectory { path }
+                                                    ExplorationItem::ExploredDirectory {
+                                                        path,
+                                                        output: None,
+                                                        expanded: false,
+                                                    }
                                                 }
                                                 "activate_skill" => {
                                                     let name = args
@@ -934,22 +995,33 @@ impl ZenthreeState {
                                                         .and_then(|v| v.as_str())
                                                         .unwrap_or("")
                                                         .to_string();
-                                                    ExplorationItem::ActivatedSkill { name }
+                                                    ExplorationItem::ActivatedSkill {
+                                                        name,
+                                                        output: None,
+                                                        expanded: false,
+                                                    }
                                                 }
                                                 "get_diagnostics" => {
-                                                    ExplorationItem::CheckedDiagnostics
+                                                    ExplorationItem::CheckedDiagnostics {
+                                                        output: None,
+                                                        expanded: false,
+                                                    }
                                                 }
-                                                "run_terminal" | "run_command" | "execute_command" | "bash" | "terminal" | "sh" | "exec" => {
+                                                "run_terminal" | "run_command" | "execute_command" | "bash" | "terminal" | "sh" | "exec" | "client_run_command" | "client_run_terminal" => {
                                                     let command = args
                                                         .get("command")
                                                         .or_else(|| args.get("CommandLine"))
                                                         .or_else(|| args.get("cmd"))
                                                         .and_then(|v| v.as_str())
-                                                        .unwrap_or(clean_name)
+                                                        .unwrap_or(stripped_name)
                                                         .to_string();
-                                                    ExplorationItem::ExecutedCommand { command }
+                                                    ExplorationItem::ExecutedCommand {
+                                                        command,
+                                                        output: None,
+                                                        expanded: false,
+                                                    }
                                                 }
-                                                cmd if cmd.starts_with("ls ") || cmd == "ls" || cmd.starts_with("env ") || cmd.starts_with("git ") || cmd.starts_with("cargo ") || cmd.starts_with("npm ") || cmd.starts_with("echo ") || cmd.starts_with("cat ") || cmd.contains('|') || args.get("command").is_some() || args.get("CommandLine").is_some() => {
+                                                cmd if cmd.starts_with("ls ") || cmd == "ls" || cmd.starts_with("env ") || cmd.starts_with("git ") || cmd.starts_with("cargo ") || cmd.starts_with("npm ") || cmd.starts_with("bun ") || cmd.starts_with("yarn ") || cmd.starts_with("pnpm ") || cmd.starts_with("echo ") || cmd.starts_with("cat ") || cmd.contains('|') || args.get("command").is_some() || args.get("CommandLine").is_some() => {
                                                     let command = args
                                                         .get("command")
                                                         .or_else(|| args.get("CommandLine"))
@@ -957,20 +1029,87 @@ impl ZenthreeState {
                                                         .and_then(|v| v.as_str())
                                                         .unwrap_or(cmd)
                                                         .to_string();
-                                                    ExplorationItem::ExecutedCommand { command }
+                                                    ExplorationItem::ExecutedCommand {
+                                                        command,
+                                                        output: None,
+                                                        expanded: false,
+                                                    }
                                                 }
-                                                _ => ExplorationItem::Thought {
-                                                    summary: format!("Calling {}...", name),
-                                                    duration_secs: None,
-                                                },
+                                                "write_to_file" | "write_file" | "create_file" | "client_create_file" | "client_write_file" | "write_text_file" | "fs/write_text_file"
+                                                | "replace_file_content" | "multi_replace_file_content" | "edit_file" | "client_edit_file" | "client_modify_file" | "modify_file" | "apply_diff" | "patch" => {
+                                                    let path = args.get("path")
+                                                        .or_else(|| args.get("TargetFile"))
+                                                        .or_else(|| args.get("file_path"))
+                                                        .or_else(|| args.get("filePath"))
+                                                        .or_else(|| args.get("file"))
+                                                        .or_else(|| args.get("target_file"))
+                                                        .or_else(|| args.get("absolute_path"))
+                                                        .and_then(|v| v.as_str())
+                                                        .unwrap_or("")
+                                                        .to_string();
+                                                    let content = args.get("content")
+                                                        .or_else(|| args.get("code_content"))
+                                                        .or_else(|| args.get("CodeContent"))
+                                                        .or_else(|| args.get("contents"))
+                                                        .or_else(|| args.get("text"))
+                                                        .and_then(|v| v.as_str())
+                                                        .unwrap_or("");
+
+                                                    let full_path = if !path.is_empty() {
+                                                        let p = std::path::Path::new(&path);
+                                                        if p.is_absolute() {
+                                                            p.to_path_buf()
+                                                        } else {
+                                                            self.current_dir.join(p)
+                                                        }
+                                                    } else {
+                                                        std::path::PathBuf::new()
+                                                    };
+                                                    let file_exists = !path.is_empty() && full_path.exists();
+                                                    let is_new = !file_exists && (clean_name.contains("write") || clean_name.contains("create"));
+
+                                                    let (lines_added, lines_removed) = if is_new {
+                                                        let count = if !content.is_empty() { content.lines().count().max(1) } else { 0 };
+                                                        (count, 0)
+                                                    } else if file_exists {
+                                                        let old_content = std::fs::read_to_string(&full_path).unwrap_or_default();
+                                                        compute_line_diff(&old_content, content)
+                                                    } else {
+                                                        let count = if !content.is_empty() { content.lines().count().max(1) } else { 0 };
+                                                        (count, 0)
+                                                    };
+
+                                                    ExplorationItem::WrittenFile {
+                                                        path,
+                                                        lines_added,
+                                                        lines_removed,
+                                                        is_new,
+                                                        output: if !content.is_empty() { Some(content.to_string()) } else { None },
+                                                        expanded: false,
+                                                    }
+                                                }
+                                                _ => {
+                                                    let clean_verb = clean_name.replace('_', " ");
+                                                    let display = if clean_verb.is_empty() {
+                                                        "Running tool".to_string()
+                                                    } else {
+                                                        clean_verb
+                                                    };
+                                                    ExplorationItem::ExecutedCommand {
+                                                        command: display,
+                                                        output: None,
+                                                        expanded: false,
+                                                    }
+                                                }
                                             };
 
                                             let is_duplicate = if let Some(TrajectoryStep::Exploration(ref grp)) = last.trajectory.last() {
                                                 grp.items.iter().any(|existing| match (existing, &item) {
                                                     (ExplorationItem::AnalyzedFile { path: p1, .. }, ExplorationItem::AnalyzedFile { path: p2, .. }) => p1 == p2,
-                                                    (ExplorationItem::ExploredDirectory { path: p1 }, ExplorationItem::ExploredDirectory { path: p2 }) => p1 == p2,
+                                                    (ExplorationItem::ExploredDirectory { path: p1, .. }, ExplorationItem::ExploredDirectory { path: p2, .. }) => p1 == p2,
                                                     (ExplorationItem::Searched { query: q1, .. }, ExplorationItem::Searched { query: q2, .. }) => q1 == q2,
-                                                    (ExplorationItem::ExecutedCommand { command: c1 }, ExplorationItem::ExecutedCommand { command: c2 }) => c1 == c2,
+                                                    (ExplorationItem::ExecutedCommand { command: c1, .. }, ExplorationItem::ExecutedCommand { command: c2, .. }) => c1 == c2,
+                                                    (ExplorationItem::WrittenFile { path: p1, .. }, ExplorationItem::WrittenFile { path: p2, .. }) => p1 == p2,
                                                     _ => false,
                                                 })
                                             } else {
@@ -997,9 +1136,25 @@ impl ZenthreeState {
                                     }
                                 }
                             }
-                            AiUiUpdate::ToolDone { name: _ } => {
+                            AiUiUpdate::ToolDone { name: _, result } => {
                                 // Tool done: update file tree in case file was created/modified
                                 self.rebuild_tree();
+                                if let Some(res) = result {
+                                    if let Some(last) = self.ai_messages.iter_mut().rev().find(|m| !m.is_user) {
+                                        if let Some(TrajectoryStep::Exploration(ref mut grp)) = last.trajectory.last_mut() {
+                                            let formatted_output = match res {
+                                                serde_json::Value::String(s) => s,
+                                                serde_json::Value::Null => String::new(),
+                                                other => serde_json::to_string_pretty(&other).unwrap_or_default(),
+                                            };
+                                            if !formatted_output.trim().is_empty() {
+                                                if let Some(last_item) = grp.items.last_mut() {
+                                                    last_item.set_output(formatted_output);
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
                             }
                             AiUiUpdate::Done {
                                 reply,
@@ -1296,3 +1451,84 @@ impl ZenthreeState {
         self.ai_sessions_visible = false;
     }
 }
+
+pub(crate) fn clean_tool_str(raw: &str) -> &str {
+    let mut s = raw.trim();
+    loop {
+        let prev = s;
+        for prefix in &["Running ", "Run ", "Calling ", "Call "] {
+            if let Some(rest) = s.strip_prefix(prefix) {
+                s = rest.trim();
+            }
+        }
+        s = s.trim_end_matches(['?', '.', '…', ' ']);
+        if s == prev {
+            break;
+        }
+    }
+    s
+}
+
+pub(crate) fn compute_line_diff(old_text: &str, new_text: &str) -> (usize, usize) {
+    let old_lines: Vec<&str> = old_text.lines().collect();
+    let new_lines: Vec<&str> = new_text.lines().collect();
+    let n = old_lines.len();
+    let m = new_lines.len();
+
+    if n > 2500 || m > 2500 {
+        return if m >= n { (m - n, 0) } else { (0, n - m) };
+    }
+
+    let mut dp = vec![0usize; m + 1];
+    for &o_line in &old_lines {
+        let mut prev = 0;
+        for (j, &n_line) in new_lines.iter().enumerate() {
+            let temp = dp[j + 1];
+            if o_line == n_line {
+                dp[j + 1] = prev + 1;
+            } else if dp[j] > dp[j + 1] {
+                dp[j + 1] = dp[j];
+            }
+            prev = temp;
+        }
+    }
+    let lcs_len = dp[m];
+    let lines_removed = n.saturating_sub(lcs_len);
+    let lines_added = m.saturating_sub(lcs_len);
+    (lines_added, lines_removed)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_compute_line_diff_multi_area() {
+        let old = "Line 1\nLine 2: Red\nLine 3\nLine 4: Blue\nLine 5";
+        let new = "Line 1\nLine 2: Crimson\nLine 3\nLine 4: Azure\nLine 5";
+        let (added, removed) = compute_line_diff(old, new);
+        assert_eq!(added, 2);
+        assert_eq!(removed, 2);
+    }
+
+    #[test]
+    fn test_compute_line_diff_additions_only() {
+        let old = "Line 1\nLine 2";
+        let new = "Line 1\nLine 1.5\nLine 2\nLine 3";
+        let (added, removed) = compute_line_diff(old, new);
+        assert_eq!(added, 2);
+        assert_eq!(removed, 0);
+    }
+
+    #[test]
+    fn test_compute_line_diff_identical() {
+        let old = "Same line 1\nSame line 2";
+        let new = "Same line 1\nSame line 2";
+        let (added, removed) = compute_line_diff(old, new);
+        assert_eq!(added, 0);
+        assert_eq!(removed, 0);
+    }
+}
+
+
+

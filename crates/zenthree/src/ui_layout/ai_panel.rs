@@ -1206,8 +1206,10 @@ fn draw_ai_chat_content(
     let is_input_focused = ui.focused_id == Some(ai_input_id);
     const MIN_PROMPT_H: f32 = 32.0;
     const MAX_PROMPT_H: f32 = 120.0;
-    const MAX_INPUT_W: f32 = 684.0; // 90% of previous 760px cap
-    let input_dock_w = (chat_w - 20.0).min(MAX_INPUT_W).max(120.0);
+    const MAX_INPUT_W: f32 = 720.0;
+    const MAX_CHAT_CONTENT_W: f32 = 900.0;
+    let input_dock_w = (chat_w - 24.0).min(MAX_INPUT_W).max(120.0);
+    let chat_content_w = (chat_w - 24.0).min(MAX_CHAT_CONTENT_W).max(120.0);
 
     // Immediately track visual wrapped lines while typing continuously without newline
     let chars_per_line = ((input_dock_w - 24.0).max(60.0) / 6.6).max(8.0);
@@ -1266,42 +1268,19 @@ fn draw_ai_chat_content(
                     let rel = rev.path.strip_prefix(&state.current_dir).unwrap_or(&rev.path).to_string_lossy().to_string();
                     let mut added = rev.total_added_lines();
                     let removed = rev.total_removed_lines();
-                    if added == 0 && (rev.is_new_file || removed == 0) && !rev.proposed_content.is_empty() {
+                    if added == 0 && rev.is_new_file && !rev.proposed_content.is_empty() {
                         added = rev.proposed_content.lines().count().max(1);
                     }
                     upsert_file(rev.path.clone(), fname, rel, added, removed);
                 }
 
-                // 2. From tabs
+                // 2. From tabs that have unaccepted changes
                 for tab in &state.tabs {
-                    if tab.is_dirty || tab.lines_added > 0 || tab.lines_removed > 0 {
+                    if tab.is_dirty && (tab.lines_added > 0 || tab.lines_removed > 0) {
                         if let Some(ref tp) = tab.path {
                             let fname = tab.name.clone();
                             let rel = tp.strip_prefix(&state.current_dir).unwrap_or(tp).to_string_lossy().to_string();
                             upsert_file(tp.clone(), fname, rel, tab.lines_added, tab.lines_removed);
-                        }
-                    }
-                }
-
-                // 3. From AI trajectory steps
-                for msg in state.ai_messages.iter().rev() {
-                    for step in &msg.trajectory {
-                        if let TrajectoryStep::FileEdit { path, lines_added, lines_removed } = step {
-                            let pb = std::path::PathBuf::from(path);
-                            let full_p = if pb.is_absolute() { pb.clone() } else { state.current_dir.join(&pb) };
-                            let fname = full_p.file_name().and_then(|n| n.to_str()).unwrap_or(path).to_string();
-                            let rel = full_p.strip_prefix(&state.current_dir).unwrap_or(&full_p).to_string_lossy().to_string();
-                            let mut added = *lines_added;
-                            let removed = *lines_removed;
-                            if added == 0 && removed == 0 {
-                                if let Ok(content) = std::fs::read_to_string(&full_p) {
-                                    let count = content.lines().count();
-                                    if count > 0 {
-                                        added = count;
-                                    }
-                                }
-                            }
-                            upsert_file(full_p, fname, rel, added, removed);
                         }
                     }
                 }
@@ -1364,6 +1343,7 @@ fn draw_ai_chat_content(
                 .bg(if state.glassmorphism { Color::TRANSPARENT } else { panel_bg })
                 .padding(8.0, 12.0, 8.0, 12.0)
                 .column()
+                .halign(Align::Center)
                 .gap(20.0)
                 .scroll_y(true)
                 .show(|ui| {
@@ -1372,14 +1352,14 @@ fn draw_ai_chat_content(
                     let is_ag_connected = auth.load_token().is_some();
 
                     if is_ag && !is_ag_connected {
-                        draw_antigravity_signin_card(ui, state, colors, chat_w);
+                        draw_antigravity_signin_card(ui, state, colors, chat_content_w);
                     } else if state.ai_messages.is_empty() {
                         if is_ag {
                             draw_antigravity_connected_welcome(ui, state, colors);
                         } else {
                             // Minimalist Welcome State
                             ui.container()
-                                .full_width()
+                                .width(chat_content_w)
                                 .padding_top(30.0)
                                 .column()
                                 .halign(Align::Center)
@@ -1416,6 +1396,8 @@ fn draw_ai_chat_content(
                         let mut toggle_expand_idx: Option<usize> = None;
                         let mut toggle_thoughts_idx: Option<usize> = None;
                         let mut toggle_trajectory_group: Option<(usize, usize)> = None;
+                        let mut toggle_exploration_item: Option<(usize, usize, usize)> = None;
+                        let mut toggle_file_edit_step: Option<(usize, usize)> = None;
                         let mut copy_target_idx: Option<usize> = None;
                         let mut copy_code_snippet: Option<(u64, String)> = None;
                         let mut chat_open_file: Option<std::path::PathBuf> = None;
@@ -1424,6 +1406,7 @@ fn draw_ai_chat_content(
 
                         let base_text_size = state.ai_settings.effective_text_size().pt();
                         let user_font_sz = (base_text_size + 0.5).max(12.5);
+                        let icon_theme = crate::theme::IconTheme::new(&state.icon_theme);
 
                         for (msg_idx, msg) in state.ai_messages.iter().enumerate() {
                             let is_copied = state.copied_ai_msg
@@ -1439,7 +1422,7 @@ fn draw_ai_chat_content(
 
                             if msg.is_user {
                                 // ─── User Message (Right-aligned, accent tint) ───
-                                let bubble_max_w = (chat_w - 48.0).min(MAX_INPUT_W).max(80.0);
+                                let bubble_max_w = (chat_content_w - 48.0).min(MAX_INPUT_W).max(80.0);
                                 let user_text_w = (bubble_max_w - 20.0).max(60.0);
 
                                 let newline_count = full_text.as_bytes().iter().filter(|&&b| b == b'\n').count();
@@ -1461,7 +1444,7 @@ fn draw_ai_chat_content(
                                     && (full_text.len() as f32 * 6.5 + 40.0) <= bubble_max_w;
 
                                 ui.container()
-                                    .full_width()
+                                    .width(chat_content_w)
                                     .row()
                                     .halign(Align::Right)
                                     .padding(2.0, 0.0, 2.0, 0.0)
@@ -1594,12 +1577,12 @@ fn draw_ai_chat_content(
                                         }
                                     });
                             } else {
-                                // ─── Assistant Message (full-width, clean container) ───
-                                let ai_text_w = (chat_w - 44.0).min(MAX_INPUT_W + 40.0).max(60.0);
+                                // ─── Assistant Message (clean container, capped width) ───
+                                let ai_text_w = (chat_content_w - 16.0).max(60.0);
                                 let code_box_w = ai_text_w.max(50.0);
 
                                 ui.container()
-                                    .full_width()
+                                    .width(chat_content_w)
                                     .id(bubble_id)
                                     .padding(4.0, 4.0, 8.0, 4.0)
                                     .column()
@@ -1672,7 +1655,7 @@ fn draw_ai_chat_content(
                                                                         ui.request_redraw_after(std::time::Duration::from_millis(80));
                                                                     }
                                                                     match item {
-                                                                        ExplorationItem::AnalyzedFile { path, start_line, end_line, symbol, is_peek } => {
+                                                                        ExplorationItem::AnalyzedFile { path, start_line, end_line, symbol, is_peek, output, expanded } => {
                                                                             let path_obj = std::path::Path::new(path);
                                                                             let resolved_path = if path_obj.is_absolute() {
                                                                                 path_obj.to_path_buf()
@@ -1683,13 +1666,12 @@ fn draw_ai_chat_content(
                                                                             let file_exists = resolved_path.is_file() || is_dir;
 
                                                                             let fname = path_obj.file_name().and_then(|s| s.to_str()).unwrap_or(path.as_str());
-                                                                            let ext = path_obj.extension().and_then(|s| s.to_str()).unwrap_or("");
-                                                                            let (icon_glyph, icon_color) = if is_dir {
-                                                                                ("\u{f07b}", colors.accent)
+                                                                            let file_icon = if is_dir {
+                                                                                Some(icon_theme.get_icon_for_folder(fname, *expanded))
                                                                             } else if file_exists {
-                                                                                crate::mini_icons::get_mini_file_icon(&fname.to_lowercase(), &ext.to_lowercase())
+                                                                                Some(icon_theme.get_icon_for_file(fname, Some(&resolved_path)))
                                                                             } else {
-                                                                                ("\u{f00d}", Color { r: 248.0 / 255.0, g: 113.0 / 255.0, b: 113.0 / 255.0, a: 0.9 })
+                                                                                None
                                                                             };
 
                                                                             let (action_verb, verb_color, badge) = if is_dir {
@@ -1754,38 +1736,91 @@ fn draw_ai_chat_content(
                                                                                         .size(10.5)
                                                                                         .color(verb_color)
                                                                                         .show();
-                                                                                    ui.text(icon_glyph)
-                                                                                        .size(10.5)
-                                                                                        .color(icon_color)
-                                                                                        .show();
+                                                                                    if let Some(ref ic) = file_icon {
+                                                                                        ic.show(ui, 12.0);
+                                                                                    } else {
+                                                                                        ui.text("\u{f00d}")
+                                                                                            .size(10.5)
+                                                                                            .color(Color { r: 248.0 / 255.0, g: 113.0 / 255.0, b: 113.0 / 255.0, a: 0.9 })
+                                                                                            .show();
+                                                                                    }
                                                                                     ui.text(&display_path)
                                                                                         .size(11.5)
                                                                                         .color(if file_exists { colors.text_primary } else { colors.text_muted })
                                                                                         .show();
+
                                                                                     if !badge.is_empty() {
                                                                                         ui.text(&badge)
                                                                                             .size(10.0)
                                                                                             .color(if file_exists { colors.accent } else { Color { r: 248.0 / 255.0, g: 113.0 / 255.0, b: 113.0 / 255.0, a: 0.8 } })
                                                                                             .show();
                                                                                     }
+
+                                                                                    let chevron_glyph = if *expanded { "\u{f078}" } else { "\u{f054}" };
+                                                                                    ui.text(chevron_glyph)
+                                                                                        .size(7.0)
+                                                                                        .color(colors.text_muted.with_alpha(0.6))
+                                                                                        .show();
                                                                                 });
 
-                                                                            if file_exists && file_row.hovered {
+                                                                            if file_row.hovered {
                                                                                 ui.cursor_icon = CursorIcon::Pointer;
                                                                             }
-                                                                            if file_exists && file_row.clicked {
-                                                                                chat_open_file = Some(resolved_path);
+                                                                            if file_row.clicked {
+                                                                                toggle_exploration_item = Some((msg_idx, step_idx, item_idx));
+                                                                            }
+
+                                                                            if *expanded {
+                                                                                let file_card_id = Id::from_u64(999_500_000 + (msg_idx as u64) * 10000 + (step_idx as u64) * 100 + (item_idx as u64));
+                                                                                let (file_meta, file_content) = if let Some(out) = output.as_deref() {
+                                                                                    (format!("{} (streamed)", fname), out.to_string())
+                                                                                } else if let Ok(disk) = std::fs::read_to_string(&resolved_path) {
+                                                                                    let total_lines = disk.lines().count();
+                                                                                    let bytes = disk.len();
+                                                                                    let size_str = if bytes < 1024 { format!("{} B", bytes) } else { format!("{:.1} KB", bytes as f32 / 1024.0) };
+                                                                                    let meta = match (start_line, end_line) {
+                                                                                        (Some(s), Some(e)) => format!("{} lines (L{}-L{}) • {}", e.saturating_sub(*s) + 1, s, e, size_str),
+                                                                                        (Some(s), None) => format!("from line {} • {}", s, size_str),
+                                                                                        _ => format!("{} lines • {}", total_lines, size_str),
+                                                                                    };
+                                                                                    let slice = match (start_line, end_line) {
+                                                                                        (Some(s), Some(e)) => disk.lines().skip(s.saturating_sub(1)).take(e.saturating_sub(*s) + 1).collect::<Vec<_>>().join("\n"),
+                                                                                        (Some(s), None) => disk.lines().skip(s.saturating_sub(1)).collect::<Vec<_>>().join("\n"),
+                                                                                        _ => disk,
+                                                                                    };
+                                                                                    (meta, slice)
+                                                                                } else {
+                                                                                    ("File".to_string(), "File not found or cannot be read.".to_string())
+                                                                                };
+
+                                                                                render_tool_output_box(
+                                                                                    ui,
+                                                                                    colors,
+                                                                                    file_card_id,
+                                                                                    file_icon.as_ref(),
+                                                                                    None,
+                                                                                    fname,
+                                                                                    &file_meta,
+                                                                                    &file_content,
+                                                                                    &mut copy_code_snippet,
+                                                                                    if file_exists { Some((&mut chat_open_file, resolved_path.clone())) } else { None },
+                                                                                );
                                                                             }
                                                                         }
-                                                                        ExplorationItem::BatchRead { paths } => {
+                                                                        ExplorationItem::BatchRead { paths, output, expanded } => {
                                                                             let action_verb = if is_item_running { "Reading batch" } else { "Read batch" };
                                                                             let list_str = paths
                                                                                 .iter()
                                                                                 .filter_map(|p| std::path::Path::new(p).file_name().and_then(|s| s.to_str()))
                                                                                 .collect::<Vec<_>>()
                                                                                 .join(", ");
-                                                                            ui.container()
+                                                                            let item_id = Id::from_u64(999_310_000 + (msg_idx as u64) * 10000 + (step_idx as u64) * 100 + (item_idx as u64));
+                                                                            let row = ui.container()
+                                                                                .id(item_id)
                                                                                 .full_width()
+                                                                                .padding(2.0, 4.0, 2.0, 4.0)
+                                                                                .radius_all(3.0)
+                                                                                .hover_bg(colors.highlight)
                                                                                 .row()
                                                                                 .valign(Align::Center)
                                                                                 .gap(5.0)
@@ -1800,21 +1835,60 @@ fn draw_ai_chat_content(
                                                                                         .size(10.5)
                                                                                         .color(colors.text_muted)
                                                                                         .show();
+                                                                                    ui.text("\u{f15b}")
+                                                                                        .size(10.5)
+                                                                                        .color(colors.accent)
+                                                                                        .show();
                                                                                     ui.text(&format!("[{}]", list_str))
                                                                                         .size(11.5)
                                                                                         .color(colors.text_primary)
                                                                                         .show();
+
+                                                                                    let chevron_glyph = if *expanded { "\u{f078}" } else { "\u{f054}" };
+                                                                                    ui.text(chevron_glyph)
+                                                                                        .size(7.0)
+                                                                                        .color(colors.text_muted.with_alpha(0.6))
+                                                                                        .show();
                                                                                 });
+
+                                                                            if row.hovered {
+                                                                                ui.cursor_icon = CursorIcon::Pointer;
+                                                                            }
+                                                                            if row.clicked {
+                                                                                toggle_exploration_item = Some((msg_idx, step_idx, item_idx));
+                                                                            }
+
+                                                                            if *expanded {
+                                                                                let batch_card_id = Id::from_u64(999_800_000 + (msg_idx as u64) * 10000 + (step_idx as u64) * 100 + (item_idx as u64));
+                                                                                let content = output.as_deref().unwrap_or_else(|| list_str.as_str());
+                                                                                render_tool_output_box(
+                                                                                    ui,
+                                                                                    colors,
+                                                                                    batch_card_id,
+                                                                                    None,
+                                                                                    Some(("\u{f15b}", colors.accent)),
+                                                                                    "Batch Read Files",
+                                                                                    &format!("{} files", paths.len()),
+                                                                                    content,
+                                                                                    &mut copy_code_snippet,
+                                                                                    None,
+                                                                                );
+                                                                            }
                                                                         }
-                                                                        ExplorationItem::Searched { query, scope } => {
+                                                                        ExplorationItem::Searched { query, scope, output, expanded } => {
                                                                             let search_prefix = if is_item_running { "Searching" } else { "Searched" };
                                                                             let action_verb = if let Some(ref sc) = scope {
                                                                                 format!("{} {}", search_prefix, sc)
                                                                             } else {
                                                                                 search_prefix.to_string()
                                                                             };
-                                                                            ui.container()
+                                                                            let item_id = Id::from_u64(999_320_000 + (msg_idx as u64) * 10000 + (step_idx as u64) * 100 + (item_idx as u64));
+                                                                            let row = ui.container()
+                                                                                .id(item_id)
                                                                                 .full_width()
+                                                                                .padding(2.0, 4.0, 2.0, 4.0)
+                                                                                .radius_all(3.0)
+                                                                                .hover_bg(colors.highlight)
                                                                                 .row()
                                                                                 .valign(Align::Center)
                                                                                 .gap(5.0)
@@ -1829,13 +1903,48 @@ fn draw_ai_chat_content(
                                                                                         .size(10.5)
                                                                                         .color(colors.text_muted)
                                                                                         .show();
+                                                                                    ui.text("\u{f002}")
+                                                                                        .size(10.5)
+                                                                                        .color(colors.accent)
+                                                                                        .show();
                                                                                     ui.text(&format!("\"{}\"", query))
                                                                                         .size(11.5)
                                                                                         .color(colors.text_primary)
                                                                                         .show();
+
+                                                                                    let chevron_glyph = if *expanded { "\u{f078}" } else { "\u{f054}" };
+                                                                                    ui.text(chevron_glyph)
+                                                                                        .size(7.0)
+                                                                                        .color(colors.text_muted.with_alpha(0.6))
+                                                                                        .show();
                                                                                 });
+
+                                                                            if row.hovered {
+                                                                                ui.cursor_icon = CursorIcon::Pointer;
+                                                                            }
+                                                                            if row.clicked {
+                                                                                toggle_exploration_item = Some((msg_idx, step_idx, item_idx));
+                                                                            }
+
+                                                                            if *expanded {
+                                                                                let search_card_id = Id::from_u64(999_700_000 + (msg_idx as u64) * 10000 + (step_idx as u64) * 100 + (item_idx as u64));
+                                                                                let res_text = output.as_deref().unwrap_or("Search completed.");
+                                                                                let header_desc = if let Some(ref sc) = scope { format!("in {}", sc) } else { String::new() };
+                                                                                render_tool_output_box(
+                                                                                    ui,
+                                                                                    colors,
+                                                                                    search_card_id,
+                                                                                    None,
+                                                                                    Some(("\u{f002}", colors.accent)),
+                                                                                    &format!("Search: \"{}\"", query),
+                                                                                    &header_desc,
+                                                                                    res_text,
+                                                                                    &mut copy_code_snippet,
+                                                                                    None,
+                                                                                );
+                                                                            }
                                                                         }
-                                                                        ExplorationItem::ExploredDirectory { path } => {
+                                                                        ExplorationItem::ExploredDirectory { path, output, expanded } => {
                                                                             let action_verb = if is_item_running { "Exploring" } else { "Explored" };
                                                                             let path_obj = std::path::Path::new(path);
                                                                             let resolved = if path_obj.is_absolute() {
@@ -1853,8 +1962,20 @@ fn draw_ai_chat_content(
                                                                             } else {
                                                                                 path_obj.file_name().and_then(|s| s.to_str()).unwrap_or(path.as_str()).to_string()
                                                                             };
-                                                                            ui.container()
+                                                                            let display_dir_formatted = if display_dir.ends_with('/') {
+                                                                                display_dir.clone()
+                                                                            } else {
+                                                                                format!("{}/", display_dir)
+                                                                            };
+                                                                            let folder_icon = icon_theme.get_icon_for_folder(&display_dir, *expanded);
+
+                                                                            let item_id = Id::from_u64(999_330_000 + (msg_idx as u64) * 10000 + (step_idx as u64) * 100 + (item_idx as u64));
+                                                                            let row = ui.container()
+                                                                                .id(item_id)
                                                                                 .full_width()
+                                                                                .padding(2.0, 4.0, 2.0, 4.0)
+                                                                                .radius_all(3.0)
+                                                                                .hover_bg(colors.highlight)
                                                                                 .row()
                                                                                 .valign(Align::Center)
                                                                                 .gap(5.0)
@@ -1869,20 +1990,67 @@ fn draw_ai_chat_content(
                                                                                         .size(10.5)
                                                                                         .color(colors.text_muted)
                                                                                         .show();
-                                                                                    ui.text("\u{f07b}")
-                                                                                        .size(10.5)
-                                                                                        .color(colors.accent)
-                                                                                        .show();
-                                                                                    ui.text(&display_dir)
+                                                                                    folder_icon.show(ui, 12.0);
+                                                                                    ui.text(&display_dir_formatted)
                                                                                         .size(11.5)
                                                                                         .color(colors.text_primary)
                                                                                         .show();
+
+                                                                                    let chevron_glyph = if *expanded { "\u{f078}" } else { "\u{f054}" };
+                                                                                    ui.text(chevron_glyph)
+                                                                                        .size(7.0)
+                                                                                        .color(colors.text_muted.with_alpha(0.6))
+                                                                                        .show();
                                                                                 });
+
+                                                                            if row.hovered {
+                                                                                ui.cursor_icon = CursorIcon::Pointer;
+                                                                            }
+                                                                            if row.clicked {
+                                                                                toggle_exploration_item = Some((msg_idx, step_idx, item_idx));
+                                                                            }
+
+                                                                            if *expanded {
+                                                                                let dir_card_id = Id::from_u64(999_400_000 + (msg_idx as u64) * 10000 + (step_idx as u64) * 100 + (item_idx as u64));
+                                                                                let (summary_text, entries_text) = {
+                                                                                    let looks_like_listing = output.as_deref().map_or(false, |s| {
+                                                                                        let trimmed = s.trim();
+                                                                                        !trimmed.is_empty() && !trimmed.starts_with("List ") && trimmed.lines().count() > 1
+                                                                                    });
+                                                                                    if looks_like_listing {
+                                                                                        ("Results".to_string(), output.as_deref().unwrap().to_string())
+                                                                                    } else if resolved.is_dir() {
+                                                                                        read_local_dir_summary(&resolved)
+                                                                                    } else if let Some(out) = output.as_deref().filter(|s| !s.trim().is_empty() && !s.trim().starts_with("List ")) {
+                                                                                        ("Results".to_string(), out.to_string())
+                                                                                    } else {
+                                                                                        read_local_dir_summary(&resolved)
+                                                                                    }
+                                                                                };
+
+                                                                                render_tool_output_box(
+                                                                                    ui,
+                                                                                    colors,
+                                                                                    dir_card_id,
+                                                                                    Some(&folder_icon),
+                                                                                    None,
+                                                                                    &display_dir_formatted,
+                                                                                    &summary_text,
+                                                                                    &entries_text,
+                                                                                    &mut copy_code_snippet,
+                                                                                    None,
+                                                                                );
+                                                                            }
                                                                         }
-                                                                        ExplorationItem::ActivatedSkill { name } => {
+                                                                        ExplorationItem::ActivatedSkill { name, output, expanded } => {
                                                                             let action_verb = if is_item_running { "Activating skill" } else { "Activated skill" };
-                                                                            ui.container()
+                                                                            let item_id = Id::from_u64(999_340_000 + (msg_idx as u64) * 10000 + (step_idx as u64) * 100 + (item_idx as u64));
+                                                                            let row = ui.container()
+                                                                                .id(item_id)
                                                                                 .full_width()
+                                                                                .padding(2.0, 4.0, 2.0, 4.0)
+                                                                                .radius_all(3.0)
+                                                                                .hover_bg(colors.highlight)
                                                                                 .row()
                                                                                 .valign(Align::Center)
                                                                                 .gap(5.0)
@@ -1896,17 +2064,56 @@ fn draw_ai_chat_content(
                                                                                     ui.text(action_verb)
                                                                                         .size(10.5)
                                                                                         .color(colors.text_muted)
+                                                                                        .show();
+                                                                                    ui.text("\u{f0e7}")
+                                                                                        .size(10.5)
+                                                                                        .color(colors.accent)
                                                                                         .show();
                                                                                     ui.text(name)
                                                                                         .size(11.5)
                                                                                         .color(colors.accent)
                                                                                         .show();
+
+                                                                                    let chevron_glyph = if *expanded { "\u{f078}" } else { "\u{f054}" };
+                                                                                    ui.text(chevron_glyph)
+                                                                                        .size(7.0)
+                                                                                        .color(colors.text_muted.with_alpha(0.6))
+                                                                                        .show();
                                                                                 });
+
+                                                                            if row.hovered {
+                                                                                ui.cursor_icon = CursorIcon::Pointer;
+                                                                            }
+                                                                            if row.clicked {
+                                                                                toggle_exploration_item = Some((msg_idx, step_idx, item_idx));
+                                                                            }
+
+                                                                            if *expanded {
+                                                                                let skill_card_id = Id::from_u64(999_850_000 + (msg_idx as u64) * 10000 + (step_idx as u64) * 100 + (item_idx as u64));
+                                                                                let content = output.as_deref().unwrap_or("Skill instructions loaded into agent context.");
+                                                                                render_tool_output_box(
+                                                                                    ui,
+                                                                                    colors,
+                                                                                    skill_card_id,
+                                                                                    None,
+                                                                                    Some(("\u{f0e7}", colors.accent)),
+                                                                                    &format!("Skill: {}", name),
+                                                                                    "Active",
+                                                                                    content,
+                                                                                    &mut copy_code_snippet,
+                                                                                    None,
+                                                                                );
+                                                                            }
                                                                         }
-                                                                        ExplorationItem::ExecutedCommand { command } => {
+                                                                        ExplorationItem::ExecutedCommand { command, output, expanded } => {
                                                                             let action_verb = if is_item_running { "Running" } else { "Ran" };
-                                                                            ui.container()
+                                                                            let item_id = Id::from_u64(999_350_000 + (msg_idx as u64) * 10000 + (step_idx as u64) * 100 + (item_idx as u64));
+                                                                            let row = ui.container()
+                                                                                .id(item_id)
                                                                                 .full_width()
+                                                                                .padding(2.0, 4.0, 2.0, 4.0)
+                                                                                .radius_all(3.0)
+                                                                                .hover_bg(colors.highlight)
                                                                                 .row()
                                                                                 .valign(Align::Center)
                                                                                 .gap(5.0)
@@ -1929,12 +2136,47 @@ fn draw_ai_chat_content(
                                                                                         .size(11.5)
                                                                                         .color(colors.text_primary)
                                                                                         .show();
+
+                                                                                    let chevron_glyph = if *expanded { "\u{f078}" } else { "\u{f054}" };
+                                                                                    ui.text(chevron_glyph)
+                                                                                        .size(7.0)
+                                                                                        .color(colors.text_muted.with_alpha(0.6))
+                                                                                        .show();
                                                                                 });
+
+                                                                            if row.hovered {
+                                                                                ui.cursor_icon = CursorIcon::Pointer;
+                                                                            }
+                                                                            if row.clicked {
+                                                                                toggle_exploration_item = Some((msg_idx, step_idx, item_idx));
+                                                                            }
+
+                                                                            if *expanded {
+                                                                                let cmd_card_id = Id::from_u64(999_600_000 + (msg_idx as u64) * 10000 + (step_idx as u64) * 100 + (item_idx as u64));
+                                                                                let cmd_text = output.as_deref().unwrap_or("Command completed.");
+                                                                                render_tool_output_box(
+                                                                                    ui,
+                                                                                    colors,
+                                                                                    cmd_card_id,
+                                                                                    None,
+                                                                                    Some(("\u{f489}", colors.accent)),
+                                                                                    "Terminal Output",
+                                                                                    command,
+                                                                                    cmd_text,
+                                                                                    &mut copy_code_snippet,
+                                                                                    None,
+                                                                                );
+                                                                            }
                                                                         }
-                                                                        ExplorationItem::CheckedDiagnostics => {
+                                                                        ExplorationItem::CheckedDiagnostics { output, expanded } => {
                                                                             let action_verb = if is_item_running { "Checking diagnostics" } else { "Checked diagnostics" };
-                                                                            ui.container()
+                                                                            let item_id = Id::from_u64(999_360_000 + (msg_idx as u64) * 10000 + (step_idx as u64) * 100 + (item_idx as u64));
+                                                                            let row = ui.container()
+                                                                                .id(item_id)
                                                                                 .full_width()
+                                                                                .padding(2.0, 4.0, 2.0, 4.0)
+                                                                                .radius_all(3.0)
+                                                                                .hover_bg(colors.highlight)
                                                                                 .row()
                                                                                 .valign(Align::Center)
                                                                                 .gap(5.0)
@@ -1949,7 +2191,146 @@ fn draw_ai_chat_content(
                                                                                         .size(10.5)
                                                                                         .color(colors.text_muted)
                                                                                         .show();
+                                                                                    ui.text("\u{f058}")
+                                                                                        .size(10.5)
+                                                                                        .color(colors.accent)
+                                                                                        .show();
+
+                                                                                    let chevron_glyph = if *expanded { "\u{f078}" } else { "\u{f054}" };
+                                                                                    ui.text(chevron_glyph)
+                                                                                        .size(7.0)
+                                                                                        .color(colors.text_muted.with_alpha(0.6))
+                                                                                        .show();
                                                                                 });
+
+                                                                            if row.hovered {
+                                                                                ui.cursor_icon = CursorIcon::Pointer;
+                                                                            }
+                                                                            if row.clicked {
+                                                                                toggle_exploration_item = Some((msg_idx, step_idx, item_idx));
+                                                                            }
+
+                                                                            if *expanded {
+                                                                                let diag_card_id = Id::from_u64(999_900_000 + (msg_idx as u64) * 10000 + (step_idx as u64) * 100 + (item_idx as u64));
+                                                                                let content = output.as_deref().unwrap_or("0 errors, 0 warnings.");
+                                                                                render_tool_output_box(
+                                                                                    ui,
+                                                                                    colors,
+                                                                                    diag_card_id,
+                                                                                    None,
+                                                                                    Some(("\u{f058}", colors.accent)),
+                                                                                    "Diagnostics",
+                                                                                    "Compiler / AST",
+                                                                                    content,
+                                                                                    &mut copy_code_snippet,
+                                                                                    None,
+                                                                                );
+                                                                            }
+                                                                        }
+                                                                        ExplorationItem::WrittenFile { path, lines_added, lines_removed, is_new, output, expanded } => {
+                                                                            let action_verb = if *is_new { "Created" } else { "Edited" };
+                                                                            let action_color = if *is_new { Color { r: 74.0 / 255.0, g: 222.0 / 255.0, b: 128.0 / 255.0, a: 1.0 } } else { colors.text_muted };
+                                                                            let path_obj = std::path::Path::new(path);
+                                                                            let fname = path_obj.file_name().and_then(|s| s.to_str()).unwrap_or(path.as_str());
+
+                                                                            let pb = std::path::PathBuf::from(path);
+                                                                            let full_p = if pb.is_absolute() { pb } else { state.current_dir.join(&pb) };
+                                                                            let display_path = if let Ok(rel) = full_p.strip_prefix(&state.current_dir) {
+                                                                                let s = rel.to_string_lossy().to_string();
+                                                                                if s.is_empty() || s == "." { fname.to_string() } else { s }
+                                                                            } else {
+                                                                                fname.to_string()
+                                                                            };
+                                                                            let file_icon = icon_theme.get_icon_for_file(fname, Some(&full_p));
+
+                                                                            let item_id = Id::from_u64(999_370_000 + (msg_idx as u64) * 10000 + (step_idx as u64) * 100 + (item_idx as u64));
+                                                                            let row = ui.container()
+                                                                                .id(item_id)
+                                                                                .full_width()
+                                                                                .padding(2.0, 4.0, 2.0, 4.0)
+                                                                                .radius_all(3.0)
+                                                                                .hover_bg(colors.highlight)
+                                                                                .row()
+                                                                                .valign(Align::Center)
+                                                                                .gap(5.0)
+                                                                                .show(|ui| {
+                                                                                    if is_item_running {
+                                                                                        ui.text(get_thinking_spinner_frame())
+                                                                                            .size(10.5)
+                                                                                            .color(colors.accent)
+                                                                                            .show();
+                                                                                    }
+                                                                                    ui.text(action_verb)
+                                                                                        .size(10.5)
+                                                                                        .color(action_color)
+                                                                                        .show();
+                                                                                    file_icon.show(ui, 12.0);
+                                                                                    ui.text(&display_path)
+                                                                                        .size(11.5)
+                                                                                        .color(colors.text_primary)
+                                                                                        .show();
+
+                                                                                    if *is_new {
+                                                                                        if *lines_added > 0 {
+                                                                                            ui.text(&format!("+{}", lines_added))
+                                                                                                .size(10.5)
+                                                                                                .color(Color { r: 74.0 / 255.0, g: 222.0 / 255.0, b: 128.0 / 255.0, a: 1.0 })
+                                                                                                .show();
+                                                                                        }
+                                                                                    } else {
+                                                                                        if *lines_added > 0 {
+                                                                                            ui.text(&format!("+{}", lines_added))
+                                                                                                .size(10.5)
+                                                                                                .color(Color { r: 74.0 / 255.0, g: 222.0 / 255.0, b: 128.0 / 255.0, a: 1.0 })
+                                                                                                .show();
+                                                                                        }
+                                                                                        if *lines_removed > 0 {
+                                                                                            ui.text(&format!("-{}", lines_removed))
+                                                                                                .size(10.5)
+                                                                                                .color(Color { r: 248.0 / 255.0, g: 113.0 / 255.0, b: 113.0 / 255.0, a: 1.0 })
+                                                                                                .show();
+                                                                                        }
+                                                                                    }
+
+                                                                                    let chevron_glyph = if *expanded { "\u{f078}" } else { "\u{f054}" };
+                                                                                    ui.text(chevron_glyph)
+                                                                                        .size(7.0)
+                                                                                        .color(colors.text_muted.with_alpha(0.6))
+                                                                                        .show();
+                                                                                });
+
+                                                                            if row.hovered { ui.cursor_icon = CursorIcon::Pointer; }
+                                                                            if row.clicked {
+                                                                                toggle_exploration_item = Some((msg_idx, step_idx, item_idx));
+                                                                            }
+
+                                                                            if *expanded {
+                                                                                let (rev_is_created, preview_lines, total_lines, full_content) = prepare_file_preview(&full_p, &state.pending_reviews, output.as_deref());
+                                                                                let final_is_created = *is_new || rev_is_created;
+                                                                                let delta_info = if final_is_created {
+                                                                                    format!("(+{})", lines_added)
+                                                                                } else if *lines_removed > 0 {
+                                                                                    format!("(+{}, -{})", lines_added, lines_removed)
+                                                                                } else {
+                                                                                    format!("(+{})", lines_added)
+                                                                                };
+                                                                                let file_card_id = Id::from_u64(999_890_000 + (msg_idx as u64) * 10000 + (step_idx as u64) * 100 + (item_idx as u64));
+                                                                                render_write_file_box(
+                                                                                    ui,
+                                                                                    colors,
+                                                                                    file_card_id,
+                                                                                    Some(&file_icon),
+                                                                                    final_is_created,
+                                                                                    &display_path,
+                                                                                    &delta_info,
+                                                                                    &preview_lines,
+                                                                                    total_lines,
+                                                                                    &full_content,
+                                                                                    &mut copy_code_snippet,
+                                                                                    &mut chat_open_file,
+                                                                                    full_p.clone(),
+                                                                                );
+                                                                            }
                                                                         }
                                                                         ExplorationItem::Thought { summary, duration_secs } => {
                                                                             let is_spinning = is_item_running || (grp.is_active && duration_secs.is_none());
@@ -2002,25 +2383,32 @@ fn draw_ai_chat_content(
                                                     }
                                                 });
                                             }
-                                                TrajectoryStep::FileEdit { path, lines_added, lines_removed } => {
+                                                TrajectoryStep::FileEdit { path, lines_added, lines_removed, is_new, expanded } => {
                                                     let path_obj = std::path::Path::new(path);
                                                     let fname = path_obj.file_name().and_then(|s| s.to_str()).unwrap_or(path.as_str());
-                                                    let ext = path_obj.extension().and_then(|s| s.to_str()).unwrap_or("");
-                                                    let (icon_glyph, icon_color) = crate::mini_icons::get_mini_file_icon(&fname.to_lowercase(), &ext.to_lowercase());
 
                                                     let mut added = *lines_added;
                                                     let mut removed = *lines_removed;
                                                     let pb = std::path::PathBuf::from(path);
                                                     let full_p = if pb.is_absolute() { pb } else { state.current_dir.join(&pb) };
+                                                    let file_icon = icon_theme.get_icon_for_file(fname, Some(&full_p));
+                                                    let mut is_created = *is_new || if let Some(rev) = state.pending_reviews.iter().find(|r| path_matches(&r.path, &full_p)) {
+                                                        rev.is_new_file
+                                                    } else {
+                                                        !full_p.exists()
+                                                    };
                                                     if added == 0 && removed == 0 {
                                                         if let Some(rev) = state.pending_reviews.iter().find(|r| path_matches(&r.path, &full_p)) {
                                                             added = rev.diff_lines.iter().filter(|(_, s)| *s == crate::state::DiffLineState::Added).count();
                                                             removed = rev.diff_lines.iter().filter(|(_, s)| *s == crate::state::DiffLineState::Removed).count();
-                                                            if added == 0 && (rev.is_new_file || removed == 0) {
-                                                                added = rev.proposed_content.lines().count().max(1);
+                                                            if rev.is_new_file {
+                                                                is_created = true;
+                                                                if added == 0 {
+                                                                    added = rev.proposed_content.lines().count().max(1);
+                                                                }
                                                             }
                                                         }
-                                                        if added == 0 {
+                                                        if is_created && added == 0 {
                                                             if let Ok(content) = std::fs::read_to_string(&full_p) {
                                                                 let count = content.lines().count();
                                                                 if count > 0 {
@@ -2029,6 +2417,16 @@ fn draw_ai_chat_content(
                                                             }
                                                         }
                                                     }
+
+                                                    let display_path = if let Ok(rel) = full_p.strip_prefix(&state.current_dir) {
+                                                        let s = rel.to_string_lossy().to_string();
+                                                        if s.is_empty() || s == "." { fname.to_string() } else { s }
+                                                    } else {
+                                                        fname.to_string()
+                                                    };
+
+                                                    let action_verb = if is_created { "Created" } else { "Edited" };
+                                                    let action_color = if is_created { Color { r: 74.0 / 255.0, g: 222.0 / 255.0, b: 128.0 / 255.0, a: 1.0 } } else { colors.text_muted };
 
                                                     let edit_row = ui.container()
                                                         .id(step_id)
@@ -2041,34 +2439,76 @@ fn draw_ai_chat_content(
                                                         .valign(Align::Center)
                                                         .gap(5.0)
                                                         .show(|ui| {
-                                                            ui.text("Edited")
+                                                            ui.text(action_verb)
                                                                 .size(11.0)
-                                                                .color(colors.text_muted)
+                                                                .color(action_color)
                                                                 .show();
-                                                            ui.text(icon_glyph)
-                                                                .size(11.0)
-                                                                .color(icon_color)
-                                                                .show();
-                                                            ui.text(fname)
+                                                            file_icon.show(ui, 12.0);
+                                                            ui.text(&display_path)
                                                                 .size(11.5)
                                                                 .color(colors.text_primary)
                                                                 .show();
-                                                            if added > 0 {
-                                                                ui.text(&format!("+{}", added))
-                                                                    .size(10.5)
-                                                                    .color(Color { r: 74.0 / 255.0, g: 222.0 / 255.0, b: 128.0 / 255.0, a: 1.0 })
-                                                                    .show();
+
+                                                            if is_created {
+                                                                if added > 0 {
+                                                                    ui.text(&format!("+{}", added))
+                                                                        .size(10.5)
+                                                                        .color(Color { r: 74.0 / 255.0, g: 222.0 / 255.0, b: 128.0 / 255.0, a: 1.0 })
+                                                                        .show();
+                                                                }
+                                                            } else {
+                                                                if added > 0 {
+                                                                    ui.text(&format!("+{}", added))
+                                                                        .size(10.5)
+                                                                        .color(Color { r: 74.0 / 255.0, g: 222.0 / 255.0, b: 128.0 / 255.0, a: 1.0 })
+                                                                        .show();
+                                                                }
+                                                                if removed > 0 {
+                                                                    ui.text(&format!("-{}", removed))
+                                                                        .size(10.5)
+                                                                        .color(Color { r: 248.0 / 255.0, g: 113.0 / 255.0, b: 113.0 / 255.0, a: 1.0 })
+                                                                        .show();
+                                                                }
                                                             }
-                                                            if removed > 0 {
-                                                                ui.text(&format!("-{}", removed))
-                                                                    .size(10.5)
-                                                                    .color(Color { r: 248.0 / 255.0, g: 113.0 / 255.0, b: 113.0 / 255.0, a: 1.0 })
-                                                                    .show();
-                                                            }
+
+                                                            let chevron_glyph = if *expanded { "\u{f078}" } else { "\u{f054}" };
+                                                            ui.text(chevron_glyph)
+                                                                .size(7.0)
+                                                                .color(colors.text_muted.with_alpha(0.6))
+                                                                .show();
                                                         });
+
                                                     if edit_row.hovered { ui.cursor_icon = CursorIcon::Pointer; }
                                                     if edit_row.clicked {
-                                                        chat_open_file = Some(full_p);
+                                                        toggle_file_edit_step = Some((msg_idx, step_idx));
+                                                    }
+
+                                                    if *expanded {
+                                                        let (rev_is_created, preview_lines, total_lines, full_content) = prepare_file_preview(&full_p, &state.pending_reviews, None);
+                                                        let final_is_created = is_created || rev_is_created;
+                                                        let delta_info = if final_is_created {
+                                                            format!("(+{})", added)
+                                                        } else if removed > 0 {
+                                                            format!("(+{}, -{})", added, removed)
+                                                        } else {
+                                                            format!("(+{})", added)
+                                                        };
+                                                        let file_card_id = Id::from_u64(999_880_000 + (msg_idx as u64) * 10000 + (step_idx as u64) * 100);
+                                                        render_write_file_box(
+                                                            ui,
+                                                            colors,
+                                                            file_card_id,
+                                                            Some(&file_icon),
+                                                            final_is_created,
+                                                            &display_path,
+                                                            &delta_info,
+                                                            &preview_lines,
+                                                            total_lines,
+                                                            &full_content,
+                                                            &mut copy_code_snippet,
+                                                            &mut chat_open_file,
+                                                            full_p.clone(),
+                                                        );
                                                     }
                                                 }
                                                 TrajectoryStep::Command { command } => {
@@ -2869,6 +3309,30 @@ fn draw_ai_chat_content(
                             }
                         }
 
+                        if let Some((m_idx, s_idx, it_idx)) = toggle_exploration_item {
+                            if let Some(m) = state.ai_messages.get_mut(m_idx) {
+                                if let Some(step) = m.trajectory.get_mut(s_idx) {
+                                    if let TrajectoryStep::Exploration(ref mut grp) = step {
+                                        if let Some(item) = grp.items.get_mut(it_idx) {
+                                            item.toggle_expanded();
+                                            ui.needs_redraw = true;
+                                        }
+                                    }
+                                }
+                            }
+                        }
+
+                        if let Some((m_idx, s_idx)) = toggle_file_edit_step {
+                            if let Some(m) = state.ai_messages.get_mut(m_idx) {
+                                if let Some(step) = m.trajectory.get_mut(s_idx) {
+                                    if let TrajectoryStep::FileEdit { ref mut expanded, .. } = step {
+                                        *expanded = !*expanded;
+                                        ui.needs_redraw = true;
+                                    }
+                                }
+                            }
+                        }
+
                         if let Some(path) = chat_open_file {
                             state.open_file(&path);
                             ui.needs_redraw = true;
@@ -3131,6 +3595,7 @@ fn draw_ai_chat_content(
                                 .show(|ui| {
                                     // Left: [ ‹ 📄 N Files] toggle button (left back icon to close)
                                     let toggle_btn = ui.container()
+                                        .id(Id::from_u64(999999865))
                                         .clickable(true)
                                         .padding(2.0, 5.0, 2.0, 5.0)
                                         .radius_all(3.0)
@@ -3426,7 +3891,7 @@ fn draw_ai_chat_content(
 
                                             // Top arrow button to open/expand
                                             let arrow_btn = ui.container()
-                                                .id(Id::from_u64(999999868))
+                                                .id(Id::from_u64(999999869))
                                                 .clickable(true)
                                                 .padding(2.0, 5.0, 2.0, 5.0)
                                                 .radius_all(3.0)
@@ -3731,9 +4196,7 @@ fn draw_ai_chat_content(
                             tab.lines_removed = 0;
                             tab.is_dirty = false;
                         }
-                        for msg in &mut state.ai_messages {
-                            msg.trajectory.retain(|step| !matches!(step, TrajectoryStep::FileEdit { .. }));
-                        }
+                        // Trajectory steps are preserved in chat history
                         state.show_modified_files_popup = false;
                         ui.needs_redraw = true;
                     }
@@ -3744,9 +4207,7 @@ fn draw_ai_chat_content(
                             tab.lines_removed = 0;
                             tab.is_dirty = false;
                         }
-                        for msg in &mut state.ai_messages {
-                            msg.trajectory.retain(|step| !matches!(step, TrajectoryStep::FileEdit { .. }));
-                        }
+                        // Trajectory steps are preserved in chat history
                         state.show_modified_files_popup = false;
                         ui.needs_redraw = true;
                     }
@@ -3758,17 +4219,6 @@ fn draw_ai_chat_content(
                                 tab.lines_removed = 0;
                                 tab.is_dirty = false;
                             }
-                        }
-                        for msg in &mut state.ai_messages {
-                            msg.trajectory.retain(|step| {
-                                if let TrajectoryStep::FileEdit { path: edit_path, .. } = step {
-                                    let pb = std::path::PathBuf::from(edit_path);
-                                    let full = if pb.is_absolute() { pb } else { state.current_dir.join(&pb) };
-                                    !path_matches(&full, &path) && edit_path != &path.to_string_lossy()
-                                } else {
-                                    true
-                                }
-                            });
                         }
                         ui.needs_redraw = true;
                     }
@@ -4856,6 +5306,474 @@ fn draw_session_history_panel(
         }
         ui.needs_redraw = true;
     }
+}
+
+fn read_local_dir_summary(path: &std::path::Path) -> (String, String) {
+    if let Ok(entries) = std::fs::read_dir(path) {
+        let mut dirs = Vec::new();
+        let mut files = Vec::new();
+        for e in entries.flatten() {
+            let name = e.file_name().to_string_lossy().to_string();
+            if name.starts_with('.') {
+                continue;
+            }
+            if let Ok(ft) = e.file_type() {
+                if ft.is_dir() {
+                    dirs.push(name);
+                } else {
+                    let size_str = if let Ok(meta) = e.metadata() {
+                        let len = meta.len();
+                        if len < 1024 {
+                            format!("{} B", len)
+                        } else {
+                            format!("{:.1} KB", len as f32 / 1024.0)
+                        }
+                    } else {
+                        String::new()
+                    };
+                    files.push((name, size_str));
+                }
+            }
+        }
+        dirs.sort();
+        files.sort_by(|a, b| a.0.cmp(&b.0));
+
+        let meta = format!("{} items ({} files, {} folders)", files.len() + dirs.len(), files.len(), dirs.len());
+        let mut lines = Vec::new();
+        for d in &dirs {
+            lines.push(format!("\u{f07b} {}/", d));
+        }
+        for (f, sz) in &files {
+            if sz.is_empty() {
+                lines.push(format!("\u{f15b} {}", f));
+            } else {
+                lines.push(format!("\u{f15b} {:<24} {}", f, sz));
+            }
+        }
+        (meta, lines.join("\n"))
+    } else {
+        ("Directory".to_string(), "Directory not found or unreadable.".to_string())
+    }
+}
+
+fn prepare_file_preview(
+    path: &std::path::Path,
+    pending_reviews: &[crate::state::FileDiffReview],
+    output: Option<&str>,
+) -> (bool, Vec<(usize, String, Option<crate::state::DiffLineState>)>, usize, String) {
+    if let Some(rev) = pending_reviews.iter().find(|r| path_matches(&r.path, path)) {
+        let is_created = rev.is_new_file;
+        let diffs = &rev.diff_lines;
+        let total = diffs.len();
+        let preview = diffs.iter().take(5).enumerate().map(|(i, (line, state))| {
+            (i + 1, line.clone(), Some(*state))
+        }).collect();
+        return (is_created, preview, total, rev.proposed_content.clone());
+    }
+
+    if let Ok(content) = std::fs::read_to_string(path) {
+        let lines: Vec<&str> = content.lines().collect();
+        let total = lines.len();
+        let preview = lines.iter().take(5).enumerate().map(|(i, line)| {
+            (i + 1, line.to_string(), None)
+        }).collect();
+        return (false, preview, total, content);
+    }
+
+    if let Some(out) = output {
+        let lines: Vec<&str> = out.lines().collect();
+        let total = lines.len();
+        let preview = lines.iter().take(5).enumerate().map(|(i, line)| {
+            (i + 1, line.to_string(), None)
+        }).collect();
+        return (false, preview, total, out.to_string());
+    }
+
+    (false, Vec::new(), 0, String::new())
+}
+
+fn render_write_file_box(
+    ui: &mut Ui,
+    colors: &ThemeColors,
+    card_id: Id,
+    file_icon: Option<&crate::theme::FileIcon>,
+    is_created: bool,
+    display_path: &str,
+    delta_info: &str,
+    preview_lines: &[(usize, String, Option<crate::state::DiffLineState>)],
+    total_lines: usize,
+    full_content: &str,
+    copy_code_snippet: &mut Option<(u64, String)>,
+    chat_open_file: &mut Option<std::path::PathBuf>,
+    target_path: std::path::PathBuf,
+) {
+    let card_bg = colors.bg_base;
+
+    ui.container()
+        .full_width()
+        .padding(6.0, 8.0, 6.0, 8.0)
+        .radius_all(5.0)
+        .bg(card_bg)
+        .border(colors.border.with_alpha(0.6), 1.0)
+        .column()
+        .gap(5.0)
+        .show(|ui| {
+            // Header row with title on left, delta_info and action buttons on right
+            ui.container()
+                .full_width()
+                .row()
+                .valign(Align::Center)
+                .halign(Align::SpaceBetween)
+                .show(|ui| {
+                    // Left: File icon + Title
+                    ui.container()
+                        .row()
+                        .valign(Align::Center)
+                        .gap(6.0)
+                        .show(|ui| {
+                            if let Some(ic) = file_icon {
+                                ic.show(ui, 13.0);
+                            } else {
+                                let icon_glyph = if is_created { "\u{f15b}" } else { "\u{f044}" };
+                                ui.text(icon_glyph)
+                                    .size(11.0)
+                                    .color(if is_created { Color { r: 74.0 / 255.0, g: 222.0 / 255.0, b: 128.0 / 255.0, a: 1.0 } } else { colors.accent })
+                                    .show();
+                            }
+                            let title_prefix = if is_created { "Created:" } else { "Edited:" };
+                            ui.text(&format!("{} {}", title_prefix, display_path))
+                                .size(11.0)
+                                .bold()
+                                .color(colors.text_primary)
+                                .show();
+                        });
+
+                    // Right: Delta/lines info + Copy & Open action buttons
+                    ui.container()
+                        .row()
+                        .valign(Align::Center)
+                        .gap(8.0)
+                        .show(|ui| {
+                            if !delta_info.is_empty() {
+                                ui.text(delta_info)
+                                    .size(9.5)
+                                    .color(colors.text_muted)
+                                    .show();
+                            }
+
+                            // Copy button
+                            let copy_btn_id = Id::from_u64(card_id.raw() + 1);
+                            let copy_btn = ui.container()
+                                .id(copy_btn_id)
+                                .padding(2.0, 5.0, 2.0, 5.0)
+                                .radius_all(3.0)
+                                .hover_bg(colors.highlight)
+                                .row()
+                                .valign(Align::Center)
+                                .gap(3.0)
+                                .show(|ui| {
+                                    ui.text("\u{f0c5}")
+                                        .size(8.5)
+                                        .color(colors.text_muted)
+                                        .show();
+                                    ui.text("Copy")
+                                        .size(9.5)
+                                        .color(colors.text_muted)
+                                        .show();
+                                });
+                            if copy_btn.hovered {
+                                ui.cursor_icon = CursorIcon::Pointer;
+                            }
+                            if copy_btn.clicked {
+                                *copy_code_snippet = Some((copy_btn_id.raw(), full_content.to_string()));
+                            }
+
+                            // Open button
+                            let open_btn_id = Id::from_u64(card_id.raw() + 2);
+                            let open_btn = ui.container()
+                                .id(open_btn_id)
+                                .padding(2.0, 5.0, 2.0, 5.0)
+                                .radius_all(3.0)
+                                .hover_bg(colors.highlight)
+                                .row()
+                                .valign(Align::Center)
+                                .gap(3.0)
+                                .show(|ui| {
+                                    ui.text("\u{f08e}")
+                                        .size(8.5)
+                                        .color(colors.accent)
+                                        .show();
+                                    ui.text("Open")
+                                        .size(9.5)
+                                        .color(colors.accent)
+                                        .show();
+                                });
+                            if open_btn.hovered {
+                                ui.cursor_icon = CursorIcon::Pointer;
+                            }
+                            if open_btn.clicked {
+                                *chat_open_file = Some(target_path.clone());
+                            }
+                        });
+                });
+
+            // Content preview container (max 5 lines)
+            ui.container()
+                .full_width()
+                .padding(5.0, 7.0, 5.0, 7.0)
+                .radius_all(3.5)
+                .bg(colors.bg_sidebar.with_alpha(0.6))
+                .border(colors.border.with_alpha(0.3), 1.0)
+                .column()
+                .gap(1.5)
+                .show(|ui| {
+                    for (line_num, line_str, diff_state) in preview_lines {
+                        ui.container()
+                            .full_width()
+                            .row()
+                            .valign(Align::Center)
+                            .gap(6.0)
+                            .show(|ui| {
+                                ui.text(&format!("{:>3}", line_num))
+                                    .size(9.5)
+                                    .monospace()
+                                    .color(colors.text_muted.with_alpha(0.5))
+                                    .show();
+                                match diff_state {
+                                    Some(crate::state::DiffLineState::Added) => {
+                                        ui.text("+")
+                                            .size(10.0)
+                                            .monospace()
+                                            .color(Color { r: 74.0 / 255.0, g: 222.0 / 255.0, b: 128.0 / 255.0, a: 1.0 })
+                                            .show();
+                                        ui.text(line_str)
+                                            .size(10.0)
+                                            .monospace()
+                                            .color(Color { r: 187.0 / 255.0, g: 247.0 / 255.0, b: 208.0 / 255.0, a: 1.0 })
+                                            .wrap(zenthra_text::prelude::TextWrap::Word)
+                                            .show();
+                                    }
+                                    Some(crate::state::DiffLineState::Removed) => {
+                                        ui.text("-")
+                                            .size(10.0)
+                                            .monospace()
+                                            .color(Color { r: 248.0 / 255.0, g: 113.0 / 255.0, b: 113.0 / 255.0, a: 1.0 })
+                                            .show();
+                                        ui.text(line_str)
+                                            .size(10.0)
+                                            .monospace()
+                                            .color(Color { r: 254.0 / 255.0, g: 202.0 / 255.0, b: 202.0 / 255.0, a: 1.0 })
+                                            .wrap(zenthra_text::prelude::TextWrap::Word)
+                                            .show();
+                                    }
+                                    _ => {
+                                        ui.text(line_str)
+                                            .size(10.0)
+                                            .monospace()
+                                            .color(colors.text_primary)
+                                            .wrap(zenthra_text::prelude::TextWrap::Word)
+                                            .show();
+                                    }
+                                }
+                            });
+                    }
+
+                    // Show more lines button (opens directly in editor buffer)
+                    if total_lines > preview_lines.len() {
+                        let remaining = total_lines - preview_lines.len();
+                        let more_btn_id = Id::from_u64(card_id.raw() + 5);
+                        let more_btn = ui.container()
+                            .id(more_btn_id)
+                            .full_width()
+                            .padding(3.0, 4.0, 3.0, 4.0)
+                            .radius_all(3.0)
+                            .hover_bg(colors.highlight)
+                            .row()
+                            .valign(Align::Center)
+                            .gap(4.0)
+                            .show(|ui| {
+                                ui.text("\u{f078}")
+                                    .size(8.0)
+                                    .color(colors.accent)
+                                    .show();
+                                ui.text(&format!("Show {} more lines", remaining))
+                                    .size(9.5)
+                                    .color(colors.accent)
+                                    .show();
+                            });
+                        if more_btn.hovered {
+                            ui.cursor_icon = CursorIcon::Pointer;
+                        }
+                        if more_btn.clicked {
+                            *chat_open_file = Some(target_path);
+                        }
+                    }
+                });
+        });
+}
+
+fn render_tool_output_box(
+    ui: &mut Ui,
+    colors: &ThemeColors,
+    card_id: Id,
+    file_icon: Option<&crate::theme::FileIcon>,
+    fallback_icon: Option<(&str, Color)>,
+    title: &str,
+    meta_info: &str,
+    content: &str,
+    copy_code_snippet: &mut Option<(u64, String)>,
+    mut open_file_action: Option<(&mut Option<std::path::PathBuf>, std::path::PathBuf)>,
+) {
+    let card_bg = colors.bg_base;
+
+    ui.container()
+        .full_width()
+        .padding(6.0, 8.0, 6.0, 8.0)
+        .radius_all(5.0)
+        .bg(card_bg)
+        .border(colors.border.with_alpha(0.6), 1.0)
+        .column()
+        .gap(5.0)
+        .show(|ui| {
+            // Header row with title on left, metadata and action buttons on right
+            ui.container()
+                .full_width()
+                .row()
+                .valign(Align::Center)
+                .halign(Align::SpaceBetween)
+                .show(|ui| {
+                    // Left: File/folder/tool icon + Title
+                    ui.container()
+                        .row()
+                        .valign(Align::Center)
+                        .gap(6.0)
+                        .show(|ui| {
+                            if let Some(ic) = file_icon {
+                                ic.show(ui, 13.0);
+                            } else if let Some((glyph, col)) = fallback_icon {
+                                ui.text(glyph)
+                                    .size(11.0)
+                                    .color(col)
+                                    .show();
+                            }
+                            ui.text(title)
+                                .size(11.0)
+                                .bold()
+                                .color(colors.text_primary)
+                                .show();
+                        });
+
+                    // Right: Lines/metadata info + Copy & Open action buttons
+                    ui.container()
+                        .row()
+                        .valign(Align::Center)
+                        .gap(8.0)
+                        .show(|ui| {
+                            if !meta_info.is_empty() {
+                                ui.text(meta_info)
+                                    .size(9.5)
+                                    .color(colors.text_muted)
+                                    .show();
+                            }
+
+                            // Copy button
+                            let copy_btn_id = Id::from_u64(card_id.raw() + 1);
+                            let copy_btn = ui.container()
+                                .id(copy_btn_id)
+                                .padding(2.0, 5.0, 2.0, 5.0)
+                                .radius_all(3.0)
+                                .hover_bg(colors.highlight)
+                                .row()
+                                .valign(Align::Center)
+                                .gap(3.0)
+                                .show(|ui| {
+                                    ui.text("\u{f0c5}")
+                                        .size(8.5)
+                                        .color(colors.text_muted)
+                                        .show();
+                                    ui.text("Copy")
+                                        .size(9.5)
+                                        .color(colors.text_muted)
+                                        .show();
+                                });
+                            if copy_btn.hovered {
+                                ui.cursor_icon = CursorIcon::Pointer;
+                            }
+                            if copy_btn.clicked {
+                                *copy_code_snippet = Some((copy_btn_id.raw(), content.to_string()));
+                            }
+
+                            // Optional [Open in editor] button
+                            if let Some((ref mut target_open, ref p)) = open_file_action {
+                                let open_btn_id = Id::from_u64(card_id.raw() + 2);
+                                let open_btn = ui.container()
+                                    .id(open_btn_id)
+                                    .padding(2.0, 5.0, 2.0, 5.0)
+                                    .radius_all(3.0)
+                                    .hover_bg(colors.highlight)
+                                    .row()
+                                    .valign(Align::Center)
+                                    .gap(3.0)
+                                    .show(|ui| {
+                                        ui.text("\u{f08e}")
+                                            .size(8.5)
+                                            .color(colors.accent)
+                                            .show();
+                                        ui.text("Open")
+                                            .size(9.5)
+                                            .color(colors.accent)
+                                            .show();
+                                    });
+                                if open_btn.hovered {
+                                    ui.cursor_icon = CursorIcon::Pointer;
+                                }
+                                if open_btn.clicked {
+                                    **target_open = Some(p.clone());
+                                }
+                            }
+                        });
+                });
+
+            // Content preview container
+            ui.container()
+                .full_width()
+                .padding(5.0, 7.0, 5.0, 7.0)
+                .radius_all(3.5)
+                .bg(colors.bg_sidebar.with_alpha(0.6))
+                .border(colors.border.with_alpha(0.3), 1.0)
+                .column()
+                .gap(1.5)
+                .show(|ui| {
+                    let total_lines = content.lines().count();
+                    let max_display_lines = 25;
+                    for (i, line) in content.lines().take(max_display_lines).enumerate() {
+                        ui.container()
+                            .full_width()
+                            .row()
+                            .valign(Align::Center)
+                            .gap(6.0)
+                            .show(|ui| {
+                                ui.text(&format!("{:>3}", i + 1))
+                                    .size(9.5)
+                                    .monospace()
+                                    .color(colors.text_muted.with_alpha(0.5))
+                                    .show();
+                                ui.text(line)
+                                    .size(10.0)
+                                    .monospace()
+                                    .color(colors.text_primary)
+                                    .wrap(zenthra_text::prelude::TextWrap::Word)
+                                    .show();
+                            });
+                    }
+                    if total_lines > max_display_lines {
+                        ui.text(&format!("... ({} more lines)", total_lines - max_display_lines))
+                            .size(9.5)
+                            .color(colors.text_muted)
+                            .show();
+                    }
+                });
+        });
 }
 
 #[cfg(test)]

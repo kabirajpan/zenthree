@@ -597,29 +597,130 @@ pub enum ExplorationItem {
         symbol: Option<String>,
         #[serde(default)]
         is_peek: bool,
+        #[serde(default)]
+        output: Option<String>,
+        #[serde(default)]
+        expanded: bool,
     },
     BatchRead {
         paths: Vec<String>,
+        #[serde(default)]
+        output: Option<String>,
+        #[serde(default)]
+        expanded: bool,
     },
     Searched {
         query: String,
         #[serde(default)]
         scope: Option<String>,
+        #[serde(default)]
+        output: Option<String>,
+        #[serde(default)]
+        expanded: bool,
     },
     ExploredDirectory {
         path: String,
+        #[serde(default)]
+        output: Option<String>,
+        #[serde(default)]
+        expanded: bool,
     },
     ActivatedSkill {
         name: String,
+        #[serde(default)]
+        output: Option<String>,
+        #[serde(default)]
+        expanded: bool,
     },
     ExecutedCommand {
         command: String,
+        #[serde(default)]
+        output: Option<String>,
+        #[serde(default)]
+        expanded: bool,
     },
-    CheckedDiagnostics,
+    CheckedDiagnostics {
+        #[serde(default)]
+        output: Option<String>,
+        #[serde(default)]
+        expanded: bool,
+    },
+    WrittenFile {
+        path: String,
+        #[serde(default)]
+        lines_added: usize,
+        #[serde(default)]
+        lines_removed: usize,
+        #[serde(default)]
+        is_new: bool,
+        #[serde(default)]
+        output: Option<String>,
+        #[serde(default)]
+        expanded: bool,
+    },
     Thought {
         summary: String,
         duration_secs: Option<u64>,
     },
+}
+
+#[allow(dead_code)]
+impl ExplorationItem {
+    pub fn is_expanded(&self) -> bool {
+        match self {
+            ExplorationItem::AnalyzedFile { expanded, .. } => *expanded,
+            ExplorationItem::BatchRead { expanded, .. } => *expanded,
+            ExplorationItem::Searched { expanded, .. } => *expanded,
+            ExplorationItem::ExploredDirectory { expanded, .. } => *expanded,
+            ExplorationItem::ActivatedSkill { expanded, .. } => *expanded,
+            ExplorationItem::ExecutedCommand { expanded, .. } => *expanded,
+            ExplorationItem::CheckedDiagnostics { expanded, .. } => *expanded,
+            ExplorationItem::WrittenFile { expanded, .. } => *expanded,
+            ExplorationItem::Thought { .. } => false,
+        }
+    }
+
+    pub fn toggle_expanded(&mut self) {
+        match self {
+            ExplorationItem::AnalyzedFile { expanded, .. } => *expanded = !*expanded,
+            ExplorationItem::BatchRead { expanded, .. } => *expanded = !*expanded,
+            ExplorationItem::Searched { expanded, .. } => *expanded = !*expanded,
+            ExplorationItem::ExploredDirectory { expanded, .. } => *expanded = !*expanded,
+            ExplorationItem::ActivatedSkill { expanded, .. } => *expanded = !*expanded,
+            ExplorationItem::ExecutedCommand { expanded, .. } => *expanded = !*expanded,
+            ExplorationItem::CheckedDiagnostics { expanded, .. } => *expanded = !*expanded,
+            ExplorationItem::WrittenFile { expanded, .. } => *expanded = !*expanded,
+            ExplorationItem::Thought { .. } => {},
+        }
+    }
+
+    pub fn output(&self) -> Option<&str> {
+        match self {
+            ExplorationItem::AnalyzedFile { output, .. } => output.as_deref(),
+            ExplorationItem::BatchRead { output, .. } => output.as_deref(),
+            ExplorationItem::Searched { output, .. } => output.as_deref(),
+            ExplorationItem::ExploredDirectory { output, .. } => output.as_deref(),
+            ExplorationItem::ActivatedSkill { output, .. } => output.as_deref(),
+            ExplorationItem::ExecutedCommand { output, .. } => output.as_deref(),
+            ExplorationItem::CheckedDiagnostics { output, .. } => output.as_deref(),
+            ExplorationItem::WrittenFile { output, .. } => output.as_deref(),
+            ExplorationItem::Thought { .. } => None,
+        }
+    }
+
+    pub fn set_output(&mut self, text: String) {
+        match self {
+            ExplorationItem::AnalyzedFile { output, .. } => *output = Some(text),
+            ExplorationItem::BatchRead { output, .. } => *output = Some(text),
+            ExplorationItem::Searched { output, .. } => *output = Some(text),
+            ExplorationItem::ExploredDirectory { output, .. } => *output = Some(text),
+            ExplorationItem::ActivatedSkill { output, .. } => *output = Some(text),
+            ExplorationItem::ExecutedCommand { output, .. } => *output = Some(text),
+            ExplorationItem::CheckedDiagnostics { output, .. } => *output = Some(text),
+            ExplorationItem::WrittenFile { output, .. } => *output = Some(text),
+            ExplorationItem::Thought { .. } => {},
+        }
+    }
 }
 
 #[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
@@ -644,12 +745,13 @@ impl ExplorationGroup {
         for item in &self.items {
             match item {
                 ExplorationItem::AnalyzedFile { .. } => files += 1,
-                ExplorationItem::BatchRead { paths } => files += paths.len(),
+                ExplorationItem::BatchRead { paths, .. } => files += paths.len(),
                 ExplorationItem::ExploredDirectory { .. } => folders += 1,
                 ExplorationItem::Searched { .. } => searches += 1,
                 ExplorationItem::ActivatedSkill { .. } => skills += 1,
                 ExplorationItem::ExecutedCommand { .. } => commands += 1,
-                ExplorationItem::CheckedDiagnostics => {},
+                ExplorationItem::CheckedDiagnostics { .. } => {},
+                ExplorationItem::WrittenFile { .. } => files += 1,
                 ExplorationItem::Thought { .. } => thoughts += 1,
             }
         }
@@ -695,6 +797,10 @@ pub enum TrajectoryStep {
         path: String,
         lines_added: usize,
         lines_removed: usize,
+        #[serde(default)]
+        is_new: bool,
+        #[serde(default)]
+        expanded: bool,
     },
     Command {
         command: String,
@@ -787,6 +893,7 @@ pub enum AiUiUpdate {
     },
     ToolDone {
         name: String,
+        result: Option<serde_json::Value>,
     },
     Done {
         reply: String,

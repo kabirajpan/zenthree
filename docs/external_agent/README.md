@@ -90,13 +90,17 @@ Zenthree's primary external agent implementation is **Google Antigravity** (`agy
   ```
 * **The Solution:** In [`AcpAgentConfig::suggest_antigravity()`](file:///home/kabir/Desktop/projects/personal/framworks/zenthra-v2/apps/zenthree/crates/agent/src/external_provider/acp/config.rs), `--uid=` is automatically passed as a command argument on Linux. This instructs the binary not to perform any privilege transitions, allowing it to run normally under the current user's UID and GID.
 
-### 4.2 Dynamic Binary Detection
+### 4.2 Dynamic Binary Detection & Automated Installation
 Zenthree locates `agy_acp_server.par` through a cascading fallback order:
-1. Environment variable override: `$ANTIGRAVITY_AGENT_PATH`.
-2. Standard system `$PATH` lookup: `which agy_acp_server.par`.
-3. User application directories:
+1. Environment variable override: `$ANTIGRAVITY_ACP_PATH`.
+2. Zenthree's own managed external agents directory: `~/.local/share/zenthree/external_agents/antigravity/bin/agy_acp_server.par`.
+3. Zed's external agent directory fallback:
    * `~/.local/share/zed/external_agents/registry/antigravity-acp/*/agy_acp_server.par`
+4. User application directories:
    * `~/.gemini/antigravity-acp/bin/agy_acp_server.par`
+5. Standard system `$PATH` lookup: `which agy_acp_server.par` or `which agy_acp_server`.
+
+If not found, Zenthree's built-in installer (`crates/agent/src/external_provider/installer.rs`) can download and unpack the official binary directly with automatic permission fixes.
 
 ### 4.3 Credential Storage & Isolation
 * Antigravity stores its own OAuth tokens in `~/.gemini/antigravity-acp/acp_token.json`.
@@ -132,6 +136,7 @@ Rather than hardcoding model names or assuming fixed rate limits, Zenthree dynam
 crates/agent/src/
 ├── external_provider/
 │   ├── mod.rs                        # Module exports and provider builders
+│   ├── installer.rs                  # Automatic binary downloader & setup
 │   ├── acp/                          # Generic ACP Client Engine
 │   │   ├── mod.rs                    # ACP public exports
 │   │   ├── config.rs                 # AcpAgentConfig & suggest_antigravity()
@@ -144,20 +149,26 @@ crates/agent/src/
 │       └── provider.rs               # AntigravityCliProvider (bridges to Provider trait)
 └── bin/
     ├── acp_spike.rs                  # Standalone raw ACP verification binary
-    └── main.rs                       # zene CLI binary with -p antigravity support
+    ├── zene.rs                       # zene interactive CLI agent with -p antigravity
+    └── main.rs                       # Main agent entrypoint
 
 crates/zenthree/src/
 ├── state/
-│   ├── types.rs                      # AiModel enum with Antigravity entries
-│   └── ai.rs                         # Conversation runner & thread orchestration
+│   ├── types.rs                      # ExplorationItem, AiModel & trajectory types
+│   └── ai.rs                         # Conversation runner & event dispatcher
 └── ui_layout/
     ├── ai_settings_dialog.rs         # External Agents tab & model selection UI
-    └── ai_panel.rs                   # Chat panel with streaming updates
+    └── ai_panel.rs                   # Chat panel with expandable tool outputs & code cards
 ```
 
 ---
 
-## 7. Testing & Verification
+## 7. Tool Output Inspection UI
+
+When tools execute (e.g. `list_dir`, `read_text_file`, `search_codebase`, or terminal commands), Zenthree captures both the call metadata and the execution output/result:
+* **Interactive Toggles:** Each exploration item in the trajectory is clickable (`›` / `ˇ`) to show/hide the tool output card.
+* **Syntax & Line Preview:** Outputs are rendered with line numbers, code framing, and automatic line-cap truncation.
+* **Actions:** One-click `[Copy]` button for clipboard transfer and `[Open]` button to immediately navigate to analyzed files in the editor.
 
 ### 7.1 Running the Live ACP Unit Test
 Run the automated integration test that verifies binary detection, spawning, handshake, session initialization, and prompt streaming:

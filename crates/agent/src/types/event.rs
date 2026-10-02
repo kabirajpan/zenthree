@@ -24,6 +24,11 @@ pub enum ProviderEvent {
         name: String,
         args: Value,
     },
+    /// An external agent finished executing a tool with optional raw output.
+    ExternalToolFinished {
+        name: String,
+        output: Option<String>,
+    },
     /// Provider finished this turn.
     Done,
     /// Provider error encountered mid-turn.

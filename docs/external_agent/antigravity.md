@@ -2,19 +2,19 @@
 
 > **Document:** `docs/external_agent/antigravity.md`  
 > **Target:** Google Antigravity ACP Agent (`agy_acp_server.par`)  
-> **Status:** Phase 1 Complete (Protocol Handshake, Basic Streaming, Auth & Models) | Roadmap for Phase 2 & Beyond
+> **Status:** Phase 1 Complete (Protocol Handshake, Basic Streaming, Auth & Models) | Phase 4 Complete (Tool Discovery, Expandable Output Results & Inspection) | Roadmap for Phase 2 & Beyond
 
 ---
 
 ## Roadmap Overview
 
-Now that the core Agent Client Protocol (ACP) infrastructure is operational and verified end-to-end, this roadmap outlines the evolution of the Antigravity integration across thinking/reasoning visualization, model/quota telemetry, tool orchestration, and UX customization.
+Now that the core Agent Client Protocol (ACP) infrastructure and Tool Discovery & Execution Display with expandable results are operational and verified end-to-end, this roadmap outlines the evolution of the Antigravity integration across thinking/reasoning visualization, model/quota telemetry, and UX customization.
 
 ```mermaid
 graph TD
     A[Phase 1: ACP Core & Handshake ✅] --> B[Phase 2: Thinking & Reasoning Blocks ⏳]
     B --> C[Phase 3: Telemetry, Quota & Modes ⏳]
-    C --> D[Phase 4: Tool Discovery & Execution Display ⏳]
+    C --> D[Phase 4: Tool Discovery & Expandable Execution Display ✅]
     D --> E[Phase 5: UX Polish & Profile Isolation ⏳]
 ```
 

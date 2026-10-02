@@ -113,6 +113,8 @@ impl Provider for AntigravityCliProvider {
             })
         });
 
+        let mut pending_tools: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+
         while let Some(event) = rx.blocking_recv() {
             match event {
                 AcpEvent::TextDelta(chunk) => {
@@ -121,19 +123,17 @@ impl Provider for AntigravityCliProvider {
                 AcpEvent::ThoughtDelta(chunk) => {
                     on_event(ProviderEvent::ThoughtDelta(chunk));
                 }
-                AcpEvent::ToolCall { title, name, raw_input, .. } => {
-                    let name_candidate = name.unwrap_or_else(|| {
-                        title
-                            .strip_prefix("Running ")
-                            .unwrap_or(&title)
-                            .trim()
-                            .to_string()
-                    });
+                AcpEvent::ToolCall { id, title, name, raw_input, .. } => {
+                    let raw_candidate = name.unwrap_or_else(|| title.clone());
+                    let name_candidate = clean_candidate_name(&raw_candidate);
 
                     let mapped_name = match name_candidate.as_str() {
-                        "view_file" | "client_view_file" => "read_file",
+                        "view_file" | "client_view_file" | "read_file" | "client_read_file" | "read_text_file" => "read_file",
                         "find_file" | "search_directory" | "grep_search" | "search_files" | "find_in_files" => "search_codebase",
-                        "run_command" | "execute_command" | "bash" | "terminal" | "run_terminal" | "sh" | "exec" => "run_terminal",
+                        "run_command" | "execute_command" | "bash" | "terminal" | "run_terminal" | "sh" | "exec" | "client_run_command" | "client_run_terminal" => "run_terminal",
+                        "create_file" | "client_create_file" | "write_file" | "write_to_file" | "client_write_file" | "write_text_file" => "write_file",
+                        "edit_file" | "client_edit_file" | "replace_file_content" | "multi_replace_file_content" | "client_modify_file" => "edit_file",
+                        "list_directory" | "list_dir" | "client_list_dir" | "client_list_directory" | "client_show_directory" => "list_dir",
                         other => other,
                     };
 
@@ -145,6 +145,16 @@ impl Provider for AntigravityCliProvider {
                             map.insert("path".to_string(), dir);
                         } else if let Some(sp) = map.remove("search_path") {
                             map.insert("path".to_string(), sp);
+                        } else if let Some(fp) = map.remove("filePath").or_else(|| map.remove("file_path")).or_else(|| map.remove("TargetFile")).or_else(|| map.remove("target_file")).or_else(|| map.remove("file")) {
+                            map.insert("path".to_string(), fp);
+                        }
+                        if let Some(code) = map.remove("CodeContent")
+                            .or_else(|| map.remove("code_content"))
+                            .or_else(|| map.remove("contents"))
+                            .or_else(|| map.remove("text")) {
+                            if !map.contains_key("content") {
+                                map.insert("content".to_string(), code);
+                            }
                         }
                         if let Some(pat) = map.get("pattern").and_then(|v| v.as_str()).map(String::from) {
                             if !map.contains_key("query") {
@@ -165,6 +175,9 @@ impl Provider for AntigravityCliProvider {
                         || name_candidate.starts_with("git ")
                         || name_candidate.starts_with("cargo ")
                         || name_candidate.starts_with("npm ")
+                        || name_candidate.starts_with("bun ")
+                        || name_candidate.starts_with("yarn ")
+                        || name_candidate.starts_with("pnpm ")
                         || name_candidate.starts_with("cat ")
                         || name_candidate.starts_with("grep ")
                         || name_candidate.contains('|');
@@ -175,7 +188,7 @@ impl Provider for AntigravityCliProvider {
                                 let cmd_str = if name_candidate != "run_terminal" && name_candidate != "run_command" {
                                     name_candidate.clone()
                                 } else {
-                                    title.strip_prefix("Running ").unwrap_or(&title).trim().to_string()
+                                    clean_candidate_name(&title)
                                 };
                                 map.insert("command".to_string(), serde_json::Value::String(cmd_str));
                             }
@@ -185,12 +198,27 @@ impl Provider for AntigravityCliProvider {
                         mapped_name
                     };
 
+                    pending_tools.insert(id.clone(), final_mapped_name.to_string());
                     on_event(ProviderEvent::ExternalToolActivity {
                         name: final_mapped_name.to_string(),
                         args,
                     });
                 }
+                AcpEvent::ToolCallUpdate { id, raw_output, .. } => {
+                    if let Some(mapped_name) = pending_tools.remove(&id) {
+                        on_event(ProviderEvent::ExternalToolFinished {
+                            name: mapped_name,
+                            output: raw_output,
+                        });
+                    }
+                }
                 AcpEvent::TurnCompleted { .. } => {
+                    for (_, mapped_name) in pending_tools.drain() {
+                        on_event(ProviderEvent::ExternalToolFinished {
+                            name: mapped_name,
+                            output: None,
+                        });
+                    }
                     on_event(ProviderEvent::Done);
                 }
                 AcpEvent::Error(err) => {
@@ -206,4 +234,21 @@ impl Provider for AntigravityCliProvider {
             Err(_) => Err(ProviderError::Network("ACP prompt thread panicked".to_string())),
         }
     }
+}
+
+fn clean_candidate_name(raw: &str) -> String {
+    let mut candidate = raw.trim();
+    loop {
+        let prev = candidate;
+        for prefix in &["Running ", "Run ", "Calling ", "Call "] {
+            if let Some(rest) = candidate.strip_prefix(prefix) {
+                candidate = rest.trim();
+            }
+        }
+        candidate = candidate.trim_end_matches(['?', '.', '…', ' ']);
+        if candidate == prev {
+            break;
+        }
+    }
+    candidate.to_string()
 }

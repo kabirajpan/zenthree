@@ -393,12 +393,14 @@ impl Agent {
                             }
                             ProviderEvent::ExternalToolActivity { name, args } => {
                                 on_event(AgentEvent::ToolStarted {
-                                    name: name.clone(),
+                                    name,
                                     args,
                                 });
+                            }
+                            ProviderEvent::ExternalToolFinished { name, output } => {
                                 on_event(AgentEvent::ToolFinished {
                                     name,
-                                    result: serde_json::Value::Null,
+                                    result: output.map(serde_json::Value::String).unwrap_or(serde_json::Value::Null),
                                 });
                             }
                             ProviderEvent::Error(err) => {

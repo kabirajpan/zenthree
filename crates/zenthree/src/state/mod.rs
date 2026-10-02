@@ -126,6 +126,7 @@ pub struct ZenthreeState {
     pub antigravity_mode: AntigravityMode,
     pub antigravity_signing_in: bool,
     pub pending_reviews: Vec<FileDiffReview>,
+    pub accepted_reviews: Vec<FileDiffReview>,
     pub active_review_idx: Option<usize>,
     pub show_modified_files_popup: bool,
     pub font_adapter: Option<zenthra_text::prelude::CosmicFontProvider>,
@@ -186,7 +187,6 @@ impl ZenthreeState {
             || self.active_language_prompt.is_some()
             || self.unsaved_changes_dialog.is_some()
             || self.user_profile_open
-            || self.show_modified_files_popup
             || self.tree_context_menu.is_some()
     }
 
@@ -318,6 +318,7 @@ impl ZenthreeState {
             antigravity_mode: AntigravityMode::default(),
             antigravity_signing_in: false,
             pending_reviews: Vec::new(),
+            accepted_reviews: Vec::new(),
             active_review_idx: None,
             show_modified_files_popup: false,
             font_adapter: None,
@@ -524,6 +525,7 @@ impl ZenthreeState {
                         tab.version += 1;
                     }
                 }
+                self.accepted_reviews.push(rev);
                 if self.pending_reviews.is_empty() {
                     self.active_review_idx = None;
                 } else {
@@ -534,6 +536,33 @@ impl ZenthreeState {
                 }
             }
         }
+    }
+
+    #[allow(dead_code)]
+    pub fn restore_accepted_review(&mut self, path: &std::path::Path) -> bool {
+        if let Some(pos) = self.accepted_reviews.iter().rposition(|r| path_matches(&r.path, path)) {
+            let rev = self.accepted_reviews.remove(pos);
+            if rev.is_new_file {
+                let _ = std::fs::remove_file(&rev.path);
+                if let Some(tab_idx) = self.tabs.iter().position(|t| t.path.as_ref().map(|p| path_matches(p, &rev.path)).unwrap_or(false)) {
+                    self.close_tab(tab_idx);
+                }
+            } else {
+                let _ = std::fs::write(&rev.path, &rev.original_content);
+                for tab in &mut self.tabs {
+                    if tab.path.as_ref().map(|p| path_matches(p, &rev.path)).unwrap_or(false) {
+                        tab.editor = ::editor::editor::Editor::new(::editor::buffer::Buffer::from_text(&rev.original_content));
+                        tab.shaping_cache.clear();
+                        tab.lines_added = 0;
+                        tab.lines_removed = 0;
+                        tab.is_dirty = false;
+                        tab.version += 1;
+                    }
+                }
+            }
+            return true;
+        }
+        false
     }
 
     pub fn reject_current_review(&mut self) {
@@ -1082,6 +1111,8 @@ mod tests {
             end_line: Some(300),
             symbol: None,
             is_peek: false,
+            output: None,
+            expanded: false,
         });
         assert_eq!(grp.summary_label(), "Explored 1 file");
         grp.is_active = true;
@@ -1096,12 +1127,14 @@ mod tests {
                 end_line: None,
                 symbol: None,
                 is_peek: false,
+                output: None,
+                expanded: false,
             });
         }
-        grp.items.push(ExplorationItem::ExploredDirectory { path: "src".into() });
-        grp.items.push(ExplorationItem::ExploredDirectory { path: "crates".into() });
+        grp.items.push(ExplorationItem::ExploredDirectory { path: "src".into(), output: None, expanded: false });
+        grp.items.push(ExplorationItem::ExploredDirectory { path: "crates".into(), output: None, expanded: false });
         for i in 0..11 {
-            grp.items.push(ExplorationItem::Searched { query: format!("q{}", i), scope: None });
+            grp.items.push(ExplorationItem::Searched { query: format!("q{}", i), scope: None, output: None, expanded: false });
         }
         assert_eq!(grp.summary_label(), "Explored 13 files, 2 folders, 11 searches");
         grp.is_active = true;
@@ -1140,6 +1173,8 @@ mod tests {
                             end_line: Some(50),
                             symbol: None,
                             is_peek: false,
+                            output: None,
+                            expanded: false,
                         }
                     ],
                     is_active: false,
@@ -1148,6 +1183,8 @@ mod tests {
                     path: "crates/zenthree/src/theme.rs".into(),
                     lines_added: 32,
                     lines_removed: 1,
+                    is_new: false,
+                    expanded: false,
                 },
                 TrajectoryStep::Command {
                     command: "cargo check".into(),
@@ -1161,7 +1198,7 @@ mod tests {
 
         assert_eq!(restored.trajectory.len(), 3);
         match &restored.trajectory[1] {
-            TrajectoryStep::FileEdit { path, lines_added, lines_removed } => {
+            TrajectoryStep::FileEdit { path, lines_added, lines_removed, .. } => {
                 assert_eq!(path, "crates/zenthree/src/theme.rs");
                 assert_eq!(*lines_added, 32);
                 assert_eq!(*lines_removed, 1);
@@ -1841,7 +1878,113 @@ mod tests {
         state.close_workspace();
         let _ = std::fs::remove_dir_all(&tmp);
     }
+
+    #[test]
+    fn test_edit_file_and_write_file_on_existing_file_preserves_diff_precision() {
+        let mut state = ZenthreeState::new();
+        let tmp = std::env::temp_dir().join(format!("zenthree_test_edit_diff_{}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos()));
+        std::fs::create_dir_all(&tmp).unwrap();
+
+        let colors_orig = r##"[
+  { "name": "Coral Red", "hex": "#FF4D4D" },
+  { "name": "Crimson", "hex": "#DC143C" },
+  { "name": "Silver Gray", "hex": "#C0C0C0" },
+  { "name": "Midnight Black", "hex": "#191970" }
+]"##;
+        let file_path = tmp.join("colors.json");
+        std::fs::write(&file_path, colors_orig).unwrap();
+
+        state.tabs.clear();
+        state.current_dir = tmp.clone();
+        state.has_workspace = true;
+        state.open_file(&file_path);
+
+        assert_eq!(state.tabs.len(), 1);
+        assert_eq!(state.tabs[0].lines_added, 0);
+        assert_eq!(state.tabs[0].lines_removed, 0);
+
+        // Add a mock assistant message
+        state.ai_messages.push(crate::state::AiMessage {
+            is_user: false,
+            content: String::new(),
+            code_snippet: None,
+            thoughts: None,
+            thoughts_expanded: false,
+            expanded: true,
+            trajectory: Vec::new(),
+            is_working: true,
+        });
+
+        // Scenario 1: edit_file sent with code_content / content modifying only "Silver Gray" to "Platinum"
+        let colors_modified = r##"[
+  { "name": "Coral Red", "hex": "#FF4D4D" },
+  { "name": "Crimson", "hex": "#DC143C" },
+  { "name": "Platinum", "hex": "#C0C0C0" },
+  { "name": "Midnight Black", "hex": "#191970" }
+]"##;
+
+        state.ai_update_signal.with_silent_mut(|queue| {
+            queue.push(crate::state::AiUiUpdate::ToolStart {
+                name: "edit_file".to_string(),
+                args: serde_json::json!({
+                    "path": "colors.json",
+                    "content": colors_modified,
+                }),
+            });
+        });
+        state.drain_ai_updates();
+
+        // Must create exactly 1 pending review
+        assert_eq!(state.pending_reviews.len(), 1);
+        let rev = &state.pending_reviews[0];
+        assert!(!rev.is_new_file, "Existing file edit must NOT be flagged as new file");
+        assert_eq!(rev.total_added_lines(), 1, "Only 1 line was added/replaced");
+        assert_eq!(rev.total_removed_lines(), 1, "Only 1 line was removed/replaced");
+
+        // Tab state should reflect 1 added, 1 removed (NOT 6 or 22)
+        assert_eq!(state.tabs[0].lines_added, 1);
+        assert_eq!(state.tabs[0].lines_removed, 1);
+
+        // Trajectory step must be FileEdit with 1 added, 1 removed
+        let last_msg = state.ai_messages.last().unwrap();
+        match last_msg.trajectory.last().unwrap() {
+            crate::state::TrajectoryStep::FileEdit { lines_added, lines_removed, .. } => {
+                assert_eq!(*lines_added, 1);
+                assert_eq!(*lines_removed, 1);
+            }
+            other => panic!("Expected FileEdit trajectory step, got {:?}", other),
+        }
+
+        // Scenario 2: write_file sent on existing file modifying only 1 line
+        let colors_modified_2 = r##"[
+  { "name": "Coral Red", "hex": "#FF4D4D" },
+  { "name": "Crimson", "hex": "#DC143C" },
+  { "name": "Gold", "hex": "#FFD700" },
+  { "name": "Midnight Black", "hex": "#191970" }
+]"##;
+
+        state.ai_update_signal.with_silent_mut(|queue| {
+            queue.push(crate::state::AiUiUpdate::ToolStart {
+                name: "write_file".to_string(),
+                args: serde_json::json!({
+                    "path": "colors.json",
+                    "content": colors_modified_2,
+                }),
+            });
+        });
+        state.drain_ai_updates();
+
+        let rev2 = &state.pending_reviews[0];
+        assert!(!rev2.is_new_file, "write_file on existing file must NOT be marked is_new_file");
+        assert_eq!(rev2.total_added_lines(), 1);
+        assert_eq!(rev2.total_removed_lines(), 1);
+
+        // Clean up
+        state.close_workspace();
+        let _ = std::fs::remove_dir_all(&tmp);
+    }
 }
+
 
 
 

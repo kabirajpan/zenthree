@@ -86,7 +86,11 @@ impl AcpClient {
                         let _ = notif_tx.send(AcpEvent::ToolCallUpdate {
                             id: update.tool_call_id.0.to_string(),
                             status: format!("{:?}", update.fields.status),
-                            raw_output: update.fields.raw_output.and_then(|v| v.as_str().map(String::from)),
+                            raw_output: update.fields.raw_output.map(|v| match v {
+                                serde_json::Value::String(s) => s,
+                                serde_json::Value::Null => String::new(),
+                                other => serde_json::to_string_pretty(&other).unwrap_or_default(),
+                            }),
                         });
                     }
                     _ => {}
