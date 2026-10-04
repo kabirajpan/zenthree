@@ -1,5 +1,5 @@
 use crate::state::ZenthreeState;
-use zenthra::{Ui, Align, Color, use_context};
+use zenthra::{Ui, Align, Color, FontWeight, use_context};
 use crate::theme::ThemeColors;
 
 pub fn draw_status_bar(ui: &mut Ui, state: &mut ZenthreeState) {
@@ -177,6 +177,50 @@ pub fn draw_status_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                             .color(colors.text_muted)
                             .show();
                     }
+
+                    // Clock segment: Powerline arrow (\u{e0b2}) + Clock icon (\u{f017}) + Time
+                    let current_time = chrono::Local::now().format("%H:%M").to_string();
+                    let clock_bg = Color::rgb(181.0 / 255.0, 232.0 / 255.0, 144.0 / 255.0);
+                    let clock_fg = Color::rgb(24.0 / 255.0, 24.0 / 255.0, 32.0 / 255.0);
+
+                    ui.container()
+                        .row()
+                        .valign(Align::Center)
+                        .gap(0.0)
+                        .show(|ui| {
+                            // Shift triangle physically to the left
+                            ui.cursor_x -= 5.0;
+
+                            // Powerline left triangle arrow (\u{e0b2})
+                            ui.text("\u{e0b2}")
+                                .size(18.0)
+                                .color(clock_bg)
+                                .show();
+
+                            // Seamlessly join with pill body
+                            ui.cursor_x -= 1.0;
+
+                            // Clock pill body
+                            ui.container()
+                                .height(18.0)
+                                .bg(clock_bg)
+                                .padding_left(2.0)
+                                .padding_right(6.0)
+                                .row()
+                                .valign(Align::Center)
+                                .gap(4.0)
+                                .show(|ui| {
+                                    ui.text("\u{f017}")
+                                        .size(11.0)
+                                        .color(clock_fg)
+                                        .show();
+                                    ui.text(&current_time)
+                                        .size(11.0)
+                                        .weight(FontWeight::Medium)
+                                        .color(clock_fg)
+                                        .show();
+                                });
+                        });
 
                     // Tag: Zenthree IDE (square badge inside bottom bar with accent color at 60% opacity)
                     let mut tag_bg = colors.accent;

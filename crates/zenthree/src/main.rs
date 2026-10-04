@@ -57,6 +57,30 @@ fn main() {
                                 state.editor_settings_tab = crate::state::EditorSettingsTab::Appearance;
                             }
                         }
+                        winit::keyboard::KeyCode::F11 => {
+                            state.focus_mode = !state.focus_mode;
+                            if state.focus_mode {
+                                // Entering focus mode: hide title bar + activity bar + terminal + AI
+                                state.activity_bar_visible = false;
+                                state.terminal_visible = false;
+                                state.ai_panel_visible = false;
+                            } else {
+                                // Exiting focus mode: restore activity bar
+                                state.activity_bar_visible = true;
+                            }
+                        }
+                        // Ctrl+B → toggle sidebar (VSCode style)
+                        winit::keyboard::KeyCode::KeyB if state.ctrl_pressed && !state.shift_pressed => {
+                            state.sidebar_visible = !state.sidebar_visible;
+                        }
+                        // Ctrl+Shift+B → toggle activity bar
+                        winit::keyboard::KeyCode::KeyB if state.ctrl_pressed && state.shift_pressed => {
+                            state.activity_bar_visible = !state.activity_bar_visible;
+                        }
+                        // Ctrl+` → toggle terminal (VSCode style)
+                        winit::keyboard::KeyCode::Backquote if state.ctrl_pressed => {
+                            state.terminal_visible = !state.terminal_visible;
+                        }
                         _ => {}
                     },
                     zenthra_platform::event::PlatformEvent::KeyUp { key } => match key {
@@ -121,16 +145,19 @@ fn main() {
                 .bg(if state.glassmorphism { Color::TRANSPARENT } else { colors.bg_base })
                 .column()
                 .show(|ui| {
-                    // 1. Draw Title Bar
-                    ui_layout::draw_title_bar(ui, &mut state);
+                    // 1. Draw Title Bar (hidden in focus mode)
+                    if !state.focus_mode {
+                        ui_layout::draw_title_bar(ui, &mut state);
+                    }
 
                     // 2. Middle Workspace Area (Sidebar + Editor + Terminal + AI Panel)
                     let ui_height = ui.height;
                     let ui_width = ui.width;
                     let status_bar_h = if state.status_bar_visible { 24.0 } else { 0.0 };
-                    let middle_h = ui_height - 36.0 - status_bar_h;
+                    let title_bar_h = if state.focus_mode { 0.0 } else { 36.0 };
+                    let middle_h = ui_height - title_bar_h - status_bar_h;
 
-                    let activity_bar_w = ui_layout::ACTIVITY_BAR_WIDTH;
+                    let activity_bar_w = if state.activity_bar_visible { ui_layout::ACTIVITY_BAR_WIDTH } else { 0.0 };
                     let actual_sb_w = if state.sidebar_visible {
                         state.sidebar_width.min(ui_width * 0.4).max(140.0)
                     } else {
@@ -171,7 +198,9 @@ fn main() {
                         .height(middle_h)
                         .show(|ui| {
                             // Far Left: Activity Bar (Files, Extensions, Settings)
-                            ui_layout::draw_activity_bar(ui, &mut state, middle_h);
+                            if state.activity_bar_visible {
+                                ui_layout::draw_activity_bar(ui, &mut state, middle_h);
+                            }
 
                             // Left: Sidebar / File Tree or Extensions Panel
                             if state.sidebar_visible {

@@ -12,7 +12,6 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
     ui.interaction_state.insert(hover_flag_key, 0.0);
 
     const BAR_H: f32 = 36.0;
-    const RIGHT_W: f32 = 236.0;
 
     let titlebar_bg = if state.glassmorphism {
         colors.bg_sidebar.with_alpha((state.glass_opacity * 0.55).clamp(0.18, 0.65))
@@ -461,13 +460,58 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
             // RIGHT: window controls & panel toggles
             // Sequence: left, bottom, right, user icon, gap, minimize, floating window, cross
             ui.container()
-                .width(RIGHT_W)
                 .height(BAR_H)
                 .row()
                 .valign(Align::Center)
-                .padding_right(12.0)
+                .padding_right(4.0)
                 .gap(6.0)
                 .show(|ui| {
+                    // 0. Focus Mode (\u{e25d})
+                    let focus_key = Id::from_u64(999999909);
+                    let focus_hov = ui.interaction_state.get(&focus_key).copied().unwrap_or(0.0) > 0.5;
+                    let focus_resp = ui.container()
+                        .clickable(true)
+                        .width(22.0).height(20.0)
+                        .radius_all(3.0)
+                        .bg(if focus_hov {
+                            colors.highlight
+                        } else if state.focus_mode {
+                            colors.accent.with_alpha(0.15)
+                        } else {
+                            Color::TRANSPARENT
+                        })
+                        .halign(Align::Center)
+                        .valign(Align::Center)
+                        .show(|ui| {
+                            let icon_color = if state.focus_mode {
+                                colors.accent
+                            } else if focus_hov {
+                                colors.text_primary
+                            } else {
+                                colors.text_muted
+                            };
+                            ui.text("\u{e25d}")
+                                .size(13.0)
+                                .color(icon_color)
+                                .show();
+                        });
+                    let h = focus_resp.hovered;
+                    let prev = ui.interaction_state.insert(focus_key, if h { 1.0 } else { 0.0 });
+                    if prev != Some(if h { 1.0 } else { 0.0 }) { ui.needs_redraw = true; }
+                    if focus_resp.clicked {
+                        state.focus_mode = !state.focus_mode;
+                        if state.focus_mode {
+                            // Entering focus mode: hide title bar + activity bar + terminal + AI
+                            state.activity_bar_visible = false;
+                            state.terminal_visible = false;
+                            state.ai_panel_visible = false;
+                        } else {
+                            // Exiting focus mode: restore activity bar
+                            state.activity_bar_visible = true;
+                        }
+                        ui.request_redraw();
+                    }
+
                     // 1. Left Panel (File Tree) Toggle (\u{f10aa})
                     let left_key = Id::from_u64(999999910);
                     let left_hov = ui.interaction_state.get(&left_key).copied().unwrap_or(0.0) > 0.5;
