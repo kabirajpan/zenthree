@@ -25,7 +25,7 @@ fn main() {
         state.new_untitled_file();
     }
 
-    let font_bytes = include_bytes!("../../../assets/fonts/SymbolsNerdFont-Regular.ttf").to_vec();
+    let font_bytes = include_bytes!("../../../assets/fonts/SymbolsNerdFont-Regular-3.5.1.ttf").to_vec();
     let initial_blur = state.glassmorphism;
 
     App::new()

@@ -288,7 +288,7 @@ fn draw_antigravity_signin_card(
                 .halign(Align::Center)
                 .valign(Align::Center)
                 .show(|ui| {
-                    ui.text("⚡")
+                    ui.text("\u{e7f0}")
                         .size(18.0)
                         .color(colors.accent)
                         .show();
@@ -367,7 +367,7 @@ fn draw_antigravity_signin_card(
                             .color(Color::WHITE)
                             .show();
                     } else {
-                        ui.text("⚡")
+                        ui.text("\u{e7f0}")
                             .size(10.0)
                             .color(Color::WHITE)
                             .show();
@@ -632,7 +632,7 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
     // ─── Floating Menu Panel: AI 3-Dot More Menu ──────────────────────────
     if state.ai_menu_open {
         let menu_w = 180.0;
-        let menu_h = 165.0;
+        let menu_h = 122.0;
 
         if let Some(anchor) = ui.next_screen_layout_cache.get(&AI_MORE_BTN_ID)
             .or_else(|| ui.screen_layout_cache.get(&AI_MORE_BTN_ID)).copied()
@@ -762,7 +762,7 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                             .halign(Align::SpaceBetween)
                             .show(|ui| {
                                 ui.container().row().valign(Align::Center).gap(6.0).show(|ui| {
-                                    ui.text("⚡")
+                                    ui.text("\u{e7f0}")
                                         .size(10.0)
                                         .color(colors.accent)
                                         .show();

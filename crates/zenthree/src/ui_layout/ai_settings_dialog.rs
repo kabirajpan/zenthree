@@ -1000,6 +1000,52 @@ fn draw_model_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColors) 
 // 3a. API Keys & Subscriptions Tab (ZENE Native Agent)
 // ─────────────────────────────────────────────────────────────────────────────
 
+fn copy_api_key_to_clipboard(
+    state: &mut ZenthreeState,
+    value: String,
+    provider_name: &str,
+    provider_id: &str,
+) {
+    let result = if let Some(clipboard) = state.os_clipboard.as_mut() {
+        clipboard.set_text(value.clone())
+    } else {
+        match arboard::Clipboard::new() {
+            Ok(mut clipboard) => match clipboard.set_text(value.clone()) {
+                Ok(()) => {
+                    state.os_clipboard = Some(clipboard);
+                    Ok(())
+                }
+                Err(error) => Err(error),
+            },
+            Err(error) => Err(error),
+        }
+    };
+
+    match result {
+        Ok(()) => {
+            state.clipboard = Some(value);
+            state.ai_settings.copied_api_key =
+                Some((provider_id.to_string(), std::time::Instant::now()));
+            state.set_status(format!("{} API key copied to clipboard", provider_name));
+        }
+        Err(error) => {
+            state.set_status(format!(
+                "Error copying {} API key to clipboard: {}",
+                provider_name, error
+            ));
+        }
+    }
+}
+
+fn api_key_copy_succeeded_recently(state: &ZenthreeState, provider_id: &str) -> bool {
+    state.ai_settings.copied_api_key
+        .as_ref()
+        .map(|(copied_id, copied_at)| {
+            copied_id == provider_id && copied_at.elapsed().as_secs_f32() < 2.0
+        })
+        .unwrap_or(false)
+}
+
 fn draw_api_keys_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColors) {
     use agent::provider::{ZenthreeConfig, KNOWN_PROVIDERS};
 
@@ -1027,16 +1073,27 @@ fn draw_api_keys_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColor
                     .show();
             });
 
-            let edit_btn = ui.button("Edit config.json ↗")
-                .id(Id::from_u64(999999886))
+            let edit_btn = ui.container()
+                .raw_id(Id::from_u64(999999886))
+                .clickable(true)
                 .padding(4.5, 10.0, 4.5, 10.0)
                 .radius_all(5.0)
                 .bg(colors.highlight)
-                .hover_bg(colors.highlight.with_alpha(0.85))
+                .hover_bg(colors.accent.with_alpha(if is_light { 0.12 } else { 0.2 }))
                 .border(colors.border.with_alpha(0.4), 0.75)
-                .text_color(colors.text_primary)
-                .size(10.0)
-                .show();
+                .row()
+                .valign(Align::Center)
+                .gap(4.0)
+                .show(|ui| {
+                    ui.text("Edit config.json")
+                        .size(10.0)
+                        .color(colors.text_primary)
+                        .show();
+                    ui.text("\u{f08e}")
+                        .size(10.0)
+                        .color(colors.accent)
+                        .show();
+                });
             if edit_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
             if edit_btn.clicked {
                 if let Ok(path_str) = config_path.to_str().ok_or("") {
@@ -1066,6 +1123,7 @@ fn draw_api_keys_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColor
     // ── Known providers (dynamic) ──
     let known_provider_names: Vec<String> = KNOWN_PROVIDERS.iter().map(|p| p.name.to_string()).collect();
     let provider_label_width = 152.0;
+    let provider_copy_width = 24.0;
     let provider_actions_width = 130.0;
     let remove_btn_bg = Color::rgba(220.0 / 255.0, 50.0 / 255.0, 50.0 / 255.0, 0.15);
     let remove_btn_border = Color::rgba(220.0 / 255.0, 50.0 / 255.0, 50.0 / 255.0, 0.45);
@@ -1106,10 +1164,42 @@ fn draw_api_keys_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColor
                             .show();
                     });
 
+                let copy_value = current_key.clone().unwrap_or_else(|| {
+                    state.ai_settings.api_key_inputs
+                    .get(kp.name)
+                    .cloned()
+                    .unwrap_or_default()
+                });
+                let can_copy = !copy_value.is_empty();
+                let copied_recently = api_key_copy_succeeded_recently(state, kp.name);
+                let copy_btn = ui.container()
+                    .clickable(can_copy)
+                    .width(provider_copy_width)
+                    .height(28.0)
+                    .radius_all(4.0)
+                    .hover_bg(colors.highlight)
+                    .halign(Align::Center)
+                    .valign(Align::Center)
+                    .show(|ui| {
+                        ui.text(if copied_recently { "✓" } else { "\u{f018f}" })
+                            .size(11.5)
+                            .color(if copied_recently || can_copy {
+                                colors.accent
+                            } else {
+                                colors.text_muted.with_alpha(0.45)
+                            })
+                            .show();
+                    });
+                if copy_btn.hovered && can_copy { ui.cursor_icon = CursorIcon::Pointer; }
+                if copy_btn.clicked && can_copy {
+                    copy_api_key_to_clipboard(state, copy_value, kp.display_name, kp.name);
+                    ui.needs_redraw = true;
+                }
+
                 if let Some(ref key) = current_key {
                     let input_width =
-                        (ui.available_width - provider_label_width - provider_actions_width - 16.0)
-                            .max(120.0);
+                    (ui.available_width - provider_label_width - provider_copy_width - provider_actions_width - 24.0)
+                        .max(120.0);
                     let is_revealed = state.ai_settings.revealed_api_keys.contains(kp.name);
                     let value = if is_revealed {
                         key.clone()
@@ -1186,7 +1276,7 @@ fn draw_api_keys_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColor
                         .entry(kp.name.to_string())
                         .or_insert_with(String::new);
                     let input_width =
-                        (ui.available_width - provider_label_width - provider_actions_width - 16.0)
+                        (ui.available_width - provider_label_width - provider_copy_width - provider_actions_width - 24.0)
                             .max(120.0);
 
                     ui.text_area(input_text, &input_id)
@@ -1274,8 +1364,29 @@ fn draw_api_keys_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColor
                             .show();
                     });
 
+                    let copied_recently = api_key_copy_succeeded_recently(state, name);
+                    let copy_btn = ui.container()
+                        .clickable(true)
+                        .width(provider_copy_width)
+                        .height(28.0)
+                        .radius_all(4.0)
+                        .hover_bg(colors.highlight)
+                        .halign(Align::Center)
+                        .valign(Align::Center)
+                        .show(|ui| {
+                            ui.text(if copied_recently { "✓" } else { "\u{f018f}" })
+                                .size(11.5)
+                                .color(colors.accent)
+                                .show();
+                        });
+                    if copy_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
+                    if copy_btn.clicked {
+                        copy_api_key_to_clipboard(state, masked.clone(), name, name);
+                        ui.needs_redraw = true;
+                    }
+
                     let input_width =
-                        (ui.available_width - provider_label_width - provider_actions_width - 16.0)
+                        (ui.available_width - provider_label_width - provider_copy_width - provider_actions_width - 24.0)
                             .max(120.0);
                     let is_revealed = state.ai_settings.revealed_api_keys.contains(name);
                     let value = if is_revealed {
@@ -1418,6 +1529,37 @@ fn draw_api_keys_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColor
                 // API Key field
                 ui.container().full_width().row().valign(Align::Center).gap(8.0).show(|ui| {
                     ui.text("API Key").size(10.0).color(colors.text_muted).max_width(60.0).show();
+                    let can_copy_key = !state.ai_settings.custom_provider_key.is_empty();
+                    let copied_recently =
+                        api_key_copy_succeeded_recently(state, "__custom_provider_form_api_key");
+                    let copy_btn = ui.container()
+                        .clickable(can_copy_key)
+                        .width(24.0)
+                        .height(26.0)
+                        .radius_all(4.0)
+                        .hover_bg(colors.highlight)
+                        .halign(Align::Center)
+                        .valign(Align::Center)
+                        .show(|ui| {
+                            ui.text(if copied_recently { "✓" } else { "\u{f018f}" })
+                                .size(11.5)
+                                .color(if copied_recently || can_copy_key {
+                                    colors.accent
+                                } else {
+                                    colors.text_muted.with_alpha(0.45)
+                                })
+                                .show();
+                        });
+                    if copy_btn.hovered && can_copy_key { ui.cursor_icon = CursorIcon::Pointer; }
+                    if copy_btn.clicked && can_copy_key {
+                        copy_api_key_to_clipboard(
+                            state,
+                            state.ai_settings.custom_provider_key.clone(),
+                            "Custom provider",
+                            "__custom_provider_form_api_key",
+                        );
+                        ui.needs_redraw = true;
+                    }
                     ui.text_area(&mut state.ai_settings.custom_provider_key, "custom_prov_key")
                         .width(340.0)
                         .height(26.0)
@@ -1559,9 +1701,8 @@ fn draw_external_agents_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &The
                             .valign(Align::Center)
                             .halign(Align::Center)
                             .show(|ui| {
-                                ui.text("⚡")
-                                    .size(14.0)
-                                    .weight(FontWeight::Bold)
+                                ui.text("\u{e7f0}")
+                                    .size(16.0)
                                     .color(colors.accent)
                                     .show();
                             });
@@ -2066,7 +2207,10 @@ fn draw_external_agents_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &The
                     .valign(Align::Center)
                     .halign(Align::Center)
                     .show(|ui| {
-                        ui.text("🐙").size(13.0).show();
+                        ui.text("\u{ec1e}")
+                            .size(14.0)
+                            .color(colors.accent)
+                            .show();
                     });
                 ui.container().column().gap(2.0).show(|ui| {
                     ui.text("GitHub Copilot")
@@ -2115,7 +2259,11 @@ fn draw_external_agents_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &The
                     .valign(Align::Center)
                     .halign(Align::Center)
                     .show(|ui| {
-                        ui.text("🤖").size(13.0).show();
+                        ui.text("\u{EC82}")
+                            .size(20.0)
+                            .family("Symbols Nerd Font")
+                            .color(colors.accent)
+                            .show();
                     });
                 ui.container().column().gap(2.0).show(|ui| {
                     ui.text("Claude Code")
@@ -2164,7 +2312,10 @@ fn draw_external_agents_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &The
                     .valign(Align::Center)
                     .halign(Align::Center)
                     .show(|ui| {
-                        ui.text("⚙").size(13.0).show();
+                        ui.text("\u{f013}")
+                            .size(14.0)
+                            .color(colors.accent)
+                            .show();
                     });
                 ui.container().column().gap(2.0).show(|ui| {
                     ui.text("Custom ACP Binary")
@@ -2496,7 +2647,10 @@ fn draw_mcp_tab(ui: &mut Ui, _state: &mut ZenthreeState, colors: &ThemeColors) {
                 .halign(Align::SpaceBetween)
                 .show(|ui| {
                     ui.container().row().valign(Align::Center).gap(8.0).show(|ui| {
-                        ui.text("🔌").size(12.0).show();
+                        ui.text("\u{e8b0}")
+                            .size(12.0)
+                            .color(colors.accent)
+                            .show();
                         ui.text("sqlite-memory")
                             .size(12.5)
                             .weight(FontWeight::SemiBold)
@@ -2564,7 +2718,10 @@ fn draw_mcp_tab(ui: &mut Ui, _state: &mut ZenthreeState, colors: &ThemeColors) {
                 .halign(Align::SpaceBetween)
                 .show(|ui| {
                     ui.container().row().valign(Align::Center).gap(8.0).show(|ui| {
-                        ui.text("🐙").size(12.0).show();
+                        ui.text("\u{e5fd}")
+                            .size(12.0)
+                            .color(colors.accent)
+                            .show();
                         ui.text("github-context")
                             .size(12.5)
                             .weight(FontWeight::SemiBold)
