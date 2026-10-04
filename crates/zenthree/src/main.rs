@@ -85,6 +85,10 @@ fn main() {
             // on every push, waking the event loop immediately.
             state.drain_ai_updates();
 
+            if !state.active_agent_terminal_tasks.is_empty() {
+                ui.request_redraw();
+            }
+
             // Poll filesystem watcher for external file additions, deletions, renames, and git status changes
             if state.poll_file_tree_changes() {
                 ui.request_redraw();

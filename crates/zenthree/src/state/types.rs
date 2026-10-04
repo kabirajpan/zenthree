@@ -62,6 +62,17 @@ pub struct FileDiffReview {
     pub active_hunk_idx: usize,
 }
 
+/// Represents an active agent terminal task currently executing
+#[derive(Debug, Clone)]
+pub struct ActiveAgentTerminalTask {
+    pub id: String,
+    pub command: String,
+    pub started_at: std::time::Instant,
+    #[allow(dead_code)]
+    pub latest_status: String,
+    pub is_background: bool,
+}
+
 impl FileDiffReview {
     pub fn total_removed_lines(&self) -> usize {
         self.diff_lines.iter().filter(|(_, s)| *s == DiffLineState::Removed).count()

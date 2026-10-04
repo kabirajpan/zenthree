@@ -1314,7 +1314,12 @@ fn draw_ai_chat_content(
             }
             let has_modified_files = !modified_files.is_empty();
 
-            let modified_section_h = if state.show_modified_files_popup && has_modified_files {
+            let has_active_terminal_tasks = !state.active_agent_terminal_tasks.is_empty();
+
+            let modified_section_h = if state.show_agent_terminal_popup && has_active_terminal_tasks {
+                let term_list_h = (state.active_agent_terminal_tasks.len().max(1) as f32 * 24.0 + 8.0).min(140.0);
+                term_list_h + 6.0 + 20.0
+            } else if state.show_modified_files_popup && has_modified_files {
                 let file_list_h = (modified_files.len().max(1) as f32 * 22.0 + 8.0).min(140.0);
                 file_list_h + 6.0 + 20.0
             } else {
@@ -3441,8 +3446,173 @@ fn draw_ai_chat_content(
                     let mut action_accept_all = false;
                     let mut action_reject_all = false;
 
-                    // ─── Modified Files View & Quick Toolbar ────────────────────────
-                    if state.show_modified_files_popup {
+                    // ─── Active Agent Terminal Running View / Modified Files View / Quick Toolbar ──
+                    if state.show_agent_terminal_popup && !state.active_agent_terminal_tasks.is_empty() {
+                        let term_list_h = (state.active_agent_terminal_tasks.len().max(1) as f32 * 24.0 + 8.0).min(140.0);
+                        let mut term_box_builder = ui.container()
+                            .full_width()
+                            .height(term_list_h)
+                            .bg(input_box_bg)
+                            .radius_all(7.0)
+                            .padding(4.0, 6.0, 4.0, 6.0)
+                            .scroll_y(true)
+                            .column()
+                            .gap(2.0);
+
+                        if state.ai_settings.effective_input_shadow() {
+                            term_box_builder = term_box_builder.shadow(input_shadow_col, 0.0, 2.0, 12.0);
+                        }
+                        if state.ai_settings.effective_input_outline() {
+                            term_box_builder = term_box_builder.border(colors.border.with_alpha(0.6), 0.75);
+                        }
+                        if state.glassmorphism {
+                            term_box_builder = term_box_builder.backdrop_blur(state.blur_strength.max(4.0));
+                        }
+
+                        let mut target_cancel_task_id: Option<String> = None;
+
+                        term_box_builder.show(|ui| {
+                            for (idx, task) in state.active_agent_terminal_tasks.iter().enumerate() {
+                                let row_id = ui.id_from(&format!("active_term_task_{}", idx));
+                                let row = ui.container()
+                                    .id(row_id)
+                                    .full_width()
+                                    .height(22.0)
+                                    .radius_all(3.0)
+                                    .bg(Color::TRANSPARENT)
+                                    .hover_bg(Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, 0.05))
+                                    .padding(0.0, 4.0, 0.0, 4.0)
+                                    .row()
+                                    .valign(Align::Center)
+                                    .halign(Align::SpaceBetween)
+                                    .show(|ui| {
+                                        // Left: 🟢 pulsating green indicator + command name + elapsed/status
+                                        ui.container()
+                                            .row()
+                                            .valign(Align::Center)
+                                            .gap(6.0)
+                                            .show(|ui| {
+                                                // Pulsing green circle
+                                                ui.container()
+                                                    .width(7.0)
+                                                    .height(7.0)
+                                                    .radius_all(3.5)
+                                                    .bg(Color { r: 34.0 / 255.0, g: 197.0 / 255.0, b: 94.0 / 255.0, a: 1.0 })
+                                                    .show(|_| {});
+
+                                                // Command string (e.g. cargo test -p agent)
+                                                ui.text(&task.command)
+                                                    .size(11.0)
+                                                    .weight(FontWeight::Medium)
+                                                    .color(colors.text_primary)
+                                                    .show();
+
+                                                // Elapsed time (e.g. 1.8s)
+                                                let elapsed = task.started_at.elapsed().as_secs_f32();
+                                                let elapsed_str = format!("({:.1}s)", elapsed);
+                                                ui.text(&elapsed_str)
+                                                    .size(10.0)
+                                                    .color(colors.text_muted)
+                                                    .show();
+                                            });
+
+                                        // Right: [✕] CROSS ICON ON THE LIST to cancel/kill
+                                        let cross_id = ui.id_from(&format!("term_task_cross_{}", idx));
+                                        let cross_btn = ui.container()
+                                            .id(cross_id)
+                                            .clickable(true)
+                                            .padding(2.0, 5.0, 2.0, 5.0)
+                                            .radius_all(2.5)
+                                            .hover_bg(Color::rgba(239.0 / 255.0, 68.0 / 255.0, 68.0 / 255.0, 0.15))
+                                            .show(|ui| {
+                                                ui.text("✕")
+                                                    .size(9.0)
+                                                    .color(Color { r: 248.0 / 255.0, g: 113.0 / 255.0, b: 113.0 / 255.0, a: 1.0 })
+                                                    .show();
+                                            });
+                                        if cross_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
+                                        if cross_btn.clicked {
+                                            target_cancel_task_id = Some(task.id.clone());
+                                        }
+                                    });
+                                if row.hovered { ui.cursor_icon = CursorIcon::Default; }
+                            }
+                        });
+
+                        if let Some(id) = target_cancel_task_id {
+                            state.cancel_agent_terminal_task(&id);
+                            ui.needs_redraw = true;
+                        }
+
+                        // 2. Toolbar row below container: [ ‹ 💻 Terminal ] on left, [ ▾ ] on right
+                        ui.container()
+                            .full_width()
+                            .height(20.0)
+                            .padding(0.0, 2.0, 0.0, 2.0)
+                            .row()
+                            .halign(Align::SpaceBetween)
+                            .valign(Align::Center)
+                            .show(|ui| {
+                                // Left: [ ‹ 💻 Terminal ] toggle button with back arrow ‹
+                                let back_btn = ui.container()
+                                    .id(Id::from_u64(999999870))
+                                    .clickable(true)
+                                    .padding(2.0, 5.0, 2.0, 5.0)
+                                    .radius_all(3.0)
+                                    .bg(Color::TRANSPARENT)
+                                    .hover_bg(Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, 0.05))
+                                    .row()
+                                    .valign(Align::Center)
+                                    .gap(5.0)
+                                    .show(|ui| {
+                                        ui.text("‹")
+                                            .size(13.0)
+                                            .weight(FontWeight::Bold)
+                                            .color(colors.text_muted)
+                                            .show();
+                                        ui.text("\u{f489}")
+                                            .size(12.0)
+                                            .color(colors.accent)
+                                            .show();
+                                        let count = state.active_agent_terminal_tasks.len();
+                                        let label = if count <= 1 {
+                                            "Terminal".to_string()
+                                        } else {
+                                            format!("{} Running", count)
+                                        };
+                                        ui.text(&label)
+                                            .size(10.5)
+                                            .weight(FontWeight::Medium)
+                                            .color(colors.accent)
+                                            .show();
+                                    });
+                                if back_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
+                                if back_btn.clicked {
+                                    state.show_agent_terminal_popup = false;
+                                    ui.needs_redraw = true;
+                                }
+
+                                // Right: Down arrow ▾ to collapse
+                                let arrow_btn = ui.container()
+                                    .id(Id::from_u64(999999871))
+                                    .clickable(true)
+                                    .padding(2.0, 5.0, 2.0, 5.0)
+                                    .radius_all(3.0)
+                                    .bg(Color::TRANSPARENT)
+                                    .hover_bg(Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, 0.05))
+                                    .show(|ui| {
+                                        ui.text("\u{f078}")
+                                            .size(7.5)
+                                            .color(colors.text_muted)
+                                            .show();
+                                    });
+                                if arrow_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
+                                if arrow_btn.clicked {
+                                    state.show_agent_terminal_popup = false;
+                                    ui.needs_redraw = true;
+                                }
+                            });
+                    } else if state.show_modified_files_popup {
                         if has_modified_files {
                             // 1. Scrollable file list container (only for the file list) with input background & drop shadow
                             let file_list_h = (modified_files.len().max(1) as f32 * 22.0 + 8.0).min(140.0);
@@ -3769,13 +3939,17 @@ fn draw_ai_chat_content(
                                             });
                                         if file_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
                                         if file_btn.clicked {
-                                            state.show_modified_files_popup = true;
+                                            state.show_modified_files_popup = !state.show_modified_files_popup;
+                                            if state.show_modified_files_popup {
+                                                state.show_agent_terminal_popup = false;
+                                            }
                                             ui.needs_redraw = true;
                                         }
 
                                         // 2. Terminal icon
                                         let term_id = Id::from_u64(999999861);
-                                        let term_bg = if state.terminal_visible {
+                                        let has_active_agent_terminal = !state.active_agent_terminal_tasks.is_empty();
+                                        let term_bg = if has_active_agent_terminal || state.terminal_visible {
                                             colors.accent.with_alpha(0.18)
                                         } else {
                                             Color::TRANSPARENT
@@ -3787,20 +3961,39 @@ fn draw_ai_chat_content(
                                             .radius_all(3.0)
                                             .bg(term_bg)
                                             .hover_bg(colors.highlight)
+                                            .row()
+                                            .valign(Align::Center)
+                                            .gap(2.5)
                                             .show(|ui| {
                                                 ui.text("\u{f489}")
                                                     .size(12.0)
-                                                    .color(if state.terminal_visible { colors.accent } else { colors.text_muted })
+                                                    .color(if has_active_agent_terminal || state.terminal_visible { colors.accent } else { colors.text_muted })
                                                     .show();
+                                                if has_active_agent_terminal {
+                                                    ui.container()
+                                                        .width(4.5)
+                                                        .height(4.5)
+                                                        .radius_all(2.25)
+                                                        .bg(Color { r: 34.0 / 255.0, g: 197.0 / 255.0, b: 94.0 / 255.0, a: 1.0 })
+                                                        .show(|_| {});
+                                                }
                                             });
                                         if term_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
                                         if term_btn.clicked {
-                                            state.terminal_visible = !state.terminal_visible;
-                                            if state.terminal_visible {
-                                                state.ensure_terminal_session();
+                                            if has_active_agent_terminal {
+                                                state.show_agent_terminal_popup = !state.show_agent_terminal_popup;
+                                                if state.show_agent_terminal_popup {
+                                                    state.show_modified_files_popup = false;
+                                                }
+                                                ui.needs_redraw = true;
+                                            } else {
+                                                state.terminal_visible = !state.terminal_visible;
+                                                if state.terminal_visible {
+                                                    state.ensure_terminal_session();
+                                                }
+                                                state.save_persistent_state();
+                                                ui.needs_redraw = true;
                                             }
-                                            state.save_persistent_state();
-                                            ui.needs_redraw = true;
                                         }
 
                                         // 3. Inbox icon
@@ -3906,6 +4099,38 @@ fn draw_ai_chat_content(
                                             if arrow_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
                                             if arrow_btn.clicked {
                                                 state.show_modified_files_popup = true;
+                                                ui.needs_redraw = true;
+                                            }
+                                        });
+                                } else if !state.active_agent_terminal_tasks.is_empty() {
+                                    ui.container()
+                                        .row()
+                                        .valign(Align::Center)
+                                        .gap(5.0)
+                                        .show(|ui| {
+                                            if let Some(task) = state.active_agent_terminal_tasks.first() {
+                                                let elapsed = task.started_at.elapsed().as_secs_f32();
+                                                ui.text(&format!("Running ({:.1}s)", elapsed))
+                                                    .size(10.5)
+                                                    .color(colors.accent)
+                                                    .show();
+                                            }
+                                            let arrow_btn = ui.container()
+                                                .id(Id::from_u64(999999872))
+                                                .clickable(true)
+                                                .padding(2.0, 5.0, 2.0, 5.0)
+                                                .radius_all(3.0)
+                                                .bg(Color::TRANSPARENT)
+                                                .hover_bg(Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, 0.05))
+                                                .show(|ui| {
+                                                    ui.text("\u{f077}")
+                                                        .size(7.5)
+                                                        .color(colors.text_muted)
+                                                        .show();
+                                                });
+                                            if arrow_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
+                                            if arrow_btn.clicked {
+                                                state.show_agent_terminal_popup = true;
                                                 ui.needs_redraw = true;
                                             }
                                         });

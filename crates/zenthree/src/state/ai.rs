@@ -118,6 +118,8 @@ impl ZenthreeState {
             token.store(true, std::sync::atomic::Ordering::Relaxed);
         }
         self.ai_cancel_token = None;
+        self.active_agent_terminal_tasks.clear();
+        self.show_agent_terminal_popup = false;
         self.ai_update_signal.set(Vec::new());
         for m in &mut self.ai_messages {
             if !m.is_user && m.is_working {
@@ -1015,13 +1017,31 @@ impl ZenthreeState {
                                                         .and_then(|v| v.as_str())
                                                         .unwrap_or(stripped_name)
                                                         .to_string();
+                                                    let is_daemon = args.get("IsDaemon").or_else(|| args.get("is_daemon")).and_then(|v| v.as_bool()).unwrap_or(false);
+                                                    let is_background = is_daemon
+                                                        || command.contains("run dev")
+                                                        || command.contains("dev")
+                                                        || command.contains("start")
+                                                        || command.contains("serve")
+                                                        || command.contains("watch")
+                                                        || command.contains("daemon")
+                                                        || command.trim_end().ends_with('&');
+
+                                                    self.active_agent_terminal_tasks.retain(|t| t.command != command);
+                                                    self.active_agent_terminal_tasks.push(ActiveAgentTerminalTask {
+                                                        id: format!("term_task_{}", self.active_agent_terminal_tasks.len() + 1),
+                                                        command: command.clone(),
+                                                        started_at: std::time::Instant::now(),
+                                                        latest_status: if is_background { "Running in background...".to_string() } else { "Running...".to_string() },
+                                                        is_background,
+                                                    });
                                                     ExplorationItem::ExecutedCommand {
                                                         command,
                                                         output: None,
                                                         expanded: false,
                                                     }
                                                 }
-                                                cmd if cmd.starts_with("ls ") || cmd == "ls" || cmd.starts_with("env ") || cmd.starts_with("git ") || cmd.starts_with("cargo ") || cmd.starts_with("npm ") || cmd.starts_with("bun ") || cmd.starts_with("yarn ") || cmd.starts_with("pnpm ") || cmd.starts_with("echo ") || cmd.starts_with("cat ") || cmd.contains('|') || args.get("command").is_some() || args.get("CommandLine").is_some() => {
+                                                cmd if cmd.starts_with("ls ") || cmd == "ls" || cmd.starts_with("env ") || cmd.starts_with("git ") || cmd.starts_with("cargo ") || cmd.starts_with("npm ") || cmd.starts_with("npx ") || cmd.starts_with("bun ") || cmd.starts_with("yarn ") || cmd.starts_with("pnpm ") || cmd.starts_with("node ") || cmd.starts_with("python") || cmd.starts_with("pytest") || cmd.starts_with("make") || cmd.starts_with("docker") || cmd.starts_with("deno") || cmd.starts_with("echo ") || cmd.starts_with("cat ") || cmd.contains('|') || args.get("command").is_some() || args.get("CommandLine").is_some() || args.get("cmd").is_some() => {
                                                     let command = args
                                                         .get("command")
                                                         .or_else(|| args.get("CommandLine"))
@@ -1029,6 +1049,24 @@ impl ZenthreeState {
                                                         .and_then(|v| v.as_str())
                                                         .unwrap_or(cmd)
                                                         .to_string();
+                                                    let is_daemon = args.get("IsDaemon").or_else(|| args.get("is_daemon")).and_then(|v| v.as_bool()).unwrap_or(false);
+                                                    let is_background = is_daemon
+                                                        || command.contains("run dev")
+                                                        || command.contains("dev")
+                                                        || command.contains("start")
+                                                        || command.contains("serve")
+                                                        || command.contains("watch")
+                                                        || command.contains("daemon")
+                                                        || command.trim_end().ends_with('&');
+
+                                                    self.active_agent_terminal_tasks.retain(|t| t.command != command);
+                                                    self.active_agent_terminal_tasks.push(ActiveAgentTerminalTask {
+                                                        id: format!("term_task_{}", self.active_agent_terminal_tasks.len() + 1),
+                                                        command: command.clone(),
+                                                        started_at: std::time::Instant::now(),
+                                                        latest_status: if is_background { "Running in background...".to_string() } else { "Running...".to_string() },
+                                                        is_background,
+                                                    });
                                                     ExplorationItem::ExecutedCommand {
                                                         command,
                                                         output: None,
@@ -1136,9 +1174,75 @@ impl ZenthreeState {
                                     }
                                 }
                             }
-                            AiUiUpdate::ToolDone { name: _, result } => {
+                            AiUiUpdate::ToolDone { name, result } => {
                                 // Tool done: update file tree in case file was created/modified
                                 self.rebuild_tree();
+                                let stripped_done = clean_tool_str(&name);
+                                let clean_done = stripped_done
+                                    .split(':')
+                                    .last()
+                                    .unwrap_or(stripped_done)
+                                    .split('.')
+                                    .last()
+                                    .unwrap_or(stripped_done);
+                                let is_term_done = matches!(
+                                    clean_done,
+                                    "run_terminal" | "run_command" | "execute_command" | "bash" | "terminal" | "sh" | "exec" | "client_run_command" | "client_run_terminal"
+                                ) || clean_done.starts_with("ls ")
+                                  || clean_done == "ls"
+                                  || clean_done.starts_with("env ")
+                                  || clean_done.starts_with("git ")
+                                  || clean_done.starts_with("cargo ")
+                                  || clean_done.starts_with("npm ")
+                                  || clean_done.starts_with("npx ")
+                                  || clean_done.starts_with("bun ")
+                                  || clean_done.starts_with("yarn ")
+                                  || clean_done.starts_with("pnpm ")
+                                  || clean_done.starts_with("node ")
+                                  || clean_done.starts_with("python")
+                                  || clean_done.starts_with("pytest")
+                                  || clean_done.starts_with("make")
+                                  || clean_done.starts_with("docker")
+                                  || clean_done.starts_with("deno")
+                                  || clean_done.starts_with("echo ")
+                                  || clean_done.starts_with("cat ")
+                                  || clean_done.contains('|');
+
+                                let is_background_res = if let Some(ref res) = result {
+                                    let s = match res {
+                                        serde_json::Value::String(s) => s.as_str(),
+                                        _other => "",
+                                    };
+                                    s.contains("background") || s.contains("ready on http") || s.contains("Local: http") || s.contains("task-") || s.contains("daemon") || s.contains("Server running")
+                                } else {
+                                    false
+                                };
+
+                                if is_term_done && !self.active_agent_terminal_tasks.is_empty() {
+                                    if let Some(pos) = self.active_agent_terminal_tasks.iter().position(|t| {
+                                        t.command.contains(clean_done) || clean_done.contains(&t.command)
+                                    }) {
+                                        let is_bg = self.active_agent_terminal_tasks[pos].is_background || is_background_res;
+                                        if is_bg {
+                                            self.active_agent_terminal_tasks[pos].is_background = true;
+                                            self.active_agent_terminal_tasks[pos].latest_status = "Running in background".to_string();
+                                        } else {
+                                            self.active_agent_terminal_tasks.remove(pos);
+                                        }
+                                    } else {
+                                        let is_bg = self.active_agent_terminal_tasks[0].is_background || is_background_res;
+                                        if is_bg {
+                                            self.active_agent_terminal_tasks[0].is_background = true;
+                                            self.active_agent_terminal_tasks[0].latest_status = "Running in background".to_string();
+                                        } else {
+                                            self.active_agent_terminal_tasks.remove(0);
+                                        }
+                                    }
+                                    if self.active_agent_terminal_tasks.is_empty() {
+                                        self.show_agent_terminal_popup = false;
+                                    }
+                                }
+
                                 if let Some(res) = result {
                                     if let Some(last) = self.ai_messages.iter_mut().rev().find(|m| !m.is_user) {
                                         if let Some(TrajectoryStep::Exploration(ref mut grp)) = last.trajectory.last_mut() {
@@ -1161,6 +1265,15 @@ impl ZenthreeState {
                                 session_json,
                             } => {
                                 self.rebuild_tree();
+                                // Retain persistent background processes started by the agent
+                                self.active_agent_terminal_tasks.retain(|t| t.is_background);
+                                if self.active_agent_terminal_tasks.is_empty() {
+                                    self.show_agent_terminal_popup = false;
+                                }
+                                // Auto-open modified files list once the task/editing is completed
+                                if !self.pending_reviews.is_empty() {
+                                    self.show_modified_files_popup = true;
+                                }
                                 if let Some(last) =
                                     self.ai_messages.iter_mut().rev().find(|m| !m.is_user)
                                 {

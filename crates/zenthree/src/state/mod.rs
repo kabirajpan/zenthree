@@ -129,6 +129,8 @@ pub struct ZenthreeState {
     pub accepted_reviews: Vec<FileDiffReview>,
     pub active_review_idx: Option<usize>,
     pub show_modified_files_popup: bool,
+    pub show_agent_terminal_popup: bool,
+    pub active_agent_terminal_tasks: Vec<ActiveAgentTerminalTask>,
     pub font_adapter: Option<zenthra_text::prelude::CosmicFontProvider>,
     /// Cached OS clipboard handle — lazily initialized to avoid opening a new
     /// Wayland/X11 socket on every copy/paste operation.
@@ -321,6 +323,8 @@ impl ZenthreeState {
             accepted_reviews: Vec::new(),
             active_review_idx: None,
             show_modified_files_popup: false,
+            show_agent_terminal_popup: false,
+            active_agent_terminal_tasks: Vec::new(),
             font_adapter: None,
             os_clipboard: None,
             fs_watcher: crate::watcher::WorkspaceWatcher::new(),
@@ -650,6 +654,118 @@ impl ZenthreeState {
             self.reject_current_review();
         }
     }
+
+    pub fn cancel_agent_terminal_task(&mut self, task_id: &str) {
+        if let Some(pos) = self.active_agent_terminal_tasks.iter().position(|t| t.id == task_id) {
+            let task = self.active_agent_terminal_tasks.remove(pos);
+            kill_process_by_command(&task.command);
+        } else {
+            self.active_agent_terminal_tasks.clear();
+        }
+        if self.active_agent_terminal_tasks.is_empty() {
+            self.show_agent_terminal_popup = false;
+        }
+    }
+
+}
+
+fn escape_regex_for_proc(s: &str) -> String {
+    s.chars().flat_map(|c| match c {
+        '|' | '\\' | '.' | '*' | '+' | '?' | '(' | ')' | '[' | ']' | '{' | '}' | '^' | '$' => vec!['\\', c],
+        _ => vec![c],
+    }).collect()
+}
+
+#[allow(dead_code)]
+pub(crate) fn is_process_running_for_command(cmd: &str) -> bool {
+    let trimmed = cmd.trim();
+    if trimmed.is_empty() {
+        return false;
+    }
+    #[cfg(target_os = "linux")]
+    {
+        let my_pid = std::process::id();
+        if let Ok(entries) = std::fs::read_dir("/proc") {
+            for entry in entries.flatten() {
+                let fname = entry.file_name();
+                if let Ok(pid) = fname.to_string_lossy().parse::<u32>() {
+                    if pid == my_pid {
+                        continue;
+                    }
+                    let cmd_path = entry.path().join("cmdline");
+                    if let Ok(data) = std::fs::read(cmd_path) {
+                        let cmdline = String::from_utf8_lossy(&data).replace('\0', " ");
+                        let c_trimmed = cmdline.trim();
+                        if c_trimmed.is_empty() || c_trimmed.contains("zenthree") || c_trimmed.contains("agy_acp_server") {
+                            continue;
+                        }
+                        if c_trimmed.contains(trimmed) || (trimmed.contains("dev") && c_trimmed.contains("vite")) {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+        return false;
+    }
+    #[cfg(not(target_os = "linux"))]
+    {
+        false
+    }
+}
+
+pub(crate) fn kill_process_by_command(cmd: &str) {
+    let trimmed = cmd.trim();
+    if trimmed.is_empty() {
+        return;
+    }
+    #[cfg(unix)]
+    {
+        let escaped = escape_regex_for_proc(trimmed);
+        let _ = std::process::Command::new("pkill")
+            .args(["-TERM", "-f", &escaped])
+            .spawn();
+
+        #[cfg(target_os = "linux")]
+        {
+            let my_pid = std::process::id();
+            if let Ok(entries) = std::fs::read_dir("/proc") {
+                for entry in entries.flatten() {
+                    let fname = entry.file_name();
+                    if let Ok(pid) = fname.to_string_lossy().parse::<u32>() {
+                        if pid == my_pid {
+                            continue;
+                        }
+                        let cmd_path = entry.path().join("cmdline");
+                        if let Ok(data) = std::fs::read(cmd_path) {
+                            let cmdline = String::from_utf8_lossy(&data).replace('\0', " ");
+                            let c_trimmed = cmdline.trim();
+                            if c_trimmed.is_empty() || c_trimmed.contains("zenthree") || c_trimmed.contains("agy_acp_server") {
+                                continue;
+                            }
+                            if c_trimmed.contains(trimmed) || (trimmed.contains("dev") && c_trimmed.contains("vite")) {
+                                let _ = std::process::Command::new("pkill")
+                                    .args(["-TERM", "-P", &pid.to_string()])
+                                    .spawn();
+                                let _ = std::process::Command::new("kill")
+                                    .args(["-TERM", &pid.to_string()])
+                                    .spawn();
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+    #[cfg(windows)]
+    {
+        let _ = std::process::Command::new("taskkill")
+            .args(["/F", "/IM", trimmed])
+            .spawn();
+    }
+}
+
+impl ZenthreeState {
 
     pub fn colors(&self) -> ThemeColors {
         ThemeColors::get_custom(self.theme, &self.accent_color).with_glassmorphism(
@@ -1982,6 +2098,131 @@ mod tests {
         // Clean up
         state.close_workspace();
         let _ = std::fs::remove_dir_all(&tmp);
+    }
+
+    #[test]
+    fn test_active_agent_terminal_tasks() {
+        let mut state = ZenthreeState::default();
+        state.ai_messages.push(crate::state::AiMessage {
+            is_user: false,
+            content: String::new(),
+            code_snippet: None,
+            thoughts: None,
+            thoughts_expanded: false,
+            expanded: true,
+            trajectory: Vec::new(),
+            is_working: true,
+        });
+
+        // 1. ToolStart for terminal command (e.g. bun run dev or cargo check)
+        state.ai_update_signal.with_silent_mut(|queue| {
+            queue.push(crate::state::AiUiUpdate::ToolStart {
+                name: "run_terminal".to_string(),
+                args: serde_json::json!({
+                    "command": "bun -e \"console.log(1)\"",
+                }),
+            });
+        });
+        state.drain_ai_updates();
+
+        assert_eq!(state.active_agent_terminal_tasks.len(), 1);
+        assert_eq!(state.active_agent_terminal_tasks[0].command, "bun -e \"console.log(1)\"");
+        // Popups are closed by default (manual-driven)
+        assert!(!state.show_agent_terminal_popup);
+
+        // User manually toggles popup
+        state.show_agent_terminal_popup = true;
+        assert!(state.show_agent_terminal_popup);
+
+        // 2. ToolDone arrives: command is DONE, so it MUST be removed and popup auto-closes!
+        state.ai_update_signal.with_silent_mut(|queue| {
+            queue.push(crate::state::AiUiUpdate::ToolDone {
+                name: "run_terminal".to_string(),
+                result: Some(serde_json::json!("1")),
+            });
+        });
+        state.drain_ai_updates();
+
+        assert_eq!(state.active_agent_terminal_tasks.len(), 0);
+        assert!(!state.show_agent_terminal_popup);
+
+        // 3. Command prefix tool start (e.g. cargo check)
+        state.ai_update_signal.with_silent_mut(|queue| {
+            queue.push(crate::state::AiUiUpdate::ToolStart {
+                name: "cargo check".to_string(),
+                args: serde_json::json!({
+                    "CommandLine": "cargo check",
+                }),
+            });
+        });
+        state.drain_ai_updates();
+
+        assert_eq!(state.active_agent_terminal_tasks.len(), 1);
+        assert_eq!(state.active_agent_terminal_tasks[0].command, "cargo check");
+        // Remains closed by default
+        assert!(!state.show_agent_terminal_popup);
+
+        // 4. Cancel agent terminal task
+        let task_id = state.active_agent_terminal_tasks[0].id.clone();
+        state.cancel_agent_terminal_task(&task_id);
+        assert_eq!(state.active_agent_terminal_tasks.len(), 0);
+        assert!(!state.show_agent_terminal_popup);
+
+        // 5. Background dev server command (e.g. bun run dev with is_daemon or dev in name)
+        state.ai_update_signal.with_silent_mut(|queue| {
+            queue.push(crate::state::AiUiUpdate::ToolStart {
+                name: "run_terminal".to_string(),
+                args: serde_json::json!({
+                    "command": "bun run dev",
+                    "IsDaemon": true,
+                }),
+            });
+        });
+        state.drain_ai_updates();
+
+        assert_eq!(state.active_agent_terminal_tasks.len(), 1);
+        assert_eq!(state.active_agent_terminal_tasks[0].command, "bun run dev");
+        assert!(state.active_agent_terminal_tasks[0].is_background);
+        assert!(!state.show_agent_terminal_popup);
+
+        // 6. ToolDone with background message: persists in active tasks!
+        state.ai_update_signal.with_silent_mut(|queue| {
+            queue.push(crate::state::AiUiUpdate::ToolDone {
+                name: "run_terminal".to_string(),
+                result: Some(serde_json::json!("ready on http://localhost:5173 (background task)")),
+            });
+        });
+        state.drain_ai_updates();
+
+        // 7. Cancelling background task terminates and dismisses it
+        let bg_task_id = state.active_agent_terminal_tasks[0].id.clone();
+        state.cancel_agent_terminal_task(&bg_task_id);
+        assert_eq!(state.active_agent_terminal_tasks.len(), 0);
+        assert!(!state.show_agent_terminal_popup);
+
+        // 8. Modified files popup only opens upon task completion (AiUiUpdate::Done) when files are modified
+        assert!(!state.show_modified_files_popup);
+        state.pending_reviews.push(crate::state::FileDiffReview {
+            path: std::path::PathBuf::from("/test/file.rs"),
+            original_content: "".to_string(),
+            proposed_content: "println!(\"hello\");".to_string(),
+            diff_lines: Vec::new(),
+            is_new_file: true,
+            active_hunk_idx: 0,
+        });
+        // Before Done is sent, popup stays closed
+        assert!(!state.show_modified_files_popup);
+
+        state.ai_update_signal.with_silent_mut(|queue| {
+            queue.push(crate::state::AiUiUpdate::Done {
+                reply: "Done".to_string(),
+                session_json: None,
+            });
+        });
+        state.drain_ai_updates();
+
+        // Now that the task/editing is completed, modified files popup automatically opens!
+        assert!(state.show_modified_files_popup);
     }
 }
 
