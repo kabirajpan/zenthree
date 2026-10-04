@@ -51,6 +51,8 @@ pub struct AiSettingsState {
     #[serde(skip)]
     pub revealed_api_keys: std::collections::HashSet<String>,
     #[serde(skip)]
+    pub copied_api_key: Option<(String, std::time::Instant)>,
+    #[serde(skip)]
     pub api_key_save_msg: Option<String>,
     // Custom provider form
     #[serde(skip)]
@@ -98,6 +100,7 @@ impl Default for AiSettingsState {
             custom_instructions: String::new(),
             api_key_inputs: std::collections::HashMap::new(),
             revealed_api_keys: std::collections::HashSet::new(),
+            copied_api_key: None,
             api_key_save_msg: None,
             custom_provider_form_open: false,
             custom_provider_name: String::new(),
