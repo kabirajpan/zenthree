@@ -61,7 +61,7 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
                 true
             });
             if trigger_rename {
-                state.start_rename_inline(selected_path.clone());
+                state.open_rename_modal(selected_path.clone());
                 ui.request_redraw();
             }
         }
@@ -601,6 +601,9 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
             };
 
             let scroll_padding_h = 0.0;
+            let is_tree_focused = state.focused_panel == crate::state::types::FocusedPanel::Explorer;
+            let cursor_style = state.cursor_style;
+            let cur_color = state.get_cursor_color(colors.accent);
 
             let items = &state.sidebar_items;
 
@@ -752,8 +755,19 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
 
                         let is_selected = match &state.selected_sidebar_path {
                             Some(selected) => selected == &node.path,
-                            None => !node.is_dir && active_tab_path == Some(&node.path),
+                            None => {
+                                if let Some(act) = active_tab_path {
+                                    !node.is_dir && act == &node.path
+                                } else {
+                                    idx == 0
+                                }
+                            }
                         };
+
+                        let show_cursor = is_selected && is_tree_focused;
+
+                        let pad_left = 4.0;
+                        let pad_right = pad_h;
 
                         let mut item_container = ui.container()
                             .id(item_id)
@@ -762,8 +776,8 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
                             .valign(Align::Center)
                             .halign(Align::SpaceBetween)
                             .no_wrap()
-                            .padding_left(pad_h)
-                            .padding_right(pad_h)
+                            .padding_left(pad_left)
+                            .padding_right(pad_right)
                             .padding_top(pad_v)
                             .padding_bottom(pad_v)
                             .radius_all(0.0);
@@ -802,13 +816,64 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
                                 colors.text_primary
                             };
 
-                            // Left node content: indentation/guides, fold arrow, file/folder icon, and name
+                            // Left node content: cursor indicator, indentation/guides, fold arrow, file/folder icon, and name
                             ui.container()
                                 .row()
                                 .valign(Align::Center)
                                 .no_wrap()
                                 .gap(4.0)
                                 .show(|ui| {
+                                    // Dedicated cursor slot always on the far left side
+                                    let cursor_w = 7.0;
+                                    let cursor_h = 13.0;
+                                    if show_cursor {
+                                        match cursor_style {
+                                            crate::state::types::CursorStyle::Block => {
+                                                ui.container()
+                                                    .width(cursor_w)
+                                                    .height(cursor_h)
+                                                    .radius_all(1.0)
+                                                    .bg(cur_color)
+                                                    .show(|_| {});
+                                            }
+                                            crate::state::types::CursorStyle::Line => {
+                                                ui.container()
+                                                    .width(cursor_w)
+                                                    .height(cursor_h)
+                                                    .valign(Align::Center)
+                                                    .halign(Align::Center)
+                                                    .show(|ui| {
+                                                        ui.container()
+                                                            .width(2.0)
+                                                            .height(cursor_h)
+                                                            .radius_all(0.5)
+                                                            .bg(cur_color)
+                                                            .show(|_| {});
+                                                    });
+                                            }
+                                            crate::state::types::CursorStyle::Underline => {
+                                                ui.container()
+                                                    .width(cursor_w)
+                                                    .height(cursor_h)
+                                                    .valign(Align::Bottom)
+                                                    .halign(Align::Center)
+                                                    .show(|ui| {
+                                                        ui.container()
+                                                            .width(cursor_w)
+                                                            .height(2.5)
+                                                            .radius_all(0.5)
+                                                            .bg(cur_color)
+                                                            .show(|_| {});
+                                                    });
+                                            }
+                                        }
+                                    } else {
+                                        ui.container()
+                                            .width(cursor_w)
+                                            .height(cursor_h)
+                                            .show(|_| {});
+                                    }
+
                                     if state.explorer_tree_guides {
                                         if preset == crate::state::ExplorerPreset::ClassicTree {
                                             let guide_prefix = node.guide_prefix.replace("├─", "┊ ").replace("└─", "└ ").replace("│ ", "┊ ");
@@ -852,7 +917,8 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
                                         } else {
                                             (node.depth as f32 * 14.0) + 12.0
                                         };
-                                        let used_w = pad_h * 2.0 + indent_w + 14.5 + 8.0 + 10.0;
+                                        let cursor_slot_w = 7.0 + 4.0;
+                                        let used_w = pad_left + pad_right + cursor_slot_w + indent_w + 14.5 + 8.0 + 10.0;
                                         let avail_w = (sidebar_w - used_w).max(30.0);
 
                                         let input_seed = 999997198u64;
@@ -904,7 +970,8 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
                                         } else {
                                             0.0
                                         };
-                                        let used_w = pad_h * 2.0 + indent_w + 14.5 + 8.0 + git_w + 10.0;
+                                        let cursor_slot_w = 7.0 + 4.0;
+                                        let used_w = pad_left + pad_right + cursor_slot_w + indent_w + 14.5 + 8.0 + git_w + 10.0;
                                         let avail_w = (sidebar_w - used_w).max(24.0);
                                         let max_chars = (avail_w / 6.8).max(4.0) as usize;
                                         let base_name = if is_notes_view && !node.is_dir {
@@ -1145,13 +1212,13 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
                     ui.container().full_width().height(1.0).bg(colors.border).show(|_| {});
 
                     if draw_menu_item(ui, Id::from_u64(999996003), "\u{f044}", "Rename...", "F2", true, false, &colors) {
-                        state.start_rename_inline(menu.target_path.clone());
+                        state.open_rename_modal(menu.target_path.clone());
                         close_menu = true;
                     }
                     let del_icon = if is_notes { "\u{f01b4}" } else { "\u{f014}" };
                     let del_label = if is_notes { "Delete Note" } else { "Delete" };
                     if draw_menu_item(ui, Id::from_u64(999996004), del_icon, del_label, "Del", true, true, &colors) {
-                        state.delete_tree_path(&menu.target_path);
+                        state.open_delete_confirm(menu.target_path.clone());
                         close_menu = true;
                     }
 
@@ -1302,23 +1369,32 @@ fn draw_inline_create_row(
         | crate::state::ExplorerPreset::ClassicTree => depth as f32 * 14.0,
         crate::state::ExplorerPreset::ModernMinimalist => depth as f32 * 14.0,
     };
+    let pad_left = 4.0;
+    let pad_right = pad_h;
+    let cursor_slot_w = 7.0 + 4.0;
 
     // Calculate available width for the input widget strictly so it NEVER overflows the sidebar.
-    let used_w = pad_h * 2.0 + indent_px + 12.0 + 14.5 + 8.0 + 14.0;
+    let used_w = pad_left + pad_right + cursor_slot_w + indent_px + 12.0 + 14.5 + 8.0 + 14.0;
     let input_w = (sidebar_w - used_w).max(40.0);
 
     ui.container()
         .full_width()
         .row()
         .valign(Align::Center)
-        .padding_left(pad_h)
-        .padding_right(pad_h)
+        .padding_left(pad_left)
+        .padding_right(pad_right)
         .padding_top(pad_v)
         .padding_bottom(pad_v)
         .gap(4.0)
         .radius_all(0.0)
         .bg(colors.accent.with_alpha(0.06))
         .show(|ui| {
+            // Dedicated cursor slot spacer matching tree items
+            ui.container()
+                .width(7.0)
+                .height(13.0)
+                .show(|_| {});
+
             // Indent spacer
             if indent_px > 0.0 {
                 ui.spacing(indent_px);
@@ -1611,5 +1687,27 @@ mod tests {
         let truncated = truncate_filename("very_long_folder_name", 10);
         assert_eq!(truncated.chars().count(), 10);
         assert_eq!(truncated, "very_long…");
+    }
+
+    #[test]
+    fn test_sidebar_cursor_state_and_styles() {
+        let mut state = crate::state::ZenthreeState::default();
+        state.focused_panel = crate::state::types::FocusedPanel::Explorer;
+        assert_eq!(state.focused_panel, crate::state::types::FocusedPanel::Explorer);
+
+        // Test cursor styles: Block, Line, Underline
+        state.cursor_style = crate::state::types::CursorStyle::Block;
+        assert_eq!(state.cursor_style, crate::state::types::CursorStyle::Block);
+
+        state.cursor_style = crate::state::types::CursorStyle::Line;
+        assert_eq!(state.cursor_style, crate::state::types::CursorStyle::Line);
+
+        state.cursor_style = crate::state::types::CursorStyle::Underline;
+        assert_eq!(state.cursor_style, crate::state::types::CursorStyle::Underline);
+
+        // Verify cursor color reactive resolution
+        let accent = zenthra_core::Color::rgb(0.2, 0.6, 0.9);
+        let cur_color = state.get_cursor_color(accent);
+        assert!(cur_color.a > 0.0);
     }
 }

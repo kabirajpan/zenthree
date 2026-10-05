@@ -84,6 +84,7 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                             });
                     });
             } else {
+                let is_modal_open = state.is_modal_or_dialog_open() || ui.modal_active || state.cmdline_dialog.open;
                 let mut active_tab_idx = state.active_tab.unwrap_or(0);
 
                 let tab_bar_h = 26.0;
@@ -198,10 +199,12 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                                     }
                                 });
 
-                            if close_clicked {
-                                tab_to_close = Some(idx);
-                            } else if resp.clicked {
-                                tab_to_activate = Some(idx);
+                            if !is_modal_open {
+                                if close_clicked {
+                                    tab_to_close = Some(idx);
+                                } else if resp.clicked {
+                                    tab_to_activate = Some(idx);
+                                }
                             }
                         }
 
@@ -390,7 +393,7 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                                             }
                                         });
 
-                                    if seg_resp.clicked {
+                                    if !is_modal_open && seg_resp.clicked {
                                         segment_clicked = Some((idx, seg_x));
                                     }
 
@@ -426,10 +429,10 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                                     ui.text(label).size(10.5).weight(FontWeight::Medium).color(if tab.is_markdown_preview { colors.accent } else { colors.text_muted }).show();
                                 });
 
-                            if toggle_resp.hovered {
+                            if !is_modal_open && toggle_resp.hovered {
                                 ui.cursor_icon = CursorIcon::Pointer;
                             }
-                            if toggle_resp.clicked {
+                            if !is_modal_open && toggle_resp.clicked {
                                 toggle_markdown_preview = true;
                             }
                         }
@@ -532,8 +535,11 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                     let mut redo_action = false;
                     let mut accept_review_action = false;
                     let mut reject_review_action = false;
+                    let mut open_cmdline_action = false;
                     let has_active_review = state.active_review().is_some();
-                    let is_focused = state.focused_panel == crate::state::types::FocusedPanel::Editor
+                    let is_modal_open = state.is_modal_or_dialog_open() || ui.modal_active || state.cmdline_dialog.open;
+                    let is_focused = !is_modal_open
+                        && state.focused_panel == crate::state::types::FocusedPanel::Editor
                         && (ui.focused_id == Some(editor_id) || ui.focused_id.is_none());
                     if is_focused && ui.focused_id.is_none() {
                         ui.focused_id = Some(editor_id);
@@ -579,7 +585,6 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                         }
                     }
 
-                    let is_modal_open = state.is_modal_or_dialog_open();
                     {
                         let tab_mut = &mut state.tabs[active_tab_idx];
                         let line_height_pixels = (state.font_size * state.zoom_level * 1.54).round().max(14.0);
@@ -678,8 +683,8 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                     {
                         let tab = &mut state.tabs[active_tab_idx];
 
-                        // Process input events if editor is focused
-                        if is_focused {
+                        // Process input events if editor is focused and no modal is open
+                        if is_focused && !is_modal_open {
                             let events = std::mem::take(&mut ui.input_events);
                             let mut changed = false;
 
@@ -693,6 +698,33 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                                 match event {
                                     zenthra_platform::event::PlatformEvent::CharTyped(c) => {
                                         if !state.ctrl_pressed && !state.alt_pressed && *c != '\r' && *c != '\n' && *c != '\t' && !c.is_control() {
+                                            if state.vim_mode && state.editor_vim_normal {
+                                                if *c == ':' {
+                                                    open_cmdline_action = true;
+                                                    changed = true;
+                                                    continue;
+                                                } else if *c == 'i' || *c == 'a' {
+                                                    state.editor_vim_normal = false;
+                                                    changed = true;
+                                                    continue;
+                                                } else if *c == 'h' {
+                                                    tab.editor.move_left();
+                                                    changed = true;
+                                                    continue;
+                                                } else if *c == 'l' {
+                                                    tab.editor.move_right();
+                                                    changed = true;
+                                                    continue;
+                                                } else if *c == 'j' {
+                                                    tab.editor.move_down();
+                                                    changed = true;
+                                                    continue;
+                                                } else if *c == 'k' {
+                                                    tab.editor.move_up();
+                                                    changed = true;
+                                                    continue;
+                                                }
+                                            }
                                             tab.editor.insert(&c.to_string(), tab.path.as_deref(), Some(&state.indent_calc));
                                             changed = true;
                                             if let Some(ref p) = tab.path {
@@ -709,6 +741,10 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                                                     state.completion_items.clear();
                                                     changed = true;
                                                 }
+                                                if state.vim_mode {
+                                                    state.editor_vim_normal = true;
+                                                    changed = true;
+                                                }
                                             }
                                             winit::keyboard::KeyCode::Space if state.ctrl_pressed => {
                                                 if let Some(ref p) = tab.path {
@@ -722,14 +758,22 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                                                 if state.ctrl_pressed && has_active_review {
                                                     reject_review_action = true;
                                                     changed = true;
+                                                } else if state.ctrl_pressed {
+                                                    tab.editor.delete_word_left();
+                                                    changed = true;
                                                 } else {
                                                     tab.editor.backspace();
                                                     changed = true;
                                                 }
                                             }
                                             winit::keyboard::KeyCode::Delete => {
-                                                tab.editor.delete();
-                                                changed = true;
+                                                if state.ctrl_pressed {
+                                                    tab.editor.delete_word_right();
+                                                    changed = true;
+                                                } else {
+                                                    tab.editor.delete();
+                                                    changed = true;
+                                                }
                                             }
                                             winit::keyboard::KeyCode::Enter => {
                                                 if state.ctrl_pressed && has_active_review {
@@ -763,7 +807,11 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                                                 }
                                             }
                                             winit::keyboard::KeyCode::ArrowLeft => {
-                                                if state.shift_pressed {
+                                                if state.ctrl_pressed && state.shift_pressed {
+                                                    tab.editor.extend_selection_word_left();
+                                                } else if state.ctrl_pressed {
+                                                    tab.editor.move_word_left();
+                                                } else if state.shift_pressed {
                                                     tab.editor.extend_selection_left();
                                                 } else {
                                                     tab.editor.move_left();
@@ -771,7 +819,11 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                                                 changed = true;
                                             }
                                             winit::keyboard::KeyCode::ArrowRight => {
-                                                if state.shift_pressed {
+                                                if state.ctrl_pressed && state.shift_pressed {
+                                                    tab.editor.extend_selection_word_right();
+                                                } else if state.ctrl_pressed {
+                                                    tab.editor.move_word_right();
+                                                } else if state.shift_pressed {
                                                     tab.editor.extend_selection_right();
                                                 } else {
                                                     tab.editor.move_right();
@@ -783,7 +835,11 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                                                     state.completion_selected_idx = state.completion_selected_idx.saturating_sub(1);
                                                     changed = true;
                                                 } else {
-                                                    if state.shift_pressed {
+                                                    if state.ctrl_pressed && state.shift_pressed {
+                                                        tab.editor.extend_selection_up_by(5);
+                                                    } else if state.ctrl_pressed {
+                                                        tab.editor.move_up_by(5);
+                                                    } else if state.shift_pressed {
                                                         tab.editor.extend_selection_up();
                                                     } else {
                                                         tab.editor.move_up();
@@ -796,7 +852,11 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                                                     state.completion_selected_idx = (state.completion_selected_idx + 1).min(state.completion_items.len() - 1);
                                                     changed = true;
                                                 } else {
-                                                    if state.shift_pressed {
+                                                    if state.ctrl_pressed && state.shift_pressed {
+                                                        tab.editor.extend_selection_down_by(5);
+                                                    } else if state.ctrl_pressed {
+                                                        tab.editor.move_down_by(5);
+                                                    } else if state.shift_pressed {
                                                         tab.editor.extend_selection_down();
                                                     } else {
                                                         tab.editor.move_down();
@@ -805,19 +865,27 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                                                 }
                                             }
                                             winit::keyboard::KeyCode::PageUp => {
-                                                for _ in 0..10 {
-                                                    tab.editor.move_up();
+                                                if state.shift_pressed {
+                                                    tab.editor.extend_selection_up_by(10);
+                                                } else {
+                                                    tab.editor.move_up_by(10);
                                                 }
                                                 changed = true;
                                             }
                                             winit::keyboard::KeyCode::PageDown => {
-                                                for _ in 0..10 {
-                                                    tab.editor.move_down();
+                                                if state.shift_pressed {
+                                                    tab.editor.extend_selection_down_by(10);
+                                                } else {
+                                                    tab.editor.move_down_by(10);
                                                 }
                                                 changed = true;
                                             }
                                             winit::keyboard::KeyCode::Home => {
-                                                if state.shift_pressed {
+                                                if state.ctrl_pressed && state.shift_pressed {
+                                                    tab.editor.extend_selection_to_top();
+                                                } else if state.ctrl_pressed {
+                                                    tab.editor.move_to_top();
+                                                } else if state.shift_pressed {
                                                     tab.editor.extend_selection_to_line_start();
                                                 } else {
                                                     tab.editor.move_to_line_start();
@@ -825,14 +893,32 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                                                 changed = true;
                                             }
                                             winit::keyboard::KeyCode::End => {
-                                                if state.shift_pressed {
+                                                if state.ctrl_pressed && state.shift_pressed {
+                                                    tab.editor.extend_selection_to_bottom();
+                                                } else if state.ctrl_pressed {
+                                                    tab.editor.move_to_bottom();
+                                                } else if state.shift_pressed {
                                                     tab.editor.extend_selection_to_line_end();
                                                 } else {
                                                     tab.editor.move_to_line_end();
                                                 }
                                                 changed = true;
                                             }
-                                            winit::keyboard::KeyCode::KeyA if state.ctrl_pressed => {
+                                            winit::keyboard::KeyCode::KeyD if state.ctrl_pressed && state.shift_pressed => {
+                                                tab.editor.duplicate_line_down();
+                                                changed = true;
+                                            }
+                                            winit::keyboard::KeyCode::KeyD if state.ctrl_pressed => {
+                                                tab.editor.select_word_at_cursor();
+                                                changed = true;
+                                            }
+                                            winit::keyboard::KeyCode::KeyK if state.ctrl_pressed && state.shift_pressed => {
+                                                tab.editor.delete_line();
+                                                changed = true;
+                                            }
+                                            winit::keyboard::KeyCode::KeyA
+                                                if state.ctrl_pressed && !state.shift_pressed =>
+                                            {
                                                 tab.editor.select_all();
                                                 changed = true;
                                             }
@@ -920,6 +1006,10 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                         ui.request_redraw();
                     } else if reject_review_action {
                         state.reject_current_review();
+                        ui.request_redraw();
+                    }
+                    if open_cmdline_action {
+                        state.open_cmdline(Some(""), None);
                         ui.request_redraw();
                     }
 
@@ -1467,7 +1557,7 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                     });
 
                     // Set focus and mouse selection logic on click
-                    let is_hovered = !state.is_modal_or_dialog_open() && !ui.modal_active && ui.mouse_in_rect(editor_x + ui.offset_x, editor_y + ui.offset_y, editor_w, editor_h);
+                    let is_hovered = !is_modal_open && ui.mouse_in_rect(editor_x + ui.offset_x, editor_y + ui.offset_y, editor_w, editor_h);
                     if ui.clicked && is_hovered {
                         // Avoid positioning the cursor if clicking on the scrollbar or panel edges
                         let scrollbar_w = 6.0;

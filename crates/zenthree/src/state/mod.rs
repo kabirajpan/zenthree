@@ -192,6 +192,13 @@ pub struct ZenthreeState {
 
     /// Pending unsaved changes confirmation dialog when switching workspaces
     pub unsaved_changes_dialog: Option<UnsavedChangesDialog>,
+
+    /// Floating LazyVim-style command line dialog for cd, files, folders, and terminal commands
+    pub cmdline_dialog: CmdlineDialogState,
+    pub delete_confirm_dialog: DeleteConfirmDialogState,
+    pub rename_modal: RenameModalState,
+    pub vim_mode: bool,
+    pub editor_vim_normal: bool,
 }
 
 impl ZenthreeState {
@@ -204,6 +211,123 @@ impl ZenthreeState {
             || self.unsaved_changes_dialog.is_some()
             || self.user_profile_open
             || self.tree_context_menu.is_some()
+            || self.cmdline_dialog.open
+            || self.delete_confirm_dialog.open
+            || self.rename_modal.open
+    }
+
+    pub fn open_cmdline(&mut self, initial_text: Option<&str>, target_dir: Option<PathBuf>) {
+        let text = initial_text.unwrap_or("").to_string();
+        let len = text.len();
+        self.cmdline_dialog = CmdlineDialogState {
+            open: true,
+            input: text,
+            cursor_idx: len,
+            error_msg: None,
+            just_opened: true,
+            target_dir: target_dir.or_else(|| self.selected_sidebar_path.clone()),
+            suggestions: Vec::new(),
+            selected_suggestion: None,
+        };
+        self.update_cmdline_suggestions();
+    }
+
+    pub fn close_cmdline(&mut self) {
+        self.cmdline_dialog.open = false;
+        self.cmdline_dialog.input.clear();
+        self.cmdline_dialog.suggestions.clear();
+        self.cmdline_dialog.selected_suggestion = None;
+        self.cmdline_dialog.error_msg = None;
+    }
+
+    pub fn open_delete_confirm(&mut self, path: PathBuf) {
+        self.delete_confirm_dialog = DeleteConfirmDialogState {
+            open: true,
+            target_path: Some(path),
+            selected_option: 0,
+            just_opened: true,
+            filter_input: String::new(),
+            cursor_idx: 0,
+        };
+    }
+
+    pub fn close_delete_confirm(&mut self) {
+        self.delete_confirm_dialog.open = false;
+        self.delete_confirm_dialog.target_path = None;
+        self.delete_confirm_dialog.filter_input.clear();
+        self.delete_confirm_dialog.cursor_idx = 0;
+        self.delete_confirm_dialog.selected_option = 0;
+    }
+
+    pub fn open_rename_modal(&mut self, path: PathBuf) {
+        let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("").to_string();
+        let len = name.len();
+        self.rename_modal = RenameModalState {
+            open: true,
+            target_path: Some(path),
+            input: name,
+            cursor_idx: len,
+            error_msg: None,
+            just_opened: true,
+        };
+        self.inline_tree_input = None;
+    }
+
+    pub fn close_rename_modal(&mut self) {
+        self.rename_modal.open = false;
+        self.rename_modal.target_path = None;
+        self.rename_modal.input.clear();
+        self.rename_modal.error_msg = None;
+    }
+
+    pub fn execute_rename(&mut self) -> Result<(), String> {
+        let target = match self.rename_modal.target_path.clone() {
+            Some(t) => t,
+            None => return Err("No target path".to_string()),
+        };
+        let new_name = self.rename_modal.input.trim().to_string();
+        if new_name.is_empty() {
+            return Err("Filename cannot be empty".to_string());
+        }
+        if new_name.contains('/') || new_name.contains('\\') || new_name.contains('\0') {
+            return Err("Invalid characters in filename".to_string());
+        }
+
+        let parent = target.parent().unwrap_or(&self.current_dir);
+        let new_path = parent.join(&new_name);
+
+        if new_path != target && new_path.exists() {
+            return Err("A file or folder with that name already exists".to_string());
+        }
+
+        if let Err(e) = std::fs::rename(&target, &new_path) {
+            return Err(format!("Rename failed: {}", e));
+        }
+
+        // Update tabs if target was open
+        for tab in &mut self.tabs {
+            if let Some(ref p) = tab.path {
+                if p == &target {
+                    tab.path = Some(new_path.clone());
+                    tab.name = new_name.to_string();
+                } else if p.starts_with(&target) {
+                    if let Ok(rel) = p.strip_prefix(&target) {
+                        tab.path = Some(new_path.join(rel));
+                    }
+                }
+            }
+        }
+
+        if self.selected_sidebar_path.as_ref() == Some(&target) {
+            self.selected_sidebar_path = Some(new_path.clone());
+        }
+
+        self.rebuild_tree();
+        self.refresh_git_status();
+        let msg = format!("Renamed to {}", new_name);
+        self.set_status(&msg);
+        self.close_rename_modal();
+        Ok(())
     }
 
     pub fn new() -> Self {
@@ -375,6 +499,11 @@ impl ZenthreeState {
             thinking_orbs_demo_paused: false,
             thinking_orbs_demo_pause_time: 0.0,
             unsaved_changes_dialog: None,
+            cmdline_dialog: CmdlineDialogState::default(),
+            delete_confirm_dialog: DeleteConfirmDialogState::default(),
+            rename_modal: RenameModalState::default(),
+            vim_mode: true,
+            editor_vim_normal: false,
         };
 
         // Restore previous session preferences (theme, accent, extensions, etc.)

@@ -574,10 +574,46 @@ pub struct LanguagePromptDialog {
     pub just_opened: bool,
 }
 
+/// Floating LazyVim-style command line dialog state
+#[derive(Debug, Clone, Default)]
+pub struct CmdlineDialogState {
+    pub open: bool,
+    pub input: String,
+    pub cursor_idx: usize,
+    pub error_msg: Option<String>,
+    pub just_opened: bool,
+    pub target_dir: Option<PathBuf>,
+    pub suggestions: Vec<String>,
+    pub selected_suggestion: Option<usize>,
+}
+
+/// Floating confirmation dialog state for deleting files/folders
+#[derive(Debug, Clone, Default)]
+pub struct DeleteConfirmDialogState {
+    pub open: bool,
+    pub target_path: Option<PathBuf>,
+    pub selected_option: usize, // index in filtered list
+    pub just_opened: bool,
+    pub filter_input: String,
+    pub cursor_idx: usize,
+}
+
+/// Floating LazyVim-style modal for renaming files/folders
+#[derive(Debug, Clone, Default)]
+pub struct RenameModalState {
+    pub open: bool,
+    pub target_path: Option<PathBuf>,
+    pub input: String,
+    pub cursor_idx: usize,
+    pub error_msg: Option<String>,
+    pub just_opened: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum InlineTreeInputMode {
     NewFile { parent_dir: PathBuf },
     NewFolder { parent_dir: PathBuf },
+    #[allow(dead_code)]
     Rename { target_path: PathBuf },
 }
 

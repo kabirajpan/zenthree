@@ -74,6 +74,8 @@ pub struct PersistentState {
     #[serde(default)]
     pub ai_input_tone: Option<AiInputTone>,
     #[serde(default)]
+    pub vim_mode: Option<bool>,
+    #[serde(default)]
     pub ai_message_bg: Option<AiMessageBg>,
     #[serde(default)]
     pub ai_text_size: Option<AiTextSize>,
@@ -158,6 +160,9 @@ impl ZenthreeState {
                 }
                 if let Some(cc) = saved.cursor_color_mode {
                     self.cursor_color_mode = cc;
+                }
+                if let Some(vm) = saved.vim_mode {
+                    self.vim_mode = vm;
                 }
                 if let Some(fs) = saved.font_size {
                     self.font_size = fs;
@@ -325,6 +330,7 @@ impl From<&ZenthreeState> for PersistentState {
             zoom_level: Some(s.zoom_level),
             cursor_style: Some(s.cursor_style),
             cursor_color_mode: Some(s.cursor_color_mode.clone()),
+            vim_mode: Some(s.vim_mode),
             current_dir,
             expanded_dirs: if s.has_workspace {
                 s.expanded_dirs.iter().cloned().collect()

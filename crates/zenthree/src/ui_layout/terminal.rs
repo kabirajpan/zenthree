@@ -256,7 +256,7 @@ pub fn draw_terminal_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, h
     }
 
     // ─── Input Event Processing directly inside Terminal ─────────
-    if is_focused {
+    if is_focused && !is_blocked {
         let mut events = std::mem::take(&mut ui.input_events);
         events.retain(|event| {
             match event {
@@ -279,31 +279,215 @@ pub fn draw_terminal_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, h
                 }
                 zenthra_platform::event::PlatformEvent::KeyDown { key } => {
                     state.last_cursor_activity = std::time::Instant::now();
-                    let mut handled = true;
-                    let bytes: Option<&[u8]> = if state.ctrl_pressed {
-                        match key {
-                            winit::keyboard::KeyCode::KeyC => Some(b"\x03"),
-                            winit::keyboard::KeyCode::KeyD => Some(b"\x04"),
-                            winit::keyboard::KeyCode::KeyZ => Some(b"\x1a"),
-                            winit::keyboard::KeyCode::KeyL => Some(b"\x0c"),
-                            winit::keyboard::KeyCode::KeyA => Some(b"\x01"),
-                            winit::keyboard::KeyCode::KeyE => Some(b"\x05"),
-                            winit::keyboard::KeyCode::KeyU => Some(b"\x15"),
-                            winit::keyboard::KeyCode::KeyK => Some(b"\x0b"),
-                            winit::keyboard::KeyCode::KeyW => Some(b"\x17"),
-                            winit::keyboard::KeyCode::KeyR => Some(b"\x12"),
-                            winit::keyboard::KeyCode::KeyV => {
-                                if let Some(text) = state.get_clipboard() {
-                                    if let Some(ref mut sess) = state.terminal_session {
-                                        sess.write_raw(text.as_bytes());
-                                    }
-                                }
-                                None
+
+                    // ── 1. Clipboard & Terminal Control Actions ─────────────
+                    // Ctrl+Shift+C: Copy terminal contents to clipboard
+                    if state.ctrl_pressed && state.shift_pressed && *key == winit::keyboard::KeyCode::KeyC {
+                        let full_text = if let Some(ref sess) = state.terminal_session {
+                            if let Ok(p) = sess.parser.lock() {
+                                p.screen().contents()
+                            } else {
+                                String::new()
                             }
-                            _ => { handled = false; None }
+                        } else {
+                            String::new()
+                        };
+                        state.set_clipboard(full_text);
+                        state.set_status("Terminal output copied to clipboard");
+                        ui.needs_redraw = true;
+                        return false;
+                    }
+
+                    // Ctrl+Shift+V / Shift+Insert / Ctrl+V: Paste clipboard
+                    if ((state.ctrl_pressed && state.shift_pressed)
+                        || (state.shift_pressed && *key == winit::keyboard::KeyCode::Insert)
+                        || (state.ctrl_pressed && !state.shift_pressed && !state.alt_pressed))
+                        && (*key == winit::keyboard::KeyCode::KeyV || *key == winit::keyboard::KeyCode::Insert)
+                    {
+                        if let Some(text) = state.get_clipboard() {
+                            if let Some(ref mut sess) = state.terminal_session {
+                                sess.write_raw(text.as_bytes());
+                            }
                         }
-                    } else {
-                        match key {
+                        ui.needs_redraw = true;
+                        return false;
+                    }
+
+                    // Ctrl+Shift+K: Clear terminal
+                    if state.ctrl_pressed && state.shift_pressed && *key == winit::keyboard::KeyCode::KeyK {
+                        state.clear_terminal();
+                        ui.needs_redraw = true;
+                        return false;
+                    }
+
+                    // ── 2. Scrollback History Navigation ─────────────────────
+                    // Shift+PageUp / Shift+PageDown (15 lines)
+                    if state.shift_pressed && !state.ctrl_pressed && *key == winit::keyboard::KeyCode::PageUp {
+                        if let Some(ref sess) = state.terminal_session {
+                            if let Ok(mut p) = sess.parser.lock() {
+                                let cur = p.screen().scrollback();
+                                p.screen_mut().set_scrollback(cur.saturating_add(15));
+                                ui.needs_redraw = true;
+                            }
+                        }
+                        return false;
+                    }
+                    if state.shift_pressed && !state.ctrl_pressed && *key == winit::keyboard::KeyCode::PageDown {
+                        if let Some(ref sess) = state.terminal_session {
+                            if let Ok(mut p) = sess.parser.lock() {
+                                let cur = p.screen().scrollback();
+                                p.screen_mut().set_scrollback(cur.saturating_sub(15));
+                                ui.needs_redraw = true;
+                            }
+                        }
+                        return false;
+                    }
+
+                    // Shift+Home / Shift+End (scroll to top/bottom of scrollback)
+                    if state.shift_pressed && !state.ctrl_pressed && *key == winit::keyboard::KeyCode::Home {
+                        if let Some(ref sess) = state.terminal_session {
+                            if let Ok(mut p) = sess.parser.lock() {
+                                if !p.screen().alternate_screen() {
+                                    p.screen_mut().set_scrollback(usize::MAX / 2);
+                                    ui.needs_redraw = true;
+                                    return false;
+                                }
+                            }
+                        }
+                    }
+                    if state.shift_pressed && !state.ctrl_pressed && *key == winit::keyboard::KeyCode::End {
+                        if let Some(ref sess) = state.terminal_session {
+                            if let Ok(mut p) = sess.parser.lock() {
+                                if !p.screen().alternate_screen() {
+                                    p.screen_mut().set_scrollback(0);
+                                    ui.needs_redraw = true;
+                                    return false;
+                                }
+                            }
+                        }
+                    }
+
+                    // Shift+Up / Shift+Down (scroll 1 line into scrollback in normal screen)
+                    if state.shift_pressed && !state.ctrl_pressed && !state.alt_pressed && *key == winit::keyboard::KeyCode::ArrowUp {
+                        if let Some(ref sess) = state.terminal_session {
+                            if let Ok(mut p) = sess.parser.lock() {
+                                if !p.screen().alternate_screen() {
+                                    let cur = p.screen().scrollback();
+                                    p.screen_mut().set_scrollback(cur.saturating_add(1));
+                                    ui.needs_redraw = true;
+                                    return false;
+                                }
+                            }
+                        }
+                    }
+                    if state.shift_pressed && !state.ctrl_pressed && !state.alt_pressed && *key == winit::keyboard::KeyCode::ArrowDown {
+                        if let Some(ref sess) = state.terminal_session {
+                            if let Ok(mut p) = sess.parser.lock() {
+                                if !p.screen().alternate_screen() {
+                                    let cur = p.screen().scrollback();
+                                    p.screen_mut().set_scrollback(cur.saturating_sub(1));
+                                    ui.needs_redraw = true;
+                                    return false;
+                                }
+                            }
+                        }
+                    }
+
+                    // ── 3. Escape Sequence / Key Code Generation ─────────────
+                    let mut handled = true;
+                    let bytes: Option<&[u8]> = match (state.ctrl_pressed, state.shift_pressed, state.alt_pressed) {
+                        // ── Ctrl + Shift + Key ───────────────────────────────
+                        (true, true, false) => match key {
+                            winit::keyboard::KeyCode::ArrowUp => Some(b"\x1b[1;6A"),
+                            winit::keyboard::KeyCode::ArrowDown => Some(b"\x1b[1;6B"),
+                            winit::keyboard::KeyCode::ArrowRight => Some(b"\x1b[1;6C"),
+                            winit::keyboard::KeyCode::ArrowLeft => Some(b"\x1b[1;6D"),
+                            winit::keyboard::KeyCode::Home => Some(b"\x1b[1;6H"),
+                            winit::keyboard::KeyCode::End => Some(b"\x1b[1;6F"),
+                            winit::keyboard::KeyCode::PageUp => Some(b"\x1b[5;6~"),
+                            winit::keyboard::KeyCode::PageDown => Some(b"\x1b[6;6~"),
+                            winit::keyboard::KeyCode::Delete => Some(b"\x1b[3;6~"),
+                            _ => { handled = false; None }
+                        },
+
+                        // ── Ctrl + Key ───────────────────────────────────────
+                        (true, false, false) => match key {
+                            // Arrow navigation (Ctrl+Left / Ctrl+Right for word jump, Ctrl+Up/Down)
+                            winit::keyboard::KeyCode::ArrowUp => Some(b"\x1b[1;5A"),
+                            winit::keyboard::KeyCode::ArrowDown => Some(b"\x1b[1;5B"),
+                            winit::keyboard::KeyCode::ArrowRight => Some(b"\x1b[1;5C"),
+                            winit::keyboard::KeyCode::ArrowLeft => Some(b"\x1b[1;5D"),
+
+                            // Navigation
+                            winit::keyboard::KeyCode::Home => Some(b"\x1b[1;5H"),
+                            winit::keyboard::KeyCode::End => Some(b"\x1b[1;5F"),
+                            winit::keyboard::KeyCode::PageUp => Some(b"\x1b[5;5~"),
+                            winit::keyboard::KeyCode::PageDown => Some(b"\x1b[6;5~"),
+
+                            // Editing
+                            winit::keyboard::KeyCode::Backspace => Some(b"\x17"), // Unix word rubout (^W)
+                            winit::keyboard::KeyCode::Delete => Some(b"\x1b[3;5~"), // Word kill forward
+
+                            // Control characters
+                            winit::keyboard::KeyCode::KeyA => Some(b"\x01"), // SOH (start of line)
+                            winit::keyboard::KeyCode::KeyB => Some(b"\x02"), // STX (cursor left)
+                            winit::keyboard::KeyCode::KeyC => Some(b"\x03"), // ETX (SIGINT)
+                            winit::keyboard::KeyCode::KeyD => Some(b"\x04"), // EOT (EOF)
+                            winit::keyboard::KeyCode::KeyE => Some(b"\x05"), // ENQ (end of line)
+                            winit::keyboard::KeyCode::KeyF => Some(b"\x06"), // ACK (cursor right)
+                            winit::keyboard::KeyCode::KeyG => Some(b"\x07"), // BEL (abort search)
+                            winit::keyboard::KeyCode::KeyH => Some(b"\x08"), // BS (backspace)
+                            winit::keyboard::KeyCode::KeyJ => Some(b"\x0a"), // LF (newline)
+                            winit::keyboard::KeyCode::KeyK => Some(b"\x0b"), // VT (kill line forward)
+                            winit::keyboard::KeyCode::KeyL => Some(b"\x0c"), // FF (clear screen)
+                            winit::keyboard::KeyCode::KeyN => Some(b"\x0e"), // SO (history next)
+                            winit::keyboard::KeyCode::KeyO => Some(b"\x0f"), // SI (operate-and-get-next)
+                            winit::keyboard::KeyCode::KeyP => Some(b"\x10"), // DLE (history prev)
+                            winit::keyboard::KeyCode::KeyQ => Some(b"\x11"), // DC1 (XON)
+                            winit::keyboard::KeyCode::KeyR => Some(b"\x12"), // DC2 (reverse search)
+                            winit::keyboard::KeyCode::KeyS => Some(b"\x13"), // DC3 (XOFF / forward search)
+                            winit::keyboard::KeyCode::KeyU => Some(b"\x15"), // NAK (kill line backward)
+                            winit::keyboard::KeyCode::KeyW => Some(b"\x17"), // ETB (rubout word)
+                            winit::keyboard::KeyCode::KeyX => Some(b"\x18"), // CAN
+                            winit::keyboard::KeyCode::KeyY => Some(b"\x19"), // EM (yank / paste kill ring)
+                            winit::keyboard::KeyCode::KeyZ => Some(b"\x1a"), // SUB (SIGTSTP)
+
+                            _ => { handled = false; None }
+                        },
+
+                        // ── Shift + Key ──────────────────────────────────────
+                        (false, true, false) => match key {
+                            winit::keyboard::KeyCode::ArrowUp => Some(b"\x1b[1;2A"),
+                            winit::keyboard::KeyCode::ArrowDown => Some(b"\x1b[1;2B"),
+                            winit::keyboard::KeyCode::ArrowRight => Some(b"\x1b[1;2C"),
+                            winit::keyboard::KeyCode::ArrowLeft => Some(b"\x1b[1;2D"),
+                            winit::keyboard::KeyCode::Home => Some(b"\x1b[1;2H"),
+                            winit::keyboard::KeyCode::End => Some(b"\x1b[1;2F"),
+                            winit::keyboard::KeyCode::Tab => Some(b"\x1b[Z"), // Backtab
+                            winit::keyboard::KeyCode::Delete => Some(b"\x1b[3;2~"),
+                            winit::keyboard::KeyCode::Enter => Some(b"\r"),
+                            winit::keyboard::KeyCode::Backspace => Some(b"\x7f"),
+                            _ => { handled = false; None }
+                        },
+
+                        // ── Alt + Key ────────────────────────────────────────
+                        (false, false, true) => match key {
+                            winit::keyboard::KeyCode::ArrowUp => Some(b"\x1b[1;3A"),
+                            winit::keyboard::KeyCode::ArrowDown => Some(b"\x1b[1;3B"),
+                            winit::keyboard::KeyCode::ArrowRight => Some(b"\x1b[1;3C"),
+                            winit::keyboard::KeyCode::ArrowLeft => Some(b"\x1b[1;3D"),
+                            winit::keyboard::KeyCode::Home => Some(b"\x1b[1;3H"),
+                            winit::keyboard::KeyCode::End => Some(b"\x1b[1;3F"),
+                            winit::keyboard::KeyCode::Backspace => Some(b"\x1b\x7f"), // backward-kill-word
+                            winit::keyboard::KeyCode::Delete => Some(b"\x1b[3;3~"),
+                            winit::keyboard::KeyCode::KeyB => Some(b"\x1bb"), // backward word
+                            winit::keyboard::KeyCode::KeyF => Some(b"\x1bf"), // forward word
+                            winit::keyboard::KeyCode::KeyD => Some(b"\x1bd"), // kill word forward
+                            _ => { handled = false; None }
+                        },
+
+                        // ── Plain Key (No modifiers) ─────────────────────────
+                        (false, false, false) => match key {
                             winit::keyboard::KeyCode::Enter => Some(b"\r"),
                             winit::keyboard::KeyCode::Backspace => Some(b"\x7f"),
                             winit::keyboard::KeyCode::Tab => Some(b"\t"),
@@ -317,30 +501,12 @@ pub fn draw_terminal_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, h
                             winit::keyboard::KeyCode::Delete => Some(b"\x1b[3~"),
                             winit::keyboard::KeyCode::PageUp => Some(b"\x1b[5~"),
                             winit::keyboard::KeyCode::PageDown => Some(b"\x1b[6~"),
+                            winit::keyboard::KeyCode::Insert => Some(b"\x1b[2~"),
                             _ => { handled = false; None }
-                        }
-                    };
+                        },
 
-                    if state.shift_pressed && *key == winit::keyboard::KeyCode::PageUp {
-                        if let Some(ref sess) = state.terminal_session {
-                            if let Ok(mut p) = sess.parser.lock() {
-                                let cur = p.screen().scrollback();
-                                p.screen_mut().set_scrollback(cur.saturating_add(15));
-                                ui.needs_redraw = true;
-                            }
-                        }
-                        return false;
-                    }
-                    if state.shift_pressed && *key == winit::keyboard::KeyCode::PageDown {
-                        if let Some(ref sess) = state.terminal_session {
-                            if let Ok(mut p) = sess.parser.lock() {
-                                let cur = p.screen().scrollback();
-                                p.screen_mut().set_scrollback(cur.saturating_sub(15));
-                                ui.needs_redraw = true;
-                            }
-                        }
-                        return false;
-                    }
+                        _ => { handled = false; None }
+                    };
 
                     if let Some(raw) = bytes {
                         if let Some(ref mut sess) = state.terminal_session {

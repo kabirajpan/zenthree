@@ -19,12 +19,34 @@ pub fn draw_status_bar(ui: &mut Ui, state: &mut ZenthreeState) {
         .padding_left(12.0)
         .padding_right(8.0)
         .show(|ui| {
-            // Left: status message (reactively tracked via Signal)
+            // Left: Mode badge (NORMAL / INSERT) & status message
             ui.container()
                 .row()
                 .valign(Align::Center)
-                .gap(6.0)
+                .gap(8.0)
                 .show(|ui| {
+                    let (mode_name, mode_bg, mode_color) = if state.focused_panel == crate::state::types::FocusedPanel::Terminal {
+                        ("TERMINAL", Color::rgb(0.95, 0.60, 0.20).with_alpha(0.20), Color::rgb(0.95, 0.65, 0.25))
+                    } else if state.focused_panel == crate::state::types::FocusedPanel::Explorer {
+                        ("EXPLORER", colors.accent.with_alpha(0.20), colors.accent)
+                    } else if state.vim_mode && state.editor_vim_normal {
+                        ("NORMAL", colors.accent.with_alpha(0.25), colors.accent)
+                    } else {
+                        ("INSERT", Color::rgb(74.0 / 255.0, 222.0 / 255.0, 128.0 / 255.0).with_alpha(0.20), Color::rgb(74.0 / 255.0, 222.0 / 255.0, 128.0 / 255.0))
+                    };
+
+                    ui.container()
+                        .padding(2.0, 6.0, 2.0, 6.0)
+                        .radius_all(3.0)
+                        .bg(mode_bg)
+                        .show(|ui| {
+                            ui.text(mode_name)
+                                .size(9.5)
+                                .weight(FontWeight::Bold)
+                                .color(mode_color)
+                                .show();
+                        });
+
                     let status_text = state.status_message.clone();
                     if !status_text.is_empty() {
                         let max_chars = ((avail_w * 0.35) / 7.0).max(10.0) as usize;

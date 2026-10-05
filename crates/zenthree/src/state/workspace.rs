@@ -440,6 +440,7 @@ impl ZenthreeState {
         self.tree_context_menu = None;
     }
 
+    #[allow(dead_code)]
     pub fn start_rename_inline(&mut self, target_path: PathBuf) {
         let mut initial_name = target_path
             .file_name()

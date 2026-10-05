@@ -14,6 +14,7 @@ pub mod notes_panel;
 pub mod thinking_orbs_demo_window;
 pub mod markdown_preview;
 pub mod unsaved_dialog;
+pub mod cmdline_dialog;
 
 pub use title_bar::draw_title_bar;
 pub use sidebar::draw_sidebar;
@@ -32,6 +33,7 @@ pub use editor_settings_dialog::draw_editor_settings_dialog;
 pub use thinking_orbs_demo_window::draw_thinking_orbs_demo_window;
 pub use markdown_preview::draw_markdown_buffer_preview;
 pub use unsaved_dialog::draw_unsaved_changes_dialog;
+pub use cmdline_dialog::{draw_cmdline_dialog, draw_delete_confirm_dialog, draw_rename_dialog};
 
 use crate::state::ZenthreeState;
 use zenthra::{Color, Ui, Align, FontWeight, Id, use_context};
