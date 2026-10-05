@@ -5,7 +5,7 @@ impl ZenthreeState {
     pub fn ensure_terminal_session(&mut self) {
         if self.terminal_session.is_none() {
             if let Some(sess) =
-                crate::native_terminal::NativeTerminalSession::new(&self.current_dir)
+                crate::native_terminal::NativeTerminalSession::new(&self.current_dir, 24, 80)
             {
                 self.terminal_session = Some(sess);
             } else {
@@ -18,6 +18,7 @@ impl ZenthreeState {
         }
     }
 
+    #[allow(dead_code)]
     pub fn send_terminal_input(&mut self, text: &str) {
         self.ensure_terminal_session();
 
@@ -50,16 +51,13 @@ impl ZenthreeState {
             }
         }
         self.terminal_input.clear();
+        self.terminal_cursor_idx = 0;
     }
 
+    #[allow(dead_code)]
     pub fn send_terminal_sigint(&mut self) {
         if let Some(ref mut sess) = self.terminal_session {
             sess.write_raw(b"\x03");
-        }
-        if let Some(ref sess) = self.terminal_session {
-            if let Ok(mut l) = sess.lines.lock() {
-                l.push("^C".to_string());
-            }
         } else {
             self.terminal_lines.push(TerminalLine {
                 text: "^C".to_string(),
@@ -68,20 +66,21 @@ impl ZenthreeState {
             });
         }
         self.terminal_input.clear();
+        self.terminal_cursor_idx = 0;
         self.terminal_history_idx = None;
     }
 
     pub fn clear_terminal(&mut self) {
-        if let Some(ref sess) = self.terminal_session {
-            if let Ok(mut l) = sess.lines.lock() {
-                l.clear();
-            }
+        if let Some(ref mut sess) = self.terminal_session {
+            sess.clear();
         }
         self.terminal_lines.clear();
         self.terminal_input.clear();
+        self.terminal_cursor_idx = 0;
         self.terminal_history_idx = None;
     }
 
+    #[allow(dead_code)]
     pub fn terminal_history_prev(&mut self) {
         if self.terminal_history.is_empty() {
             return;
@@ -93,17 +92,21 @@ impl ZenthreeState {
         self.terminal_history_idx = Some(next_idx);
         if let Some(cmd) = self.terminal_history.get(next_idx) {
             self.terminal_input = cmd.clone();
+            self.terminal_cursor_idx = self.terminal_input.len();
         }
     }
 
+    #[allow(dead_code)]
     pub fn terminal_history_next(&mut self) {
         if let Some(idx) = self.terminal_history_idx {
             if idx + 1 < self.terminal_history.len() {
                 self.terminal_history_idx = Some(idx + 1);
                 self.terminal_input = self.terminal_history[idx + 1].clone();
+                self.terminal_cursor_idx = self.terminal_input.len();
             } else {
                 self.terminal_history_idx = None;
                 self.terminal_input.clear();
+                self.terminal_cursor_idx = 0;
             }
         }
     }

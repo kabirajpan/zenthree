@@ -211,6 +211,8 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                             ui.request_redraw();
                         } else if let Some(idx) = tab_to_activate {
                             state.set_active_tab(Some(idx));
+                            state.focused_panel = crate::state::types::FocusedPanel::Editor;
+                            ui.focused_id = Some(Id::from_u64(999996000 + idx as u64));
                             active_tab_idx = idx;
                             state.sync_active_review_for_tab(idx);
                             if let Some(ref path) = state.tabs[idx].path.clone() {
@@ -531,7 +533,11 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                     let mut accept_review_action = false;
                     let mut reject_review_action = false;
                     let has_active_review = state.active_review().is_some();
-                    let is_focused = ui.focused_id == Some(editor_id);
+                    let is_focused = state.focused_panel == crate::state::types::FocusedPanel::Editor
+                        && (ui.focused_id == Some(editor_id) || ui.focused_id.is_none());
+                    if is_focused && ui.focused_id.is_none() {
+                        ui.focused_id = Some(editor_id);
+                    }
                     if is_focused {
                         // Schedule the next redraw precisely when the cursor blink state changes,
                         // rather than blindly polling every 250ms every frame.
@@ -1367,7 +1373,7 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                     });
 
                     // Set focus and mouse selection logic on click
-                    let is_hovered = !state.is_modal_or_dialog_open() && !ui.is_occluded(editor_id, ui.mouse_x, ui.mouse_y) && ui.mouse_in_rect(editor_x + ui.offset_x, editor_y + ui.offset_y, editor_w, editor_h);
+                    let is_hovered = !state.is_modal_or_dialog_open() && !ui.modal_active && ui.mouse_in_rect(editor_x + ui.offset_x, editor_y + ui.offset_y, editor_w, editor_h);
                     if ui.clicked && is_hovered {
                         // Avoid positioning the cursor if clicking on the scrollbar or panel edges
                         let scrollbar_w = 6.0;
@@ -1384,6 +1390,7 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                         if !mouse_in_scrollbar && !is_near_panel_edge && !is_occluded_by_ai {
                             let tab = &mut state.tabs[active_tab_idx];
                             ui.focused_id = Some(editor_id);
+                            state.focused_panel = crate::state::types::FocusedPanel::Editor;
                             ui.needs_redraw = true;
 
                             let rel_y = ui.mouse_y - (editor_y + ui.offset_y) + tab.scroll_y;

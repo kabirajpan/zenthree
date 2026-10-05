@@ -80,9 +80,15 @@ pub struct ZenthreeState {
     pub terminal_visible: bool,
     pub terminal_height: f32,
     pub active_resize_terminal: bool,
+    #[allow(dead_code)]
     pub terminal_lines: Vec<TerminalLine>,
+    #[allow(dead_code)]
     pub terminal_input: String,
+    #[allow(dead_code)]
+    pub terminal_cursor_idx: usize,
+    #[allow(dead_code)]
     pub terminal_history: Vec<String>,
+    #[allow(dead_code)]
     pub terminal_history_idx: Option<usize>,
     pub ai_panel_visible: bool,
     pub ai_panel_expanded: bool,
@@ -93,6 +99,7 @@ pub struct ZenthreeState {
     pub user_profile_open: bool,
     pub terminal_session: Option<crate::native_terminal::NativeTerminalSession>,
     pub sidebar_view: SidebarView,
+    pub focused_panel: crate::state::types::FocusedPanel,
     pub installed_extensions: std::collections::HashSet<String>,
     pub ignored_language_prompts: std::collections::HashSet<String>,
     pub extension_search_query: String,
@@ -280,6 +287,7 @@ impl ZenthreeState {
                 is_error: false,
             }],
             terminal_input: String::new(),
+            terminal_cursor_idx: 0,
             terminal_history: Vec::new(),
             terminal_history_idx: None,
             ai_panel_visible: false,
@@ -292,6 +300,7 @@ impl ZenthreeState {
             terminal_session: None,
             selected_sidebar_path: None,
             sidebar_view: SidebarView::Explorer,
+            focused_panel: crate::state::types::FocusedPanel::Editor,
             installed_extensions: {
                 let mut set = std::collections::HashSet::new();
                 set.insert("rust".to_string());

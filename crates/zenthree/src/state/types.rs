@@ -546,6 +546,17 @@ pub enum SidebarView {
     Notes,
 }
 
+/// Which panel currently holds keyboard focus.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum FocusedPanel {
+    #[default]
+    Editor,
+    Explorer,
+    Terminal,
+    Git,
+    Ai,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum ExtensionFilterTab {
     All,

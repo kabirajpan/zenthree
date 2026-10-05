@@ -31,3 +31,4 @@ pulldown-cmark = { version = "0.12", default-features = false }
 notify = "8"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 opener = "0.7"
+vt100 = "0.16"

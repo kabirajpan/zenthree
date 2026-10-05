@@ -4,6 +4,7 @@ mod ui_layout;
 mod assets;
 mod neovim_icons;
 mod mini_icons;
+mod shortcuts;
 pub mod native_terminal;
 pub mod extensions;
 pub mod lsp;
@@ -37,67 +38,8 @@ fn main() {
         .load_font_data(font_bytes)
         .register_custom_shader("spherical_polyhedra", include_str!("shaders/spherical_polyhedra.wgsl"))
         .with_ui(move |ui| {
-            // Track global modifier key states from input events
-            for event in &ui.input_events {
-                match event {
-                    zenthra_platform::event::PlatformEvent::KeyDown { key } => match key {
-                        winit::keyboard::KeyCode::ShiftLeft | winit::keyboard::KeyCode::ShiftRight => {
-                            state.shift_pressed = true;
-                        }
-                        winit::keyboard::KeyCode::ControlLeft | winit::keyboard::KeyCode::ControlRight => {
-                            state.ctrl_pressed = true;
-                        }
-                        winit::keyboard::KeyCode::AltLeft | winit::keyboard::KeyCode::AltRight => {
-                            state.alt_pressed = true;
-                        }
-                        winit::keyboard::KeyCode::Comma if state.ctrl_pressed => {
-                            state.editor_settings_open = !state.editor_settings_open;
-                            state.editor_settings_just_opened = true;
-                            if state.editor_settings_open {
-                                state.editor_settings_tab = crate::state::EditorSettingsTab::Appearance;
-                            }
-                        }
-                        winit::keyboard::KeyCode::F11 => {
-                            state.focus_mode = !state.focus_mode;
-                            if state.focus_mode {
-                                // Entering focus mode: hide title bar + activity bar + terminal + AI
-                                state.activity_bar_visible = false;
-                                state.terminal_visible = false;
-                                state.ai_panel_visible = false;
-                            } else {
-                                // Exiting focus mode: restore activity bar
-                                state.activity_bar_visible = true;
-                            }
-                        }
-                        // Ctrl+B → toggle sidebar (VSCode style)
-                        winit::keyboard::KeyCode::KeyB if state.ctrl_pressed && !state.shift_pressed => {
-                            state.sidebar_visible = !state.sidebar_visible;
-                        }
-                        // Ctrl+Shift+B → toggle activity bar
-                        winit::keyboard::KeyCode::KeyB if state.ctrl_pressed && state.shift_pressed => {
-                            state.activity_bar_visible = !state.activity_bar_visible;
-                        }
-                        // Ctrl+` → toggle terminal (VSCode style)
-                        winit::keyboard::KeyCode::Backquote if state.ctrl_pressed => {
-                            state.terminal_visible = !state.terminal_visible;
-                        }
-                        _ => {}
-                    },
-                    zenthra_platform::event::PlatformEvent::KeyUp { key } => match key {
-                        winit::keyboard::KeyCode::ShiftLeft | winit::keyboard::KeyCode::ShiftRight => {
-                            state.shift_pressed = false;
-                        }
-                        winit::keyboard::KeyCode::ControlLeft | winit::keyboard::KeyCode::ControlRight => {
-                            state.ctrl_pressed = false;
-                        }
-                        winit::keyboard::KeyCode::AltLeft | winit::keyboard::KeyCode::AltRight => {
-                            state.alt_pressed = false;
-                        }
-                        _ => {}
-                    },
-                    _ => {}
-                }
-            }
+            // Handle all keyboard shortcuts
+            shortcuts::handle_shortcuts(ui, &mut state);
 
             // Poll background LSP messages (diagnostics, completions, server lifecycle)
             if state.lsp_manager.poll() {

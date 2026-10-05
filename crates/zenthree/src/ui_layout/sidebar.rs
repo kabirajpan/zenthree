@@ -1006,6 +1006,8 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
                     state.commit_inline_tree_input();
                 }
                 state.selected_sidebar_path = Some(path.clone());
+                state.focused_panel = crate::state::types::FocusedPanel::Explorer;
+                ui.focused_id = None;
                 if is_dir {
                     if is_expanded {
                         state.expanded_dirs.remove(&path);
@@ -1020,12 +1022,20 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
                 ui.request_redraw();
             }
 
+            if tree_resp.clicked && !is_modal_open {
+                state.focused_panel = crate::state::types::FocusedPanel::Explorer;
+                ui.focused_id = None;
+                ui.needs_redraw = true;
+            }
+
             // Right click on item -> Open context menu
             if let Some((path, is_dir)) = right_clicked_node {
                 if state.inline_tree_input.is_some() {
                     state.commit_inline_tree_input();
                 }
                 state.selected_sidebar_path = Some(path.clone());
+                state.focused_panel = crate::state::types::FocusedPanel::Explorer;
+                ui.focused_id = None;
                 state.tree_context_menu = Some(TreeContextMenu {
                     target_path: path,
                     is_dir,
