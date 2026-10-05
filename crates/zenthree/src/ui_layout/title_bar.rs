@@ -344,24 +344,24 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                             let z150 = if (z - 1.5).abs() < 0.01 { "● " } else { "  " };
 
                             if ui.menu_item("Zoom In").shortcut("Ctrl +").show().clicked {
-                                state.zoom_level = (state.zoom_level + 0.1).min(2.0);
+                                state.zoom_in();
                                 ui.request_redraw();
                             }
                             if ui.menu_item("Zoom Out").shortcut("Ctrl -").show().clicked {
-                                state.zoom_level = (state.zoom_level - 0.1).max(0.6);
+                                state.zoom_out();
                                 ui.request_redraw();
                             }
                             ui.spacing(4.0);
-                            if ui.menu_item(&format!("{}100% (Reset)", z100)).show().clicked {
-                                state.zoom_level = 1.0;
+                            if ui.menu_item(&format!("{}100% (Reset)", z100)).shortcut("Ctrl 0").show().clicked {
+                                state.reset_zoom();
                                 ui.request_redraw();
                             }
                             if ui.menu_item(&format!("{}125%", z125)).show().clicked {
-                                state.zoom_level = 1.25;
+                                state.set_zoom_level(1.25);
                                 ui.request_redraw();
                             }
                             if ui.menu_item(&format!("{}150%", z150)).show().clicked {
-                                state.zoom_level = 1.5;
+                                state.set_zoom_level(1.5);
                                 ui.request_redraw();
                             }
                         });

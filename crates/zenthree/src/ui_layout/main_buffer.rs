@@ -582,7 +582,7 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                     let is_modal_open = state.is_modal_or_dialog_open();
                     {
                         let tab_mut = &mut state.tabs[active_tab_idx];
-                        let line_height_pixels = (state.font_size * 1.54).round().max(14.0);
+                        let line_height_pixels = (state.font_size * state.zoom_level * 1.54).round().max(14.0);
                         let total_lines = tab_mut.editor.buffer.line_count();
                         let content_h = total_lines as f32 * line_height_pixels;
                         let max_scroll_y = (content_h - editor_h).max(0.0);
@@ -601,7 +601,9 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                                     if ui.mouse_down {
                                         let ratio = if track_h > thumb_h { max_scroll_y / (track_h - thumb_h) } else { 0.0 };
                                         let delta_y = ui.mouse_y - drag.start_mouse;
-                                        tab_mut.scroll_y = (drag.start_scroll + delta_y * ratio).clamp(0.0, max_scroll_y);
+                                        let new_s = (drag.start_scroll + delta_y * ratio).clamp(0.0, max_scroll_y);
+                                        tab_mut.scroll_y = new_s;
+                                        tab_mut.target_scroll_y = new_s;
                                         ui.needs_redraw = true;
                                     }
                                 }
@@ -631,6 +633,7 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                                         };
                                         let new_scroll_y = (click_y_ratio * max_scroll_y).clamp(0.0, max_scroll_y);
                                         tab_mut.scroll_y = new_scroll_y;
+                                        tab_mut.target_scroll_y = new_scroll_y;
                                         ui.active_drag = Some(ScrollDrag {
                                             id: scrollbar_id,
                                             start_mouse: ui.mouse_y,
@@ -655,9 +658,18 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                             });
                             if scroll_delta_y != 0.0 {
                                 let step = if scroll_delta_y.abs() <= 5.0 { scroll_delta_y * 38.0 } else { scroll_delta_y };
-                                tab_mut.scroll_y = (tab_mut.scroll_y - step).clamp(0.0, max_scroll_y);
+                                tab_mut.target_scroll_y = (tab_mut.target_scroll_y - step).clamp(0.0, max_scroll_y);
                                 ui.needs_redraw = true;
                             }
+                        }
+
+                        // Smooth kinetic dampening (lerp towards target_scroll_y)
+                        let scroll_diff = tab_mut.target_scroll_y - tab_mut.scroll_y;
+                        if scroll_diff.abs() > 0.5 {
+                            tab_mut.scroll_y += scroll_diff * 0.35;
+                            ui.needs_redraw = true;
+                        } else {
+                            tab_mut.scroll_y = tab_mut.target_scroll_y;
                         }
                     }
 
@@ -917,7 +929,8 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                     let editor_w = width;
 
                     // Dimensions of typography
-                    let line_height_pixels = (state.font_size * 1.54).round().max(14.0);
+                    let eff_font_size = (state.font_size * state.zoom_level).max(8.0);
+                    let line_height_pixels = (eff_font_size * 1.54).round().max(14.0);
                     let total_lines = state.tabs[active_tab_idx].editor.buffer.line_count();
 
                     let active_diff_line_states: Option<Vec<DiffLineState>> = state.tabs.get(active_tab_idx).and_then(|tab| {
@@ -948,9 +961,12 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
 
                         if cursor_top < tab_mut.scroll_y {
                             tab_mut.scroll_y = cursor_top;
+                            tab_mut.target_scroll_y = cursor_top;
                         } else if cursor_bottom > tab_mut.scroll_y + editor_h - 10.0 {
                             let max_scroll = (content_h - editor_h).max(0.0);
-                            tab_mut.scroll_y = (cursor_bottom - editor_h + 10.0).clamp(0.0, max_scroll);
+                            let s = (cursor_bottom - editor_h + 10.0).clamp(0.0, max_scroll);
+                            tab_mut.scroll_y = s;
+                            tab_mut.target_scroll_y = s;
                         }
                     }
 
@@ -1016,6 +1032,8 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                     }
 
                     let mut active_cursor_screen_pos: Option<[f32; 2]> = None;
+                    let cursor_style = state.cursor_style;
+                    let cur_color = state.get_cursor_color(colors.accent);
 
                     // Container wrapper - not scrollable, but clips
                     ui.container()
@@ -1068,8 +1086,9 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                                     a
                                 });
 
+                                let sub_line_offset = (scroll_y as f64 % line_height_pixels as f64) as f32;
                                 for i in visible_start..visible_end {
-                                    let line_y = editor_y + (i as f32) * line_height_pixels - scroll_y;
+                                    let line_y = editor_y + ((i.saturating_sub(visible_start)) as f32 * line_height_pixels) - sub_line_offset;
                                     let cursor_p = tab.editor.cursor();
                                     let diff_line_state = active_diff_line_states.as_ref().and_then(|s| s.get(i).copied());
 
@@ -1164,7 +1183,7 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                                         ui.draws.push(DrawCommand::Text(TextDraw {
                                             text: num_str,
                                             pos: [num_x, line_y + 3.0],
-                                            options: TextOptions::new().font_size((state.font_size - 1.0).max(10.0)).font_family("monospace").color(num_color),
+                                            options: TextOptions::new().font_size((eff_font_size - 1.0).max(10.0)).font_family("monospace").color(num_color),
                                             clip,
                                         }));
                                     }
@@ -1189,23 +1208,24 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                                         }));
                                     }
 
-                                    // Get code line text
-                                    let line_text = tab.editor.buffer.line(i).unwrap_or_default();
-                                    let clean_text = line_text.trim_end_matches(&['\r', '\n'][..]);
-
-                                    // Shape code line (cached)
-                                    let opts = TextOptions::new().font_size(state.font_size).font_family("monospace").color(colors.text_primary);
-                                    let shaped = {
-                                        let needs_update = match tab.shaping_cache.get(&i) {
-                                            Some((cached_text, _)) => cached_text != clean_text,
-                                            None => true,
-                                        };
-                                        if needs_update {
-                                            let shaped = adapter.shape(clean_text, &opts);
-                                            tab.shaping_cache.insert(i, (clean_text.to_string(), shaped));
-                                        }
-                                        tab.shaping_cache.get(&i).unwrap().1.clone()
+                                    // Shape code line (cached - zero buffer allocation if line matches)
+                                    let opts = TextOptions::new().font_size(eff_font_size).font_family("monospace").color(colors.text_primary);
+                                    let is_cache_valid = if let Some((cached_text, _)) = tab.shaping_cache.get(&i) {
+                                        tab.editor.buffer.line_matches(i, cached_text)
+                                    } else {
+                                        false
                                     };
+                                    if !is_cache_valid {
+                                        let line_text = tab.editor.buffer.line(i).unwrap_or_default();
+                                        let clean = line_text.trim_end_matches(&['\r', '\n'][..]).to_string();
+                                        let shaped = adapter.shape(&clean, &opts);
+                                        tab.shaping_cache.insert(i, (clean, std::sync::Arc::new(shaped)));
+                                    }
+                                    let (clean_text_storage, shaped) = {
+                                        let entry = tab.shaping_cache.get(&i).unwrap();
+                                        (entry.0.clone(), entry.1.clone())
+                                    };
+                                    let clean_text = clean_text_storage.as_str();
 
                                     // Draw selections
                                     for selection in &tab.editor.selections {
@@ -1240,7 +1260,7 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
 
                                     // Draw code line text itself
                                     if diff_line_state == Some(DiffLineState::Removed) {
-                                        let removed_opts = TextOptions::new().font_size(state.font_size).font_family("monospace").color(Color::rgb(0.97, 0.50, 0.50));
+                                        let removed_opts = TextOptions::new().font_size(eff_font_size).font_family("monospace").color(Color::rgb(0.97, 0.50, 0.50));
                                         ui.draws.push(DrawCommand::Text(TextDraw {
                                             text: clean_text.to_string(),
                                             pos: [editor_x + gutter_w, line_y + 2.0],
@@ -1253,7 +1273,7 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                                             let styled_spans = get_styled_spans(clean_text, spans, colors.text_primary, &shaped);
                                             for span in styled_spans {
                                                 let span_opts = TextOptions::new()
-                                                    .font_size(state.font_size)
+                                                    .font_size(eff_font_size)
                                                     .font_family("monospace")
                                                     .color(span.color);
                                                 ui.draws.push(DrawCommand::Text(TextDraw {
@@ -1286,16 +1306,89 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                                             ((elapsed_ms - 500) / 530) % 2 == 0
                                         };
                                         if show_cursor {
-                                            ui.draws.push(DrawCommand::Rect(RectDraw {
-                                                instance: RectInstance {
-                                                    pos: [editor_x + gutter_w + cursor_x, line_y + 2.0],
-                                                    size: [2.0, (state.font_size + 3.0).max(14.0)],
-                                                    color: colors.accent.to_array(),
-                                                    radius: [0.0; 4],
-                                                    clip_rect: clip,
-                                                    ..Default::default()
+                                            let cursor_h = (eff_font_size + 3.0).min(line_height_pixels).max(14.0);
+                                            let cursor_y = line_y + ((line_height_pixels - cursor_h) / 2.0).round();
+
+                                            match cursor_style {
+                                                crate::state::types::CursorStyle::Block => {
+                                                    let char_under_cursor = clean_text.chars().nth(cursor_p.column);
+                                                    let char_w = if let Some(c) = char_under_cursor {
+                                                        let b_start: usize = clean_text.chars().take(cursor_p.column).map(|ch| ch.len_utf8()).sum();
+                                                        let b_end = b_start + c.len_utf8();
+                                                        let x_end = find_x_for_byte(&shaped, clean_text, b_end);
+                                                        (x_end - cursor_x).max(8.0)
+                                                    } else {
+                                                        (eff_font_size * 0.6).round().max(8.0)
+                                                    };
+
+                                                    // 1. Draw block cursor vertically centered in the line
+                                                    ui.draws.push(DrawCommand::Rect(RectDraw {
+                                                        instance: RectInstance {
+                                                            pos: [editor_x + gutter_w + cursor_x, cursor_y],
+                                                            size: [char_w, cursor_h],
+                                                            color: cur_color.to_array(),
+                                                            radius: [0.0; 4],
+                                                            clip_rect: clip,
+                                                            ..Default::default()
+                                                        }
+                                                    }));
+
+                                                    // 2. Render character under cursor in inverted high-contrast color!
+                                                    if let Some(c) = char_under_cursor {
+                                                        if c != ' ' && c != '\t' && c != '\n' && c != '\r' {
+                                                            let inv_color = if cur_color.r * 0.299 + cur_color.g * 0.587 + cur_color.b * 0.114 > 0.5 {
+                                                                colors.bg_base
+                                                            } else {
+                                                                Color::rgb(1.0, 1.0, 1.0)
+                                                            };
+                                                            let opts = TextOptions::new()
+                                                                .font_size(eff_font_size)
+                                                                .font_family("monospace")
+                                                                .color(inv_color);
+                                                            ui.draws.push(DrawCommand::Text(TextDraw {
+                                                                text: c.to_string(),
+                                                                pos: [editor_x + gutter_w + cursor_x, line_y + 2.0],
+                                                                options: opts,
+                                                                clip,
+                                                            }));
+                                                        }
+                                                    }
                                                 }
-                                            }));
+                                                crate::state::types::CursorStyle::Line => {
+                                                    ui.draws.push(DrawCommand::Rect(RectDraw {
+                                                        instance: RectInstance {
+                                                            pos: [editor_x + gutter_w + cursor_x, cursor_y],
+                                                            size: [2.0, cursor_h],
+                                                            color: cur_color.to_array(),
+                                                            radius: [0.0; 4],
+                                                            clip_rect: clip,
+                                                            ..Default::default()
+                                                        }
+                                                    }));
+                                                }
+                                                crate::state::types::CursorStyle::Underline => {
+                                                    let char_under_cursor = clean_text.chars().nth(cursor_p.column);
+                                                    let char_w = if let Some(c) = char_under_cursor {
+                                                        let b_start: usize = clean_text.chars().take(cursor_p.column).map(|ch| ch.len_utf8()).sum();
+                                                        let b_end = b_start + c.len_utf8();
+                                                        let x_end = find_x_for_byte(&shaped, clean_text, b_end);
+                                                        (x_end - cursor_x).max(8.0)
+                                                    } else {
+                                                        (eff_font_size * 0.6).round().max(8.0)
+                                                    };
+                                                    let under_y = cursor_y + cursor_h - 2.0;
+                                                    ui.draws.push(DrawCommand::Rect(RectDraw {
+                                                        instance: RectInstance {
+                                                            pos: [editor_x + gutter_w + cursor_x, under_y],
+                                                            size: [char_w, 2.0],
+                                                            color: cur_color.to_array(),
+                                                            radius: [0.0; 4],
+                                                            clip_rect: clip,
+                                                            ..Default::default()
+                                                        }
+                                                    }));
+                                                }
+                                            }
                                         }
                                     }
                                 }
@@ -1364,7 +1457,8 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                     let gutter_w = if state.line_numbers_visible { 44.0 } else { 8.0 };
                     cursor_screen_pos = active_cursor_screen_pos.or_else(|| {
                         let cur = state.tabs.get(active_tab_idx)?.editor.cursor();
-                        let line_y = editor_y + (cur.row as f32) * line_height_pixels - scroll_y;
+                        let sub_line_offset = (scroll_y as f64 % line_height_pixels as f64) as f32;
+                        let line_y = editor_y + ((cur.row.saturating_sub(visible_start)) as f32 * line_height_pixels) - sub_line_offset;
                         if line_y >= editor_y && line_y <= editor_y + editor_h {
                             Some([editor_x + gutter_w + (cur.column as f32 * 7.8), line_y + line_height_pixels])
                         } else {
@@ -1393,8 +1487,8 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                             state.focused_panel = crate::state::types::FocusedPanel::Editor;
                             ui.needs_redraw = true;
 
-                            let rel_y = ui.mouse_y - (editor_y + ui.offset_y) + tab.scroll_y;
-                            let line_idx = ((rel_y / line_height_pixels).max(0.0) as usize).min(total_lines.saturating_sub(1));
+                            let rel_y = (ui.mouse_y - (editor_y + ui.offset_y)) as f64 + tab.scroll_y as f64;
+                            let line_idx = ((rel_y / line_height_pixels as f64).max(0.0) as usize).min(total_lines.saturating_sub(1));
 
                             let gutter_w = if state.line_numbers_visible { 44.0 } else { 8.0 };
                             let rel_x = ui.mouse_x - (editor_x + ui.offset_x) - gutter_w;
@@ -1402,26 +1496,29 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
 
                             let mut col_idx = 0;
                             if let Some(fs) = ui.font_system.as_ref() {
-                                let line_text = tab.editor.buffer.line(line_idx).unwrap_or_default();
-                                let clean_text = line_text.trim_end_matches(&['\r', '\n'][..]);
                                 let opts = TextOptions::new().font_size(state.font_size).font_family("monospace");
-                                let shaped = {
-                                    let needs_update = match tab.shaping_cache.get(&line_idx) {
-                                        Some((cached_text, _)) => cached_text != clean_text,
-                                        None => true,
-                                    };
-                                    if needs_update {
-                                        let adapter = state.font_adapter.get_or_insert_with(|| {
-                                            let mut a = CosmicFontProvider::new_with_system(fs.clone());
-                                            a.set_layout_size(10000.0, 10000.0);
-                                            a
-                                        });
-                                        let shaped = adapter.shape(clean_text, &opts);
-                                        tab.shaping_cache.insert(line_idx, (clean_text.to_string(), shaped));
-                                    }
-                                    tab.shaping_cache.get(&line_idx).unwrap().1.clone()
+                                let is_cache_valid = if let Some((cached_text, _)) = tab.shaping_cache.get(&line_idx) {
+                                    tab.editor.buffer.line_matches(line_idx, cached_text)
+                                } else {
+                                    false
                                 };
-                                let byte_idx = shaped.index_at(rel_x, 5.0);
+                                if !is_cache_valid {
+                                    let adapter = state.font_adapter.get_or_insert_with(|| {
+                                        let mut a = CosmicFontProvider::new_with_system(fs.clone());
+                                        a.set_layout_size(10000.0, 10000.0);
+                                        a
+                                    });
+                                    let line_text = tab.editor.buffer.line(line_idx).unwrap_or_default();
+                                    let clean = line_text.trim_end_matches(&['\r', '\n'][..]).to_string();
+                                    let shaped = adapter.shape(&clean, &opts);
+                                    tab.shaping_cache.insert(line_idx, (clean, std::sync::Arc::new(shaped)));
+                                }
+                                let (clean_text_storage, shaped) = {
+                                    let entry = tab.shaping_cache.get(&line_idx).unwrap();
+                                    (entry.0.clone(), entry.1.clone())
+                                };
+                                let clean_text = clean_text_storage.as_str();
+                                let byte_idx = find_byte_for_x(&shaped, clean_text, rel_x);
                                 col_idx = clean_text[..byte_idx.min(clean_text.len())].chars().count();
                             }
 
@@ -1818,10 +1915,63 @@ fn find_x_for_byte(shaped: &ShapedBuffer, clean_text: &str, byte_idx: usize) -> 
     best_x
 }
 
+fn find_byte_for_x(shaped: &ShapedBuffer, clean_text: &str, rel_x: f32) -> usize {
+    if rel_x <= 0.0 || clean_text.is_empty() {
+        return 0;
+    }
+
+    let mut char_w = 7.81;
+    for g in shaped.glyphs() {
+        if g.width > 4.0 && g.width < 20.0 {
+            char_w = g.width;
+            break;
+        }
+    }
+
+    let glyphs = shaped.glyphs();
+    if glyphs.is_empty() {
+        let col = ((rel_x + char_w * 0.5) / char_w).floor() as usize;
+        return clean_text.chars().take(col).map(|c| c.len_utf8()).sum();
+    }
+
+    for (i, glyph) in glyphs.iter().enumerate() {
+        let midpoint = glyph.x + glyph.width * 0.5;
+        if rel_x < midpoint {
+            return glyph.cluster;
+        }
+
+        let is_last = i + 1 >= glyphs.len();
+        if is_last {
+            return clean_text.len();
+        }
+
+        let next_glyph = &glyphs[i + 1];
+        let next_midpoint = next_glyph.x + next_glyph.width * 0.5;
+        if rel_x < next_midpoint {
+            return next_glyph.cluster;
+        }
+    }
+
+    clean_text.len()
+}
+
 struct StyledSpan {
     pub text: String,
     pub x_offset: f32,
     pub color: Color,
+}
+
+fn push_styled_span(result: &mut Vec<StyledSpan>, text: String, x_offset: f32, color: Color) {
+    if text.is_empty() {
+        return;
+    }
+    if let Some(last) = result.last_mut() {
+        if last.color == color {
+            last.text.push_str(&text);
+            return;
+        }
+    }
+    result.push(StyledSpan { text, x_offset, color });
 }
 
 fn get_styled_spans(
@@ -1838,17 +1988,19 @@ fn get_styled_spans(
         return result;
     }
 
-    // Convert char offset to byte offset without collecting all indices into a Vec.
-    // We iterate char_indices lazily, which avoids a heap allocation per line per frame.
+    let is_ascii = line_text.is_ascii();
     let char_to_byte = |char_offset: usize| -> usize {
         if char_offset == 0 { return 0; }
+        if is_ascii {
+            return char_offset.min(line_text.len());
+        }
         line_text.char_indices()
             .nth(char_offset)
             .map(|(b, _)| b)
             .unwrap_or(line_text.len())
     };
 
-    let char_count = line_text.chars().count();
+    let char_count = if is_ascii { line_text.len() } else { line_text.chars().count() };
     let mut last_char = 0;
 
     for &(start_char, end_char, color) in spans {
@@ -1860,7 +2012,7 @@ fn get_styled_spans(
             let gap_end_byte = char_to_byte(start_char);
             let text = line_text[gap_start_byte..gap_end_byte].to_string();
             let x_offset = find_x_for_byte(shaped, line_text, gap_start_byte);
-            result.push(StyledSpan { text, x_offset, color: default_color });
+            push_styled_span(&mut result, text, x_offset, default_color);
         }
 
         if end_char > start_char {
@@ -1868,7 +2020,7 @@ fn get_styled_spans(
             let end_byte = char_to_byte(end_char);
             let text = line_text[start_byte..end_byte].to_string();
             let x_offset = find_x_for_byte(shaped, line_text, start_byte);
-            result.push(StyledSpan { text, x_offset, color });
+            push_styled_span(&mut result, text, x_offset, color);
         }
 
         last_char = end_char;
@@ -1878,7 +2030,7 @@ fn get_styled_spans(
         let tail_start_byte = char_to_byte(last_char);
         let text = line_text[tail_start_byte..].to_string();
         let x_offset = find_x_for_byte(shaped, line_text, tail_start_byte);
-        result.push(StyledSpan { text, x_offset, color: default_color });
+        push_styled_span(&mut result, text, x_offset, default_color);
     }
 
     if result.is_empty() && !line_text.is_empty() {

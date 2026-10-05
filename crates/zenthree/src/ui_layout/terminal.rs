@@ -2,7 +2,7 @@ use crate::state::ZenthreeState;
 use zenthra::{Color, Ui, Align, FontWeight, Id, CursorIcon, use_context};
 use crate::theme::ThemeColors;
 use zenthra_text::prelude::TextOptions;
-use zenthra_widgets::ui::{DrawCommand, TextDraw, RectDraw};
+use zenthra_widgets::ui::{DrawCommand, TextDraw, RectDraw, ScrollDrag};
 use zenthra_render::RectInstance;
 
 fn convert_vt_color(c: vt100::Color, default_color: Color) -> Color {
@@ -96,6 +96,86 @@ pub fn draw_terminal_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, h
         ui.needs_redraw = true;
     }
 
+    // ─── Mouse Wheel Scrolling for Terminal ───────────────────────
+    let is_body_hovered = !is_blocked
+        && !is_splitter_hovered
+        && !state.active_resize_terminal
+        && ui.mouse_in_rect(panel_x, panel_y + 28.0, panel_w, (panel_h - 28.0).max(10.0));
+
+    if is_body_hovered {
+        let mut term_scroll_delta = 0.0;
+        ui.input_events.retain(|event| {
+            if let zenthra_platform::event::PlatformEvent::MouseWheel { delta_y, .. } = event {
+                term_scroll_delta += *delta_y;
+                false
+            } else {
+                true
+            }
+        });
+
+        if term_scroll_delta != 0.0 {
+            let now = std::time::Instant::now();
+            let elapsed_ms = now.duration_since(state.terminal_last_scroll_time).as_millis();
+            // Reset accumulator if scrolling paused (> 100ms) or reversed direction
+            if elapsed_ms > 100
+                || (state.terminal_scroll_accum > 0.0 && term_scroll_delta < 0.0)
+                || (state.terminal_scroll_accum < 0.0 && term_scroll_delta > 0.0)
+            {
+                state.terminal_scroll_accum = 0.0;
+            }
+            state.terminal_last_scroll_time = now;
+
+            if let Some(ref mut sess) = state.terminal_session {
+                let is_alt_screen = {
+                    let p = sess.parser.lock().unwrap();
+                    p.screen().alternate_screen()
+                };
+
+                if is_alt_screen {
+                    // In alternate screen applications (vim, less, htop, nano):
+                    // Standard terminal behavior: 3 lines per wheel notch
+                    let count = if term_scroll_delta.abs() <= 1.5 {
+                        3
+                    } else {
+                        ((term_scroll_delta.abs() / 18.0).round() as usize).clamp(1, 6)
+                    };
+                    let key_seq = if term_scroll_delta > 0.0 { b"\x1b[A" } else { b"\x1b[B" };
+                    for _ in 0..count {
+                        sess.write_raw(key_seq);
+                    }
+                    ui.needs_redraw = true;
+                } else {
+                    // Standard terminal scrolling (matches VS Code / GNOME Terminal / Alacritty):
+                    // Discrete mouse wheel notch: 3 lines per notch
+                    // Continuous touchpad: ~18px (1 text line height) per line
+                    let delta_lines = if term_scroll_delta.abs() <= 1.5 {
+                        term_scroll_delta.signum() * 3.0
+                    } else {
+                        term_scroll_delta / 18.0
+                    };
+
+                    state.terminal_scroll_accum += delta_lines;
+
+                    let whole_lines = (state.terminal_scroll_accum.trunc() as i32).clamp(-12, 12);
+                    if whole_lines != 0 {
+                        state.terminal_scroll_accum -= whole_lines as f32;
+                        if let Ok(mut p) = sess.parser.lock() {
+                            let cur_sb = p.screen().scrollback();
+                            // Wheel up (positive whole_lines) moves backward into scrollback history
+                            let new_sb = if whole_lines > 0 {
+                                cur_sb.saturating_add(whole_lines as usize)
+                            } else {
+                                cur_sb.saturating_sub((-whole_lines) as usize)
+                            };
+                            p.screen_mut().set_scrollback(new_sb);
+                            ui.needs_redraw = true;
+                        }
+                    }
+                }
+            }
+        }
+    }
+
     if is_blocked {
         state.active_resize_terminal = false;
     }
@@ -186,6 +266,11 @@ pub fn draw_terminal_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, h
                         let mut buf = [0u8; 4];
                         let bytes = c.encode_utf8(&mut buf).as_bytes();
                         if let Some(ref mut sess) = state.terminal_session {
+                            if let Ok(mut p) = sess.parser.lock() {
+                                if p.screen().scrollback() > 0 {
+                                    p.screen_mut().set_scrollback(0);
+                                }
+                            }
                             sess.write_raw(bytes);
                         }
                         ui.needs_redraw = true;
@@ -236,8 +321,34 @@ pub fn draw_terminal_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, h
                         }
                     };
 
+                    if state.shift_pressed && *key == winit::keyboard::KeyCode::PageUp {
+                        if let Some(ref sess) = state.terminal_session {
+                            if let Ok(mut p) = sess.parser.lock() {
+                                let cur = p.screen().scrollback();
+                                p.screen_mut().set_scrollback(cur.saturating_add(15));
+                                ui.needs_redraw = true;
+                            }
+                        }
+                        return false;
+                    }
+                    if state.shift_pressed && *key == winit::keyboard::KeyCode::PageDown {
+                        if let Some(ref sess) = state.terminal_session {
+                            if let Ok(mut p) = sess.parser.lock() {
+                                let cur = p.screen().scrollback();
+                                p.screen_mut().set_scrollback(cur.saturating_sub(15));
+                                ui.needs_redraw = true;
+                            }
+                        }
+                        return false;
+                    }
+
                     if let Some(raw) = bytes {
                         if let Some(ref mut sess) = state.terminal_session {
+                            if let Ok(mut p) = sess.parser.lock() {
+                                if p.screen().scrollback() > 0 {
+                                    p.screen_mut().set_scrollback(0);
+                                }
+                            }
                             sess.write_raw(raw);
                         }
                         ui.needs_redraw = true;
@@ -468,7 +579,7 @@ pub fn draw_terminal_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, h
             let term_body_x = ui.cursor_x;
             let term_body_y = ui.cursor_y;
 
-            let is_term_hovered = !is_blocked && ui.mouse_in_rect(term_body_x, term_body_y, width, body_h);
+            let is_term_hovered = !is_blocked && ui.mouse_in_rect(panel_x, panel_y + 28.0, width, body_h);
             if is_term_hovered {
                 ui.cursor_icon = CursorIcon::Text;
                 if ui.clicked || (ui.mouse_down && ui.active_drag.is_none()) {
@@ -479,16 +590,17 @@ pub fn draw_terminal_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, h
                 }
             }
 
-            let font_sz = 11.0 * ui.font_scale;
+            let font_sz = (state.font_size * state.zoom_level).max(8.0);
             let (cell_w, cell_h) = if let Some(fs) = ui.font_system.as_ref() {
                 let mut adapter = zenthra_text::prelude::CosmicFontProvider::new_with_system(fs.clone());
                 let opts = TextOptions::new().font_size(font_sz).font_family("monospace");
                 let shaped = adapter.shape("M", &opts);
                 let w = shaped.glyphs().first().map(|g| g.width).unwrap_or(0.0);
-                let final_w = if w > 3.0 && w < 25.0 { w } else { 7.81 * ui.font_scale };
-                (final_w, 17.0 * ui.font_scale)
+                let final_w = if w > 3.0 && w < 40.0 { w } else { (font_sz * 0.6).round().max(7.0) };
+                let final_h = (font_sz * 1.54).round().max(14.0);
+                (final_w, final_h)
             } else {
-                (7.81 * ui.font_scale, 17.0 * ui.font_scale)
+                ((font_sz * 0.6).round().max(7.0), (font_sz * 1.54).round().max(14.0))
             };
             let pad_left = 8.0;
             let pad_top = 4.0;
@@ -515,9 +627,70 @@ pub fn draw_terminal_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, h
                 .bg(colors.bg_base)
                 .show(|ui| {
                     if let Some(ref sess) = state.terminal_session {
-                        if let Ok(p) = sess.parser.lock() {
+                        if let Ok(mut p) = sess.parser.lock() {
+                            let mut cur_sb = p.screen().scrollback();
+                            p.screen_mut().set_scrollback(usize::MAX);
+                            let max_sb = p.screen().scrollback();
+                            p.screen_mut().set_scrollback(cur_sb);
+
+                            let (rows, cols) = p.screen().size();
+                            let total_lines = (rows as f32) + (max_sb as f32);
+                            let visible_ratio = ((rows as f32) / total_lines).clamp(0.04, 1.0);
+                            let thumb_h = (body_h * visible_ratio).clamp(24.0, (body_h - 4.0).max(24.0));
+                            let track_h = (body_h - thumb_h).max(0.0);
+
+                            // Handle scrollbar drag / click before borrowing screen immutably
+                            let terminal_sb_id = Id::from_u64(999999805);
+                            let sb_w = 5.0;
+                            let sb_x = term_body_x + width - sb_w - 3.0;
+                            let sb_hit_x = sb_x - 4.0;
+                            let sb_hit_w = sb_w + 8.0;
+                            let mouse_in_sb = ui.mouse_x >= sb_hit_x && ui.mouse_x <= sb_hit_x + sb_hit_w
+                                && ui.mouse_y >= term_body_y && ui.mouse_y <= term_body_y + body_h;
+
+                            if max_sb > 0 && track_h > 0.0 {
+                                if let Some(drag) = ui.active_drag {
+                                    if drag.id == terminal_sb_id {
+                                        if ui.mouse_down {
+                                            let delta_y = ui.mouse_y - drag.start_mouse;
+                                            let delta_sb = (delta_y / track_h) * (max_sb as f32);
+                                            let new_sb = ((drag.start_scroll - delta_sb).round() as isize)
+                                                .clamp(0, max_sb as isize) as usize;
+                                            p.screen_mut().set_scrollback(new_sb);
+                                            cur_sb = new_sb;
+                                            ui.needs_redraw = true;
+                                        } else {
+                                            ui.active_drag = None;
+                                        }
+                                    }
+                                }
+
+                                if ui.clicked && mouse_in_sb && !state.active_resize_terminal {
+                                    let ratio_from_top = 1.0 - (cur_sb as f32 / max_sb as f32).clamp(0.0, 1.0);
+                                    let thumb_y = term_body_y + ratio_from_top * track_h;
+                                    let mouse_in_thumb = ui.mouse_y >= thumb_y && ui.mouse_y <= thumb_y + thumb_h;
+                                    if mouse_in_thumb {
+                                        ui.active_drag = Some(ScrollDrag {
+                                            id: terminal_sb_id,
+                                            start_mouse: ui.mouse_y,
+                                            start_scroll: cur_sb as f32,
+                                        });
+                                    } else {
+                                        let click_ratio = ((ui.mouse_y - term_body_y - thumb_h * 0.5) / track_h).clamp(0.0, 1.0);
+                                        let target_sb = ((1.0 - click_ratio) * max_sb as f32).round() as usize;
+                                        p.screen_mut().set_scrollback(target_sb);
+                                        cur_sb = target_sb;
+                                        ui.active_drag = Some(ScrollDrag {
+                                            id: terminal_sb_id,
+                                            start_mouse: ui.mouse_y,
+                                            start_scroll: target_sb as f32,
+                                        });
+                                        ui.needs_redraw = true;
+                                    }
+                                }
+                            }
+
                             let screen = p.screen();
-                            let (rows, cols) = screen.size();
                             let (cursor_row, cursor_col) = screen.cursor_position();
                             let hide_cursor = screen.hide_cursor();
 
@@ -632,8 +805,10 @@ pub fn draw_terminal_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, h
                                 }
                             }
 
-                            // Draw cursor at screen.cursor_position()
-                            if !hide_cursor && rows > 0 && cols > 0 {
+                            let is_scrolled_back = cur_sb > 0;
+
+                            // Draw cursor at screen.cursor_position() only when on live screen
+                            if !hide_cursor && !is_scrolled_back && rows > 0 && cols > 0 {
                                 let safe_col = cursor_col.min(cols.saturating_sub(1));
                                 let safe_row = cursor_row.min(rows.saturating_sub(1));
                                 let cur_x = term_body_x + pad_left + safe_col as f32 * cell_w;
@@ -647,27 +822,108 @@ pub fn draw_terminal_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, h
                                         ((elapsed_ms - 500) / 530) % 2 == 0
                                     };
                                     if show_cursor {
-                                        ui.draws.push(DrawCommand::Rect(RectDraw {
-                                            instance: RectInstance {
-                                                pos: [cur_x, cur_y + 1.0],
-                                                size: [cell_w.max(2.0), (font_sz + 3.0).max(14.0)],
-                                                color: colors.accent.to_array(),
-                                                radius: [0.0; 4],
-                                                clip_rect: clip,
-                                                ..Default::default()
-                                            },
-                                        }));
+                                        let cur_color = state.get_cursor_color(colors.accent);
+                                        match state.cursor_style {
+                                            crate::state::types::CursorStyle::Block => {
+                                                ui.draws.push(DrawCommand::Rect(RectDraw {
+                                                    instance: RectInstance {
+                                                        pos: [cur_x, cur_y + 1.0],
+                                                        size: [cell_w.max(2.0), (font_sz + 3.0).max(14.0)],
+                                                        color: cur_color.to_array(),
+                                                        radius: [0.0; 4],
+                                                        clip_rect: clip,
+                                                        ..Default::default()
+                                                    },
+                                                }));
+
+                                                // Render the character under the cursor in inverted high-contrast color!
+                                                if let Some(cell) = screen.cell(safe_row, safe_col) {
+                                                    let ch = cell.contents();
+                                                    if !ch.is_empty() && ch != " " {
+                                                        let inv_color = if cur_color.r * 0.299 + cur_color.g * 0.587 + cur_color.b * 0.114 > 0.5 {
+                                                            Color::rgb(0.06, 0.06, 0.08)
+                                                        } else {
+                                                            Color::rgb(1.0, 1.0, 1.0)
+                                                        };
+                                                        let mut opts = TextOptions::new()
+                                                            .font_size(font_sz)
+                                                            .scale_factor(ui.scale_factor)
+                                                            .font_family("monospace")
+                                                            .color(inv_color);
+                                                        if cell.bold() {
+                                                            opts = opts.font_weight(FontWeight::Bold);
+                                                        }
+                                                        ui.draws.push(DrawCommand::Text(TextDraw {
+                                                            text: ch.to_string(),
+                                                            pos: [cur_x, cur_y + 1.0],
+                                                            options: opts,
+                                                            clip,
+                                                        }));
+                                                    }
+                                                }
+                                            }
+                                            crate::state::types::CursorStyle::Line => {
+                                                ui.draws.push(DrawCommand::Rect(RectDraw {
+                                                    instance: RectInstance {
+                                                        pos: [cur_x, cur_y + 1.0],
+                                                        size: [2.0, (font_sz + 3.0).max(14.0)],
+                                                        color: cur_color.to_array(),
+                                                        radius: [0.0; 4],
+                                                        clip_rect: clip,
+                                                        ..Default::default()
+                                                    },
+                                                }));
+                                            }
+                                            crate::state::types::CursorStyle::Underline => {
+                                                ui.draws.push(DrawCommand::Rect(RectDraw {
+                                                    instance: RectInstance {
+                                                        pos: [cur_x, cur_y + (font_sz + 2.0).max(13.0)],
+                                                        size: [cell_w.max(2.0), 2.0],
+                                                        color: cur_color.to_array(),
+                                                        radius: [0.0; 4],
+                                                        clip_rect: clip,
+                                                        ..Default::default()
+                                                    },
+                                                }));
+                                            }
+                                        }
                                     }
+                                }
+                            }
+
+                            // Show sleek scrollbar indicator if scrollback history exists
+                            if max_sb > 0 {
+                                let ratio_from_top = 1.0 - (cur_sb as f32 / max_sb as f32).clamp(0.0, 1.0);
+                                let thumb_y = term_body_y + ratio_from_top * track_h;
+
+                                // Subtle scrollbar track background
+                                ui.draws.push(DrawCommand::Rect(RectDraw {
+                                    instance: RectInstance {
+                                        pos: [sb_x, term_body_y],
+                                        size: [sb_w, body_h],
+                                        color: [1.0, 1.0, 1.0, 0.04],
+                                        radius: [2.5; 4],
+                                        clip_rect: clip,
+                                        ..Default::default()
+                                    },
+                                }));
+
+                                // Thumb appearance: vibrant accent when scrolled back, subtle muted when hovered at prompt
+                                let thumb_color = if is_scrolled_back {
+                                    colors.accent.with_alpha(0.75).to_array()
+                                } else if is_body_hovered {
+                                    colors.text_muted.with_alpha(0.35).to_array()
                                 } else {
-                                    // Hollow cursor when terminal is not actively focused
+                                    [0.0; 4]
+                                };
+
+                                if thumb_color[3] > 0.0 {
                                     ui.draws.push(DrawCommand::Rect(RectDraw {
                                         instance: RectInstance {
-                                            pos: [cur_x, cur_y + 1.0],
-                                            size: [cell_w.max(2.0), (font_sz + 3.0).max(14.0)],
-                                            color: [0.0; 4],
-                                            border_width: 1.0,
-                                            border_color: colors.text_muted.to_array(),
-                                            radius: [0.0; 4],
+                                            pos: [sb_x, thumb_y],
+                                            size: [sb_w, thumb_h],
+                                            color: thumb_color,
+                                            radius: [2.5; 4],
                                             clip_rect: clip,
                                             ..Default::default()
                                         },

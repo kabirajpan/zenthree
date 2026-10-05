@@ -34,6 +34,10 @@ pub struct PersistentState {
     #[serde(default)]
     pub zoom_level: Option<f32>,
     #[serde(default)]
+    pub cursor_style: Option<CursorStyle>,
+    #[serde(default)]
+    pub cursor_color_mode: Option<CursorColorMode>,
+    #[serde(default)]
     pub current_dir: Option<PathBuf>,
     #[serde(default)]
     pub expanded_dirs: Vec<PathBuf>,
@@ -149,6 +153,12 @@ impl ZenthreeState {
                 if let Some(zoom) = saved.zoom_level {
                     self.zoom_level = zoom;
                 }
+                if let Some(cs) = saved.cursor_style {
+                    self.cursor_style = cs;
+                }
+                if let Some(cc) = saved.cursor_color_mode {
+                    self.cursor_color_mode = cc;
+                }
                 if let Some(fs) = saved.font_size {
                     self.font_size = fs;
                 }
@@ -240,6 +250,7 @@ impl ZenthreeState {
                                     editor: Editor::new(Buffer::from_text(&content)),
                                     is_dirty: false,
                                     scroll_y: 0.0,
+                                    target_scroll_y: 0.0,
                                     shaping_cache: std::collections::HashMap::new(),
                                     version: 0,
                                     lines_added: 0,
@@ -312,6 +323,8 @@ impl From<&ZenthreeState> for PersistentState {
             status_bar_visible: Some(s.status_bar_visible),
             line_numbers_visible: Some(s.line_numbers_visible),
             zoom_level: Some(s.zoom_level),
+            cursor_style: Some(s.cursor_style),
+            cursor_color_mode: Some(s.cursor_color_mode.clone()),
             current_dir,
             expanded_dirs: if s.has_workspace {
                 s.expanded_dirs.iter().cloned().collect()

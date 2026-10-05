@@ -11,6 +11,7 @@ pub mod workspace;
 #[allow(unused_imports)]
 pub use notes::{NotesState, NotesVaultScope};
 use crate::theme::{ThemeColors, ThemeMode};
+use zenthra::Color;
 use std::path::{Path, PathBuf};
 
 #[allow(unused_imports)]
@@ -32,6 +33,8 @@ pub struct ZenthreeState {
     pub status_bar_visible: bool,
     pub line_numbers_visible: bool,
     pub zoom_level: f32,
+    pub cursor_style: CursorStyle,
+    pub cursor_color_mode: CursorColorMode,
     pub active_resize_sidebar: bool,
     pub tabs: Vec<EditorTab>,
     pub active_tab: Option<usize>,
@@ -98,6 +101,8 @@ pub struct ZenthreeState {
     pub ai_input: String,
     pub user_profile_open: bool,
     pub terminal_session: Option<crate::native_terminal::NativeTerminalSession>,
+    pub terminal_scroll_accum: f32,
+    pub terminal_last_scroll_time: std::time::Instant,
     pub sidebar_view: SidebarView,
     pub focused_panel: crate::state::types::FocusedPanel,
     pub installed_extensions: std::collections::HashSet<String>,
@@ -247,6 +252,8 @@ impl ZenthreeState {
             status_bar_visible: true,
             line_numbers_visible: true,
             zoom_level: 1.0,
+            cursor_style: CursorStyle::Block,
+            cursor_color_mode: CursorColorMode::White,
             active_resize_sidebar: false,
             tabs: Vec::new(),
             active_tab: None,
@@ -298,6 +305,8 @@ impl ZenthreeState {
             ai_input: String::new(),
             user_profile_open: false,
             terminal_session: None,
+            terminal_scroll_accum: 0.0,
+            terminal_last_scroll_time: std::time::Instant::now(),
             selected_sidebar_path: None,
             sidebar_view: SidebarView::Explorer,
             focused_panel: crate::state::types::FocusedPanel::Editor,
@@ -789,6 +798,20 @@ impl ZenthreeState {
         )
     }
 
+    pub fn get_cursor_color(&self, accent: Color) -> Color {
+        match &self.cursor_color_mode {
+            CursorColorMode::White => {
+                if self.theme == crate::theme::ThemeMode::Light {
+                    Color::rgb(0.12, 0.12, 0.14)
+                } else {
+                    Color::rgb(1.0, 1.0, 1.0)
+                }
+            }
+            CursorColorMode::Accent => accent,
+            CursorColorMode::Custom(name) => crate::theme::named_color(name, self.theme),
+        }
+    }
+
     pub fn set_font_size(&mut self, size: f32) {
         let size = size.clamp(9.0, 32.0);
         if (self.font_size - size).abs() > 0.001 {
@@ -798,6 +821,31 @@ impl ZenthreeState {
             }
             self.save_persistent_state();
         }
+    }
+
+    pub fn set_zoom_level(&mut self, level: f32) {
+        let level = ((level * 100.0).round() / 100.0).clamp(0.5, 2.5);
+        if (self.zoom_level - level).abs() > 0.001 {
+            self.zoom_level = level;
+            for tab in &mut self.tabs {
+                tab.shaping_cache.clear();
+            }
+            self.save_persistent_state();
+        }
+    }
+
+    pub fn zoom_in(&mut self) {
+        let next = (self.zoom_level + 0.1).min(2.5);
+        self.set_zoom_level(next);
+    }
+
+    pub fn zoom_out(&mut self) {
+        let next = (self.zoom_level - 0.1).max(0.5);
+        self.set_zoom_level(next);
+    }
+
+    pub fn reset_zoom(&mut self) {
+        self.set_zoom_level(1.0);
     }
 
     pub fn set_blur_strength(&mut self, strength: f32) {
@@ -1380,6 +1428,7 @@ mod tests {
             is_dirty: false,
             version: 1,
             scroll_y: 0.0,
+            target_scroll_y: 0.0,
             shaping_cache: std::collections::HashMap::new(),
             lines_added: 1,
             lines_removed: 1,
@@ -1449,6 +1498,7 @@ mod tests {
             is_dirty: true,
             version: 1,
             scroll_y: 0.0,
+            target_scroll_y: 0.0,
             shaping_cache: std::collections::HashMap::new(),
             lines_added: 1,
             lines_removed: 1,
@@ -1461,6 +1511,7 @@ mod tests {
             is_dirty: true,
             version: 1,
             scroll_y: 0.0,
+            target_scroll_y: 0.0,
             shaping_cache: std::collections::HashMap::new(),
             lines_added: 1,
             lines_removed: 1,
@@ -1521,6 +1572,7 @@ mod tests {
             is_dirty: true,
             version: 1,
             scroll_y: 0.0,
+            target_scroll_y: 0.0,
             shaping_cache: std::collections::HashMap::new(),
             lines_added: 2,
             lines_removed: 2,
@@ -1638,6 +1690,7 @@ mod tests {
             is_dirty: false,
             version: 0,
             scroll_y: 0.0,
+            target_scroll_y: 0.0,
             shaping_cache: std::collections::HashMap::new(),
             lines_added: 0,
             lines_removed: 0,
@@ -1650,6 +1703,7 @@ mod tests {
             is_dirty: false,
             version: 0,
             scroll_y: 0.0,
+            target_scroll_y: 0.0,
             shaping_cache: std::collections::HashMap::new(),
             lines_added: 0,
             lines_removed: 0,

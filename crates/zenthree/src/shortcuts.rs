@@ -150,6 +150,33 @@ pub fn handle_shortcuts(ui: &mut Ui, state: &mut ZenthreeState) {
                         ui.request_redraw();
                     }
 
+                    // ── Zoom In: Ctrl+= or Ctrl++ ──────────────────────────
+                    winit::keyboard::KeyCode::Equal | winit::keyboard::KeyCode::NumpadAdd
+                        if state.ctrl_pressed =>
+                    {
+                        state.zoom_in();
+                        state.set_status(format!("Zoom: {:.0}%", state.zoom_level * 100.0));
+                        ui.request_redraw();
+                    }
+
+                    // ── Zoom Out: Ctrl+- ──────────────────────────────────
+                    winit::keyboard::KeyCode::Minus | winit::keyboard::KeyCode::NumpadSubtract
+                        if state.ctrl_pressed =>
+                    {
+                        state.zoom_out();
+                        state.set_status(format!("Zoom: {:.0}%", state.zoom_level * 100.0));
+                        ui.request_redraw();
+                    }
+
+                    // ── Zoom Reset: Ctrl+0 ────────────────────────────────
+                    winit::keyboard::KeyCode::Digit0 | winit::keyboard::KeyCode::Numpad0
+                        if state.ctrl_pressed =>
+                    {
+                        state.reset_zoom();
+                        state.set_status("Zoom: 100%".to_string());
+                        ui.request_redraw();
+                    }
+
                     // ── Ctrl+1 → Always jump to editor ───────────────────
                     winit::keyboard::KeyCode::Digit1 if state.ctrl_pressed => {
                         state.focused_panel = FocusedPanel::Editor;

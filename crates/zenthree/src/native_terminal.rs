@@ -23,7 +23,17 @@ impl NativeTerminalSession {
             pixel_height: 0,
         }).ok()?;
 
-        let shell = std::env::var("SHELL").unwrap_or_else(|_| "/bin/bash".to_string());
+        let shell = if cfg!(target_os = "windows") {
+            std::env::var("COMSPEC").unwrap_or_else(|_| "powershell.exe".to_string())
+        } else {
+            std::env::var("SHELL").unwrap_or_else(|_| {
+                if cfg!(target_os = "macos") {
+                    "/bin/zsh".to_string()
+                } else {
+                    "/bin/bash".to_string()
+                }
+            })
+        };
         let mut cmd = CommandBuilder::new(&shell);
         cmd.cwd(cwd);
         cmd.env("TERM", "xterm-256color");

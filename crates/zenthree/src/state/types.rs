@@ -8,8 +8,9 @@ pub struct EditorTab {
     pub editor: Editor,
     pub is_dirty: bool,
     pub scroll_y: f32,
+    pub target_scroll_y: f32,
     pub shaping_cache:
-        std::collections::HashMap<usize, (String, zenthra_text::prelude::ShapedBuffer)>,
+        std::collections::HashMap<usize, (String, std::sync::Arc<zenthra_text::prelude::ShapedBuffer>)>,
     pub version: u64,
     pub lines_added: usize,
     pub lines_removed: usize,
@@ -1017,6 +1018,39 @@ impl EditorSettingsTab {
             Self::Agent => "\u{f005}",      // star / sparkle
             Self::Keymaps => "\u{f11c}",    // keyboard
         }
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, Default)]
+pub enum CursorStyle {
+    #[default]
+    Block,
+    Line,
+    Underline,
+}
+
+impl CursorStyle {
+    pub const ALL: [Self; 3] = [Self::Block, Self::Line, Self::Underline];
+
+    pub fn display_name(&self) -> &'static str {
+        match self {
+            Self::Block => "Block (Terminal)",
+            Self::Line => "Line (Bar)",
+            Self::Underline => "Underline",
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub enum CursorColorMode {
+    White,
+    Accent,
+    Custom(String),
+}
+
+impl Default for CursorColorMode {
+    fn default() -> Self {
+        CursorColorMode::White
     }
 }
 

@@ -233,6 +233,73 @@ impl Rope {
         result
     }
 
+    /// 🚀 Zero-allocation byte lookup at index
+    pub fn byte_at(&self, pos: usize) -> Option<u8> {
+        if pos >= self.len() {
+            return None;
+        }
+        let mut current_pos = 0;
+        for chunk in self.tree.iter() {
+            let chunk_len = chunk.len();
+            if pos < current_pos + chunk_len {
+                return Some(chunk.as_str().as_bytes()[pos - current_pos]);
+            }
+            current_pos += chunk_len;
+        }
+        None
+    }
+
+    /// 🚀 Zero-allocation check whether byte slice [start..end] equals expected string
+    pub fn slice_matches(&self, start: usize, end: usize, expected: &str) -> bool {
+        if start >= end || start >= self.len() {
+            return expected.is_empty();
+        }
+
+        let end = end.min(self.len());
+        let mut expected_bytes = expected.as_bytes();
+        let mut current_pos = 0;
+
+        for chunk in self.tree.iter() {
+            let chunk_len = chunk.len();
+            let chunk_end = current_pos + chunk_len;
+
+            // Skip chunks before our range
+            if chunk_end <= start {
+                current_pos = chunk_end;
+                continue;
+            }
+
+            // Stop if we're past our range
+            if current_pos >= end {
+                break;
+            }
+
+            let chunk_text = chunk.as_str();
+
+            // Determine what part of this chunk to include
+            let slice_start = if current_pos < start {
+                start - current_pos
+            } else {
+                0
+            };
+
+            let slice_end = if chunk_end > end {
+                end - current_pos
+            } else {
+                chunk_len
+            };
+
+            let slice_part = &chunk_text.as_bytes()[slice_start..slice_end];
+            if expected_bytes.len() < slice_part.len() || &expected_bytes[..slice_part.len()] != slice_part {
+                return false;
+            }
+            expected_bytes = &expected_bytes[slice_part.len()..];
+            current_pos = chunk_end;
+        }
+
+        expected_bytes.is_empty()
+    }
+
     /// 🚀 NEW: Get byte range for a specific line (returns start, end)
     /// Used by syntax highlighter for efficient line extraction
     pub fn line_byte_range(&self, line_idx: usize) -> Option<(usize, usize)> {

@@ -1,13 +1,14 @@
 use crate::state::{EditorSettingsTab, ZenthreeState};
-use crate::theme::ThemeColors;
-use zenthra::{Align, Color, CursorIcon, FontWeight, Id, Ui, Wrap};
+use crate::state::types::{CursorStyle, CursorColorMode};
+use crate::theme::{ThemeColors, ACCENT_COLOR_OPTIONS, named_color};
+use zenthra::{use_context, Align, Color, CursorIcon, FontWeight, Id, Ui, Wrap};
 
 pub fn draw_editor_settings_dialog(ui: &mut Ui, state: &mut ZenthreeState) {
     if !state.editor_settings_open {
         return;
     }
 
-    let colors = state.colors();
+    let colors = use_context::<ThemeColors>().map(|c| *c).unwrap_or_else(|| state.colors());
 
     // Generous, minimalist floating window dimensions
     let win_w = 900.0;
@@ -323,6 +324,7 @@ fn draw_appearance_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeCol
                         state.set_blur_strength(24.0);
                         state.set_glass_opacity(0.55);
                         state.set_font_size(13.0);
+                        state.reset_zoom();
                         state.glassmorphism = true;
                         ui.set_blur(true);
                         ui.needs_redraw = true;
@@ -1150,6 +1152,281 @@ fn draw_editor_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColors)
                     }
                 });
 
+            // Cursor Style (Block, Line, Underline)
+            ui.container()
+                .full_width()
+                .padding(10.0, 14.0, 10.0, 14.0)
+                .radius_all(6.0)
+                .bg(colors.bg_base.with_alpha(0.40))
+                .border(colors.border.with_alpha(0.20), 1.0)
+                .row()
+                .valign(Align::Center)
+                .halign(Align::SpaceBetween)
+                .show(|ui| {
+                    ui.container()
+                        .column()
+                        .gap(3.0)
+                        .show(|ui| {
+                            ui.text("Cursor Style")
+                                .size(13.0)
+                                .weight(FontWeight::SemiBold)
+                                .color(colors.text_primary)
+                                .show();
+                            ui.text("Choose cursor appearance for both code buffer and terminal")
+                                .size(11.0)
+                                .color(colors.text_muted)
+                                .auto_wrap()
+                                .show();
+                        });
+
+                    // Segmented pill control
+                    ui.container()
+                        .row()
+                        .valign(Align::Center)
+                        .gap(2.0)
+                        .padding(2.0, 3.0, 2.0, 3.0)
+                        .radius_all(6.0)
+                        .bg(colors.highlight)
+                        .border(colors.border.with_alpha(0.35), 1.0)
+                        .show(|ui| {
+                            for style in CursorStyle::ALL {
+                                let is_sel = state.cursor_style == style;
+                                let chip = ui.container()
+                                    .clickable(true)
+                                    .padding(4.0, 12.0, 4.0, 12.0)
+                                    .radius_all(4.0)
+                                    .bg(if is_sel { colors.accent } else { Color::TRANSPARENT })
+                                    .hover_bg(if is_sel { colors.accent } else { colors.highlight.with_alpha(0.60) })
+                                    .show(|ui| {
+                                        ui.text(style.display_name())
+                                            .size(11.5)
+                                            .weight(if is_sel { FontWeight::SemiBold } else { FontWeight::Regular })
+                                            .color(if is_sel { Color::WHITE } else { colors.text_muted })
+                                            .show();
+                                    });
+                                if chip.hovered { ui.cursor_icon = CursorIcon::Pointer; }
+                                if chip.clicked {
+                                    state.cursor_style = style;
+                                    state.save_persistent_state();
+                                    ui.needs_redraw = true;
+                                }
+                            }
+                        });
+                });
+
+            // Cursor Color (White, Match Accent, Custom Palette)
+            ui.container()
+                .full_width()
+                .padding(10.0, 14.0, 10.0, 14.0)
+                .radius_all(6.0)
+                .bg(colors.bg_base.with_alpha(0.40))
+                .border(colors.border.with_alpha(0.20), 1.0)
+                .column()
+                .gap(10.0)
+                .show(|ui| {
+                    ui.container()
+                        .full_width()
+                        .row()
+                        .valign(Align::Center)
+                        .halign(Align::SpaceBetween)
+                        .show(|ui| {
+                            ui.container()
+                                .column()
+                                .gap(3.0)
+                                .show(|ui| {
+                                    ui.text("Cursor Color")
+                                        .size(13.0)
+                                        .weight(FontWeight::SemiBold)
+                                        .color(colors.text_primary)
+                                        .show();
+                                    ui.text("Default is white, match theme accent, or choose a custom accent")
+                                        .size(11.0)
+                                        .color(colors.text_muted)
+                                        .auto_wrap()
+                                        .show();
+                                });
+
+                            // Live cursor indicator preview matching exact style and color
+                            let cur_color = state.get_cursor_color(colors.accent);
+                            ui.container()
+                                .padding(4.0, 10.0, 4.0, 10.0)
+                                .radius_all(5.0)
+                                .bg(colors.bg_base)
+                                .border(colors.border.with_alpha(0.35), 1.0)
+                                .row()
+                                .valign(Align::Center)
+                                .gap(8.0)
+                                .show(|ui| {
+                                    match state.cursor_style {
+                                        CursorStyle::Block => {
+                                            ui.container()
+                                                .width(8.0)
+                                                .height(14.0)
+                                                .radius_all(1.0)
+                                                .bg(cur_color)
+                                                .show(|_| {});
+                                        }
+                                        CursorStyle::Line => {
+                                            ui.container()
+                                                .width(2.0)
+                                                .height(14.0)
+                                                .radius_all(0.5)
+                                                .bg(cur_color)
+                                                .show(|_| {});
+                                        }
+                                        CursorStyle::Underline => {
+                                            ui.container()
+                                                .width(10.0)
+                                                .height(3.0)
+                                                .radius_all(0.5)
+                                                .bg(cur_color)
+                                                .show(|_| {});
+                                        }
+                                    }
+                                    ui.text("Preview")
+                                        .size(11.0)
+                                        .color(colors.text_muted)
+                                        .show();
+                                });
+                        });
+
+                    ui.container()
+                        .full_width()
+                        .row()
+                        .valign(Align::Center)
+                        .gap(8.0)
+                        .wrap(Wrap::Wrap)
+                        .show(|ui| {
+                            // 1. Default White / Auto High-Contrast
+                            let is_white = state.cursor_color_mode == CursorColorMode::White;
+                            let def_color = if state.theme == crate::theme::ThemeMode::Light {
+                                Color::rgb(0.12, 0.12, 0.14)
+                            } else {
+                                Color::WHITE
+                            };
+                            let def_label = if state.theme == crate::theme::ThemeMode::Light {
+                                "Default (Dark)"
+                            } else {
+                                "White (Default)"
+                            };
+
+                            let white_chip = ui.container()
+                                .clickable(true)
+                                .padding(5.0, 12.0, 5.0, 12.0)
+                                .radius_all(5.0)
+                                .bg(if is_white { colors.accent.with_alpha(0.20) } else { colors.highlight })
+                                .border(if is_white { colors.accent } else { colors.border.with_alpha(0.30) }, 1.0)
+                                .hover_bg(if is_white { colors.accent.with_alpha(0.30) } else { colors.accent.with_alpha(0.10) })
+                                .row()
+                                .valign(Align::Center)
+                                .gap(6.0)
+                                .show(|ui| {
+                                    ui.container()
+                                        .width(9.0)
+                                        .height(9.0)
+                                        .radius_all(4.5)
+                                        .bg(def_color)
+                                        .show(|_| {});
+                                    ui.text(def_label)
+                                        .size(11.5)
+                                        .weight(if is_white { FontWeight::SemiBold } else { FontWeight::Regular })
+                                        .color(if is_white { colors.text_primary } else { colors.text_muted })
+                                        .show();
+                                });
+                            if white_chip.hovered { ui.cursor_icon = CursorIcon::Pointer; }
+                            if white_chip.clicked {
+                                state.cursor_color_mode = CursorColorMode::White;
+                                state.save_persistent_state();
+                                ui.needs_redraw = true;
+                            }
+
+                            // 2. Match Accent
+                            let is_accent = state.cursor_color_mode == CursorColorMode::Accent;
+                            let accent_chip = ui.container()
+                                .clickable(true)
+                                .padding(5.0, 12.0, 5.0, 12.0)
+                                .radius_all(5.0)
+                                .bg(if is_accent { colors.accent.with_alpha(0.20) } else { colors.highlight })
+                                .border(if is_accent { colors.accent } else { colors.border.with_alpha(0.30) }, 1.0)
+                                .hover_bg(if is_accent { colors.accent.with_alpha(0.30) } else { colors.accent.with_alpha(0.10) })
+                                .row()
+                                .valign(Align::Center)
+                                .gap(6.0)
+                                .show(|ui| {
+                                    ui.container()
+                                        .width(9.0)
+                                        .height(9.0)
+                                        .radius_all(4.5)
+                                        .bg(colors.accent)
+                                        .show(|_| {});
+                                    ui.text("Match Accent")
+                                        .size(11.5)
+                                        .weight(if is_accent { FontWeight::SemiBold } else { FontWeight::Regular })
+                                        .color(if is_accent { colors.text_primary } else { colors.text_muted })
+                                        .show();
+                                });
+                            if accent_chip.hovered { ui.cursor_icon = CursorIcon::Pointer; }
+                            if accent_chip.clicked {
+                                state.cursor_color_mode = CursorColorMode::Accent;
+                                state.save_persistent_state();
+                                ui.needs_redraw = true;
+                            }
+
+                            // Subtle vertical separator
+                            ui.container()
+                                .width(1.0)
+                                .height(20.0)
+                                .bg(colors.border.with_alpha(0.30))
+                                .show(|_| {});
+
+                            // 3. Custom color palette using theme provider options
+                            for (id, _name) in ACCENT_COLOR_OPTIONS {
+                                let col = named_color(id, state.theme);
+                                let is_active = match &state.cursor_color_mode {
+                                    CursorColorMode::Custom(c) => c == *id,
+                                    _ => false,
+                                };
+
+                                let swatch = ui.container()
+                                    .clickable(true)
+                                    .width(22.0)
+                                    .height(22.0)
+                                    .radius_all(11.0)
+                                    .bg(col)
+                                    .border(
+                                        if is_active {
+                                            colors.text_primary
+                                        } else {
+                                            colors.border.with_alpha(0.25)
+                                        },
+                                        if is_active { 2.0 } else { 1.0 },
+                                    )
+                                    .valign(Align::Center)
+                                    .halign(Align::Center)
+                                    .show(|ui| {
+                                        if is_active {
+                                            ui.container()
+                                                .width(5.0)
+                                                .height(5.0)
+                                                .radius_all(2.5)
+                                                .bg(if col.r * 0.299 + col.g * 0.587 + col.b * 0.114 > 0.6 {
+                                                    Color::BLACK
+                                                } else {
+                                                    Color::WHITE
+                                                })
+                                                .show(|_| {});
+                                        }
+                                    });
+                                if swatch.hovered { ui.cursor_icon = CursorIcon::Pointer; }
+                                if swatch.clicked {
+                                    state.cursor_color_mode = CursorColorMode::Custom(id.to_string());
+                                    state.save_persistent_state();
+                                    ui.needs_redraw = true;
+                                }
+                            }
+                        });
+                });
+
             // Zoom level slider (using Zenthra Slider Widget)
             ui.container()
                 .full_width()
@@ -1165,12 +1442,31 @@ fn draw_editor_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColors)
                         .column()
                         .gap(2.0)
                         .show(|ui| {
-                            ui.text("Interface Zoom Level")
-                                .size(13.0)
-                                .weight(FontWeight::SemiBold)
-                                .color(colors.text_primary)
-                                .show();
-                            ui.text("Overall editor scaling factor")
+                            ui.container()
+                                .row()
+                                .valign(Align::Center)
+                                .gap(7.0)
+                                .show(|ui| {
+                                    ui.text("Interface Zoom Level")
+                                        .size(13.0)
+                                        .weight(FontWeight::SemiBold)
+                                        .color(colors.text_primary)
+                                        .show();
+                                    if (state.zoom_level - 1.0).abs() < 0.01 {
+                                        ui.container()
+                                            .padding(2.0, 5.0, 2.0, 5.0)
+                                            .radius_all(4.0)
+                                            .bg(colors.accent.with_alpha(0.15))
+                                            .show(|ui| {
+                                                ui.text("Default")
+                                                    .size(9.0)
+                                                    .weight(FontWeight::SemiBold)
+                                                    .color(colors.accent)
+                                                    .show();
+                                            });
+                                    }
+                                });
+                            ui.text("Overall editor scaling factor (Ctrl + / - / 0)")
                                 .size(11.0)
                                 .color(colors.text_muted)
                                 .auto_wrap()
@@ -1186,7 +1482,7 @@ fn draw_editor_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColors)
                             let slider_resp = ui.slider(&mut zoom_val, "zoom_slider")
                                 .range(50.0, 200.0)
                                 .step(5.0)
-                                .track_size(160.0, 5.0)
+                                .track_size(150.0, 5.0)
                                 .track_radius(2.5, 2.5, 2.5, 2.5)
                                 .track_color(colors.highlight)
                                 .thumb_size(14.0, 14.0)
@@ -1194,14 +1490,13 @@ fn draw_editor_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColors)
                                 .thumb_color(colors.accent)
                                 .show();
 
-                            if slider_resp.clicked || slider_resp.pressed {
-                                state.zoom_level = (zoom_val / 100.0).clamp(0.5, 2.0);
-                                state.save_persistent_state();
+                            if (zoom_val - state.zoom_level * 100.0).abs() > 0.1 || slider_resp.clicked || slider_resp.pressed {
+                                state.set_zoom_level((zoom_val / 100.0).clamp(0.5, 2.0));
                                 ui.needs_redraw = true;
                             }
 
                             ui.container()
-                                .width(48.0)
+                                .width(44.0)
                                 .halign(Align::Right)
                                 .show(|ui| {
                                     ui.text(&format!("{:.0}%", state.zoom_level * 100.0))
@@ -1210,6 +1505,62 @@ fn draw_editor_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColors)
                                         .color(colors.accent)
                                         .show();
                                 });
+
+                            // Reset button beside the zoom slider
+                            let is_not_default = (state.zoom_level - 1.0).abs() >= 0.01;
+                            let reset_btn = ui.container()
+                                .clickable(is_not_default)
+                                .padding(3.0, 8.0, 3.0, 8.0)
+                                .radius_all(4.0)
+                                .bg(if is_not_default {
+                                    colors.accent.with_alpha(0.14)
+                                } else {
+                                    colors.highlight.with_alpha(0.35)
+                                })
+                                .border(
+                                    if is_not_default {
+                                        colors.accent.with_alpha(0.40)
+                                    } else {
+                                        colors.border.with_alpha(0.20)
+                                    },
+                                    1.0,
+                                )
+                                .hover_bg(if is_not_default {
+                                    colors.accent.with_alpha(0.26)
+                                } else {
+                                    colors.highlight.with_alpha(0.35)
+                                })
+                                .row()
+                                .valign(Align::Center)
+                                .gap(4.0)
+                                .show(|ui| {
+                                    ui.text("↺")
+                                        .size(11.0)
+                                        .weight(FontWeight::Bold)
+                                        .color(if is_not_default {
+                                            colors.accent
+                                        } else {
+                                            colors.text_muted.with_alpha(0.40)
+                                        })
+                                        .show();
+                                    ui.text("Reset")
+                                        .size(10.5)
+                                        .weight(FontWeight::SemiBold)
+                                        .color(if is_not_default {
+                                            colors.text_primary
+                                        } else {
+                                            colors.text_muted.with_alpha(0.40)
+                                        })
+                                        .show();
+                                });
+
+                            if is_not_default && reset_btn.hovered {
+                                ui.cursor_icon = CursorIcon::Pointer;
+                            }
+                            if is_not_default && reset_btn.clicked {
+                                state.reset_zoom();
+                                ui.needs_redraw = true;
+                            }
                         });
                 });
         });

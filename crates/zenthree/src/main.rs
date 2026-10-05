@@ -41,6 +41,9 @@ fn main() {
             // Handle all keyboard shortcuts
             shortcuts::handle_shortcuts(ui, &mut state);
 
+            // Universal UI font scale driven by zoom level and font size across all panels
+            ui.font_scale = (state.zoom_level * (state.font_size / 13.0)).clamp(0.4, 3.0);
+
             // Poll background LSP messages (diagnostics, completions, server lifecycle)
             if state.lsp_manager.poll() {
                 ui.request_redraw();
