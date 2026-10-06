@@ -68,6 +68,7 @@ impl ZenthreeState {
         // 4. Switch workspace
         self.current_dir = path;
         self.has_workspace = true;
+        self.terminal_spawn_failed = false;
         self.expanded_dirs.clear();
         self.rebuild_tree();
         self.refresh_git_status();

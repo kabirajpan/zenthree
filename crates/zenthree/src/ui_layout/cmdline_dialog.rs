@@ -62,7 +62,8 @@ impl ZenthreeState {
 
                 // Keep terminal session working directory in sync
                 if let Some(ref mut sess) = self.terminal_session {
-                    sess.write_raw(format!("cd \"{}\"\r", canon.display()).as_bytes());
+                    let clean = crate::native_terminal::strip_unc_prefix(&canon);
+                    sess.write_raw(format!("cd \"{}\"\r", clean.display()).as_bytes());
                 }
 
                 let msg = format!("Directory changed to: {}", canon.display());
@@ -201,7 +202,8 @@ impl ZenthreeState {
             self.fs_watcher.watch(&self.current_dir);
 
             if let Some(ref mut sess) = self.terminal_session {
-                sess.write_raw(format!("cd \"{}\"\r", canon.display()).as_bytes());
+                let clean = crate::native_terminal::strip_unc_prefix(&canon);
+                sess.write_raw(format!("cd \"{}\"\r", clean.display()).as_bytes());
             }
 
             let msg = format!("Directory changed to: {}", canon.display());

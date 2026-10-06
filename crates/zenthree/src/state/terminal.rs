@@ -3,14 +3,15 @@ use crate::state::ZenthreeState;
 
 impl ZenthreeState {
     pub fn ensure_terminal_session(&mut self) {
-        if self.terminal_session.is_none() {
+        if self.terminal_session.is_none() && !self.terminal_spawn_failed {
             if let Some(sess) =
                 crate::native_terminal::NativeTerminalSession::new(&self.current_dir, 24, 80)
             {
                 self.terminal_session = Some(sess);
             } else {
+                self.terminal_spawn_failed = true;
                 self.terminal_lines.push(TerminalLine {
-                    text: "Failed to spawn native PTY session".to_string(),
+                    text: "Failed to spawn native PTY session. Please check your shell configuration.".to_string(),
                     is_command: false,
                     is_error: true,
                 });
@@ -73,6 +74,8 @@ impl ZenthreeState {
     pub fn clear_terminal(&mut self) {
         if let Some(ref mut sess) = self.terminal_session {
             sess.clear();
+        } else {
+            self.terminal_spawn_failed = false;
         }
         self.terminal_lines.clear();
         self.terminal_input.clear();

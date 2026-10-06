@@ -227,8 +227,9 @@ impl ZenthreeState {
                 let args: Vec<String> = std::env::args().collect();
                 if args.len() > 1 {
                     if let Some(saved_dir) = saved.current_dir {
-                        if saved_dir.exists() && saved_dir.is_dir() {
-                            self.current_dir = saved_dir;
+                        let clean = crate::native_terminal::strip_unc_prefix(&saved_dir);
+                        if clean.exists() && clean.is_dir() {
+                            self.current_dir = clean;
                             self.has_workspace = true;
                         }
                     }
