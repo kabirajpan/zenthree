@@ -22,6 +22,7 @@ impl LspTransport {
         info!("Spawning LSP process: {} {:?}", binary_name, args);
         let mut child = Command::new(binary_name)
             .args(args)
+            .env("PATH", crate::lsp::enriched_path())
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())
             .stderr(Stdio::null())

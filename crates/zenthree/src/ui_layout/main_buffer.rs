@@ -14,12 +14,10 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
     // Drain any fresh completions delivered by LSP
     if let Some(items) = state.lsp_manager.latest_completions.take() {
         if !items.is_empty() {
+            state.completion_state.merge_lsp_items(&items);
             state.completion_items = items;
             state.completion_selected_idx = 0;
-            state.completion_active = true;
-        } else {
-            state.completion_items.clear();
-            state.completion_active = false;
+            state.completion_active = state.completion_state.active;
         }
     }
 
@@ -138,7 +136,14 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                                 .padding_right(6.0)
                                 .hover_bg(colors.highlight)
                                 .show(|ui| {
-                                    icon_source.show(ui, 12.0);
+                                    if state.tabs[idx].path.is_none() {
+                                        ui.text("\u{f04e9}")
+                                            .size(11.5)
+                                            .color(colors.accent)
+                                            .show();
+                                    } else {
+                                        icon_source.show(ui, 12.0);
+                                    }
 
                                     ui.text(&tab_name)
                                         .size(11.0)
@@ -727,16 +732,22 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                                             }
                                             tab.editor.insert(&c.to_string(), tab.path.as_deref(), Some(&state.indent_calc));
                                             changed = true;
+                                            let cur = tab.editor.cursor();
+                                            state.completion_state.populate_instant(&tab.editor.buffer, tab.path.as_deref(), cur);
+                                            state.completion_active = state.completion_state.active;
                                             if let Some(ref p) = tab.path {
-                                                let cur = tab.editor.cursor();
+                                                let content = tab.editor.buffer.to_string();
+                                                state.lsp_manager.on_document_change(p, &content);
                                                 state.lsp_manager.request_completion(p, cur.row as u32, cur.column as u32);
                                             }
+                                            ui.request_redraw();
                                         }
                                     }
                                     zenthra_platform::event::PlatformEvent::KeyDown { key } => {
                                         match key {
                                             winit::keyboard::KeyCode::Escape => {
-                                                if state.completion_active {
+                                                if state.completion_state.active || state.completion_active {
+                                                    state.completion_state.dismiss();
                                                     state.completion_active = false;
                                                     state.completion_items.clear();
                                                     changed = true;
@@ -747,12 +758,14 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                                                 }
                                             }
                                             winit::keyboard::KeyCode::Space if state.ctrl_pressed => {
+                                                let cur = tab.editor.cursor();
+                                                state.completion_state.populate_instant(&tab.editor.buffer, tab.path.as_deref(), cur);
+                                                state.completion_state.active = !state.completion_state.items.is_empty();
+                                                state.completion_active = state.completion_state.active;
                                                 if let Some(ref p) = tab.path {
-                                                    let cur = tab.editor.cursor();
                                                     state.lsp_manager.request_completion(p, cur.row as u32, cur.column as u32);
-                                                    state.completion_active = true;
-                                                    changed = true;
                                                 }
+                                                changed = true;
                                             }
                                             winit::keyboard::KeyCode::Backspace => {
                                                 if state.ctrl_pressed && has_active_review {
@@ -761,9 +774,31 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                                                 } else if state.ctrl_pressed {
                                                     tab.editor.delete_word_left();
                                                     changed = true;
+                                                    let cur = tab.editor.cursor();
+                                                    state.completion_state.populate_instant(&tab.editor.buffer, tab.path.as_deref(), cur);
+                                                    state.completion_active = state.completion_state.active;
+                                                    if state.completion_active {
+                                                        if let Some(ref p) = tab.path {
+                                                            let content = tab.editor.buffer.to_string();
+                                                            state.lsp_manager.on_document_change(p, &content);
+                                                            state.lsp_manager.request_completion(p, cur.row as u32, cur.column as u32);
+                                                        }
+                                                    }
+                                                    ui.request_redraw();
                                                 } else {
                                                     tab.editor.backspace();
                                                     changed = true;
+                                                    let cur = tab.editor.cursor();
+                                                    state.completion_state.populate_instant(&tab.editor.buffer, tab.path.as_deref(), cur);
+                                                    state.completion_active = state.completion_state.active;
+                                                    if state.completion_active {
+                                                        if let Some(ref p) = tab.path {
+                                                            let content = tab.editor.buffer.to_string();
+                                                            state.lsp_manager.on_document_change(p, &content);
+                                                            state.lsp_manager.request_completion(p, cur.row as u32, cur.column as u32);
+                                                        }
+                                                    }
+                                                    ui.request_redraw();
                                                 }
                                             }
                                             winit::keyboard::KeyCode::Delete => {
@@ -779,28 +814,50 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                                                 if state.ctrl_pressed && has_active_review {
                                                     accept_review_action = true;
                                                     changed = true;
-                                                } else if state.completion_active && !state.completion_items.is_empty() {
-                                                    if let Some(item) = state.completion_items.get(state.completion_selected_idx) {
-                                                        let to_insert = item.insert_text.as_deref().unwrap_or(&item.label);
-                                                        tab.editor.insert(to_insert, tab.path.as_deref(), Some(&state.indent_calc));
+                                                } else if state.completion_state.active && !state.completion_state.items.is_empty() {
+                                                    let prefix = state.completion_state.prefix.clone();
+                                                    let prev_expr = state.completion_state.prev_expr.clone();
+                                                    if let Some(item) = state.completion_state.items.get(state.completion_state.selected_idx).cloned() {
+                                                        crate::completion::commit_completion(
+                                                            &mut tab.editor,
+                                                            &item,
+                                                            &prefix,
+                                                            prev_expr.as_deref(),
+                                                            item.is_postfix,
+                                                            tab.path.as_deref(),
+                                                            Some(&state.indent_calc),
+                                                        );
                                                     }
+                                                    state.completion_state.dismiss();
                                                     state.completion_active = false;
                                                     state.completion_items.clear();
                                                     changed = true;
+                                                    ui.request_redraw();
                                                 } else {
                                                     tab.editor.insert("\n", tab.path.as_deref(), Some(&state.indent_calc));
                                                     changed = true;
                                                 }
                                             }
                                             winit::keyboard::KeyCode::Tab => {
-                                                if state.completion_active && !state.completion_items.is_empty() {
-                                                    if let Some(item) = state.completion_items.get(state.completion_selected_idx) {
-                                                        let to_insert = item.insert_text.as_deref().unwrap_or(&item.label);
-                                                        tab.editor.insert(to_insert, tab.path.as_deref(), Some(&state.indent_calc));
+                                                if state.completion_state.active && !state.completion_state.items.is_empty() {
+                                                    let prefix = state.completion_state.prefix.clone();
+                                                    let prev_expr = state.completion_state.prev_expr.clone();
+                                                    if let Some(item) = state.completion_state.items.get(state.completion_state.selected_idx).cloned() {
+                                                        crate::completion::commit_completion(
+                                                            &mut tab.editor,
+                                                            &item,
+                                                            &prefix,
+                                                            prev_expr.as_deref(),
+                                                            item.is_postfix,
+                                                            tab.path.as_deref(),
+                                                            Some(&state.indent_calc),
+                                                        );
                                                     }
+                                                    state.completion_state.dismiss();
                                                     state.completion_active = false;
                                                     state.completion_items.clear();
                                                     changed = true;
+                                                    ui.request_redraw();
                                                 } else {
                                                     tab.editor.insert("    ", tab.path.as_deref(), Some(&state.indent_calc));
                                                     changed = true;
@@ -831,8 +888,8 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                                                 changed = true;
                                             }
                                             winit::keyboard::KeyCode::ArrowUp => {
-                                                if state.completion_active && !state.completion_items.is_empty() {
-                                                    state.completion_selected_idx = state.completion_selected_idx.saturating_sub(1);
+                                                if state.completion_state.active && !state.completion_state.items.is_empty() {
+                                                    state.completion_state.selected_idx = state.completion_state.selected_idx.saturating_sub(1);
                                                     changed = true;
                                                 } else {
                                                     if state.ctrl_pressed && state.shift_pressed {
@@ -848,8 +905,8 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                                                 }
                                             }
                                             winit::keyboard::KeyCode::ArrowDown => {
-                                                if state.completion_active && !state.completion_items.is_empty() {
-                                                    state.completion_selected_idx = (state.completion_selected_idx + 1).min(state.completion_items.len() - 1);
+                                                if state.completion_state.active && !state.completion_state.items.is_empty() {
+                                                    state.completion_state.selected_idx = (state.completion_state.selected_idx + 1).min(state.completion_state.items.len().saturating_sub(1));
                                                     changed = true;
                                                 } else {
                                                     if state.ctrl_pressed && state.shift_pressed {
@@ -1479,6 +1536,33 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                                                     }));
                                                 }
                                             }
+
+                                            // Draw inline ghost text (LazyVim style virtual text preview)
+                                            if state.completion_state.active && !state.completion_state.items.is_empty() {
+                                                if let Some(sel_item) = state.completion_state.items.get(state.completion_state.selected_idx) {
+                                                    let full_text = sel_item.insert_text.as_deref().unwrap_or(&sel_item.label);
+                                                    let clean_full = full_text.strip_suffix('~').unwrap_or(full_text);
+                                                    let prefix = &state.completion_state.prefix;
+                                                    let ghost_text = if clean_full.starts_with(prefix) {
+                                                        &clean_full[prefix.len()..]
+                                                    } else {
+                                                        clean_full
+                                                    };
+                                                    let first_line_ghost = ghost_text.lines().next().unwrap_or("");
+                                                    if !first_line_ghost.is_empty() {
+                                                        let ghost_opts = TextOptions::new()
+                                                            .font_size(eff_font_size)
+                                                            .font_family("monospace")
+                                                            .color(colors.text_dim.with_alpha(0.50));
+                                                        ui.draws.push(DrawCommand::Text(TextDraw {
+                                                            text: first_line_ghost.to_string(),
+                                                            pos: [editor_x + gutter_w + cursor_x + 1.0, line_y + 2.0],
+                                                            options: ghost_opts,
+                                                            clip,
+                                                        }));
+                                                    }
+                                                }
+                                            }
                                         }
                                     }
                                 }
@@ -1781,118 +1865,44 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                     }
                 }
 
-                // ─── Render LSP Autocomplete Floating Popup Overlay ──────────
-                if state.completion_active && !state.completion_items.is_empty() {
+                // ─── Render IntelliSense Autocomplete Floating Popup Overlay ──────────
+                if state.completion_state.active && !state.completion_state.items.is_empty() {
                     if let Some([cur_x, cur_y]) = cursor_screen_pos {
-                        let popup_w = 320.0f32;
-                        let item_h = 22.0f32;
-                        let max_visible = 8;
-                        let visible_count = state.completion_items.len().min(max_visible);
-                        let popup_h = (visible_count as f32 * item_h + 8.0).clamp(32.0, 220.0);
-
-                        let mut px = cur_x;
-                        if px + popup_w > ui.width - 12.0 {
-                            px = (ui.width - popup_w - 12.0).max(12.0);
-                        }
-                        let mut py = cur_y + 2.0;
-                        if py + popup_h > ui.height - 28.0 {
-                            py = (cur_y - popup_h - 22.0).max(10.0);
-                        }
-
-                        let is_mouse_inside = ui.mouse_x >= px && ui.mouse_x <= px + popup_w
-                            && ui.mouse_y >= py && ui.mouse_y <= py + popup_h;
-
-                        let mut item_to_insert = None;
-                        let mut dismiss_comp = false;
-
-                        if ui.clicked && !is_mouse_inside {
-                            dismiss_comp = true;
-                        }
-
-                        let comp_popup_id = Id::from_u64(999999777);
-                        let comp_bg = colors.bg_sidebar;
-                        let selected_idx = state.completion_selected_idx;
-
-                        ui.overlay(|ui| {
-                            ui.container()
-                                .raw_id(comp_popup_id)
-                                .absolute(px, py)
-                                .overlay()
-                                .width(popup_w)
-                                .height(popup_h)
-                                .scroll_y(true)
-                                .bg(comp_bg)
-                                .border(colors.border, 1.0)
-                                .radius_all(4.0)
-                                .shadow(Color::rgba(0.0, 0.0, 0.0, 0.45), 0.0, 4.0, 10.0)
-                                .padding(4.0, 4.0, 4.0, 4.0)
-                                .column()
-                                .gap(1.0)
-                                .show(|ui| {
-                                    for (idx, item) in state.completion_items.iter().enumerate() {
-                                        let is_selected = idx == selected_idx;
-                                        let item_id = Id::from_u64(999999800 + idx as u64);
-                                        let (kind_icon, kind_color) = completion_kind_icon(item.kind);
-
-                                        let mut row = ui.container()
-                                            .id(item_id)
-                                            .full_width()
-                                            .height(item_h)
-                                            .row()
-                                            .valign(Align::Center)
-                                            .padding_left(6.0)
-                                            .padding_right(6.0)
-                                            .gap(6.0)
-                                            .radius_all(3.0);
-
-                                        if is_selected {
-                                            row = row.bg(Color::rgba(18.0 / 255.0, 68.0 / 255.0, 105.0 / 255.0, 1.0));
-                                        } else {
-                                            row = row.bg(Color::TRANSPARENT).hover_bg(colors.highlight);
-                                        }
-
-                                        let resp = row.show(|ui| {
-                                            ui.text(kind_icon)
-                                                .size(10.0)
-                                                .color(kind_color)
-                                                .show();
-
-                                            ui.text(&item.label)
-                                                .size(11.5)
-                                                .weight(FontWeight::Medium)
-                                                .color(colors.text_primary)
-                                                .show();
-
-                                            if let Some(ref detail) = item.detail {
-                                                let clean_detail = detail.lines().next().unwrap_or("").trim();
-                                                if !clean_detail.is_empty() {
-                                                    ui.text(clean_detail)
-                                                        .size(10.5)
-                                                        .color(colors.text_dim)
-                                                        .show();
-                                                }
-                                            }
-                                        });
-
-                                        if resp.clicked {
-                                            let text = item.insert_text.clone().unwrap_or_else(|| item.label.clone());
-                                            item_to_insert = Some(text);
-                                        }
-                                    }
-                                });
-                        });
-
-                        if let Some(insert_text) = item_to_insert {
-                            let tab_path = state.tabs[active_tab_idx].path.clone();
-                            state.tabs[active_tab_idx].editor.insert(&insert_text, tab_path.as_deref(), Some(&state.indent_calc));
-                            state.on_buffer_changed(active_tab_idx);
-                            state.completion_active = false;
-                            state.completion_items.clear();
-                            ui.request_redraw();
-                        } else if dismiss_comp {
-                            state.completion_active = false;
-                            state.completion_items.clear();
-                            ui.request_redraw();
+                        let ev = crate::completion::ui::draw_completion_popup(
+                            ui,
+                            &state.completion_state,
+                            &colors,
+                            (cur_x, cur_y),
+                        );
+                        match ev {
+                            crate::completion::ui::CompletionUiEvent::Commit(idx) => {
+                                let prefix = state.completion_state.prefix.clone();
+                                let prev_expr = state.completion_state.prev_expr.clone();
+                                if let Some(item) = state.completion_state.items.get(idx).cloned() {
+                                    let tab_path = state.tabs[active_tab_idx].path.clone();
+                                    crate::completion::commit_completion(
+                                        &mut state.tabs[active_tab_idx].editor,
+                                        &item,
+                                        &prefix,
+                                        prev_expr.as_deref(),
+                                        item.is_postfix,
+                                        tab_path.as_deref(),
+                                        Some(&state.indent_calc),
+                                    );
+                                    state.on_buffer_changed(active_tab_idx);
+                                    state.completion_state.dismiss();
+                                    state.completion_active = false;
+                                    state.completion_items.clear();
+                                    ui.request_redraw();
+                                }
+                            }
+                            crate::completion::ui::CompletionUiEvent::Dismiss => {
+                                state.completion_state.dismiss();
+                                state.completion_active = false;
+                                state.completion_items.clear();
+                                ui.request_redraw();
+                            }
+                            crate::completion::ui::CompletionUiEvent::None => {}
                         }
                     }
                 }
@@ -1900,19 +1910,6 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
         });
 }
 
-fn completion_kind_icon(kind: Option<crate::lsp::protocol::CompletionItemKind>) -> (&'static str, Color) {
-    use crate::lsp::protocol::CompletionItemKind;
-    match kind {
-        Some(CompletionItemKind::Function) | Some(CompletionItemKind::Method) => ("\u{f013}", zenthra::Color::rgb(0.75, 0.45, 0.95)),
-        Some(CompletionItemKind::Variable) | Some(CompletionItemKind::Field) | Some(CompletionItemKind::Property) => ("\u{f02b}", zenthra::Color::rgb(0.35, 0.70, 0.95)),
-        Some(CompletionItemKind::Class) | Some(CompletionItemKind::Struct) | Some(CompletionItemKind::Interface) => ("\u{f1b2}", zenthra::Color::rgb(0.95, 0.75, 0.30)),
-        Some(CompletionItemKind::Keyword) => ("\u{f084}", zenthra::Color::rgb(0.90, 0.45, 0.55)),
-        Some(CompletionItemKind::Snippet) => ("\u{f0c5}", zenthra::Color::rgb(0.40, 0.85, 0.55)),
-        Some(CompletionItemKind::Module) => ("\u{f07b}", zenthra::Color::rgb(0.95, 0.65, 0.35)),
-        Some(CompletionItemKind::Constant) | Some(CompletionItemKind::Value) | Some(CompletionItemKind::EnumMember) => ("\u{f005}", zenthra::Color::rgb(0.90, 0.55, 0.30)),
-        _ => ("\u{f15b}", zenthra::Color::rgb(0.65, 0.70, 0.75)),
-    }
-}
 
 fn collect_popup_tree(
     dir: &std::path::Path,

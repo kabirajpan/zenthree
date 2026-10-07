@@ -9,6 +9,7 @@ pub mod native_terminal;
 pub mod extensions;
 pub mod lsp;
 pub mod watcher;
+pub mod completion;
 
 use state::ZenthreeState;
 use zenthra::prelude::*;
@@ -53,6 +54,9 @@ fn main() {
             // No timer needed: ArcSignal::with_mut() calls trigger_redraw_hook()
             // on every push, waking the event loop immediately.
             state.drain_ai_updates();
+            if state.drain_lsp_install_updates() {
+                ui.request_redraw();
+            }
 
             if !state.active_agent_terminal_tasks.is_empty() {
                 ui.request_redraw();

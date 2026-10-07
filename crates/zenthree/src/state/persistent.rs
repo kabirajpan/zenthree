@@ -64,6 +64,8 @@ pub struct PersistentState {
     #[serde(default)]
     pub ignored_language_prompts: Vec<String>,
     #[serde(default)]
+    pub ignored_lsp_prompts: Vec<String>,
+    #[serde(default)]
     pub selected_ai_model: Option<AiModel>,
     #[serde(default)]
     pub ai_settings: Option<AiSettingsState>,
@@ -200,6 +202,10 @@ impl ZenthreeState {
                 if !saved.ignored_language_prompts.is_empty() {
                     self.ignored_language_prompts =
                         saved.ignored_language_prompts.into_iter().collect();
+                }
+                if !saved.ignored_lsp_prompts.is_empty() {
+                    self.ignored_lsp_prompts =
+                        saved.ignored_lsp_prompts.into_iter().collect();
                 }
                 if let Some(m) = saved.selected_ai_model {
                     self.selected_ai_model = m;
@@ -349,6 +355,7 @@ impl From<&ZenthreeState> for PersistentState {
             sidebar_view: Some(s.sidebar_view),
             installed_extensions: s.installed_extensions.iter().cloned().collect(),
             ignored_language_prompts: s.ignored_language_prompts.iter().cloned().collect(),
+            ignored_lsp_prompts: s.ignored_lsp_prompts.iter().cloned().collect(),
             selected_ai_model: Some(s.selected_ai_model),
             ai_settings: Some(s.ai_settings.clone()),
             ai_input_outline: Some(s.ai_settings.input_outline),

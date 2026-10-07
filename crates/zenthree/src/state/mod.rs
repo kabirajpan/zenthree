@@ -109,9 +109,15 @@ pub struct ZenthreeState {
     pub installed_extensions: std::collections::HashSet<String>,
     pub ignored_language_prompts: std::collections::HashSet<String>,
     pub extension_search_query: String,
+    pub extension_main_tab: crate::state::types::ExtensionMainTab,
     pub extension_tab_filter: ExtensionFilterTab,
     pub active_language_prompt: Option<LanguagePromptDialog>,
+    pub active_lsp_prompt: Option<crate::state::types::LspPromptDialog>,
+    pub ignored_lsp_prompts: std::collections::HashSet<String>,
+    pub lsp_install_signal: zenthra_state::ArcSignal<Vec<crate::lsp::installer::LspInstallEvent>>,
+    pub lsp_installing: std::collections::HashMap<String, String>,
     pub lsp_manager: crate::lsp::LspManager,
+    pub completion_state: crate::completion::CompletionState,
     pub completion_active: bool,
     pub completion_items: Vec<crate::lsp::protocol::CompletionItem>,
     pub completion_selected_idx: usize,
@@ -209,6 +215,7 @@ impl ZenthreeState {
             || self.editor_settings_open
             || self.ai_settings.open
             || self.active_language_prompt.is_some()
+            || self.active_lsp_prompt.is_some()
             || self.unsaved_changes_dialog.is_some()
             || self.user_profile_open
             || self.tree_context_menu.is_some()
@@ -445,9 +452,15 @@ impl ZenthreeState {
             },
             ignored_language_prompts: std::collections::HashSet::new(),
             extension_search_query: String::new(),
+            extension_main_tab: crate::state::types::ExtensionMainTab::LanguagePacks,
             extension_tab_filter: ExtensionFilterTab::All,
             active_language_prompt: None,
+            active_lsp_prompt: None,
+            ignored_lsp_prompts: std::collections::HashSet::new(),
+            lsp_install_signal: zenthra_state::ArcSignal::new(Vec::new()),
+            lsp_installing: std::collections::HashMap::new(),
             lsp_manager: crate::lsp::LspManager::new(),
+            completion_state: crate::completion::CompletionState::new(),
             completion_active: false,
             completion_items: Vec::new(),
             completion_selected_idx: 0,
@@ -601,6 +614,76 @@ impl ZenthreeState {
             }
         }
         false
+    }
+
+    pub fn drain_lsp_install_updates(&mut self) -> bool {
+        if self.lsp_install_signal.with(|q| q.is_empty()) {
+            return false;
+        }
+
+        let events = self.lsp_install_signal.with_silent_mut(|q| std::mem::take(q));
+        let mut needs_redraw = false;
+
+        for event in events {
+            needs_redraw = true;
+            match event {
+                crate::lsp::installer::LspInstallEvent::Started { language_id, message } => {
+                    self.lsp_installing.insert(language_id, message.clone());
+                    self.set_status(message);
+                }
+                crate::lsp::installer::LspInstallEvent::Progress { language_id, message } => {
+                    self.lsp_installing.insert(language_id, message.clone());
+                    self.set_status(message);
+                }
+                crate::lsp::installer::LspInstallEvent::Success { language_id, binary_name: _, message } => {
+                    self.lsp_installing.remove(&language_id);
+                    crate::lsp::LspManager::invalidate_cache();
+                    self.installed_extensions.insert(language_id.clone());
+                    self.save_persistent_state();
+                    self.set_status(format!("✓ {}", message));
+
+                    // If active tab matches this language, automatically start session!
+                    if let Some(active_idx) = self.active_tab {
+                        if let Some(tab) = self.tabs.get(active_idx) {
+                            if let Some(ref path) = tab.path {
+                                if let Some(info) = crate::lsp::LspServerInfo::for_path(path) {
+                                    if info.language_id == language_id {
+                                        let content = tab.editor.buffer.to_string();
+                                        let ws_root = if self.has_workspace {
+                                            Some(self.current_dir.as_path())
+                                        } else {
+                                            None
+                                        };
+                                        self.lsp_manager.on_document_open(path, &content, ws_root);
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                crate::lsp::installer::LspInstallEvent::Failed { language_id, error } => {
+                    self.lsp_installing.remove(&language_id);
+                    crate::lsp::LspManager::invalidate_cache();
+                    self.set_status(format!("✕ Failed to install {} LSP: {}", language_id, error));
+                }
+            }
+        }
+
+        needs_redraw
+    }
+
+    pub fn is_lsp_installing(&self, lang_id: &str) -> bool {
+        self.lsp_installing.contains_key(lang_id)
+    }
+
+    pub fn start_lsp_install(&mut self, lang_id: &str) {
+        if self.is_lsp_installing(lang_id) {
+            self.set_status(format!("Installation of {} LSP is already in progress...", lang_id));
+            return;
+        }
+        self.lsp_installing.insert(lang_id.to_string(), format!("Starting {} LSP install...", lang_id));
+        crate::lsp::installer::LspInstaller::start_install(lang_id, self.lsp_install_signal.clone());
+        self.set_status(format!("Started {} LSP installation in background...", lang_id));
     }
 
     pub fn active_review(&self) -> Option<&FileDiffReview> {
@@ -1391,6 +1474,42 @@ mod tests {
             crate::extensions::ExtensionCatalog::find_by_path(std::path::Path::new("main.cpp"));
         assert!(cpp_ext.is_some());
         assert_eq!(cpp_ext.unwrap().id, "cpp");
+
+        let toml_ext =
+            crate::extensions::ExtensionCatalog::find_by_path(std::path::Path::new("Cargo.toml"));
+        assert!(toml_ext.is_some());
+        assert_eq!(toml_ext.unwrap().id, "toml");
+
+        let docker_ext =
+            crate::extensions::ExtensionCatalog::find_by_path(std::path::Path::new("Dockerfile"));
+        assert!(docker_ext.is_some());
+        assert_eq!(docker_ext.unwrap().id, "dockerfile");
+
+        let sql_ext =
+            crate::extensions::ExtensionCatalog::find_by_path(std::path::Path::new("query.sql"));
+        assert!(sql_ext.is_some());
+        assert_eq!(sql_ext.unwrap().id, "sql");
+
+        let zig_ext =
+            crate::extensions::ExtensionCatalog::find_by_path(std::path::Path::new("main.zig"));
+        assert!(zig_ext.is_some());
+        assert_eq!(zig_ext.unwrap().id, "zig");
+
+        let java_ext =
+            crate::extensions::ExtensionCatalog::find_by_path(std::path::Path::new("App.java"));
+        assert!(java_ext.is_some());
+        assert_eq!(java_ext.unwrap().id, "java");
+
+        let rb_ext =
+            crate::extensions::ExtensionCatalog::find_by_path(std::path::Path::new("server.rb"));
+        assert!(rb_ext.is_some());
+        assert_eq!(rb_ext.unwrap().id, "ruby");
+
+        // Verify ExtensionMainTab defaults to LanguagePacks
+        let mut state = ZenthreeState::new();
+        assert_eq!(state.extension_main_tab, crate::state::types::ExtensionMainTab::LanguagePacks);
+        state.extension_main_tab = crate::state::types::ExtensionMainTab::LanguageServers;
+        assert_eq!(state.extension_main_tab, crate::state::types::ExtensionMainTab::LanguageServers);
     }
 
     #[test]

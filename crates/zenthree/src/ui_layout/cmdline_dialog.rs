@@ -679,8 +679,8 @@ pub fn draw_cmdline_dialog(ui: &mut Ui, state: &mut ZenthreeState) {
                 .gap(8.0)
                 .padding_left(4.0)
                 .show(|ui| {
-                    ui.text("\u{f054}")
-                        .size(10.5)
+                    ui.text("\u{f120}")
+                        .size(11.0)
                         .weight(FontWeight::Bold)
                         .color(Color::rgb(247.0 / 255.0, 118.0 / 255.0, 142.0 / 255.0))
                         .show();

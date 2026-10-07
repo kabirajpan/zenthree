@@ -74,7 +74,6 @@ pub fn draw_status_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                 .valign(Align::Center)
                 .gap(12.0)
                 .show(|ui| {
-                    let mut prompt_lang_path: Option<std::path::PathBuf> = None;
                     let mut show_extensions_view = false;
 
                     if let Some(active_idx) = state.active_tab {
@@ -115,41 +114,94 @@ pub fn draw_status_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                                     });
                             }
 
-                            // LSP Server Indicator
+                            // LSP Server Indicator & 1-Click Install Button
                             if let Some(ref p) = tab_fpath {
                                 if let Some(server_info) = crate::lsp::LspServerInfo::for_path(p) {
                                     let is_active = state.lsp_manager.sessions.get(server_info.language_id)
                                         .map(|s| s.status == crate::lsp::ServerStatus::Ready)
                                         .unwrap_or(false);
-                                    let is_installed = crate::lsp::LspManager::is_server_installed(server_info.binary_name);
+                                    let is_installed = crate::lsp::LspManager::is_language_installed(server_info.language_id);
+                                    let is_installing = state.is_lsp_installing(server_info.language_id);
 
-                                    let (status_text, status_color) = if is_active {
-                                        (format!("⚡ {}", server_info.display_name), colors.accent)
+                                    if is_installing {
+                                        let lsp_badge = ui.container()
+                                            .padding(2.0, 6.0, 2.0, 6.0)
+                                            .radius_all(3.0)
+                                            .bg(colors.accent.with_alpha(0.18))
+                                            .hover_bg(colors.accent.with_alpha(0.28))
+                                            .clickable(true)
+                                            .row()
+                                            .valign(Align::Center)
+                                            .gap(4.0)
+                                            .show(|ui| {
+                                                ui.text(&format!("⠋ \u{f0627} Installing {}...", server_info.display_name))
+                                                    .size(10.0)
+                                                    .color(colors.accent)
+                                                    .show();
+                                            });
+                                        if lsp_badge.clicked {
+                                            state.extension_main_tab = crate::state::types::ExtensionMainTab::LanguageServers;
+                                            show_extensions_view = true;
+                                        }
+                                    } else if is_active {
+                                        let lsp_btn = ui.button(&format!("\u{f0627} {}", server_info.display_name))
+                                            .id(zenthra::Id::from_u64(999998141))
+                                            .height(18.0)
+                                            .bg(colors.accent.with_alpha(0.18))
+                                            .hover_bg(colors.accent.with_alpha(0.35))
+                                            .text_color(colors.accent)
+                                            .radius_all(3.0)
+                                            .padding_left(6.0)
+                                            .padding_right(6.0)
+                                            .size(10.0)
+                                            .show();
+                                        if lsp_btn.clicked {
+                                            state.extension_main_tab = crate::state::types::ExtensionMainTab::LanguageServers;
+                                            show_extensions_view = true;
+                                        }
                                     } else if is_installed {
-                                        (format!("⚡ {}: ready", server_info.display_name), colors.text_muted)
+                                        let lsp_btn = ui.button(&format!("\u{f0627} {}: ready", server_info.display_name))
+                                            .id(zenthra::Id::from_u64(999998142))
+                                            .height(18.0)
+                                            .bg(Color::TRANSPARENT)
+                                            .hover_bg(colors.highlight)
+                                            .text_color(colors.text_muted)
+                                            .radius_all(3.0)
+                                            .padding_left(6.0)
+                                            .padding_right(6.0)
+                                            .size(10.0)
+                                            .show();
+                                        if lsp_btn.clicked {
+                                            state.extension_main_tab = crate::state::types::ExtensionMainTab::LanguageServers;
+                                            show_extensions_view = true;
+                                        }
                                     } else {
-                                        (format!("⚡ {}: not installed", server_info.display_name), colors.text_dim)
-                                    };
+                                        let install_btn = ui.button(&format!("\u{f0627} Install {} LSP", server_info.display_name))
+                                            .id(zenthra::Id::from_u64(999998140))
+                                            .height(18.0)
+                                            .bg(colors.accent.with_alpha(0.25))
+                                            .hover_bg(colors.accent.with_alpha(0.50))
+                                            .text_color(colors.accent)
+                                            .radius_all(3.0)
+                                            .padding_left(6.0)
+                                            .padding_right(6.0)
+                                            .size(10.0)
+                                            .show();
 
-                                    ui.text(&status_text)
-                                        .size(10.0)
-                                        .color(status_color)
-                                        .show();
+                                        if install_btn.clicked {
+                                            state.start_lsp_install(server_info.language_id);
+                                        }
+                                    }
                                 }
                             }
 
-                            if let Some((lang_name, installed, fpath)) = lang_info {
-                                let label = if installed {
-                                    lang_name.to_string()
-                                } else {
-                                    format!("{} [Install]", lang_name)
-                                };
-                                let lang_btn = ui.button(&label)
+                            if let Some((lang_name, _, _)) = lang_info {
+                                let lang_btn = ui.button(lang_name)
                                     .id(zenthra::Id::from_u64(999998150))
                                     .height(18.0)
-                                    .bg(if installed { colors.accent.with_alpha(0.15) } else { colors.accent.with_alpha(0.35) })
-                                    .hover_bg(colors.accent.with_alpha(0.5))
-                                    .text_color(if installed { colors.accent } else { Color::WHITE })
+                                    .bg(colors.accent.with_alpha(0.15))
+                                    .hover_bg(colors.accent.with_alpha(0.35))
+                                    .text_color(colors.accent)
                                     .radius_all(3.0)
                                     .padding_left(6.0)
                                     .padding_right(6.0)
@@ -157,11 +209,46 @@ pub fn draw_status_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                                     .show();
 
                                 if lang_btn.clicked {
-                                    if !installed {
-                                        prompt_lang_path = Some(fpath);
-                                    } else {
-                                        show_extensions_view = true;
-                                    }
+                                    state.extension_main_tab = crate::state::types::ExtensionMainTab::LanguagePacks;
+                                    show_extensions_view = true;
+                                }
+                            } else if let Some(ref p) = tab_fpath {
+                                let fallback_label = p.extension()
+                                    .and_then(|e| e.to_str())
+                                    .map(|ext| format!(".{}", ext))
+                                    .unwrap_or_else(|| "Plain Text".to_string());
+                                let lang_btn = ui.button(&fallback_label)
+                                    .id(zenthra::Id::from_u64(999998150))
+                                    .height(18.0)
+                                    .bg(colors.highlight.with_alpha(0.25))
+                                    .hover_bg(colors.highlight)
+                                    .text_color(colors.text_muted)
+                                    .radius_all(3.0)
+                                    .padding_left(6.0)
+                                    .padding_right(6.0)
+                                    .size(10.5)
+                                    .show();
+
+                                if lang_btn.clicked {
+                                    state.extension_main_tab = crate::state::types::ExtensionMainTab::LanguagePacks;
+                                    show_extensions_view = true;
+                                }
+                            } else {
+                                let lang_btn = ui.button("Plain Text")
+                                    .id(zenthra::Id::from_u64(999998150))
+                                    .height(18.0)
+                                    .bg(colors.highlight.with_alpha(0.25))
+                                    .hover_bg(colors.highlight)
+                                    .text_color(colors.text_muted)
+                                    .radius_all(3.0)
+                                    .padding_left(6.0)
+                                    .padding_right(6.0)
+                                    .size(10.5)
+                                    .show();
+
+                                if lang_btn.clicked {
+                                    state.extension_main_tab = crate::state::types::ExtensionMainTab::LanguagePacks;
+                                    show_extensions_view = true;
                                 }
                             }
 
@@ -183,10 +270,7 @@ pub fn draw_status_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                         }
                     }
 
-                    if let Some(p) = prompt_lang_path {
-                        state.check_language_support_prompt(&p);
-                        ui.request_redraw();
-                    } else if show_extensions_view {
+                    if show_extensions_view {
                         state.sidebar_view = crate::state::SidebarView::Extensions;
                         state.sidebar_visible = true;
                         ui.request_redraw();
@@ -243,6 +327,36 @@ pub fn draw_status_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                                         .show();
                                 });
                         });
+
+                    // Panels button (\u{ebeb})
+                    let panel_btn_id = zenthra::Id::from_u64(999999125);
+                    let panel_btn = ui.container()
+                        .raw_id(panel_btn_id)
+                        .clickable(true)
+                        .height(18.0)
+                        .padding_left(6.0)
+                        .padding_right(6.0)
+                        .bg(if state.sidebar_visible { colors.accent.with_alpha(0.20) } else { Color::TRANSPARENT })
+                        .hover_bg(colors.highlight)
+                        .radius_all(3.0)
+                        .row()
+                        .valign(Align::Center)
+                        .gap(4.0)
+                        .show(|ui| {
+                            ui.text("\u{ebeb}")
+                                .size(11.0)
+                                .color(if state.sidebar_visible { colors.accent } else { colors.text_muted })
+                                .show();
+                            ui.text("Panels")
+                                .size(10.0)
+                                .color(colors.text_muted)
+                                .show();
+                        });
+
+                    if panel_btn.clicked {
+                        state.sidebar_visible = !state.sidebar_visible;
+                        ui.request_redraw();
+                    }
 
                     // Tag: Zenthree IDE (square badge inside bottom bar with accent color at 60% opacity)
                     let mut tag_bg = colors.accent;

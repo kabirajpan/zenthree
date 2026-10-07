@@ -97,12 +97,12 @@ impl ZenthreeState {
             };
             self.lsp_manager.on_document_open(path, &content, ws_root);
             self.check_language_support_prompt(path);
+            self.check_lsp_support_prompt(path);
             self.save_persistent_state();
     }
 
     pub fn check_language_support_prompt(&mut self, path: &Path) {
         if let Some(ext) = crate::extensions::ExtensionCatalog::find_by_path(path) {
-            // Check if installed or explicitly ignored
             if !self.installed_extensions.contains(ext.id)
                 && !self.ignored_language_prompts.contains(ext.id)
             {
@@ -122,12 +122,40 @@ impl ZenthreeState {
         }
     }
 
+    pub fn check_lsp_support_prompt(&mut self, path: &Path) {
+        if let Some(server_info) = crate::lsp::LspServerInfo::for_path(path) {
+            let lang_id = server_info.language_id;
+            let is_installed = crate::lsp::LspManager::is_language_installed(lang_id);
+            if !is_installed
+                && !self.ignored_lsp_prompts.contains(lang_id)
+                && !self.is_lsp_installing(lang_id)
+            {
+                let file_name = path
+                    .file_name()
+                    .and_then(|n| n.to_str())
+                    .unwrap_or("file")
+                    .to_string();
+                let lang_name = crate::extensions::ExtensionCatalog::find_by_path(path)
+                    .map(|e| e.name.to_string())
+                    .unwrap_or_else(|| lang_id.to_string());
+                self.active_lsp_prompt = Some(crate::state::types::LspPromptDialog {
+                    language_id: lang_id.to_string(),
+                    language_name: lang_name,
+                    server_name: server_info.display_name.to_string(),
+                    file_name,
+                    dont_show_again_checked: false,
+                    just_opened: true,
+                });
+            }
+        }
+    }
+
     pub fn install_extension(&mut self, id: &str) {
         self.installed_extensions.insert(id.to_string());
         self.highlighter.reset();
         self.save_persistent_state();
         if let Some(ext) = crate::extensions::ExtensionCatalog::find_by_id(id) {
-            self.set_status(format!("Installed {} successfully!", ext.name));
+            self.set_status(format!("Installed {} language pack!", ext.name));
         } else {
             self.set_status(format!("Installed extension: {}", id));
         }
@@ -162,6 +190,17 @@ impl ZenthreeState {
             }
         }
         self.active_language_prompt = None;
+    }
+
+    pub fn dismiss_lsp_prompt(&mut self, save_dont_show_again: bool) {
+        if let Some(ref dialog) = self.active_lsp_prompt {
+            if save_dont_show_again || dialog.dont_show_again_checked {
+                self.ignored_lsp_prompts
+                    .insert(dialog.language_id.clone());
+                self.save_persistent_state();
+            }
+        }
+        self.active_lsp_prompt = None;
     }
 
     pub fn save_active_tab(&mut self) {

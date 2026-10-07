@@ -1723,10 +1723,16 @@ fn draw_agent_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColors) 
         });
 }
 
-fn draw_keymaps_tab(ui: &mut Ui, _state: &mut ZenthreeState, colors: &ThemeColors) {
+fn draw_keymaps_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColors) {
+    let card_panel_bg = if state.glassmorphism {
+        colors.bg_base.with_alpha((state.glass_opacity * 0.65).clamp(0.20, 0.70))
+    } else {
+        colors.bg_base.with_alpha(0.50)
+    };
+
     ui.container()
         .column()
-        .gap(16.0)
+        .gap(14.0)
         .show(|ui| {
             ui.container()
                 .column()
@@ -1737,63 +1743,170 @@ fn draw_keymaps_tab(ui: &mut Ui, _state: &mut ZenthreeState, colors: &ThemeColor
                         .weight(FontWeight::Bold)
                         .color(colors.text_primary)
                         .show();
-                    ui.text("Essential shortcuts for fast navigation and productivity.")
+                    ui.text("Complete keybindings reference for fast navigation and productivity. VSCode & Neovim friendly.")
                         .size(11.5)
                         .color(colors.text_muted)
                         .auto_wrap()
                         .show();
                 });
 
-            let shortcuts = [
-                ("Preferences / Settings", "Ctrl + ,"),
-                ("New File", "Ctrl + N"),
-                ("Open File", "Ctrl + O"),
-                ("Open Workspace Folder", "Ctrl + Shift + O"),
-                ("Save Active File", "Ctrl + S"),
-                ("Save As", "Ctrl + Shift + S"),
-                ("Close Active Tab", "Ctrl + W"),
-                ("Format Buffer", "Ctrl + Shift + F"),
-                ("Find in Buffer", "Ctrl + F"),
-                ("Toggle Integrated Terminal", "Ctrl + `"),
-                ("Toggle AI Agent Panel", "Ctrl + K"),
+            let sections: [(&str, &str, &[(&str, &str)]); 6] = [
+                (
+                    "\u{ebeb}",
+                    "Panels & View Modes",
+                    &[
+                        ("Toggle Explorer (File Tree)", "Ctrl + E"),
+                        ("Toggle Integrated Terminal", "Ctrl + T"),
+                        ("Toggle Git Panel", "Ctrl + Shift + G"),
+                        ("Toggle AI Agent Panel", "Ctrl + Shift + A"),
+                        ("Toggle Focus Mode (Zen)", "F11"),
+                        ("Zoom In / Out / Reset", "Ctrl + = / - / 0"),
+                    ],
+                ),
+                (
+                    "\u{f04e9}",
+                    "Buffer Tabs & Navigation",
+                    &[
+                        ("Jump to Active Editor", "Ctrl + 1"),
+                        ("Unfocus Panel → Return to Editor", "Escape"),
+                        ("Previous Tab", "Alt + ←"),
+                        ("Next Tab", "Alt + →"),
+                        ("Close Current Tab", "Alt + W"),
+                        ("Open Preferences / Settings", "Ctrl + ,"),
+                    ],
+                ),
+                (
+                    "\u{f120}",
+                    "Command Palette & LazyVim",
+                    &[
+                        ("Open Command Palette / Dialog", "Ctrl + Shift + P"),
+                        ("Open LazyVim Command Mode", "Shift + : or :"),
+                        ("Directory Change with Autocomplete", "cd <path>"),
+                        ("New File / New Folder", "touch <f> / mkdir <d>"),
+                        ("Save File / Close Tab", ":w / :q / :wq"),
+                        ("Execute Shell Command", "!<command>"),
+                    ],
+                ),
+                (
+                    "\u{ec2b}",
+                    "Code Editor",
+                    &[
+                        ("Save Active File", "Ctrl + S"),
+                        ("Save As", "Ctrl + Shift + S"),
+                        ("Undo / Redo", "Ctrl + Z / Ctrl + Y"),
+                        ("Cut / Copy / Paste", "Ctrl + X / C / V"),
+                        ("Select All", "Ctrl + A"),
+                        ("Select Word Under Cursor", "Ctrl + D"),
+                        ("Duplicate Line Down", "Ctrl + Shift + D"),
+                        ("Delete Entire Line", "Ctrl + Shift + K"),
+                        ("Delete Word Left / Right", "Ctrl + Backspace / Delete"),
+                        ("Word Navigation Left / Right", "Ctrl + ← / →"),
+                        ("Find in File", "Ctrl + F"),
+                        ("Global / File Search", "Ctrl + Shift + F"),
+                        ("Trigger Autocomplete", "Ctrl + Space"),
+                    ],
+                ),
+                (
+                    "\u{ef81}",
+                    "File Tree (When Focused)",
+                    &[
+                        ("Navigate Down / Up", "j / k (or ↓ / ↑)"),
+                        ("Open File / Expand Folder", "l / Enter (or →)"),
+                        ("Collapse Folder / Parent", "h (or ←)"),
+                        ("Create File / Folder (Dialog)", "a / A"),
+                        ("Rename Selected", "r or F2"),
+                        ("Delete Selected (Confirm)", "d or Delete"),
+                        ("Refresh File Tree", "R"),
+                        ("Back to Editor", "q or Escape"),
+                    ],
+                ),
+                (
+                    "\u{f489}",
+                    "Integrated Terminal (When Focused)",
+                    &[
+                        ("Word Navigation Left / Right", "Ctrl + ← / →"),
+                        ("Scroll History (15 Lines)", "Shift + PgUp / PgDn"),
+                        ("Scroll History (1 Line)", "Shift + ↑ / ↓"),
+                        ("Scroll to Top / Bottom", "Shift + Home / End"),
+                        ("Copy Output to Clipboard", "Ctrl + Shift + C"),
+                        ("Paste from Clipboard", "Ctrl + Shift + V / Ctrl + V"),
+                        ("Clear Terminal & Scrollback", "Ctrl + Shift + K"),
+                        ("Interrupt (SIGINT)", "Ctrl + C"),
+                        ("EOF / Exit Session", "Ctrl + D"),
+                        ("Clear Screen", "Ctrl + L"),
+                        ("Reverse History Search", "Ctrl + R"),
+                        ("Previous / Next History", "Ctrl + P / Ctrl + N"),
+                    ],
+                ),
             ];
 
-            ui.container()
-                .full_width()
-                .radius_all(6.0)
-                .bg(colors.bg_base.with_alpha(0.40))
-                .border(colors.border.with_alpha(0.20), 1.0)
-                .padding(8.0, 16.0, 8.0, 16.0)
-                .column()
-                .gap(6.0)
-                .show(|ui| {
-                    for (action, keys) in shortcuts {
+            for (icon, section_title, items) in sections {
+                ui.container()
+                    .column()
+                    .gap(6.0)
+                    .show(|ui| {
                         ui.container()
-                            .full_width()
-                            .padding(6.0, 4.0, 6.0, 4.0)
                             .row()
                             .valign(Align::Center)
-                            .halign(Align::SpaceBetween)
+                            .gap(6.0)
                             .show(|ui| {
-                                ui.text(action)
-                                    .size(12.5)
+                                ui.text(icon)
+                                    .size(13.0)
+                                    .color(colors.accent)
+                                    .show();
+                                ui.text(section_title)
+                                    .size(13.0)
+                                    .weight(FontWeight::SemiBold)
                                     .color(colors.text_primary)
                                     .show();
-
-                                ui.container()
-                                    .padding(3.0, 9.0, 3.0, 9.0)
-                                    .radius_all(4.0)
-                                    .bg(colors.highlight)
-                                    .border(colors.border.with_alpha(0.25), 1.0)
-                                    .show(|ui| {
-                                        ui.text(keys)
-                                            .size(11.0)
-                                            .weight(FontWeight::SemiBold)
-                                            .color(colors.accent)
-                                            .show();
-                                    });
                             });
-                    }
-                });
+
+                        ui.container()
+                            .full_width()
+                            .radius_all(6.0)
+                            .bg(card_panel_bg)
+                            .border(colors.border.with_alpha(0.20), 1.0)
+                            .padding(4.0, 12.0, 4.0, 12.0)
+                            .column()
+                            .gap(2.0)
+                            .show(|ui| {
+                                for (i, (action, keys)) in items.iter().enumerate() {
+                                    if i > 0 {
+                                        ui.container()
+                                            .full_width()
+                                            .height(1.0)
+                                            .bg(colors.border.with_alpha(0.10))
+                                            .show(|_| {});
+                                    }
+
+                                    ui.container()
+                                        .full_width()
+                                        .padding(5.0, 4.0, 5.0, 4.0)
+                                        .row()
+                                        .valign(Align::Center)
+                                        .halign(Align::SpaceBetween)
+                                        .show(|ui| {
+                                            ui.text(*action)
+                                                .size(12.0)
+                                                .color(colors.text_primary)
+                                                .show();
+
+                                            ui.container()
+                                                .padding(2.5, 8.0, 2.5, 8.0)
+                                                .radius_all(4.0)
+                                                .bg(colors.highlight)
+                                                .border(colors.border.with_alpha(0.25), 1.0)
+                                                .show(|ui| {
+                                                    ui.text(*keys)
+                                                        .size(11.0)
+                                                        .weight(FontWeight::SemiBold)
+                                                        .color(colors.accent)
+                                                        .show();
+                                                });
+                                        });
+                                }
+                            });
+                    });
+            }
         });
 }

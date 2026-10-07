@@ -42,7 +42,7 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                         .gap(8.0)
                         .valign(Align::Center)
                         .show(|ui| {
-                            ui.text(zenthra::icons::NF_FA_CODE)
+                            ui.text("\u{ec2b}")
                                 .size(14.0)
                                 .color(colors.accent)
                                 .show();

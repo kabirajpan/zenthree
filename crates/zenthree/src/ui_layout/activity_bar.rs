@@ -67,7 +67,7 @@ pub fn draw_activity_bar(ui: &mut Ui, state: &mut ZenthreeState, height: f32) {
                                     } else {
                                         colors.text_muted
                                     };
-                                    ui.text("\u{f0645}")
+                                    ui.text("\u{ef81}")
                                         .size(17.0)
                                         .color(icon_color)
                                         .show();
