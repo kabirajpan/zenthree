@@ -1270,6 +1270,7 @@ pub fn draw_thinking_orbs_demo_window(ui: &mut Ui, state: &mut ZenthreeState) {
                         brightness: 1.0,
                         opacity: 1.0,
                         border_alignment: 0.0,
+                        ..Default::default()
                     },
                 }));
             }
@@ -1315,6 +1316,7 @@ pub fn draw_thinking_orbs_demo_window(ui: &mut Ui, state: &mut ZenthreeState) {
                     brightness: 1.0,
                     opacity: 1.0,
                     border_alignment: 0.0,
+                    ..Default::default()
                 },
             }));
         }

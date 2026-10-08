@@ -785,6 +785,7 @@ pub fn draw_source_control_panel(ui: &mut Ui, state: &mut ZenthreeState, panel_w
                         brightness: 1.0,
                         opacity: 1.0,
                         border_alignment: 0.0,
+                        ..Default::default()
                     }
                 }));
             }
