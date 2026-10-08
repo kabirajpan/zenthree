@@ -284,12 +284,12 @@ fn draw_appearance_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeCol
                         .column()
                         .gap(2.0)
                         .show(|ui| {
-                            ui.text("Appearance & Frosted Glass")
+                            ui.text("Appearance")
                                 .size(15.0)
                                 .weight(FontWeight::Bold)
                                 .color(colors.text_primary)
                                 .show();
-                            ui.text("Wayland/OS frosted glassmorphism, blur strength, panel opacity, and editor typography.")
+                            ui.text("Blur, opacity, and editor font size.")
                                 .size(11.0)
                                 .color(colors.text_muted)
                                 .auto_wrap()
@@ -346,12 +346,12 @@ fn draw_appearance_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeCol
                         .column()
                         .gap(2.0)
                         .show(|ui| {
-                            ui.text("Native Window Blur")
+                            ui.text("Window Blur")
                                 .size(13.0)
                                 .weight(FontWeight::SemiBold)
                                 .color(colors.text_primary)
                                 .show();
-                            ui.text("Request OS/Wayland compositor to blur the desktop behind translucent surfaces (On/Off)")
+                            ui.text("Blur behind the app window (if supported by your OS).")
                                 .size(11.0)
                                 .color(colors.text_muted)
                                 .auto_wrap()
@@ -399,7 +399,7 @@ fn draw_appearance_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeCol
                                         .valign(Align::Center)
                                         .gap(7.0)
                                         .show(|ui| {
-                                            ui.text("Internal UI Backdrop Blur")
+                                            ui.text("Panel Blur")
                                                 .size(13.0)
                                                 .weight(FontWeight::SemiBold)
                                                 .color(colors.text_primary)
@@ -418,7 +418,7 @@ fn draw_appearance_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeCol
                                                     });
                                             }
                                         });
-                                    ui.text("Backdrop blur radius for modal dialogs, cards, and floating panels (Default: 24px)")
+                                    ui.text("Blur dialogs, cards, and floating panels. Default: 24px")
                                         .size(11.0)
                                         .color(colors.text_muted)
                                         .auto_wrap()
@@ -605,14 +605,9 @@ fn draw_appearance_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeCol
                                 .column()
                                 .gap(3.0)
                                 .show(|ui| {
-                                    ui.text("Adjusts Zenthra's GPU Dual-Kawase blur radius across internal modal dialogs, cards, and floating panels.")
+                                    ui.text("Controls blur inside the app. Window blur is a separate OS setting.")
                                         .size(10.5)
                                         .color(colors.text_primary)
-                                        .auto_wrap()
-                                        .show();
-                                    ui.text("Note: Native OS window blur behind transparent surfaces is an on/off request handled directly by your Wayland compositor (e.g. COSMIC, KDE, or Hyprland).")
-                                        .size(9.5)
-                                        .color(colors.text_muted)
                                         .auto_wrap()
                                         .show();
                                 });
@@ -644,7 +639,7 @@ fn draw_appearance_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeCol
                                         .valign(Align::Center)
                                         .gap(7.0)
                                         .show(|ui| {
-                                            ui.text("Surface Opacity (Frost Depth)")
+                                            ui.text("Panel Opacity")
                                                 .size(13.0)
                                                 .weight(FontWeight::SemiBold)
                                                 .color(colors.text_primary)
@@ -663,7 +658,7 @@ fn draw_appearance_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeCol
                                                     });
                                             }
                                         });
-                                    ui.text("Translucency of editor and sidebar panels (Default: 55%)")
+                                    ui.text("Editor and sidebar transparency. Default: 55%")
                                         .size(11.0)
                                         .color(colors.text_muted)
                                         .auto_wrap()
@@ -872,7 +867,7 @@ fn draw_appearance_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeCol
                                                     });
                                             }
                                         });
-                                    ui.text("Editor buffer text size and line height (Default: 13px)")
+                                    ui.text("Editor text size. Default: 13px")
                                         .size(11.0)
                                         .color(colors.text_muted)
                                         .auto_wrap()
@@ -1196,7 +1191,7 @@ fn draw_editor_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColors)
                                     .padding(4.0, 12.0, 4.0, 12.0)
                                     .radius_all(4.0)
                                     .bg(if is_sel { colors.accent } else { Color::TRANSPARENT })
-                                    .hover_bg(if is_sel { colors.accent } else { colors.highlight.with_alpha(0.60) })
+                                    .hover_bg(if is_sel { colors.accent } else { colors.accent.with_alpha(0.12) })
                                     .show(|ui| {
                                         ui.text(style.display_name())
                                             .size(11.5)
@@ -1515,7 +1510,7 @@ fn draw_editor_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColors)
                                 .bg(if is_not_default {
                                     colors.accent.with_alpha(0.14)
                                 } else {
-                                    colors.highlight.with_alpha(0.35)
+                                    colors.bg_base.with_alpha(0.35)
                                 })
                                 .border(
                                     if is_not_default {
@@ -1528,7 +1523,7 @@ fn draw_editor_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColors)
                                 .hover_bg(if is_not_default {
                                     colors.accent.with_alpha(0.26)
                                 } else {
-                                    colors.highlight.with_alpha(0.35)
+                                    colors.bg_base.with_alpha(0.35)
                                 })
                                 .row()
                                 .valign(Align::Center)
