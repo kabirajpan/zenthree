@@ -95,7 +95,7 @@ impl CompletionState {
         path: Option<&Path>,
         cursor: Point,
     ) {
-        let (prefix, _prefix_col, is_after_dot, prev_expr) = extract_prefix(buffer, cursor);
+        let (prefix, _prefix_col, is_after_dot, prev_expr, is_in_string_or_comment) = extract_prefix(buffer, cursor);
         self.prefix = prefix.clone();
         self.cursor_point = cursor;
         self.prev_expr = prev_expr.clone();
@@ -103,6 +103,12 @@ impl CompletionState {
 
         // Auto-trigger rules: trigger if preceded by accessor (., ->, ::), or if prefix has at least 1 character!
         if !is_after_dot && prefix.is_empty() {
+            self.dismiss();
+            return;
+        }
+
+        // Inside string literals or comments: suppress code completions (matching VS Code, Zed, & Neovim)
+        if is_in_string_or_comment {
             self.dismiss();
             return;
         }
@@ -284,14 +290,36 @@ impl CompletionState {
 }
 
 /// Extracts the active identifier prefix and preceding expression before the cursor.
-pub fn extract_prefix(buffer: &Buffer, cursor: Point) -> (String, usize, bool, Option<String>) {
+/// Returns (prefix, word_start_col, is_after_dot, prev_expr, is_in_string_or_comment)
+pub fn extract_prefix(buffer: &Buffer, cursor: Point) -> (String, usize, bool, Option<String>, bool) {
     let line_str = match buffer.line(cursor.row) {
         Some(s) => s,
-        None => return (String::new(), 0, false, None),
+        None => return (String::new(), 0, false, None, false),
     };
 
     let col = cursor.column.min(line_str.len());
     let before_cursor = &line_str[..col];
+
+    // Detect if cursor is inside an unclosed string literal or comment
+    let mut in_quote: Option<char> = None;
+    let mut is_in_comment = false;
+    let mut prev_char = ' ';
+
+    for ch in before_cursor.chars() {
+        if in_quote.is_none() {
+            if ch == '"' || ch == '\'' {
+                in_quote = Some(ch);
+            } else if (prev_char == '/' && ch == '/') || ch == '#' {
+                is_in_comment = true;
+                break;
+            }
+        } else if in_quote == Some(ch) && prev_char != '\\' {
+            in_quote = None;
+        }
+        prev_char = ch;
+    }
+
+    let is_in_string_or_comment = in_quote.is_some() || is_in_comment;
 
     // Find the word prefix right before cursor
     let chars: Vec<char> = before_cursor.chars().collect();
@@ -345,7 +373,7 @@ pub fn extract_prefix(buffer: &Buffer, cursor: Point) -> (String, usize, bool, O
         None
     };
 
-    (prefix, word_start, is_after_dot, prev_expr)
+    (prefix, word_start, is_after_dot, prev_expr, is_in_string_or_comment)
 }
 
 /// Cleanly commits a completion item into the editor by removing the typed prefix and inserting the suggestion.
@@ -387,20 +415,22 @@ mod tests {
     #[test]
     fn test_extract_prefix_identifier() {
         let buf = Buffer::from_text("let my_variable_name = 42;");
-        let (prefix, start_col, is_after_dot, prev_expr) = extract_prefix(&buf, Point::new(0, 16));
+        let (prefix, start_col, is_after_dot, prev_expr, is_in_string_or_comment) = extract_prefix(&buf, Point::new(0, 16));
         assert_eq!(prefix, "my_variable_");
         assert_eq!(start_col, 4);
         assert!(!is_after_dot);
         assert_eq!(prev_expr, None);
+        assert!(!is_in_string_or_comment);
     }
 
     #[test]
     fn test_extract_prefix_after_dot() {
         let buf = Buffer::from_text("let res = user_record.to_st");
-        let (prefix, _, is_after_dot, prev_expr) = extract_prefix(&buf, Point::new(0, 28));
+        let (prefix, _, is_after_dot, prev_expr, is_in_string_or_comment) = extract_prefix(&buf, Point::new(0, 28));
         assert_eq!(prefix, "to_st");
         assert!(is_after_dot);
         assert_eq!(prev_expr, Some("user_record".to_string()));
+        assert!(!is_in_string_or_comment);
     }
 
     #[test]
@@ -508,9 +538,20 @@ mod tests {
     #[test]
     fn test_extract_prefix_double_colon() {
         let buf = Buffer::from_text("std::io::wr");
-        let (prefix, _, is_after_dot, _prev_expr) = extract_prefix(&buf, Point::new(0, 11));
+        let (prefix, _, is_after_dot, _prev_expr, is_in_string_or_comment) = extract_prefix(&buf, Point::new(0, 11));
         assert_eq!(prefix, "wr");
         assert!(is_after_dot);
+        assert!(!is_in_string_or_comment);
+    }
+
+    #[test]
+    fn test_inside_string_dismisses_completion() {
+        let mut state = CompletionState::new();
+        let buf = Buffer::from_text("println!(\"h\")");
+        // Cursor at column 11 (right after the 'h' inside the quotes)
+        state.populate_instant(&buf, Some(Path::new("a.rs")), Point::new(0, 11));
+        assert!(!state.active);
+        assert!(state.items.is_empty());
     }
 
     #[test]

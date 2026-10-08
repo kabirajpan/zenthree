@@ -31,6 +31,12 @@ pub fn fuzzy_match_score(query: &str, candidate: &str) -> Option<i32> {
         return Some(hump_score);
     }
 
+    // For 1-character queries, only match exact prefix or camel-hump boundaries.
+    // Do NOT allow scattered internal matches (e.g. 'h' must never match 'whilelet' or 'match').
+    if query.len() == 1 {
+        return None;
+    }
+
     // 5. General Subsequence Fuzzy Match
     // Characters must appear in candidate in order
     let mut q_chars = query.chars().peekable();
