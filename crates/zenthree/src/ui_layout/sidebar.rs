@@ -1466,7 +1466,7 @@ fn draw_inline_create_row(
 }
 
 /// Render a single context-menu item. Returns true if it was clicked.
-fn draw_menu_item(
+pub(super) fn draw_menu_item(
     ui: &mut Ui,
     id: Id,
     icon: &str,

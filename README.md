@@ -14,6 +14,7 @@ Designed for speed, visual clarity, and responsiveness, Zenthree blends the aest
 - **Full Text Editing Suite**: Undo/redo history, multi-tab editing, word-by-word cursor jumping and deletion (`Ctrl+Backspace`, `Ctrl+Delete`), clipboard operations (`Ctrl+A`, `Ctrl+C`, `Ctrl+X`, `Ctrl+V`).
 - **Interactive Breadcrumb Navigation**: Path trail with clickable directory popups for quick folder navigation.
 - **Code Formatting**: Automatic document formatting integration (`Ctrl+Shift+F`).
+- **Context Menus**: Right-click in the editor or terminal for editing, file, and panel actions. File operations target the active file; creation uses its folder.
 
 ### 📂 File Explorer
 - **Clean Minimal Layout**: Zed-inspired minimalist file tree without distracting ASCII branch guide lines.
@@ -24,6 +25,7 @@ Designed for speed, visual clarity, and responsiveness, Zenthree blends the aest
 
 ### 🖥️ Native Embedded Terminal
 - **Integrated PTY**: Full pseudo-terminal session powered by `portable-pty`.
+- **Run Active File**: Launch supported Python, JavaScript, TypeScript (Deno), Go, Ruby, PHP, Lua, shell, and PowerShell files from the title-bar Run menu.
 - **Direct Inline Console Prompt**: Type directly inside the console (`❯ command█`) with an animated blinking block cursor.
 - **Terminal Productivity**: Command history (`Up`/`Down`), process interrupt (`Ctrl+C`), screen clear (`Ctrl+L`), and tab completion (`Tab`).
 - **Resizable Splitter**: Smooth horizontal resizing with a visual accent pill grip handle and `RowResize` cursor feedback.

@@ -647,6 +647,35 @@ pub struct TreeContextMenu {
     pub menu_y: f32,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum PanelContextMenuTarget {
+    Editor,
+    Terminal,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FileContextAction {
+    NewFile,
+    NewFolder,
+    Rename,
+    Delete,
+    Cut,
+    Copy,
+    Paste,
+    CopyPath,
+    CopyRelativePath,
+    RevealInFileManager,
+}
+
+#[derive(Debug, Clone)]
+pub struct PanelContextMenu {
+    pub target: PanelContextMenuTarget,
+    pub target_path: PathBuf,
+    pub target_is_dir: bool,
+    pub menu_x: f32,
+    pub menu_y: f32,
+}
+
 #[derive(Debug, Clone)]
 pub enum TreeClipboardAction {
     Copy(PathBuf),
@@ -1105,5 +1134,3 @@ impl Default for CursorColorMode {
         CursorColorMode::White
     }
 }
-
-

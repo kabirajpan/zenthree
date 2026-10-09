@@ -123,6 +123,7 @@ pub struct ZenthreeState {
     pub completion_selected_idx: usize,
     pub inline_tree_input: Option<InlineTreeState>,
     pub tree_context_menu: Option<TreeContextMenu>,
+    pub panel_context_menu: Option<PanelContextMenu>,
     pub tree_clipboard: Option<TreeClipboardAction>,
     #[allow(dead_code)]
     pub groq_api_key: Option<String>,
@@ -219,6 +220,7 @@ impl ZenthreeState {
             || self.unsaved_changes_dialog.is_some()
             || self.user_profile_open
             || self.tree_context_menu.is_some()
+            || self.panel_context_menu.is_some()
             || self.cmdline_dialog.open
             || self.delete_confirm_dialog.open
             || self.rename_modal.open
@@ -466,6 +468,7 @@ impl ZenthreeState {
             completion_selected_idx: 0,
             inline_tree_input: None,
             tree_context_menu: None,
+            panel_context_menu: None,
             tree_clipboard: None,
             groq_api_key: std::env::var("GROQ_API_KEY").ok(),
             ai_session_json: None,
@@ -2542,7 +2545,6 @@ mod tests {
         assert!(state.show_modified_files_popup);
     }
 }
-
 
 
 

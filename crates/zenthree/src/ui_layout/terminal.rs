@@ -89,6 +89,28 @@ pub fn draw_terminal_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, h
         && !state.active_resize_terminal
         && ui.mouse_in_rect(panel_x, panel_y, panel_w, panel_h);
 
+    if ui.right_clicked && mouse_in_terminal {
+        let root = state.current_dir.clone();
+        let target_path = state
+            .active_tab
+            .and_then(|idx| state.tabs.get(idx))
+            .and_then(|tab| tab.path.clone())
+            .unwrap_or_else(|| root.clone());
+        state.panel_context_menu = Some(crate::state::PanelContextMenu {
+            target: crate::state::PanelContextMenuTarget::Terminal,
+            target_is_dir: target_path.is_dir(),
+            target_path,
+            menu_x: ui.mouse_x,
+            menu_y: ui.mouse_y,
+        });
+        ui.consume_click();
+        ui.consume_right_click();
+        ui.focused_id = Some(term_id);
+        state.focused_panel = crate::state::FocusedPanel::Terminal;
+        state.last_cursor_activity = std::time::Instant::now();
+        ui.request_redraw();
+    }
+
     if mouse_in_terminal && (ui.clicked || (ui.mouse_down && ui.active_drag.is_none())) {
         ui.focused_id = Some(term_id);
         state.focused_panel = crate::state::types::FocusedPanel::Terminal;
@@ -1119,5 +1141,303 @@ pub fn draw_terminal_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, h
         state.focused_panel = crate::state::types::FocusedPanel::Terminal;
         state.last_cursor_activity = std::time::Instant::now();
         ui.needs_redraw = true;
+    }
+
+    draw_terminal_context_menu(ui, state, &colors, term_id);
+}
+
+#[derive(Clone, Copy)]
+enum TerminalContextAction {
+    CopyAll,
+    Paste,
+    Clear,
+    File(crate::state::FileContextAction),
+}
+
+fn draw_terminal_context_menu(
+    ui: &mut Ui,
+    state: &mut ZenthreeState,
+    colors: &ThemeColors,
+    term_id: Id,
+) {
+    let Some(menu) = state.panel_context_menu.clone() else {
+        return;
+    };
+    if menu.target != crate::state::PanelContextMenuTarget::Terminal {
+        return;
+    }
+
+    let menu_w = 210.0;
+    let menu_h = 13.0 * 26.0 + 5.0 + 17.0 + 8.0;
+    let menu_x = menu.menu_x.clamp(8.0, (ui.width - menu_w - 8.0).max(8.0));
+    let menu_y = menu.menu_y.clamp(8.0, (ui.height - menu_h - 8.0).max(8.0));
+    let mouse_in_menu = ui.mouse_in_rect(menu_x, menu_y, menu_w, menu_h);
+    let escape_pressed = ui.input_events.iter().any(|event| {
+        matches!(
+            event,
+            zenthra_platform::event::PlatformEvent::KeyDown {
+                key: winit::keyboard::KeyCode::Escape
+            }
+        )
+    });
+    if escape_pressed {
+        state.panel_context_menu = None;
+        ui.input_events.retain(|event| {
+            !matches!(
+                event,
+                zenthra_platform::event::PlatformEvent::KeyDown {
+                    key: winit::keyboard::KeyCode::Escape
+                }
+            )
+        });
+        ui.request_redraw();
+        return;
+    }
+    if (ui.clicked || ui.right_clicked) && !mouse_in_menu {
+        state.panel_context_menu = None;
+        ui.consume_click();
+        ui.consume_right_click();
+        ui.request_redraw();
+        return;
+    }
+
+    let has_terminal = state.terminal_session.is_some();
+    let target_path = menu.target_path.clone();
+    let target_is_dir = menu.target_is_dir;
+    let root = state.current_dir.clone();
+    let has_file_target = target_path != root;
+    let has_file_clipboard = state.tree_clipboard.is_some();
+    let mut action = None;
+    ui.overlay(|ui| {
+        ui.container()
+            .raw_id(Id::from_u64(999997300))
+            .absolute(menu_x, menu_y)
+            .overlay()
+            .width(menu_w)
+            .bg(colors.bg_sidebar)
+            .border(colors.border, 1.0)
+            .radius_all(6.0)
+            .shadow(Color::rgba(0.0, 0.0, 0.0, 0.5), 0.0, 4.0, 16.0)
+            .padding(4.0, 4.0, 4.0, 4.0)
+            .column()
+            .gap(1.0)
+            .show(|ui| {
+                if super::sidebar::draw_menu_item(
+                    ui,
+                    Id::from_u64(999997301),
+                    "\u{f018f}",
+                    "Copy All",
+                    "",
+                    has_terminal,
+                    false,
+                    colors,
+                ) {
+                    action = Some(TerminalContextAction::CopyAll);
+                }
+                if super::sidebar::draw_menu_item(
+                    ui,
+                    Id::from_u64(999997302),
+                    "\u{f0192}",
+                    "Paste",
+                    "Ctrl+V",
+                    true,
+                    false,
+                    colors,
+                ) {
+                    action = Some(TerminalContextAction::Paste);
+                }
+                ui.container().full_width().height(1.0).bg(colors.border).show(|_| {});
+                if super::sidebar::draw_menu_item(
+                    ui,
+                    Id::from_u64(999997303),
+                    "\u{f12d}",
+                    "Clear Terminal",
+                    "",
+                    has_terminal,
+                    false,
+                    colors,
+                ) {
+                    action = Some(TerminalContextAction::Clear);
+                }
+                ui.container().full_width().height(1.0).bg(colors.border).show(|_| {});
+                if super::sidebar::draw_menu_item(
+                    ui,
+                    Id::from_u64(999997304),
+                    "\u{ea7f}",
+                    "New File...",
+                    "",
+                    true,
+                    false,
+                    colors,
+                ) {
+                    action = Some(TerminalContextAction::File(crate::state::FileContextAction::NewFile));
+                }
+                if super::sidebar::draw_menu_item(
+                    ui,
+                    Id::from_u64(999997305),
+                    "\u{ea80}",
+                    "New Folder...",
+                    "",
+                    state.has_workspace,
+                    false,
+                    colors,
+                ) {
+                    action = Some(TerminalContextAction::File(crate::state::FileContextAction::NewFolder));
+                }
+                ui.container().full_width().height(1.0).bg(colors.border).show(|_| {});
+                if super::sidebar::draw_menu_item(
+                    ui,
+                    Id::from_u64(999997306),
+                    "\u{f044}",
+                    "Rename File...",
+                    "F2",
+                    has_file_target,
+                    false,
+                    colors,
+                ) {
+                    action = Some(TerminalContextAction::File(crate::state::FileContextAction::Rename));
+                }
+                if super::sidebar::draw_menu_item(
+                    ui,
+                    Id::from_u64(999997307),
+                    "\u{f014}",
+                    "Delete File",
+                    "Del",
+                    has_file_target,
+                    true,
+                    colors,
+                ) {
+                    action = Some(TerminalContextAction::File(crate::state::FileContextAction::Delete));
+                }
+                ui.container().full_width().height(1.0).bg(colors.border).show(|_| {});
+                if super::sidebar::draw_menu_item(
+                    ui,
+                    Id::from_u64(999997308),
+                    "\u{f0c4}",
+                    "Cut File",
+                    "",
+                    has_file_target,
+                    false,
+                    colors,
+                ) {
+                    action = Some(TerminalContextAction::File(crate::state::FileContextAction::Cut));
+                }
+                if super::sidebar::draw_menu_item(
+                    ui,
+                    Id::from_u64(999997309),
+                    "\u{f0c5}",
+                    "Copy File",
+                    "",
+                    has_file_target,
+                    false,
+                    colors,
+                ) {
+                    action = Some(TerminalContextAction::File(crate::state::FileContextAction::Copy));
+                }
+                if super::sidebar::draw_menu_item(
+                    ui,
+                    Id::from_u64(999997310),
+                    "\u{f0ea}",
+                    "Paste File",
+                    "",
+                    has_file_clipboard,
+                    false,
+                    colors,
+                ) {
+                    action = Some(TerminalContextAction::File(crate::state::FileContextAction::Paste));
+                }
+                ui.container().full_width().height(1.0).bg(colors.border).show(|_| {});
+                if super::sidebar::draw_menu_item(
+                    ui,
+                    Id::from_u64(999997311),
+                    "\u{f0c1}",
+                    "Copy Path",
+                    "",
+                    true,
+                    false,
+                    colors,
+                ) {
+                    action = Some(TerminalContextAction::File(crate::state::FileContextAction::CopyPath));
+                }
+                if super::sidebar::draw_menu_item(
+                    ui,
+                    Id::from_u64(999997312),
+                    "⎘",
+                    "Copy Relative Path",
+                    "",
+                    true,
+                    false,
+                    colors,
+                ) {
+                    action = Some(TerminalContextAction::File(crate::state::FileContextAction::CopyRelativePath));
+                }
+                if super::sidebar::draw_menu_item(
+                    ui,
+                    Id::from_u64(999997313),
+                    "\u{f08e}",
+                    "Reveal in File Manager",
+                    "",
+                    true,
+                    false,
+                    colors,
+                ) {
+                    action = Some(TerminalContextAction::File(crate::state::FileContextAction::RevealInFileManager));
+                }
+            });
+    });
+
+    if let Some(action) = action {
+        state.panel_context_menu = None;
+        match action {
+            TerminalContextAction::File(file_action) => {
+                state.run_file_context_action(file_action, &target_path, target_is_dir);
+                if matches!(file_action, crate::state::FileContextAction::NewFile | crate::state::FileContextAction::NewFolder) {
+                    state.focused_panel = crate::state::FocusedPanel::Explorer;
+                    ui.focused_id = None;
+                } else {
+                    ui.focused_id = Some(term_id);
+                    state.focused_panel = crate::state::FocusedPanel::Terminal;
+                }
+            }
+            action => {
+                ui.focused_id = Some(term_id);
+                state.focused_panel = crate::state::FocusedPanel::Terminal;
+                match action {
+            TerminalContextAction::CopyAll => {
+                let contents = state
+                    .terminal_session
+                    .as_ref()
+                    .map(|sess| {
+                        sess.parser
+                            .lock()
+                            .map(|parser| parser.screen().contents())
+                            .map_err(|_| ())
+                    });
+                match contents {
+                    Some(Ok(text)) => {
+                        state.set_clipboard(text);
+                        state.set_status("Terminal output copied to clipboard");
+                    }
+                    Some(Err(_)) => state.set_status("Failed to copy terminal output"),
+                    None => {}
+                }
+            }
+            TerminalContextAction::Paste => {
+                if let Some(text) = state.get_clipboard() {
+                    if let Some(ref mut sess) = state.terminal_session {
+                        sess.write_raw(text.as_bytes());
+                    }
+                    state.last_cursor_activity = std::time::Instant::now();
+                }
+            }
+            TerminalContextAction::Clear => {
+                state.clear_terminal();
+                state.last_cursor_activity = std::time::Instant::now();
+            }
+            TerminalContextAction::File(_) => unreachable!(),
+                }
+            }
+        }
+        ui.request_redraw();
     }
 }

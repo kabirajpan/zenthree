@@ -448,6 +448,18 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                         });
                     });
 
+                    ui.menu("Run").show(|ui| {
+                        if ui.menu_item("Run Active File").show().clicked {
+                            if state.run_active_file() {
+                                state.focused_panel =
+                                    crate::state::types::FocusedPanel::Terminal;
+                                state.last_cursor_activity = std::time::Instant::now();
+                                ui.focused_id = Some(Id::from_u64(999999800));
+                            }
+                            ui.request_redraw();
+                        }
+                    });
+
                     ui.menu("Help").show(|ui| {
                         if ui.menu_item("About Zenthree").show().clicked {
                             state.about_open = true;

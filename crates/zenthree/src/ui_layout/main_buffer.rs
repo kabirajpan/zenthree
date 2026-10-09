@@ -10,6 +10,25 @@ use editor::selection::Selection;
 
 pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height: f32) {
     let colors = use_context::<crate::theme::ThemeColors>().map(|c| *c).unwrap_or_else(|| state.colors());
+    if state.tabs.is_empty()
+        && state.panel_context_menu.is_none()
+        && !ui.modal_active
+        && !state.is_modal_or_dialog_open()
+        && ui.right_clicked
+        && ui.mouse_in_rect(ui.cursor_x, ui.cursor_y, width, height)
+    {
+        state.panel_context_menu = Some(crate::state::PanelContextMenu {
+            target: crate::state::PanelContextMenuTarget::Editor,
+            target_path: state.current_dir.clone(),
+            target_is_dir: true,
+            menu_x: ui.mouse_x,
+            menu_y: ui.mouse_y,
+        });
+        ui.consume_click();
+        ui.consume_right_click();
+        state.focused_panel = crate::state::FocusedPanel::Editor;
+        ui.request_redraw();
+    }
 
     // Drain any fresh completions delivered by LSP
     if let Some(items) = state.lsp_manager.latest_completions.take() {
@@ -1642,7 +1661,32 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
 
                     // Set focus and mouse selection logic on click
                     let is_hovered = !is_modal_open && ui.mouse_in_rect(editor_x + ui.offset_x, editor_y + ui.offset_y, editor_w, editor_h);
-                    if ui.clicked && is_hovered {
+                    let right_clicked_editor = ui.right_clicked
+                        && is_hovered
+                        && !is_near_panel_edge
+                        && !(state.ai_panel_visible && state.ai_panel_expanded)
+                        && !state.is_resizing();
+                    if right_clicked_editor {
+                        let root = state.current_dir.clone();
+                        let target_path = state.tabs[active_tab_idx]
+                            .path
+                            .clone()
+                            .unwrap_or_else(|| root.clone());
+                        state.panel_context_menu = Some(crate::state::PanelContextMenu {
+                            target: crate::state::PanelContextMenuTarget::Editor,
+                            target_is_dir: target_path.is_dir(),
+                            target_path,
+                            menu_x: ui.mouse_x,
+                            menu_y: ui.mouse_y,
+                        });
+                        ui.consume_click();
+                        ui.consume_right_click();
+                        ui.focused_id = Some(editor_id);
+                        state.focused_panel = crate::state::FocusedPanel::Editor;
+                        ui.request_redraw();
+                    }
+
+                    if ui.clicked && is_hovered && !right_clicked_editor {
                         // Avoid positioning the cursor if clicking on the scrollbar or panel edges
                         let scrollbar_w = 6.0;
                         let scrollbar_x = editor_x + editor_w - scrollbar_w - 4.0;
@@ -1908,6 +1952,191 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                 }
             }
         });
+
+    draw_editor_context_menu(ui, state, &colors);
+}
+
+#[derive(Clone, Copy)]
+enum EditorContextAction {
+    Undo,
+    Redo,
+    Cut,
+    Copy,
+    Paste,
+    SelectAll,
+    Format,
+    File(crate::state::FileContextAction),
+}
+
+fn draw_editor_context_menu(
+    ui: &mut Ui,
+    state: &mut ZenthreeState,
+    colors: &crate::theme::ThemeColors,
+) {
+    let Some(menu) = state.panel_context_menu.clone() else {
+        return;
+    };
+    if menu.target != crate::state::PanelContextMenuTarget::Editor {
+        return;
+    }
+
+    let menu_w = 210.0;
+    let has_active_tab = state.active_tab.and_then(|idx| state.tabs.get(idx)).is_some();
+    let menu_h = if has_active_tab {
+        17.0 * 26.0 + 5.0 + 22.0 + 8.0
+    } else {
+        10.0 * 26.0 + 3.0 + 13.0 + 8.0
+    };
+    let menu_x = menu.menu_x.clamp(8.0, (ui.width - menu_w - 8.0).max(8.0));
+    let menu_y = menu.menu_y.clamp(8.0, (ui.height - menu_h - 8.0).max(8.0));
+    let mouse_in_menu = ui.mouse_in_rect(menu_x, menu_y, menu_w, menu_h);
+    let escape_pressed = ui.input_events.iter().any(|event| {
+        matches!(
+            event,
+            zenthra_platform::event::PlatformEvent::KeyDown {
+                key: winit::keyboard::KeyCode::Escape
+            }
+        )
+    });
+    if escape_pressed {
+        state.panel_context_menu = None;
+        ui.input_events.retain(|event| {
+            !matches!(
+                event,
+                zenthra_platform::event::PlatformEvent::KeyDown {
+                    key: winit::keyboard::KeyCode::Escape
+                }
+            )
+        });
+        ui.request_redraw();
+        return;
+    }
+    if (ui.clicked || ui.right_clicked) && !mouse_in_menu {
+        state.panel_context_menu = None;
+        ui.consume_click();
+        ui.consume_right_click();
+        ui.request_redraw();
+        return;
+    }
+
+    let has_selection = state
+        .active_tab
+        .and_then(|idx| state.tabs.get(idx))
+        .map(|tab| tab.editor.selection().start != tab.editor.selection().end)
+        .unwrap_or(false);
+    let target_path = menu.target_path.clone();
+    let target_is_dir = menu.target_is_dir;
+    let root = state.current_dir.clone();
+    let has_file_target = target_path != root;
+    let has_file_clipboard = state.tree_clipboard.is_some();
+    let mut action = None;
+
+    ui.overlay(|ui| {
+        ui.container()
+            .raw_id(Id::from_u64(999997200))
+            .absolute(menu_x, menu_y)
+            .overlay()
+            .width(menu_w)
+            .bg(colors.bg_sidebar)
+            .border(colors.border, 1.0)
+            .radius_all(6.0)
+            .shadow(Color::rgba(0.0, 0.0, 0.0, 0.5), 0.0, 4.0, 16.0)
+            .padding(4.0, 4.0, 4.0, 4.0)
+            .column()
+            .gap(1.0)
+            .show(|ui| {
+                if super::sidebar::draw_menu_item(ui, Id::from_u64(999997208), "\u{ea7f}", "New File...", "", true, false, colors) {
+                    action = Some(EditorContextAction::File(crate::state::FileContextAction::NewFile));
+                }
+                if super::sidebar::draw_menu_item(ui, Id::from_u64(999997209), "\u{ea80}", "New Folder...", "", state.has_workspace, false, colors) {
+                    action = Some(EditorContextAction::File(crate::state::FileContextAction::NewFolder));
+                }
+                ui.container().full_width().height(1.0).bg(colors.border).show(|_| {});
+                if has_active_tab {
+                    if super::sidebar::draw_menu_item(ui, Id::from_u64(999997201), "\u{f0e2}", "Undo", "Ctrl+Z", true, false, colors) {
+                        action = Some(EditorContextAction::Undo);
+                    }
+                    if super::sidebar::draw_menu_item(ui, Id::from_u64(999997202), "\u{f01e}", "Redo", "Ctrl+Y", true, false, colors) {
+                        action = Some(EditorContextAction::Redo);
+                    }
+                    ui.container().full_width().height(1.0).bg(colors.border).show(|_| {});
+                    if super::sidebar::draw_menu_item(ui, Id::from_u64(999997203), "\u{f0c4}", "Cut", "Ctrl+X", has_selection, false, colors) {
+                        action = Some(EditorContextAction::Cut);
+                    }
+                    if super::sidebar::draw_menu_item(ui, Id::from_u64(999997204), "\u{f0c5}", "Copy", "Ctrl+C", has_selection, false, colors) {
+                        action = Some(EditorContextAction::Copy);
+                    }
+                    if super::sidebar::draw_menu_item(ui, Id::from_u64(999997205), "\u{f0ea}", "Paste", "Ctrl+V", true, false, colors) {
+                        action = Some(EditorContextAction::Paste);
+                    }
+                    if super::sidebar::draw_menu_item(ui, Id::from_u64(999997206), "\u{f0c5}", "Select All", "Ctrl+A", true, false, colors) {
+                        action = Some(EditorContextAction::SelectAll);
+                    }
+                    if super::sidebar::draw_menu_item(ui, Id::from_u64(999997207), "\u{f0ad}", "Format Document", "Ctrl+Shift+F", true, false, colors) {
+                        action = Some(EditorContextAction::Format);
+                    }
+                    ui.container().full_width().height(1.0).bg(colors.border).show(|_| {});
+                }
+                if super::sidebar::draw_menu_item(ui, Id::from_u64(999997210), "\u{f044}", "Rename File...", "F2", has_file_target, false, colors) {
+                    action = Some(EditorContextAction::File(crate::state::FileContextAction::Rename));
+                }
+                if super::sidebar::draw_menu_item(ui, Id::from_u64(999997211), "\u{f014}", "Delete File", "Del", has_file_target, true, colors) {
+                    action = Some(EditorContextAction::File(crate::state::FileContextAction::Delete));
+                }
+                ui.container().full_width().height(1.0).bg(colors.border).show(|_| {});
+                if super::sidebar::draw_menu_item(ui, Id::from_u64(999997212), "\u{f0c4}", "Cut File", "", has_file_target, false, colors) {
+                    action = Some(EditorContextAction::File(crate::state::FileContextAction::Cut));
+                }
+                if super::sidebar::draw_menu_item(ui, Id::from_u64(999997213), "\u{f0c5}", "Copy File", "", has_file_target, false, colors) {
+                    action = Some(EditorContextAction::File(crate::state::FileContextAction::Copy));
+                }
+                if super::sidebar::draw_menu_item(ui, Id::from_u64(999997214), "\u{f0ea}", "Paste File", "", has_file_clipboard, false, colors) {
+                    action = Some(EditorContextAction::File(crate::state::FileContextAction::Paste));
+                }
+                ui.container().full_width().height(1.0).bg(colors.border).show(|_| {});
+                if super::sidebar::draw_menu_item(ui, Id::from_u64(999997215), "\u{f0c1}", "Copy Path", "", true, false, colors) {
+                    action = Some(EditorContextAction::File(crate::state::FileContextAction::CopyPath));
+                }
+                if super::sidebar::draw_menu_item(ui, Id::from_u64(999997216), "⎘", "Copy Relative Path", "", true, false, colors) {
+                    action = Some(EditorContextAction::File(crate::state::FileContextAction::CopyRelativePath));
+                }
+                if super::sidebar::draw_menu_item(ui, Id::from_u64(999997217), "\u{f08e}", "Reveal in File Manager", "", true, false, colors) {
+                    action = Some(EditorContextAction::File(crate::state::FileContextAction::RevealInFileManager));
+                }
+            });
+    });
+
+    if let Some(action) = action {
+        state.panel_context_menu = None;
+        match action {
+            EditorContextAction::File(file_action) => {
+                state.run_file_context_action(file_action, &target_path, target_is_dir);
+                if matches!(file_action, crate::state::FileContextAction::NewFile | crate::state::FileContextAction::NewFolder) {
+                    state.focused_panel = crate::state::FocusedPanel::Explorer;
+                    ui.focused_id = None;
+                }
+            }
+            action => if let Some(idx) = state.active_tab {
+                ui.focused_id = Some(Id::from_u64(999996000 + idx as u64));
+                state.focused_panel = crate::state::FocusedPanel::Editor;
+                match action {
+                EditorContextAction::Undo => state.undo_active_tab(),
+                EditorContextAction::Redo => state.redo_active_tab(),
+                EditorContextAction::Cut => state.cut_selection(),
+                EditorContextAction::Copy => state.copy_selection(),
+                EditorContextAction::Paste => state.paste_clipboard(),
+                EditorContextAction::SelectAll => {
+                    if let Some(tab) = state.tabs.get_mut(idx) {
+                        tab.editor.select_all();
+                    }
+                }
+                EditorContextAction::Format => state.format_active_tab(),
+                EditorContextAction::File(_) => unreachable!(),
+                }
+            }
+        }
+        ui.request_redraw();
+    }
 }
 
 

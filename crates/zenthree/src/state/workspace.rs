@@ -4,6 +4,64 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
 impl ZenthreeState {
+    pub fn run_file_context_action(
+        &mut self,
+        action: crate::state::FileContextAction,
+        target_path: &Path,
+        target_is_dir: bool,
+    ) {
+        let root = self.current_dir.clone();
+        let target_dir = if target_is_dir {
+            target_path.to_path_buf()
+        } else {
+            target_path.parent().unwrap_or(&root).to_path_buf()
+        };
+        let is_workspace_root = target_path == root;
+
+        match action {
+            crate::state::FileContextAction::NewFile => {
+                self.sidebar_view = SidebarView::Explorer;
+                self.sidebar_visible = true;
+                self.start_new_file_inline(Some(target_dir));
+            }
+            crate::state::FileContextAction::NewFolder => {
+                if self.has_workspace {
+                    self.sidebar_view = SidebarView::Explorer;
+                    self.sidebar_visible = true;
+                    self.start_new_folder_inline(Some(target_dir));
+                }
+            }
+            crate::state::FileContextAction::Rename if !is_workspace_root => {
+                self.open_rename_modal(target_path.to_path_buf());
+            }
+            crate::state::FileContextAction::Delete if !is_workspace_root => {
+                self.open_delete_confirm(target_path.to_path_buf());
+            }
+            crate::state::FileContextAction::Cut if !is_workspace_root => {
+                self.cut_tree_path(target_path);
+            }
+            crate::state::FileContextAction::Copy if !is_workspace_root => {
+                self.copy_tree_path(target_path);
+            }
+            crate::state::FileContextAction::Paste => {
+                self.paste_into_tree_path(&target_dir);
+            }
+            crate::state::FileContextAction::CopyPath => {
+                self.set_clipboard(target_path.display().to_string());
+                self.set_status("Path copied to clipboard");
+            }
+            crate::state::FileContextAction::CopyRelativePath => {
+                let relative = target_path.strip_prefix(&root).unwrap_or(target_path);
+                self.set_clipboard(relative.display().to_string());
+                self.set_status("Relative path copied to clipboard");
+            }
+            crate::state::FileContextAction::RevealInFileManager => {
+                self.reveal_in_file_manager(target_path);
+            }
+            _ => {}
+        }
+    }
+
     pub fn get_tree_root(&self) -> PathBuf {
         if self.sidebar_view == SidebarView::Notes {
             self.notes_state.get_vault_dir(&self.current_dir)
