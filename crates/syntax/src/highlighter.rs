@@ -428,3 +428,60 @@ fn safe_char_count(s: &str, byte_offset: usize) -> usize {
         .unwrap_or(0);
     s[..clamped].chars().count()
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use editor::rope::Rope;
+    use std::path::Path;
+
+    #[test]
+    fn test_treesitter_rust_highlighting() {
+        let mut highlighter = SyntaxHighlighter::new(SyntaxTheme::dark());
+        let code = "fn add(a: i32, b: i32) -> i32 {\n    let sum = a + b;\n    sum\n}";
+        let rope = Rope::from_text(code);
+        let path = Path::new("main.rs");
+
+        let highlights = highlighter.highlight_viewport(&rope, 1, Some(path), 0, 4);
+        assert!(!highlights.is_empty(), "Expected highlights for Rust file");
+        let line0_spans = highlights.get(&0).expect("Line 0 should have highlights");
+        assert!(!line0_spans.is_empty(), "Line 0 should contain highlighted tokens");
+    }
+
+    #[test]
+    fn test_treesitter_javascript_highlighting() {
+        let mut highlighter = SyntaxHighlighter::new(SyntaxTheme::dark());
+        let code = "function test() {\n    const x = 42;\n    return x;\n}";
+        let rope = Rope::from_text(code);
+        let path = Path::new("index.js");
+
+        let highlights = highlighter.highlight_viewport(&rope, 1, Some(path), 0, 4);
+        assert!(!highlights.is_empty(), "Expected highlights for JS file");
+        let line0_spans = highlights.get(&0).expect("Line 0 should have highlights");
+        assert!(!line0_spans.is_empty(), "Line 0 should contain highlighted tokens");
+    }
+
+    #[test]
+    fn test_treesitter_python_highlighting() {
+        let mut highlighter = SyntaxHighlighter::new(SyntaxTheme::dark());
+        let code = "def hello():\n    print('world')\n";
+        let rope = Rope::from_text(code);
+        let path = Path::new("script.py");
+
+        let highlights = highlighter.highlight_viewport(&rope, 1, Some(path), 0, 2);
+        assert!(!highlights.is_empty(), "Expected highlights for Python file");
+        let line0_spans = highlights.get(&0).expect("Line 0 should have highlights");
+        assert!(!line0_spans.is_empty(), "Line 0 should contain highlighted tokens");
+    }
+
+    #[test]
+    fn test_fallback_highlighting() {
+        let mut highlighter = SyntaxHighlighter::new(SyntaxTheme::dark());
+        let code = "interface User {\n    id: number;\n    name: string;\n}";
+        let rope = Rope::from_text(code);
+        let path = Path::new("user.ts");
+
+        let highlights = highlighter.highlight_viewport(&rope, 1, Some(path), 0, 4);
+        assert!(!highlights.is_empty(), "Expected fallback regex highlights for TypeScript file");
+    }
+}

@@ -377,6 +377,11 @@ pub fn extract_prefix(buffer: &Buffer, cursor: Point) -> (String, usize, bool, O
 }
 
 /// Cleanly commits a completion item into the editor by removing the typed prefix and inserting the suggestion.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct SnippetSession {
+    pub target_point: Point,
+}
+
 pub fn commit_completion(
     editor: &mut Editor,
     item: &CompletionItem,
@@ -385,7 +390,7 @@ pub fn commit_completion(
     is_postfix: bool,
     path: Option<&Path>,
     indent_calc: Option<&dyn editor::editor::IndentProvider>,
-) {
+) -> Option<SnippetSession> {
     if is_postfix {
         if let Some(ref template) = item.postfix_template {
             let expr_str = prev_expr.unwrap_or("");
@@ -394,7 +399,7 @@ pub fn commit_completion(
                 editor.backspace();
             }
             editor.insert(template, path, indent_calc);
-            return;
+            return None;
         }
     }
 
@@ -404,8 +409,75 @@ pub fn commit_completion(
         editor.backspace();
     }
 
+    // CASE 1: Snippet with placeholder / tabstop (e.g. fn~, struct~, def~, etc.)
+    if item.kind == CompletionKind::PostfixSnippet || item.label.ends_with('~') {
+        let raw_text = item
+            .insert_text
+            .as_deref()
+            .or(item.postfix_template.as_deref())
+            .unwrap_or(&item.label);
+        let parsed = snippets::parse_snippet_template(raw_text);
+
+        let insert_pos = editor.cursor();
+        editor.insert(&parsed.clean_text, path, indent_calc);
+
+        if let Some((start_col, end_col)) = parsed.placeholder_col_range {
+            let p_start = Point::new(insert_pos.row, insert_pos.column + start_col);
+            let p_end = Point::new(insert_pos.row, insert_pos.column + end_col);
+            editor.set_selection(editor::selection::Selection::new(p_start, p_end));
+        }
+
+        if let Some(row_offset) = parsed.body_row_offset {
+            let target_row = insert_pos.row + row_offset;
+            let target_col = editor
+                .buffer
+                .line(target_row)
+                .map(|line| line.chars().count())
+                .unwrap_or_else(|| parsed.body_col.unwrap_or(4));
+            return Some(SnippetSession {
+                target_point: Point::new(target_row, target_col),
+            });
+        }
+        return None;
+    }
+
+    // CASE 2: Function or Method completion (e.g. `add`)
+    if item.kind == CompletionKind::Function || item.kind == CompletionKind::Method {
+        let raw_name = item.insert_text.as_deref().unwrap_or(&item.label);
+        let func_name = if raw_name.ends_with("()") {
+            &raw_name[..raw_name.len() - 2]
+        } else {
+            raw_name
+        };
+
+        // Check if the next character in the buffer is already '('
+        let cursor_offset = editor.buffer.point_to_offset(editor.cursor());
+        let next_char = editor.buffer
+            .slice_bytes(cursor_offset.value(), (cursor_offset.value() + 1).min(editor.buffer.rope().len()))
+            .chars()
+            .next();
+
+        let (text_to_insert, place_inside_parens) = if next_char == Some('(') {
+            (func_name.to_string(), false)
+        } else {
+            (format!("{}()", func_name), true)
+        };
+
+        editor.insert(&text_to_insert, path, indent_calc);
+
+        if place_inside_parens {
+            let cur = editor.cursor();
+            if cur.column > 0 {
+                editor.set_cursor(Point::new(cur.row, cur.column - 1));
+            }
+        }
+        return None;
+    }
+
+    // CASE 3: Standard identifiers, variables, keywords, types
     let text_to_insert = item.insert_text.as_deref().unwrap_or(&item.label);
     editor.insert(text_to_insert, path, indent_calc);
+    None
 }
 
 #[cfg(test)]
@@ -567,6 +639,82 @@ mod tests {
 
         let ifelse_item = state.items.iter().find(|i| i.label == "ifelse~").unwrap();
         assert!(ifelse_item.postfix_template.as_ref().unwrap().contains("else:"));
+    }
+
+    #[test]
+    fn test_commit_completion_function_adds_parentheses_and_places_cursor() {
+        let mut editor = Editor::new(Buffer::new());
+        editor.insert("ad", None, None);
+
+        let item = CompletionItem {
+            label: "add".to_string(),
+            kind: CompletionKind::Function,
+            detail: Some("a.rs".to_string()),
+            documentation: Some("a.rs • Ln 1 (function)".to_string()),
+            insert_text: Some("add".to_string()),
+            score: 500,
+            is_postfix: false,
+            postfix_template: Some("fn add() {".to_string()),
+        };
+
+        let session = commit_completion(&mut editor, &item, "ad", None, false, None, None);
+        assert_eq!(session, None);
+        assert_eq!(editor.buffer.to_string(), "add()");
+        // Cursor should be inside the parentheses: column 4 (a=0, d=1, d=2, (=3, )=4, cursor at 4)
+        assert_eq!(editor.cursor(), Point::new(0, 4));
+    }
+
+    #[test]
+    fn test_commit_completion_function_skips_extra_parens_if_already_present() {
+        let mut editor = Editor::new(Buffer::new());
+        editor.insert("ad()", None, None);
+        // Move cursor back between 'd' and '('
+        editor.set_cursor(Point::new(0, 2));
+
+        let item = CompletionItem {
+            label: "add".to_string(),
+            kind: CompletionKind::Function,
+            detail: Some("a.rs".to_string()),
+            documentation: Some("a.rs • Ln 1 (function)".to_string()),
+            insert_text: Some("add".to_string()),
+            score: 500,
+            is_postfix: false,
+            postfix_template: None,
+        };
+
+        let session = commit_completion(&mut editor, &item, "ad", None, false, None, None);
+        assert_eq!(session, None);
+        // Should not duplicate parentheses
+        assert_eq!(editor.buffer.to_string(), "add()");
+    }
+
+    #[test]
+    fn test_commit_completion_snippet_option_3() {
+        let mut editor = Editor::new(Buffer::new());
+        editor.insert("fn", None, None);
+
+        let item = CompletionItem {
+            label: "fn~".to_string(),
+            kind: CompletionKind::PostfixSnippet,
+            detail: Some("fn name() { ... }".to_string()),
+            documentation: Some("function snippet".to_string()),
+            insert_text: Some("fn ${1:name}() {\n    $0\n}".to_string()),
+            score: 900,
+            is_postfix: false,
+            postfix_template: Some("fn ${1:name}() {\n    $0\n}".to_string()),
+        };
+
+        let session = commit_completion(&mut editor, &item, "fn", None, false, None, None);
+        assert_eq!(editor.buffer.to_string(), "fn name() {\n    \n}");
+        // Option 3: Tabstop 1 placeholder `name` is selected (col 3 to 7)
+        let sel = editor.selection();
+        assert_eq!(sel.start, Point::new(0, 3));
+        assert_eq!(sel.end, Point::new(0, 7));
+
+        // Tabstop 2 session target point points to indented body (row 1, col 4)
+        assert!(session.is_some());
+        let s = session.unwrap();
+        assert_eq!(s.target_point, Point::new(1, 4));
     }
 }
 

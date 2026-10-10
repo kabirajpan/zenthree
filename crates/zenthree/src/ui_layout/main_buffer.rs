@@ -771,6 +771,12 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                                                     state.completion_items.clear();
                                                     changed = true;
                                                 }
+                                                if state.snippet_session.is_some() {
+                                                    state.snippet_session = None;
+                                                    let cur = tab.editor.cursor();
+                                                    tab.editor.set_cursor(cur);
+                                                    changed = true;
+                                                }
                                                 if state.vim_mode {
                                                     state.editor_vim_normal = true;
                                                     changed = true;
@@ -837,7 +843,7 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                                                     let prefix = state.completion_state.prefix.clone();
                                                     let prev_expr = state.completion_state.prev_expr.clone();
                                                     if let Some(item) = state.completion_state.items.get(state.completion_state.selected_idx).cloned() {
-                                                        crate::completion::commit_completion(
+                                                        state.snippet_session = crate::completion::commit_completion(
                                                             &mut tab.editor,
                                                             &item,
                                                             &prefix,
@@ -852,6 +858,14 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                                                     state.completion_items.clear();
                                                     changed = true;
                                                     ui.request_redraw();
+                                                } else if let Some(session) = state.snippet_session.take() {
+                                                    if tab.editor.cursor().row < session.target_point.row {
+                                                        tab.editor.set_cursor(session.target_point);
+                                                    } else {
+                                                        tab.editor.insert("\n", tab.path.as_deref(), Some(&state.indent_calc));
+                                                    }
+                                                    changed = true;
+                                                    ui.request_redraw();
                                                 } else {
                                                     tab.editor.insert("\n", tab.path.as_deref(), Some(&state.indent_calc));
                                                     changed = true;
@@ -862,7 +876,7 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                                                     let prefix = state.completion_state.prefix.clone();
                                                     let prev_expr = state.completion_state.prev_expr.clone();
                                                     if let Some(item) = state.completion_state.items.get(state.completion_state.selected_idx).cloned() {
-                                                        crate::completion::commit_completion(
+                                                        state.snippet_session = crate::completion::commit_completion(
                                                             &mut tab.editor,
                                                             &item,
                                                             &prefix,
@@ -875,6 +889,10 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                                                     state.completion_state.dismiss();
                                                     state.completion_active = false;
                                                     state.completion_items.clear();
+                                                    changed = true;
+                                                    ui.request_redraw();
+                                                } else if let Some(session) = state.snippet_session.take() {
+                                                    tab.editor.set_cursor(session.target_point);
                                                     changed = true;
                                                     ui.request_redraw();
                                                 } else {
@@ -1746,6 +1764,7 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                             } else {
                                 tab.editor.set_cursor(Point::new(line_idx, col_idx));
                             }
+                            state.snippet_session = None;
                             state.last_cursor_activity = std::time::Instant::now();
                         }
                     }
@@ -1924,7 +1943,7 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                                 let prev_expr = state.completion_state.prev_expr.clone();
                                 if let Some(item) = state.completion_state.items.get(idx).cloned() {
                                     let tab_path = state.tabs[active_tab_idx].path.clone();
-                                    crate::completion::commit_completion(
+                                    state.snippet_session = crate::completion::commit_completion(
                                         &mut state.tabs[active_tab_idx].editor,
                                         &item,
                                         &prefix,

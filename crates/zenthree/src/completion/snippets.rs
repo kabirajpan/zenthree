@@ -288,3 +288,114 @@ pub static COMMON_SNIPPETS: [SnippetTemplate; 4] = [
         body: "return;",
     },
 ];
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ParsedSnippet {
+    pub clean_text: String,
+    pub placeholder_col_range: Option<(usize, usize)>,
+    pub body_row_offset: Option<usize>,
+    pub body_col: Option<usize>,
+}
+
+pub fn parse_snippet_template(template: &str) -> ParsedSnippet {
+    // 1. Check for explicit tabstops like ${1:name} and $0 / $2
+    if template.contains("${1:") || template.contains("$0") || template.contains("$1") {
+        let mut clean = String::new();
+        let mut placeholder_range = None;
+        let mut body_row_offset = None;
+        let mut body_col = None;
+
+        let mut chars = template.chars().peekable();
+        let mut current_row = 0;
+        let mut current_col = 0;
+
+        while let Some(ch) = chars.next() {
+            if ch == '$' {
+                if chars.peek() == Some(&'0') {
+                    chars.next();
+                    body_row_offset = Some(current_row);
+                    body_col = Some(current_col);
+                    continue;
+                } else if chars.peek() == Some(&'{') {
+                    // ${1:placeholder}
+                    let mut snippet_var = String::new();
+                    chars.next(); // consume '{'
+                    while let Some(c) = chars.next() {
+                        if c == '}' {
+                            break;
+                        }
+                        snippet_var.push(c);
+                    }
+                    if let Some(colon_pos) = snippet_var.find(':') {
+                        let default_val = &snippet_var[colon_pos + 1..];
+                        let start_col = current_col;
+                        let end_col = current_col + default_val.chars().count();
+                        if placeholder_range.is_none() {
+                            placeholder_range = Some((start_col, end_col));
+                        }
+                        for c in default_val.chars() {
+                            clean.push(c);
+                            current_col += 1;
+                        }
+                    }
+                    continue;
+                }
+            }
+
+            clean.push(ch);
+            if ch == '\n' {
+                current_row += 1;
+                current_col = 0;
+            } else {
+                current_col += 1;
+            }
+        }
+
+        return ParsedSnippet {
+            clean_text: clean,
+            placeholder_col_range: placeholder_range,
+            body_row_offset,
+            body_col,
+        };
+    }
+
+    // 2. Standard block pattern heuristic:
+    let lines: Vec<&str> = template.lines().collect();
+    let mut placeholder_col_range = None;
+    let mut body_row_offset = None;
+    let mut body_col = None;
+
+    if !lines.is_empty() {
+        let first_line = lines[0];
+        if let Some(idx) = first_line.find("name") {
+            placeholder_col_range = Some((idx, idx + 4));
+        } else if let Some(idx) = first_line.find("Name") {
+            placeholder_col_range = Some((idx, idx + 4));
+        } else if let Some(idx) = first_line.find("func_name") {
+            placeholder_col_range = Some((idx, idx + 9));
+        } else if let Some(idx) = first_line.find("ClassName") {
+            placeholder_col_range = Some((idx, idx + 9));
+        } else if let Some(idx) = first_line.find("TypeName") {
+            placeholder_col_range = Some((idx, idx + 8));
+        } else if let Some(idx) = first_line.find("condition") {
+            placeholder_col_range = Some((idx, idx + 9));
+        }
+    }
+
+    if lines.len() >= 3 {
+        // e.g. fn name() {\n    \n}
+        body_row_offset = Some(1);
+        let second_line_indent = lines[1].chars().take_while(|c| c.is_whitespace()).count();
+        body_col = Some(second_line_indent.max(4));
+    } else if lines.len() == 2 && lines[1].trim().is_empty() {
+        body_row_offset = Some(1);
+        body_col = Some(4);
+    }
+
+    ParsedSnippet {
+        clean_text: template.to_string(),
+        placeholder_col_range,
+        body_row_offset,
+        body_col,
+    }
+}

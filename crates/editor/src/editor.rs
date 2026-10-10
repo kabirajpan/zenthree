@@ -107,9 +107,29 @@ impl Editor {
         self.normalize_selections();
     }
 
+    fn line_first_non_whitespace_column(&self, row: usize) -> usize {
+        if let Some(line) = self.buffer.line(row) {
+            line.chars()
+                .take_while(|c| *c != '\r' && *c != '\n')
+                .position(|c| !c.is_whitespace())
+                .unwrap_or(0)
+        } else {
+            0
+        }
+    }
+
     pub fn move_to_line_start(&mut self) {
+        self.history.break_group();
         for i in 0..self.selections.len() {
-            self.selections[i] = Selection::cursor(Point::new(self.selections[i].end.row, 0));
+            let row = self.selections[i].end.row;
+            let first_non_ws = self.line_first_non_whitespace_column(row);
+            let current_col = self.selections[i].end.column;
+            let target_col = if current_col == first_non_ws {
+                0
+            } else {
+                first_non_ws
+            };
+            self.selections[i] = Selection::cursor(Point::new(row, target_col));
         }
         self.normalize_selections();
     }
@@ -250,8 +270,17 @@ impl Editor {
     }
 
     pub fn extend_selection_to_line_start(&mut self) {
+        self.history.break_group();
         for i in 0..self.selections.len() {
-            self.selections[i].end = Point::new(self.selections[i].end.row, 0);
+            let row = self.selections[i].end.row;
+            let first_non_ws = self.line_first_non_whitespace_column(row);
+            let current_col = self.selections[i].end.column;
+            let target_col = if current_col == first_non_ws {
+                0
+            } else {
+                first_non_ws
+            };
+            self.selections[i].end = Point::new(row, target_col);
         }
         self.normalize_selections();
     }
@@ -983,6 +1012,25 @@ mod tests {
 
         editor.delete_line();
         assert_eq!(editor.buffer.to_string(), "first line\nsecond line\nthird line");
+    }
+
+    #[test]
+    fn test_smart_home_navigation() {
+        let mut editor = Editor::new(Buffer::from_text("    print(\"Hello world\");"));
+        // Cursor at end of line (col 26)
+        editor.set_cursor(Point::new(0, 26));
+
+        // First Home press: jump to start of code (col 4, right before 'print')
+        editor.move_to_line_start();
+        assert_eq!(editor.cursor().column, 4);
+
+        // Second Home press: toggle to column 0 (very start of line)
+        editor.move_to_line_start();
+        assert_eq!(editor.cursor().column, 0);
+
+        // Third Home press: jump back to start of code (col 4)
+        editor.move_to_line_start();
+        assert_eq!(editor.cursor().column, 4);
     }
 }
 

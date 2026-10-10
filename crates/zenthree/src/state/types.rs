@@ -1105,18 +1105,18 @@ impl EditorSettingsTab {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize, Default)]
 pub enum CursorStyle {
     #[default]
-    Block,
     Line,
+    Block,
     Underline,
 }
 
 impl CursorStyle {
-    pub const ALL: [Self; 3] = [Self::Block, Self::Line, Self::Underline];
+    pub const ALL: [Self; 3] = [Self::Line, Self::Block, Self::Underline];
 
     pub fn display_name(&self) -> &'static str {
         match self {
-            Self::Block => "Block (Terminal)",
             Self::Line => "Line (Bar)",
+            Self::Block => "Block (Terminal)",
             Self::Underline => "Underline",
         }
     }
