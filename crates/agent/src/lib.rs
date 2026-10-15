@@ -4,15 +4,21 @@ pub mod context;
 pub mod external_provider;
 pub mod orchestrator;
 pub mod provider;
+pub mod rules;
 pub mod skills;
+pub mod tasks;
 pub mod tools;
 pub mod traits;
+pub mod trust;
 pub mod types;
 pub mod verification;
 
 pub use agentic_loop::Agent;
 pub use orchestrator::AgentConfig;
+pub use rules::{discover_rules, format_rules_prompt, Rule, RuleScope};
+pub use tasks::{BackgroundTask, SpawnOutcome, TaskManager, TaskStatus, TaskSummary};
 pub use tools::ToolRegistry;
+pub use trust::{TrustStatus, WorkspaceTrustHook, WorkspaceTrustManager};
 
 
 /// Constructs an `Agent` initialized with the default provider and the full essential toolset.

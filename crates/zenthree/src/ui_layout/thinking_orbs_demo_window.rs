@@ -12,7 +12,7 @@
 
 use crate::state::ZenthreeState;
 use crate::theme::ThemeColors;
-use zenthra::{use_context, Align, Color, CursorIcon, FontWeight, Id, Ui};
+use zenthra::{use_context, Align, Color, CursorIcon, FontWeight, Id, Style, Ui};
 use zenthra_render::RectInstance;
 use zenthra_widgets::ui::{DrawCommand, RectDraw};
 
@@ -1000,13 +1000,13 @@ pub fn draw_thinking_orbs_demo_window(ui: &mut Ui, state: &mut ZenthreeState) {
 
     let mut card = ui.container()
         .id(card_id)
-        .absolute(pos_x, pos_y)
+        .pos(pos_x, pos_y)
         .overlay()
         .render_mode(render_mode)
         .width(win_w)
         .height(win_h)
         .bg(card_bg)
-        .border(colors.border.with_alpha(0.85), 1.0)
+        .border((colors.border.with_alpha(0.85), 1.0))
         .radius_all(win_radius)
         .shadow(Color::rgba(0.0, 0.0, 0.0, 0.50), 0.0, 12.0, 32.0);
 
@@ -1017,7 +1017,7 @@ pub fn draw_thinking_orbs_demo_window(ui: &mut Ui, state: &mut ZenthreeState) {
     card.column().show(|ui| {
         // ── Window Title Bar ──────────────────────────────────────────────
         ui.container()
-            .full_width()
+            .fill_x()
             .height(HEADER_H)
             .radius_top(win_radius)
             .bg(colors.highlight.with_alpha(0.04))
@@ -1041,7 +1041,7 @@ pub fn draw_thinking_orbs_demo_window(ui: &mut Ui, state: &mut ZenthreeState) {
 
                         ui.text("Thinking Orbs")
                             .size(13.0)
-                            .weight(FontWeight::Bold)
+                            .font_weight(FontWeight::Bold)
                             .color(colors.text_primary)
                             .show();
 
@@ -1053,7 +1053,7 @@ pub fn draw_thinking_orbs_demo_window(ui: &mut Ui, state: &mut ZenthreeState) {
                             .show(|ui| {
                                 ui.text("9 Modes · Pure Math")
                                     .size(9.5)
-                                    .weight(FontWeight::Medium)
+                                    .font_weight(FontWeight::Medium)
                                     .color(colors.accent)
                                     .show();
                             });
@@ -1066,8 +1066,8 @@ pub fn draw_thinking_orbs_demo_window(ui: &mut Ui, state: &mut ZenthreeState) {
                     .padding_all(0.0)
                     .radius_all(4.0)
                     .bg(Color::TRANSPARENT)
-                    .hover_bg(colors.highlight)
-                    .text_color(colors.text_muted)
+                    .hover(Style::bg(colors.highlight))
+                    .color(colors.text_muted)
                     .size(11.5)
                     .show();
 
@@ -1081,14 +1081,14 @@ pub fn draw_thinking_orbs_demo_window(ui: &mut Ui, state: &mut ZenthreeState) {
 
         // Thin divider
         ui.container()
-            .full_width()
+            .fill_x()
             .height(1.0)
             .bg(colors.border.with_alpha(0.40))
             .show(|_| {});
 
         // ── 9 Mode Selector Pill Tabs (two rows: 5 + 4) ───────────────────
         ui.container()
-            .full_width()
+            .fill_x()
             .padding_left(10.0)
             .padding_right(10.0)
             .padding_top(7.0)
@@ -1098,7 +1098,7 @@ pub fn draw_thinking_orbs_demo_window(ui: &mut Ui, state: &mut ZenthreeState) {
             .show(|ui| {
                 // Row 1: first 5 modes
                 ui.container()
-                    .full_width()
+                    .fill_x()
                     .row()
                     .halign(Align::Center)
                     .valign(Align::Center)
@@ -1124,9 +1124,9 @@ pub fn draw_thinking_orbs_demo_window(ui: &mut Ui, state: &mut ZenthreeState) {
                                 .padding_y(2.0)
                                 .radius_all(5.0)
                                 .bg(pill_bg)
-                                .hover_bg(if is_active { pill_bg } else { colors.highlight.with_alpha(0.14) })
-                                .text_color(pill_text_col)
-                                .border(pill_border, 1.0)
+                                .hover(Style::bg(if is_active { pill_bg } else { colors.highlight.with_alpha(0.14) }))
+                                .color(pill_text_col)
+                                .border((pill_border, 1.0))
                                 .size(9.5)
                                 .show();
                             if btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
@@ -1139,7 +1139,7 @@ pub fn draw_thinking_orbs_demo_window(ui: &mut Ui, state: &mut ZenthreeState) {
 
                 // Row 2: last 4 modes
                 ui.container()
-                    .full_width()
+                    .fill_x()
                     .row()
                     .halign(Align::Center)
                     .valign(Align::Center)
@@ -1165,9 +1165,9 @@ pub fn draw_thinking_orbs_demo_window(ui: &mut Ui, state: &mut ZenthreeState) {
                                 .padding_y(2.0)
                                 .radius_all(5.0)
                                 .bg(pill_bg)
-                                .hover_bg(if is_active { pill_bg } else { colors.highlight.with_alpha(0.14) })
-                                .text_color(pill_text_col)
-                                .border(pill_border, 1.0)
+                                .hover(Style::bg(if is_active { pill_bg } else { colors.highlight.with_alpha(0.14) }))
+                                .color(pill_text_col)
+                                .border((pill_border, 1.0))
                                 .size(9.5)
                                 .show();
                             if btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
@@ -1188,7 +1188,7 @@ pub fn draw_thinking_orbs_demo_window(ui: &mut Ui, state: &mut ZenthreeState) {
 
         // Stage Container: Dark contrast backdrop so dots are crystal clear and vibrant
         ui.container()
-            .full_width()
+            .fill_x()
             .halign(Align::Center)
             .show(|ui| {
                 ui.container()
@@ -1198,7 +1198,7 @@ pub fn draw_thinking_orbs_demo_window(ui: &mut Ui, state: &mut ZenthreeState) {
                     .height(STAGE_H)
                     .radius_all(10.0)
                     .bg(Color::rgb(8.0 / 255.0, 9.0 / 255.0, 14.0 / 255.0)) // Deep velvety dark contrast
-                    .border(colors.border.with_alpha(0.50), 1.0)
+                    .border((colors.border.with_alpha(0.50), 1.0))
                     .shadow(Color::rgba(0.0, 0.0, 0.0, 0.60), 0.0, 4.0, 16.0)
                     .show(|_| {});
             });
@@ -1323,7 +1323,7 @@ pub fn draw_thinking_orbs_demo_window(ui: &mut Ui, state: &mut ZenthreeState) {
 
         // ── Controls & State Metadata Readout ─────────────────────────────
         ui.container()
-            .full_width()
+            .fill_x()
             .padding_left(14.0)
             .padding_right(14.0)
             .padding_top(10.0)
@@ -1332,7 +1332,7 @@ pub fn draw_thinking_orbs_demo_window(ui: &mut Ui, state: &mut ZenthreeState) {
             .show(|ui| {
                 // Row: Info Subtitle + Size Presets + Speed Multipliers
                 ui.container()
-                    .full_width()
+                    .fill_x()
                     .row()
                     .valign(Align::Center)
                     .halign(Align::SpaceBetween)
@@ -1345,7 +1345,7 @@ pub fn draw_thinking_orbs_demo_window(ui: &mut Ui, state: &mut ZenthreeState) {
                             .show(|ui| {
                                 ui.text(current_kind.name())
                                     .size(12.0)
-                                    .weight(FontWeight::Bold)
+                                    .font_weight(FontWeight::Bold)
                                     .color(colors.text_primary)
                                     .show();
 
@@ -1382,8 +1382,8 @@ pub fn draw_thinking_orbs_demo_window(ui: &mut Ui, state: &mut ZenthreeState) {
                                     .padding_y(1.5)
                                     .radius_all(4.0)
                                     .bg(colors.highlight.with_alpha(0.08))
-                                    .hover_bg(colors.highlight.with_alpha(0.20))
-                                    .text_color(colors.text_primary)
+                                    .hover(Style::bg(colors.highlight.with_alpha(0.20)))
+                                    .color(colors.text_primary)
                                     .size(9.5)
                                     .show();
 
@@ -1408,9 +1408,9 @@ pub fn draw_thinking_orbs_demo_window(ui: &mut Ui, state: &mut ZenthreeState) {
                                         .padding_y(1.5)
                                         .radius_all(4.0)
                                         .bg(if is_cur_size { colors.accent.with_alpha(0.25) } else { colors.highlight.with_alpha(0.06) })
-                                        .hover_bg(colors.highlight.with_alpha(0.18))
-                                        .text_color(if is_cur_size { colors.accent } else { colors.text_muted })
-                                        .border(if is_cur_size { colors.accent.with_alpha(0.60) } else { colors.border.with_alpha(0.20) }, 1.0)
+                                        .hover(Style::bg(colors.highlight.with_alpha(0.18)))
+                                        .color(if is_cur_size { colors.accent } else { colors.text_muted })
+                                        .border((if is_cur_size { colors.accent.with_alpha(0.60) } else { colors.border.with_alpha(0.20) }, 1.0))
                                         .size(9.0)
                                         .show();
 
@@ -1433,9 +1433,9 @@ pub fn draw_thinking_orbs_demo_window(ui: &mut Ui, state: &mut ZenthreeState) {
                                         .padding_y(1.5)
                                         .radius_all(4.0)
                                         .bg(if is_cur_sp { colors.accent.with_alpha(0.25) } else { colors.highlight.with_alpha(0.06) })
-                                        .hover_bg(colors.highlight.with_alpha(0.18))
-                                        .text_color(if is_cur_sp { colors.accent } else { colors.text_muted })
-                                        .border(if is_cur_sp { colors.accent.with_alpha(0.60) } else { colors.border.with_alpha(0.20) }, 1.0)
+                                        .hover(Style::bg(colors.highlight.with_alpha(0.18)))
+                                        .color(if is_cur_sp { colors.accent } else { colors.text_muted })
+                                        .border((if is_cur_sp { colors.accent.with_alpha(0.60) } else { colors.border.with_alpha(0.20) }, 1.0))
                                         .size(9.0)
                                         .show();
 

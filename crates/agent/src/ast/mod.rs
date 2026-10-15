@@ -13,16 +13,32 @@ pub struct AstSymbol {
 }
 
 /// Dynamic registry mapping file extensions to Tree-sitter language grammars.
-#[derive(Clone, Default)]
+#[derive(Clone)]
 pub struct DynamicGrammarRegistry {
     grammars: HashMap<String, Language>,
 }
 
+impl Default for DynamicGrammarRegistry {
+    fn default() -> Self {
+        Self::with_builtins()
+    }
+}
+
 impl DynamicGrammarRegistry {
     pub fn new() -> Self {
-        Self {
+        Self::with_builtins()
+    }
+
+    /// Pre-registers standard built-in Tree-sitter grammars (Rust, Python, JavaScript).
+    pub fn with_builtins() -> Self {
+        let mut reg = Self {
             grammars: HashMap::new(),
-        }
+        };
+        reg.register("rs", tree_sitter_rust::language());
+        reg.register("py", tree_sitter_python::language());
+        reg.register("pyw", tree_sitter_python::language());
+        reg.register_extensions(&["js", "jsx", "mjs", "cjs"], tree_sitter_javascript::language());
+        reg
     }
 
     /// Dynamically register an extension with a Tree-sitter Language.
@@ -629,5 +645,40 @@ fn second() {
         let range = engine.locate_symbol_range(code, "rs", "second").unwrap();
         assert_eq!(range.0, 6);
         assert_eq!(range.1, 9);
+    }
+
+    #[test]
+    fn test_ast_symbol_extraction_javascript() {
+        let engine = DynamicAstEngine::new();
+        let code = r#"
+class AuthTokenService {
+    validate(token) {
+        return true;
+    }
+}
+
+function generateSecretKey() {
+    return "secret";
+}
+"#;
+        let symbols = engine.extract_symbols(code, "js", None);
+        let names: Vec<&str> = symbols.iter().map(|s| s.name.as_str()).collect();
+        assert!(names.contains(&"AuthTokenService"));
+        assert!(names.contains(&"generateSecretKey") || names.contains(&"validate"));
+    }
+
+    #[test]
+    fn test_ast_skeleton_generation_rust() {
+        let engine = DynamicAstEngine::new();
+        let code = r#"
+pub fn process_data(input: &str) -> String {
+    let intermediate = input.trim();
+    let result = intermediate.to_uppercase();
+    result
+}
+"#;
+        let skeleton = engine.generate_skeleton(code, "rs").unwrap();
+        assert!(skeleton.contains("pub fn process_data"));
+        assert!(!skeleton.contains("let intermediate"));
     }
 }

@@ -200,7 +200,8 @@ impl FileIcon {
                     }
                     FileIcon::Image(source) => {
                         ui.image(source.clone())
-                            .size(size + 2.0, size + 2.0)
+                            .width(size + 2.0)
+                            .height(size + 2.0)
                             .fit(zenthra::ObjectFit::Contain)
                             .show();
                     }

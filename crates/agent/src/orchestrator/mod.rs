@@ -1,14 +1,22 @@
 pub mod brain;
 pub mod config;
+pub mod dispatcher;
+pub mod hooks;
 pub mod intent;
+pub mod provisioner;
 pub mod reflex;
 pub mod session;
+pub mod slash_commands;
 
 pub use brain::FlyBrain;
 pub use config::AgentConfig;
+pub use dispatcher::{DispatchOutcome, RepetitionTracker, ToolDispatcher};
+pub use hooks::{AgentHook, HookDecision, HookRegistry};
 pub use intent::{ActionCategory, AgentIntent};
+pub use provisioner::{ProvisioningResult, ToolProvisioner};
 pub use reflex::{BioReflexClient, ReflexDecision};
 pub use session::AgentSession;
+pub use slash_commands::{format_slash_commands_prompt, SlashCommand};
 
 
 #[cfg(test)]
@@ -24,7 +32,7 @@ mod tests {
     use serde_json::{json, Value};
     use std::sync::atomic::{AtomicBool, AtomicUsize, Ordering};
     use std::sync::Arc;
-    use crate::orchestrator::{ActionCategory, AgentIntent};
+    use crate::orchestrator::{ActionCategory, AgentIntent, AgentSession};
 
     /// Mock provider simulating a multi-turn tool calling loop
     struct MockEchoProvider {
@@ -121,6 +129,26 @@ mod tests {
         restored_agent.import_session_json(&json_data).expect("Session import failed");
 
         assert_eq!(restored_agent.conversation().len(), agent.conversation().len());
+    }
+
+    #[test]
+    fn test_compact_memory() {
+        let provider = Box::new(MockEchoProvider::new());
+        let tools = ToolRegistry::minimal();
+        let mut agent = Agent::new(provider, tools);
+
+        // Populate conversation with a prior turn containing a large tool output
+        agent.conversation_mut().push(Message::user("Please read the log file"));
+        agent.conversation_mut().push(Message::assistant("Reading file now"));
+        let large_output = "x".repeat(1000);
+        agent.conversation_mut().push(Message::tool_result("tool-1", &large_output));
+        agent.conversation_mut().push(Message::assistant("Here is the content"));
+        agent.conversation_mut().push(Message::user("Now explain it"));
+
+        let (total_msgs, before_len, after_len) = agent.compact_memory();
+        assert_eq!(total_msgs, 5);
+        assert!(before_len > 1000);
+        assert!(after_len < before_len);
     }
 
     #[test]
@@ -269,5 +297,112 @@ mod tests {
 
         // After search returned run_terminal, it must be elevated into active_tools!
         assert!(agent.active_tools().contains("run_terminal"));
+    }
+
+    #[test]
+    fn test_session_thought_signature_sanitization() {
+        use crate::types::message::{Message, ToolCall};
+
+        let mut session = AgentSession::new("test_session");
+        session.conversation.push(Message::user("Hello"));
+        session.conversation.push(Message::assistant_with_tools(
+            "Calling tool",
+            vec![ToolCall {
+                id: "call_1".into(),
+                name: "read_file".into(),
+                args: json!({ "path": "test.txt" }),
+                thought_signature: Some("opaque_gemini_thought_sig_xyz".into()),
+            }],
+        ));
+
+        // Before sanitization
+        assert_eq!(
+            session.conversation[1].tool_calls.as_ref().unwrap()[0].thought_signature,
+            Some("opaque_gemini_thought_sig_xyz".into())
+        );
+
+        // Serialize to JSON
+        let json_data = session.to_json().expect("Session serialization failed");
+        assert!(json_data.contains("opaque_gemini_thought_sig_xyz"));
+
+        // Deserialize via from_json() -> must sanitize thought signatures to None!
+        let restored = AgentSession::from_json(&json_data).expect("Session restore failed");
+        assert_eq!(
+            restored.conversation[1].tool_calls.as_ref().unwrap()[0].thought_signature,
+            None,
+            "Replayed session should have thought_signature wiped to None to prevent Gemini 400 errors"
+        );
+    }
+
+    #[test]
+    fn test_lifecycle_hooks_decide_and_transform() {
+        use crate::orchestrator::hooks::{AgentHook, HookDecision};
+
+        struct SecurityHook;
+        impl AgentHook for SecurityHook {
+            fn name(&self) -> &str { "SecurityPolicy" }
+            fn decide(&self, tool_name: &str, _args: &Value, _risk: crate::traits::tool::ToolRisk) -> HookDecision {
+                if tool_name == "delete_file" {
+                    HookDecision::Deny("Deleting files is prohibited by project security policy.".into())
+                } else {
+                    HookDecision::Allow
+                }
+            }
+        }
+
+        struct RedactionHook;
+        impl AgentHook for RedactionHook {
+            fn name(&self) -> &str { "RedactionHook" }
+            fn transform_args(&self, tool_name: &str, mut args: Value) -> Value {
+                if tool_name == "write_file" {
+                    if let Some(content) = args.get_mut("content") {
+                        if let Some(s) = content.as_str() {
+                            *content = Value::String(s.replace("SUPER_SECRET_KEY", "[REDACTED]"));
+                        }
+                    }
+                }
+                args
+            }
+        }
+
+        struct MockHookProvider;
+        impl Provider for MockHookProvider {
+            fn name(&self) -> &str { "MockHookProvider" }
+            fn complete_stream(
+                &self,
+                messages: &[Message],
+                _tools: &[Value],
+                on_event: &mut dyn FnMut(ProviderEvent),
+            ) -> Result<(), ProviderError> {
+                let has_tool_res = messages.iter().any(|m| m.role == Role::Tool);
+                if !has_tool_res {
+                    // Request delete_file
+                    on_event(ProviderEvent::ToolCallComplete {
+                        id: "call_del".into(),
+                        name: "delete_file".into(),
+                        args: json!({ "path": "critical_config.json" }),
+                        thought_signature: None,
+                    });
+                } else {
+                    on_event(ProviderEvent::TextDelta("File deletion was prohibited by security policy.".into()));
+                }
+                on_event(ProviderEvent::Done);
+                Ok(())
+            }
+        }
+
+        let mut agent = Agent::new(Box::new(MockHookProvider), ToolRegistry::all())
+            .with_intent(crate::orchestrator::intent::AgentIntent::Action(crate::orchestrator::intent::ActionCategory::General))
+            .with_hook(SecurityHook)
+            .with_hook(RedactionHook);
+
+        let mut on_event = |_| {};
+        let mut ask_approval = |_| ApprovalDecision::Approve;
+
+        let _ = agent.run("Please delete critical_config.json", &mut on_event, &mut ask_approval);
+
+        // SecurityHook must have intercepted delete_file with Policy Violation
+        let last_tool_res = agent.conversation().iter().find(|m| m.role == Role::Tool).unwrap();
+        assert!(last_tool_res.content.contains("Policy Violation: Tool 'delete_file' execution denied"));
     }
 }

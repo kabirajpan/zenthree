@@ -1,4 +1,4 @@
-use zenthra::{Align, Color, FontWeight, Id, Ui};
+use zenthra::{Align, Color, FontWeight, Id, Ui, Style};
 use crate::theme::ThemeColors;
 use super::CompletionState;
 
@@ -104,13 +104,13 @@ pub fn draw_completion_popup(
         // ─── 1. Left Menu Box (Modern Zed / LazyVim style) ────────────────
         ui.container()
             .raw_id(popup_id)
-            .absolute(px, py)
+            .pos(px, py)
             .overlay()
             .width(popup_w)
             .height(popup_h)
             .scroll_y(true)
             .bg(colors.bg_sidebar)
-            .border(colors.border.with_alpha(0.85), 1.0)
+            .border((colors.border.with_alpha(0.85), 1.0))
             .radius_all(5.0)
             .shadow(Color::rgba(0.0, 0.0, 0.0, 0.65), 0.0, 6.0, 18.0)
             .padding(3.0, 3.0, 3.0, 3.0)
@@ -124,7 +124,7 @@ pub fn draw_completion_popup(
 
                     let mut row = ui.container()
                         .id(item_id)
-                        .full_width()
+                        .fill_x()
                         .height(item_h)
                         .row()
                         .valign(Align::Center)
@@ -136,9 +136,9 @@ pub fn draw_completion_popup(
                     if is_selected {
                         // Rich accent highlight for selected item
                         row = row.bg(Color::rgba(56.0 / 255.0, 85.0 / 255.0, 72.0 / 255.0, 0.95))
-                            .border(Color::rgba(74.0 / 255.0, 222.0 / 255.0, 128.0 / 255.0, 0.40), 1.0);
+                            .border((Color::rgba(74.0 / 255.0, 222.0 / 255.0, 128.0 / 255.0, 0.40), 1.0));
                     } else {
-                        row = row.bg(Color::TRANSPARENT).hover_bg(colors.highlight);
+                        row = row.bg(Color::TRANSPARENT).hover(Style::bg(colors.highlight));
                     }
 
                     let resp = row.show(|ui| {
@@ -150,13 +150,13 @@ pub fn draw_completion_popup(
                             .show(|ui| {
                                 ui.text(kind_icon)
                                     .size(10.5)
-                                    .weight(FontWeight::Bold)
+                                    .font_weight(FontWeight::Bold)
                                     .color(kind_color)
                                     .show();
 
                                 ui.text(&item.label)
                                     .size(11.5)
-                                    .weight(if is_selected { FontWeight::Bold } else { FontWeight::Regular })
+                                    .font_weight(if is_selected { FontWeight::Bold } else { FontWeight::Regular })
                                     .color(if is_selected { Color::WHITE } else { colors.text_primary })
                                     .show();
                             });
@@ -199,13 +199,13 @@ pub fn draw_completion_popup(
 
                 ui.container()
                     .raw_id(doc_popup_id)
-                    .absolute(doc_x, py)
+                    .pos(doc_x, py)
                     .overlay()
                     .width(doc_w)
                     .max_height(280.0)
                     .scroll_y(true)
                     .bg(colors.bg_sidebar)
-                    .border(colors.border.with_alpha(0.85), 1.0)
+                    .border((colors.border.with_alpha(0.85), 1.0))
                     .radius_all(6.0)
                     .shadow(Color::rgba(0.0, 0.0, 0.0, 0.65), 0.0, 6.0, 18.0)
                     .padding(8.0, 10.0, 8.0, 10.0)
@@ -220,13 +220,13 @@ pub fn draw_completion_popup(
                             .show(|ui| {
                                 ui.text(kind_icon)
                                     .size(11.0)
-                                    .weight(FontWeight::Bold)
+                                    .font_weight(FontWeight::Bold)
                                     .color(kind_color)
                                     .show();
 
                                 ui.text(&item.label)
                                     .size(11.5)
-                                    .weight(FontWeight::Bold)
+                                    .font_weight(FontWeight::Bold)
                                     .color(colors.text_primary)
                                     .show();
                             });
@@ -234,9 +234,9 @@ pub fn draw_completion_popup(
                         // Top Zone: Snippet Expansion, Variable Assignment, or Function Body (styled card)
                         if let Some(code) = code_preview {
                             ui.container()
-                                .full_width()
+                                .fill_x()
                                 .bg(colors.bg_base)
-                                .border(colors.border.with_alpha(0.6), 1.0)
+                                .border((colors.border.with_alpha(0.6), 1.0))
                                 .radius_all(4.0)
                                 .padding(6.0, 8.0, 6.0, 8.0)
                                 .column()
@@ -245,7 +245,7 @@ pub fn draw_completion_popup(
                                     for line in code.lines().take(6) {
                                         ui.text(line)
                                             .size(11.0)
-                                            .weight(FontWeight::Medium)
+                                            .font_weight(FontWeight::Medium)
                                             .color(Color::rgb(254.0 / 255.0, 138.0 / 255.0, 36.0 / 255.0))
                                             .show();
                                     }
@@ -253,7 +253,7 @@ pub fn draw_completion_popup(
 
                             if doc_text.is_some() {
                                 ui.container()
-                                    .full_width()
+                                    .fill_x()
                                     .height(1.0)
                                     .bg(colors.border.with_alpha(0.40))
                                     .show(|_| {});
@@ -263,7 +263,7 @@ pub fn draw_completion_popup(
                         // Bottom Zone: Origin, Documentation, or Auto-Import Helper
                         if let Some(doc) = doc_text {
                             ui.container()
-                                .full_width()
+                                .fill_x()
                                 .column()
                                 .gap(3.0)
                                 .show(|ui| {

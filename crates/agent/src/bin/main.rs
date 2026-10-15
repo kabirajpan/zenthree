@@ -24,6 +24,7 @@ struct CliConfig {
     workspace: PathBuf,
     verbose: bool,
     prompt: Option<String>,
+    auto_approve: bool,
 }
 
 impl Default for CliConfig {
@@ -53,6 +54,7 @@ impl Default for CliConfig {
             workspace: std::env::current_dir().unwrap_or_else(|_| PathBuf::from(".")),
             verbose: false,
             prompt: None,
+            auto_approve: false,
         }
     }
 }
@@ -92,11 +94,23 @@ fn print_help() {
     println!("  {GREEN}-h, --help{RESET}                Display this help message\n");
     println!("{BOLD}INTERACTIVE COMMANDS:{RESET} (when launched without [PROMPT])");
     println!("  {YELLOW}:help{RESET}                     Show command list");
+    println!("  {YELLOW}:rules{RESET}                    Show active project rules (AGENTS.md, .agents/rules)");
+    println!("  {YELLOW}:trust [on|off]{RESET}           View or set workspace trust status");
+    println!("  {YELLOW}:approve{RESET}                  Toggle manual/auto-approve mode on/off");
     println!("  {YELLOW}:login{RESET}                    Log in with your Google Account");
     println!("  {YELLOW}:verbose{RESET}                  Toggle verbose diagnostic mode on/off");
     println!("  {YELLOW}:model <NAME>{RESET}             Switch model on the fly");
     println!("  {YELLOW}:clear{RESET}                    Reset conversation memory");
     println!("  {YELLOW}:quit / :exit{RESET}             Exit the interactive session\n");
+    println!("{BOLD}SLASH COMMANDS:{RESET} (Autonomous directives & quick actions)");
+    println!("  {CYAN}/goal <prompt>{RESET}            Run long-running task until thoroughly achieved");
+    println!("  {CYAN}/plan <prompt>{RESET}            Formulate structured step-by-step milestones before execution");
+    println!("  {CYAN}/fix <prompt>{RESET}             Targeted diagnostics and minimal repair");
+    println!("  {CYAN}/grill-me <topic>{RESET}         Interactive interview to clarify ambiguous requirements");
+    println!("  {CYAN}/compact{RESET}                  Compact prior context & tool outputs");
+    println!("  {CYAN}/tasks{RESET}                    List background processes and daemons");
+    println!("  {CYAN}/schedule <prompt>{RESET}        Schedule timers or recurring triggers");
+    println!("  {CYAN}/learn <rule>{RESET}             Persist learned knowledge/rules to workspace\n");
 }
 
 fn print_models() {
@@ -151,6 +165,9 @@ fn parse_args() -> Result<CliConfig, i32> {
             }
             "-v" | "--verbose" => {
                 config.verbose = true;
+            }
+            "-y" | "--yes" | "--auto-approve" => {
+                config.auto_approve = true;
             }
             "-p" | "--provider" => {
                 if i + 1 < args.len() {
@@ -221,6 +238,7 @@ fn execute_turn(
     agent: &mut Agent,
     prompt: &str,
     verbose: bool,
+    auto_approve: bool,
 ) -> Result<String, String> {
     if verbose {
         println!("{DIM}─────────────────────────────────────────────────────────────{RESET}");
@@ -300,7 +318,27 @@ fn execute_turn(
         _ => {}
     };
 
-    let mut ask_approval = |_req: ApprovalRequest| ApprovalDecision::Approve;
+    let mut ask_approval = |req: ApprovalRequest| {
+        if auto_approve {
+            return ApprovalDecision::Approve;
+        }
+        println!("\n{YELLOW}{BOLD}⚠️ APPROVAL REQUIRED FOR TOOL ACTION:{RESET}");
+        println!("  {DIM}{}{RESET}", req.preview);
+        print!("{BOLD}Proceed with execution? [y/N]: {RESET}");
+        let _ = io::stdout().flush();
+        let mut input = String::new();
+        if io::stdin().read_line(&mut input).is_ok() {
+            let trimmed = input.trim().to_lowercase();
+            if trimmed == "y" || trimmed == "yes" {
+                ApprovalDecision::Approve
+            } else {
+                println!("{RED}Action rejected by user.{RESET}");
+                ApprovalDecision::Reject
+            }
+        } else {
+            ApprovalDecision::Reject
+        }
+    };
 
     let res = agent.run(prompt, &mut on_event, &mut ask_approval);
 
@@ -318,7 +356,7 @@ fn create_configured_agent(config: &CliConfig) -> Option<Agent> {
         &config.workspace,
     )?;
 
-    let sys_msg = format!(
+    let mut sys_msg = format!(
         "You are a helpful, accurate, and concise AI coding assistant.\n\
         Workspace: {}\n\n\
         Guidelines:\n\
@@ -330,6 +368,16 @@ fn create_configured_agent(config: &CliConfig) -> Option<Agent> {
         - Run `get_diagnostics` or test/build suites via `run_terminal` to verify your changes.",
         config.workspace.display()
     );
+
+    let rules_block = agent.rules_prompt();
+    if !rules_block.is_empty() {
+        sys_msg.push_str("\n\n");
+        sys_msg.push_str(&rules_block);
+    }
+
+    sys_msg.push_str("\n\n");
+    sys_msg.push_str(&agent::orchestrator::format_slash_commands_prompt());
+
     agent.push_system_message(sys_msg);
     Some(agent)
 }
@@ -342,7 +390,7 @@ fn run_interactive(mut config: CliConfig) {
     println!("  {BOLD}Model:{RESET}      {GREEN}{}{RESET}", config.model);
     println!("  {BOLD}Workspace:{RESET}  {BLUE}{}{RESET}", config.workspace.display());
     println!("  {BOLD}Verbose:{RESET}    {}", if config.verbose { format!("{YELLOW}ON{RESET}") } else { format!("{DIM}OFF{RESET}") });
-    println!("{DIM}Type your instructions or ':help' for commands. ':quit' to exit.{RESET}\n");
+    println!("  {BOLD}Approval:{RESET}   {}", if config.auto_approve { format!("{YELLOW}AUTO-APPROVE{RESET}") } else { format!("{GREEN}MANUAL (Prompt on destructive tools){RESET}") });
 
     let agent_opt = create_configured_agent(&config);
 
@@ -353,6 +401,19 @@ fn run_interactive(mut config: CliConfig) {
             return;
         }
     };
+
+    let trust_display = match agent.trust_status() {
+        agent::trust::TrustStatus::Trusted => format!("{GREEN}Trusted (Full Access){RESET}"),
+        agent::trust::TrustStatus::Untrusted => format!("{RED}Untrusted (Restricted Sandbox: Shell blocked, edits require approval){RESET}"),
+        agent::trust::TrustStatus::Unknown => format!("{YELLOW}Unknown / Unverified{RESET}"),
+    };
+    println!("  {BOLD}Trust:{RESET}       {}", trust_display);
+
+    let rules_count = agent.rules().len();
+    if rules_count > 0 {
+        println!("  {BOLD}Rules:{RESET}       {GREEN}{} active project rule(s) loaded{RESET}", rules_count);
+    }
+    println!("{DIM}Type your instructions or ':help' for commands. ':quit' to exit.{RESET}\n");
 
 
     let stdin = io::stdin();
@@ -380,6 +441,54 @@ fn run_interactive(mut config: CliConfig) {
                 }
                 ":help" => {
                     print_help();
+                    continue;
+                }
+                ":approve" | ":auto-approve" => {
+                    config.auto_approve = !config.auto_approve;
+                    println!("Auto-approve mode: {}", if config.auto_approve { format!("{YELLOW}ON (Destructive actions auto-run){RESET}") } else { format!("{GREEN}OFF (Prompting for review){RESET}") });
+                    continue;
+                }
+                ":rules" => {
+                    let rules = agent.rules();
+                    if rules.is_empty() {
+                        println!("{DIM}No project rules found. Add 'AGENTS.md', 'GEMINI.md', or '.agents/rules/*.md' in your workspace.{RESET}");
+                    } else {
+                        println!("{BOLD}{CYAN}Active Discovered Rules ({}):{RESET}", rules.len());
+                        for r in rules {
+                            println!("  • {GREEN}{}{RESET} ({:?}) -> {DIM}{}{RESET}", r.name, r.scope, r.path.display());
+                        }
+                    }
+                    continue;
+                }
+                cmd if cmd == ":trust" || cmd.starts_with(":trust ") => {
+                    let sub = cmd.strip_prefix(":trust").unwrap_or("").trim();
+                    let mgr = agent::trust::WorkspaceTrustManager::default();
+                    if sub == "on" || sub == "trust" || sub == "yes" || sub == "true" {
+                        if let Err(e) = mgr.set_trust(&config.workspace, agent::trust::TrustStatus::Trusted) {
+                            eprintln!("{RED}Failed to update trust: {e}{RESET}");
+                        } else {
+                            agent.set_trust_status(agent::trust::TrustStatus::Trusted);
+                            println!("{GREEN}✓ Workspace marked as TRUSTED. Full shell and tool execution permitted.{RESET}");
+                        }
+                    } else if sub == "off" || sub == "untrust" || sub == "no" || sub == "false" {
+                        if let Err(e) = mgr.set_trust(&config.workspace, agent::trust::TrustStatus::Untrusted) {
+                            eprintln!("{RED}Failed to update trust: {e}{RESET}");
+                        } else {
+                            agent.set_trust_status(agent::trust::TrustStatus::Untrusted);
+                            println!("{YELLOW}⚠️ Workspace marked as UNTRUSTED. Terminal commands are blocked; file writes require approval.{RESET}");
+                        }
+                    } else if sub.is_empty() {
+                        let status_str = match agent.trust_status() {
+                            agent::trust::TrustStatus::Trusted => format!("{GREEN}Trusted{RESET}"),
+                            agent::trust::TrustStatus::Untrusted => format!("{RED}Untrusted (Restricted Sandbox){RESET}"),
+                            agent::trust::TrustStatus::Unknown => format!("{YELLOW}Unknown / Unverified{RESET}"),
+                        };
+                        println!("Workspace: {}", config.workspace.display());
+                        println!("Trust status: {}", status_str);
+                        println!("{DIM}Use ':trust on' or ':trust off' to change trust status.{RESET}");
+                    } else {
+                        println!("Usage: :trust [on|off]");
+                    }
                     continue;
                 }
                 ":login" => {
@@ -462,7 +571,77 @@ fn run_interactive(mut config: CliConfig) {
             }
         }
 
-        let res = execute_turn(&mut agent, trimmed, config.verbose);
+        if trimmed.starts_with('/') {
+            if let Some(slash_cmd) = agent::orchestrator::SlashCommand::parse(trimmed) {
+                match slash_cmd {
+                    agent::orchestrator::SlashCommand::Help => {
+                        println!("{BOLD}{CYAN}Available Slash Commands:{RESET}");
+                        println!("  {CYAN}/goal <prompt>{RESET}     Run long-running autonomous task");
+                        println!("  {CYAN}/plan <prompt>{RESET}     Formulate structured plan before editing");
+                        println!("  {CYAN}/fix <prompt>{RESET}      Targeted error diagnostics and minimal repair");
+                        println!("  {CYAN}/grill-me <topic>{RESET}  Interactive interview to resolve ambiguity");
+                        println!("  {CYAN}/compact{RESET}           Compact prior tool results in memory");
+                        println!("  {CYAN}/tasks{RESET}             List background processes and daemons");
+                        println!("  {CYAN}/schedule <spec>{RESET}   Schedule timer or recurring cron check");
+                        println!("  {CYAN}/learn <rule>{RESET}      Persist learned rule to workspace");
+                        continue;
+                    }
+                    agent::orchestrator::SlashCommand::Compact => {
+                        let (total_msgs, before_len, after_len) = agent.compact_memory();
+                        let saved = before_len.saturating_sub(after_len);
+                        println!(
+                            "{GREEN}✓ Memory compacted:{RESET} {total_msgs} messages. Total size: {before_len} chars -> {after_len} chars ({saved} chars saved)."
+                        );
+                        continue;
+                    }
+                    agent::orchestrator::SlashCommand::Tasks => {
+                        let tasks = agent.task_manager().list();
+                        if tasks.is_empty() {
+                            println!("{DIM}No active background tasks or daemons.{RESET}");
+                        } else {
+                            println!("{BOLD}{CYAN}Background Tasks ({}):{RESET}", tasks.len());
+                            for t in tasks {
+                                let status_color = if t.status.starts_with("running") {
+                                    YELLOW
+                                } else if t.status.contains("code: 0") {
+                                    GREEN
+                                } else {
+                                    RED
+                                };
+                                println!(
+                                    "  • [{status_color}{}{RESET}] {BOLD}{}{RESET} | daemon: {} | elapsed: {}s | cmd: {DIM}{}{RESET}",
+                                    t.status, t.task_id, t.is_daemon, t.elapsed_seconds, t.command
+                                );
+                            }
+                        }
+                        continue;
+                    }
+                    cmd => {
+                        if let Some(intent) = cmd.intent_override() {
+                            agent.set_intent(intent);
+                        }
+                        let enriched = cmd.enriched_prompt();
+                        println!("{BOLD}{CYAN}⚡ Executing Slash Directive:{RESET} {DIM}{trimmed}{RESET}");
+                        let res = execute_turn(&mut agent, &enriched, config.verbose, config.auto_approve);
+                        match res {
+                            Ok(_) => {
+                                session_json = agent.export_session_json().ok();
+                            }
+                            Err(e) => {
+                                eprintln!("{RED}Agent error: {}{RESET}", e);
+                            }
+                        }
+                        println!();
+                        continue;
+                    }
+                }
+            } else {
+                eprintln!("{RED}Unknown slash command: {}{RESET}. Type '/help' for available slash commands.", trimmed);
+                continue;
+            }
+        }
+
+        let res = execute_turn(&mut agent, trimmed, config.verbose, config.auto_approve);
         match res {
             Ok(_) => {
                 session_json = agent.export_session_json().ok();
@@ -484,7 +663,6 @@ pub fn main() {
     if let Some(ref prompt) = config.prompt {
         let agent_opt = create_configured_agent(&config);
 
-
         let mut agent = match agent_opt {
             Some(a) => a,
             None => {
@@ -500,7 +678,8 @@ pub fn main() {
             println!("Prompt: {BOLD}\"{}\"{RESET}\n", prompt);
         }
 
-        let _ = execute_turn(&mut agent, &prompt, config.verbose);
+        let auto_app = config.auto_approve || true;
+        let _ = execute_turn(&mut agent, &prompt, config.verbose, auto_app);
     } else {
         run_interactive(config);
     }

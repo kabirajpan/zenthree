@@ -3,7 +3,7 @@ use crate::state::{
     AiThinkingBudget, SelectedAgent, ZenthreeState,
 };
 use crate::theme::ThemeColors;
-use zenthra::{use_context, Align, Color, CursorIcon, FontWeight, Id, Placement, PopoverAlign, Ui};
+use zenthra::{use_context, Align, Color, CursorIcon, FontWeight, Id, Placement, PopoverAlign, Style, Ui};
 
 const AG_SETTINGS_MODEL_BTN_ID: Id = Id::from_u64(999999815);
 
@@ -113,12 +113,12 @@ pub fn draw_ai_settings_dialog(ui: &mut Ui, state: &mut ZenthreeState) {
 
     let mut card = ui.container()
         .id(Id::from_u64(999999711))
-        .absolute(center_x, center_y)
+        .pos(center_x, center_y)
         .overlay()
         .width(win_w)
         .height(win_h)
         .bg(card_bg)
-        .border(colors.border.with_alpha(0.40), 1.0)
+        .border((colors.border.with_alpha(0.40), 1.0))
         .radius_all(win_radius)
         .shadow(Color::rgba(0.0, 0.0, 0.0, 0.40), 0.0, 10.0, 28.0);
 
@@ -131,7 +131,7 @@ pub fn draw_ai_settings_dialog(ui: &mut Ui, state: &mut ZenthreeState) {
         .show(|ui| {
             // Header bar
             ui.container()
-                .full_width()
+                .fill_x()
                 .height(44.0)
                 .padding(0.0, 18.0, 0.0, 18.0)
                 .row()
@@ -151,16 +151,16 @@ pub fn draw_ai_settings_dialog(ui: &mut Ui, state: &mut ZenthreeState) {
                                 .show();
                             ui.text("AI & Agent Settings")
                                 .size(13.5)
-                                .weight(FontWeight::Bold)
+                                .font_weight(FontWeight::Bold)
                                 .color(colors.text_primary)
                                 .show();
                         });
 
                     let close_btn = ui.container()
-                        .clickable(true)
+                        .interactive(true)
                         .padding(5.0, 9.0, 5.0, 9.0)
                         .radius_all(5.0)
-                        .hover_bg(colors.highlight)
+                        .hover(Style::bg(colors.highlight))
                         .show(|ui| {
                             ui.text("\u{f00d}") // fa-times
                                 .size(12.0)
@@ -181,7 +181,7 @@ pub fn draw_ai_settings_dialog(ui: &mut Ui, state: &mut ZenthreeState) {
 
             // Header bottom border
             ui.container()
-                .full_width()
+                .fill_x()
                 .height(1.0)
                 .bg(colors.border.with_alpha(0.25))
                 .show(|_| {});
@@ -192,7 +192,7 @@ pub fn draw_ai_settings_dialog(ui: &mut Ui, state: &mut ZenthreeState) {
             let content_w = win_w - sidebar_w - 1.0;
 
             ui.container()
-                .full_width()
+                .fill_x()
                 .height(body_h)
                 .row()
                 .show(|ui| {
@@ -209,12 +209,12 @@ pub fn draw_ai_settings_dialog(ui: &mut Ui, state: &mut ZenthreeState) {
                             for tab in &AiSettingsTab::ALL {
                                 let is_active = state.ai_settings.active_tab == *tab;
                                 let tab_btn = ui.container()
-                                    .full_width()
-                                    .clickable(true)
+                                    .fill_x()
+                                    .interactive(true)
                                     .padding(5.5, 10.0, 5.5, 10.0)
                                     .radius_all(5.0)
                                     .bg(if is_active { colors.highlight.with_alpha(0.06) } else { Color::TRANSPARENT })
-                                    .hover_bg(colors.highlight)
+                                    .hover(Style::bg(colors.highlight))
                                     .row()
                                     .valign(Align::Center)
                                     .gap(8.0)
@@ -225,7 +225,7 @@ pub fn draw_ai_settings_dialog(ui: &mut Ui, state: &mut ZenthreeState) {
                                             .show();
                                         ui.text(tab.display_name())
                                             .size(12.0)
-                                            .weight(if is_active { FontWeight::SemiBold } else { FontWeight::Regular })
+                                            .font_weight(if is_active { FontWeight::SemiBold } else { FontWeight::Regular })
                                             .color(if is_active { colors.text_primary } else { colors.text_muted })
                                             .show();
                                     });
@@ -307,13 +307,13 @@ pub fn draw_ai_settings_dialog(ui: &mut Ui, state: &mut ZenthreeState) {
 fn draw_appearance_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColors, _is_light: bool) {
     // Section Title & Description
     ui.container()
-        .full_width()
+        .fill_x()
         .column()
         .gap(3.0)
         .show(|ui| {
             ui.text("Appearance & Styling")
                 .size(14.0)
-                .weight(FontWeight::Bold)
+                .font_weight(FontWeight::Bold)
                 .color(colors.text_primary)
                 .show();
             ui.text("Customize contrast, outlines, and drop shadows of the AI assistant panel.")
@@ -328,7 +328,7 @@ fn draw_appearance_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeCol
     let is_sys_default = state.ai_settings.is_system_default();
 
     ui.container()
-        .full_width()
+        .fill_x()
         .row()
         .valign(Align::Center)
         .halign(Align::SpaceBetween)
@@ -340,7 +340,7 @@ fn draw_appearance_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeCol
                 .show(|ui| {
                     ui.text("Theme Preset Mode")
                         .size(12.0)
-                        .weight(FontWeight::Medium)
+                        .font_weight(FontWeight::Medium)
                         .color(colors.text_primary)
                         .show();
                     ui.text(if is_sys_default {
@@ -368,15 +368,15 @@ fn draw_appearance_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeCol
                     for (mode, label) in modes {
                         let is_active = state.ai_settings.preset_mode == mode;
                         let btn = ui.container()
-                            .clickable(true)
+                            .interactive(true)
                             .padding(5.0, 12.0, 5.0, 12.0)
                             .radius_all(4.0)
                             .bg(if is_active { colors.accent } else { Color::TRANSPARENT })
-                            .hover_bg(if is_active { colors.accent } else { colors.highlight })
+                            .hover(Style::bg(if is_active { colors.accent } else { colors.highlight }))
                             .show(|ui| {
                                 ui.text(label)
                                     .size(10.5)
-                                    .weight(if is_active { FontWeight::SemiBold } else { FontWeight::Regular })
+                                    .font_weight(if is_active { FontWeight::SemiBold } else { FontWeight::Regular })
                                     .color(if is_active { Color::WHITE } else { colors.text_muted })
                                     .show();
                             });
@@ -438,7 +438,7 @@ fn draw_appearance_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeCol
 
     // ── Row 4: Input Box Color Tone ──
     ui.container()
-        .full_width()
+        .fill_x()
         .row()
         .valign(Align::Center)
         .halign(Align::SpaceBetween)
@@ -450,7 +450,7 @@ fn draw_appearance_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeCol
                 .show(|ui| {
                     ui.text("Input Box Tone")
                         .size(12.0)
-                        .weight(FontWeight::Medium)
+                        .font_weight(FontWeight::Medium)
                         .color(colors.text_primary.with_alpha(label_alpha))
                         .show();
                     ui.text("Fill contrast tone: Dark (#141416), Charcoal (#202126), Bright (#2c2d34)")
@@ -480,21 +480,21 @@ fn draw_appearance_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeCol
                             colors.accent
                         };
                         let btn = ui.container()
-                            .clickable(!is_locked)
+                            .interactive(!is_locked)
                             .padding(5.0, 12.0, 5.0, 12.0)
                             .radius_all(4.0)
                             .bg(if is_active { active_bg } else { Color::TRANSPARENT })
-                            .hover_bg(if is_locked {
+                            .hover(Style::bg(if is_locked {
                                 Color::TRANSPARENT
                             } else if is_active {
                                 colors.accent
                             } else {
                                 colors.highlight
-                            })
+                            }))
                             .show(|ui| {
                                 ui.text(label)
                                     .size(10.5)
-                                    .weight(if is_active { FontWeight::SemiBold } else { FontWeight::Regular })
+                                    .font_weight(if is_active { FontWeight::SemiBold } else { FontWeight::Regular })
                                     .color(if is_active {
                                         Color::WHITE.with_alpha(if is_locked { 0.6 } else { 1.0 })
                                     } else {
@@ -518,7 +518,7 @@ fn draw_appearance_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeCol
 
     // ── Row 5: Message Area Background ──
     ui.container()
-        .full_width()
+        .fill_x()
         .row()
         .valign(Align::Center)
         .halign(Align::SpaceBetween)
@@ -530,7 +530,7 @@ fn draw_appearance_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeCol
                 .show(|ui| {
                     ui.text("Message Area Background")
                         .size(12.0)
-                        .weight(FontWeight::Medium)
+                        .font_weight(FontWeight::Medium)
                         .color(colors.text_primary.with_alpha(label_alpha))
                         .show();
                     ui.text("Deep dark backdrop (#121212) vs sidebar match (#181818)")
@@ -559,21 +559,21 @@ fn draw_appearance_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeCol
                             colors.accent
                         };
                         let btn = ui.container()
-                            .clickable(!is_locked)
+                            .interactive(!is_locked)
                             .padding(5.0, 12.0, 5.0, 12.0)
                             .radius_all(4.0)
                             .bg(if is_active { active_bg } else { Color::TRANSPARENT })
-                            .hover_bg(if is_locked {
+                            .hover(Style::bg(if is_locked {
                                 Color::TRANSPARENT
                             } else if is_active {
                                 colors.accent
                             } else {
                                 colors.highlight
-                            })
+                            }))
                             .show(|ui| {
                                 ui.text(label)
                                     .size(10.5)
-                                    .weight(if is_active { FontWeight::SemiBold } else { FontWeight::Regular })
+                                    .font_weight(if is_active { FontWeight::SemiBold } else { FontWeight::Regular })
                                     .color(if is_active {
                                         Color::WHITE.with_alpha(if is_locked { 0.6 } else { 1.0 })
                                     } else {
@@ -597,7 +597,7 @@ fn draw_appearance_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeCol
 
     // ── Row 6: Prompt Font Size ──
     ui.container()
-        .full_width()
+        .fill_x()
         .row()
         .valign(Align::Center)
         .halign(Align::SpaceBetween)
@@ -609,7 +609,7 @@ fn draw_appearance_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeCol
                 .show(|ui| {
                     ui.text("Prompt Font Size")
                         .size(12.0)
-                        .weight(FontWeight::Medium)
+                        .font_weight(FontWeight::Medium)
                         .color(colors.text_primary.with_alpha(label_alpha))
                         .show();
                     ui.text("Text sizing in the input prompt textarea")
@@ -639,21 +639,21 @@ fn draw_appearance_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeCol
                             colors.accent
                         };
                         let btn = ui.container()
-                            .clickable(!is_locked)
+                            .interactive(!is_locked)
                             .padding(5.0, 11.0, 5.0, 11.0)
                             .radius_all(4.0)
                             .bg(if is_active { active_bg } else { Color::TRANSPARENT })
-                            .hover_bg(if is_locked {
+                            .hover(Style::bg(if is_locked {
                                 Color::TRANSPARENT
                             } else if is_active {
                                 colors.accent
                             } else {
                                 colors.highlight
-                            })
+                            }))
                             .show(|ui| {
                                 ui.text(label)
                                     .size(10.5)
-                                    .weight(if is_active { FontWeight::SemiBold } else { FontWeight::Regular })
+                                    .font_weight(if is_active { FontWeight::SemiBold } else { FontWeight::Regular })
                                     .color(if is_active {
                                         Color::WHITE.with_alpha(if is_locked { 0.6 } else { 1.0 })
                                     } else {
@@ -680,13 +680,13 @@ fn draw_appearance_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeCol
 
 fn draw_general_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColors) {
     ui.container()
-        .full_width()
+        .fill_x()
         .column()
         .gap(3.0)
         .show(|ui| {
             ui.text("General Preferences")
                 .size(14.0)
-                .weight(FontWeight::Bold)
+                .font_weight(FontWeight::Bold)
                 .color(colors.text_primary)
                 .show();
             ui.text("Agent interaction behavior and notification parameters")
@@ -758,13 +758,13 @@ fn draw_general_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColors
 
 fn draw_model_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColors) {
     ui.container()
-        .full_width()
+        .fill_x()
         .column()
         .gap(3.0)
         .show(|ui| {
             ui.text("Model Configuration")
                 .size(14.0)
-                .weight(FontWeight::Bold)
+                .font_weight(FontWeight::Bold)
                 .color(colors.text_primary)
                 .show();
             ui.text("Default model engine, temperature, and reasoning budget")
@@ -777,7 +777,7 @@ fn draw_model_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColors) 
 
     // Row 1: Default AI Model inline picker
     ui.container()
-        .full_width()
+        .fill_x()
         .row()
         .valign(Align::Center)
         .halign(Align::SpaceBetween)
@@ -789,7 +789,7 @@ fn draw_model_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColors) 
                 .show(|ui| {
                     ui.text("Default AI Model")
                         .size(12.0)
-                        .weight(FontWeight::Medium)
+                        .font_weight(FontWeight::Medium)
                         .color(colors.text_primary)
                         .show();
                     ui.text("Active intelligence provider for workspace sessions")
@@ -799,18 +799,18 @@ fn draw_model_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColors) 
                 });
 
             let model_pill = ui.container()
-                .clickable(true)
+                .interactive(true)
                 .padding(5.0, 12.0, 5.0, 12.0)
                 .radius_all(6.0)
                 .bg(colors.bg_base)
-                .border(colors.border.with_alpha(0.5), 0.75)
+                .border((colors.border.with_alpha(0.5), 0.75))
                 .row()
                 .valign(Align::Center)
                 .gap(8.0)
                 .show(|ui| {
                     ui.text(state.selected_ai_model.display_name())
                         .size(11.0)
-                        .weight(FontWeight::Medium)
+                        .font_weight(FontWeight::Medium)
                         .color(colors.text_primary)
                         .show();
                     ui.text("\u{f078}") // fa-chevron-down
@@ -834,7 +834,7 @@ fn draw_model_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColors) 
 
     // Row 2: Temperature Slider with Steppers
     ui.container()
-        .full_width()
+        .fill_x()
         .row()
         .valign(Align::Center)
         .halign(Align::SpaceBetween)
@@ -846,7 +846,7 @@ fn draw_model_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColors) 
                 .show(|ui| {
                     ui.text("Temperature")
                         .size(12.0)
-                        .weight(FontWeight::Medium)
+                        .font_weight(FontWeight::Medium)
                         .color(colors.text_primary)
                         .show();
                     ui.text("Controls response randomness vs deterministic accuracy")
@@ -861,18 +861,18 @@ fn draw_model_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColors) 
                 .gap(5.0)
                 .show(|ui| {
                     let minus_btn = ui.container()
-                        .clickable(true)
+                        .interactive(true)
                         .width(22.0)
                         .height(22.0)
                         .radius_all(4.0)
                         .bg(colors.highlight)
-                        .hover_bg(colors.highlight)
+                        .hover(Style::bg(colors.highlight))
                         .valign(Align::Center)
                         .halign(Align::Center)
                         .show(|ui| {
                             ui.text("-")
                                 .size(13.0)
-                                .weight(FontWeight::Bold)
+                                .font_weight(FontWeight::Bold)
                                 .color(colors.text_primary)
                                 .show();
                         });
@@ -901,18 +901,18 @@ fn draw_model_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColors) 
                     }
 
                     let plus_btn = ui.container()
-                        .clickable(true)
+                        .interactive(true)
                         .width(22.0)
                         .height(22.0)
                         .radius_all(4.0)
                         .bg(colors.highlight)
-                        .hover_bg(colors.highlight)
+                        .hover(Style::bg(colors.highlight))
                         .valign(Align::Center)
                         .halign(Align::Center)
                         .show(|ui| {
                             ui.text("+")
                                 .size(13.0)
-                                .weight(FontWeight::Bold)
+                                .font_weight(FontWeight::Bold)
                                 .color(colors.text_primary)
                                 .show();
                         });
@@ -929,7 +929,7 @@ fn draw_model_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColors) 
                         .show(|ui| {
                             ui.text(&format!("{:.2}", state.ai_settings.temperature))
                                 .size(11.5)
-                                .weight(FontWeight::Bold)
+                                .font_weight(FontWeight::Bold)
                                 .color(colors.accent)
                                 .show();
                         });
@@ -940,7 +940,7 @@ fn draw_model_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColors) 
 
     // Row 3: Extended Thinking Budget inline
     ui.container()
-        .full_width()
+        .fill_x()
         .row()
         .valign(Align::Center)
         .halign(Align::SpaceBetween)
@@ -952,7 +952,7 @@ fn draw_model_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColors) 
                 .show(|ui| {
                     ui.text("Thinking Token Budget")
                         .size(12.0)
-                        .weight(FontWeight::Medium)
+                        .font_weight(FontWeight::Medium)
                         .color(colors.text_primary)
                         .show();
                     ui.text("Max tokens allowed for step-by-step reasoning")
@@ -971,15 +971,15 @@ fn draw_model_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColors) 
                     for b in &AiThinkingBudget::ALL {
                         let is_active = state.ai_settings.thinking_budget == *b;
                         let btn = ui.container()
-                            .clickable(true)
+                            .interactive(true)
                             .padding(4.0, 10.0, 4.0, 10.0)
                             .radius_all(4.0)
                             .bg(if is_active { colors.accent } else { Color::TRANSPARENT })
-                            .hover_bg(if is_active { colors.accent } else { colors.highlight })
+                            .hover(Style::bg(if is_active { colors.accent } else { colors.highlight }))
                             .show(|ui| {
                                 ui.text(b.display_name())
                                     .size(10.5)
-                                    .weight(if is_active { FontWeight::SemiBold } else { FontWeight::Regular })
+                                    .font_weight(if is_active { FontWeight::SemiBold } else { FontWeight::Regular })
                                     .color(if is_active { Color::WHITE } else { colors.text_muted })
                                     .show();
                             });
@@ -1056,7 +1056,7 @@ fn draw_api_keys_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColor
 
     // ── Header row ──
     ui.container()
-        .full_width()
+        .fill_x()
         .row()
         .valign(Align::Center)
         .halign(Align::SpaceBetween)
@@ -1064,7 +1064,7 @@ fn draw_api_keys_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColor
             ui.container().column().gap(2.0).show(|ui| {
                 ui.text("API Keys")
                     .size(14.0)
-                    .weight(FontWeight::Bold)
+                    .font_weight(FontWeight::Bold)
                     .color(colors.text_primary)
                     .show();
                 ui.text(&config_path_str)
@@ -1075,12 +1075,12 @@ fn draw_api_keys_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColor
 
             let edit_btn = ui.container()
                 .raw_id(Id::from_u64(999999886))
-                .clickable(true)
+                .interactive(true)
                 .padding(4.5, 10.0, 4.5, 10.0)
                 .radius_all(5.0)
                 .bg(colors.highlight)
-                .hover_bg(colors.accent.with_alpha(if is_light { 0.12 } else { 0.2 }))
-                .border(colors.border.with_alpha(0.4), 0.75)
+                .hover(Style::bg(colors.accent.with_alpha(if is_light { 0.12 } else { 0.2 })))
+                .border((colors.border.with_alpha(0.4), 0.75))
                 .row()
                 .valign(Align::Center)
                 .gap(4.0)
@@ -1109,13 +1109,13 @@ fn draw_api_keys_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColor
         let is_err = msg.starts_with("Error");
         let accent = if is_err { Color::rgb(0.9, 0.3, 0.3) } else { colors.accent };
         ui.container()
-            .full_width()
+            .fill_x()
             .padding(6.0, 10.0, 6.0, 10.0)
             .radius_all(5.0)
             .bg(accent.with_alpha(0.12))
-            .border(accent.with_alpha(0.4), 0.75)
+            .border((accent.with_alpha(0.4), 0.75))
             .show(|ui| {
-                ui.text(msg).size(10.5).color(accent).weight(FontWeight::Medium).show();
+                ui.text(msg).size(10.5).color(accent).font_weight(FontWeight::Medium).show();
             });
         ui.spacing(2.0);
     }
@@ -1138,7 +1138,7 @@ fn draw_api_keys_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColor
         // Separator
         if i > 0 {
             ui.container()
-                .full_width()
+                .fill_x()
                 .height(1.0)
                 .bg(colors.border.with_alpha(0.25))
                 .show(|_| {});
@@ -1146,7 +1146,7 @@ fn draw_api_keys_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColor
 
         // Provider row
         ui.container()
-            .full_width()
+            .fill_x()
             .padding(0.0, 0.0, 6.0, 0.0)
             .row()
             .valign(Align::Center)
@@ -1159,7 +1159,7 @@ fn draw_api_keys_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColor
                     .show(|ui| {
                         ui.text(kp.display_name)
                             .size(12.0)
-                            .weight(FontWeight::Medium)
+                            .font_weight(FontWeight::Medium)
                             .color(colors.text_primary)
                             .show();
                     });
@@ -1173,11 +1173,11 @@ fn draw_api_keys_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColor
                 let can_copy = !copy_value.is_empty();
                 let copied_recently = api_key_copy_succeeded_recently(state, kp.name);
                 let copy_btn = ui.container()
-                    .clickable(can_copy)
+                    .interactive(can_copy)
                     .width(provider_copy_width)
                     .height(28.0)
                     .radius_all(4.0)
-                    .hover_bg(colors.highlight)
+                    .hover(Style::bg(colors.highlight))
                     .halign(Align::Center)
                     .valign(Align::Center)
                     .show(|ui| {
@@ -1212,7 +1212,7 @@ fn draw_api_keys_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColor
                         .height(28.0)
                         .clip(true)
                         .bg(colors.bg_base.with_alpha(0.7))
-                        .border(colors.border.with_alpha(0.4), 0.75)
+                        .border((colors.border.with_alpha(0.4), 0.75))
                         .radius_all(4.0)
                         .padding(0.0, 8.0, 0.0, 8.0)
                         .row()
@@ -1237,9 +1237,9 @@ fn draw_api_keys_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColor
                                 .padding(4.0, 10.0, 4.0, 10.0)
                                 .radius_all(4.0)
                                 .bg(if is_revealed { colors.accent.with_alpha(0.18) } else if is_light { Color::rgb(0.92, 0.92, 0.94) } else { colors.bg_base })
-                                .hover_bg(if is_revealed { colors.accent.with_alpha(0.28) } else if is_light { Color::rgb(0.85, 0.85, 0.88) } else { colors.border.with_alpha(0.5) })
-                                .border(if is_revealed { colors.accent.with_alpha(0.6) } else { colors.border.with_alpha(0.5) }, 0.75)
-                                .text_color(if is_revealed { colors.accent } else { colors.text_primary })
+                                .hover(Style::bg(if is_revealed { colors.accent.with_alpha(0.28) } else if is_light { Color::rgb(0.85, 0.85, 0.88) } else { colors.border.with_alpha(0.5) }))
+                                .border((if is_revealed { colors.accent.with_alpha(0.6) } else { colors.border.with_alpha(0.5) }, 0.75))
+                                .color(if is_revealed { colors.accent } else { colors.text_primary })
                                 .size(10.0)
                                 .show();
                             if reveal_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
@@ -1257,9 +1257,9 @@ fn draw_api_keys_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColor
                                 .padding(4.0, 10.0, 4.0, 10.0)
                                 .radius_all(4.0)
                                 .bg(remove_btn_bg)
-                                .hover_bg(remove_btn_hover)
-                                .border(remove_btn_border, 0.75)
-                                .text_color(remove_btn_fg)
+                                .hover(Style::bg(remove_btn_hover))
+                                .border((remove_btn_border, 0.75))
+                                .color(remove_btn_fg)
                                 .size(10.0)
                                 .show();
                             if rm_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
@@ -1279,14 +1279,14 @@ fn draw_api_keys_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColor
                         (ui.available_width - provider_label_width - provider_copy_width - provider_actions_width - 24.0)
                             .max(120.0);
 
-                    ui.text_area(input_text, &input_id)
+                    ui.text_area(input_text).id(&input_id)
                         .width(input_width)
                         .height(28.0)
                         .size(10.5)
                         .color(colors.text_primary)
                         .bg(colors.bg_base.with_alpha(0.7))
-                        .border(colors.border.with_alpha(0.4), 0.75)
-                        .focus_border(colors.accent.with_alpha(0.8), 1.0)
+                        .border((colors.border.with_alpha(0.4), 0.75))
+                        .focus_border((colors.accent.with_alpha(0.8), 1.0))
                         .radius(4.0, 4.0, 4.0, 4.0)
                         .padding(4.0, 8.0, 4.0, 8.0)
                         .placeholder(&format!("Paste {} key...", kp.display_name))
@@ -1311,9 +1311,9 @@ fn draw_api_keys_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColor
                                 .padding(4.5, 14.0, 4.5, 14.0)
                                 .radius_all(4.0)
                                 .bg(if can_save { colors.accent } else { colors.highlight })
-                                .hover_bg(if can_save { colors.accent.with_alpha(0.85) } else { colors.highlight })
-                                .border(if can_save { colors.accent.with_alpha(0.8) } else { colors.border.with_alpha(0.4) }, 0.75)
-                                .text_color(if can_save { Color::WHITE } else { colors.text_muted })
+                                .hover(Style::bg(if can_save { colors.accent.with_alpha(0.85) } else { colors.highlight }))
+                                .border((if can_save { colors.accent.with_alpha(0.8) } else { colors.border.with_alpha(0.4) }, 0.75))
+                                .color(if can_save { Color::WHITE } else { colors.text_muted })
                                 .size(10.0)
                                 .show();
                             if save_btn.hovered && can_save { ui.cursor_icon = CursorIcon::Pointer; }
@@ -1339,14 +1339,14 @@ fn draw_api_keys_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColor
 
     if !custom_providers.is_empty() {
         ui.container()
-            .full_width()
+            .fill_x()
             .height(1.0)
             .bg(colors.border.with_alpha(0.25))
             .show(|_| {});
 
         for (idx, (name, masked)) in custom_providers.iter().enumerate() {
             ui.container()
-                .full_width()
+                .fill_x()
                 .padding(0.0, 0.0, 6.0, 0.0)
                 .row()
                 .valign(Align::Center)
@@ -1359,18 +1359,18 @@ fn draw_api_keys_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColor
                         .show(|ui| {
                         ui.text(name)
                             .size(12.0)
-                            .weight(FontWeight::Medium)
+                            .font_weight(FontWeight::Medium)
                             .color(colors.text_primary)
                             .show();
                     });
 
                     let copied_recently = api_key_copy_succeeded_recently(state, name);
                     let copy_btn = ui.container()
-                        .clickable(true)
+                        .interactive(true)
                         .width(provider_copy_width)
                         .height(28.0)
                         .radius_all(4.0)
-                        .hover_bg(colors.highlight)
+                        .hover(Style::bg(colors.highlight))
                         .halign(Align::Center)
                         .valign(Align::Center)
                         .show(|ui| {
@@ -1399,7 +1399,7 @@ fn draw_api_keys_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColor
                         .height(28.0)
                         .clip(true)
                         .bg(colors.bg_base.with_alpha(0.7))
-                        .border(colors.border.with_alpha(0.4), 0.75)
+                        .border((colors.border.with_alpha(0.4), 0.75))
                         .radius_all(4.0)
                         .padding(0.0, 8.0, 0.0, 8.0)
                         .row()
@@ -1424,9 +1424,9 @@ fn draw_api_keys_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColor
                                 .padding(4.0, 10.0, 4.0, 10.0)
                                 .radius_all(4.0)
                                 .bg(if is_revealed { colors.accent.with_alpha(0.18) } else if is_light { Color::rgb(0.92, 0.92, 0.94) } else { colors.bg_base })
-                                .hover_bg(if is_revealed { colors.accent.with_alpha(0.28) } else if is_light { Color::rgb(0.85, 0.85, 0.88) } else { colors.border.with_alpha(0.5) })
-                                .border(if is_revealed { colors.accent.with_alpha(0.6) } else { colors.border.with_alpha(0.5) }, 0.75)
-                                .text_color(if is_revealed { colors.accent } else { colors.text_primary })
+                                .hover(Style::bg(if is_revealed { colors.accent.with_alpha(0.28) } else if is_light { Color::rgb(0.85, 0.85, 0.88) } else { colors.border.with_alpha(0.5) }))
+                                .border((if is_revealed { colors.accent.with_alpha(0.6) } else { colors.border.with_alpha(0.5) }, 0.75))
+                                .color(if is_revealed { colors.accent } else { colors.text_primary })
                                 .size(10.0)
                                 .show();
                             if reveal_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
@@ -1444,9 +1444,9 @@ fn draw_api_keys_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColor
                                 .padding(4.0, 10.0, 4.0, 10.0)
                                 .radius_all(4.0)
                                 .bg(remove_btn_bg)
-                                .hover_bg(remove_btn_hover)
-                                .border(remove_btn_border, 0.75)
-                                .text_color(remove_btn_fg)
+                                .hover(Style::bg(remove_btn_hover))
+                                .border((remove_btn_border, 0.75))
+                                .color(remove_btn_fg)
                                 .size(10.0)
                                 .show();
                             if rm_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
@@ -1465,7 +1465,7 @@ fn draw_api_keys_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColor
     // ── Divider before + Add ──
     ui.spacing(4.0);
     ui.container()
-        .full_width()
+        .fill_x()
         .height(1.0)
         .bg(colors.border.with_alpha(0.25))
         .show(|_| {});
@@ -1478,9 +1478,9 @@ fn draw_api_keys_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColor
             .padding(5.0, 12.0, 5.0, 12.0)
             .radius_all(5.0)
             .bg(if is_light { Color::rgb(0.92, 0.92, 0.94) } else { colors.bg_base })
-            .hover_bg(if is_light { Color::rgb(0.85, 0.85, 0.88) } else { colors.border.with_alpha(0.5) })
-            .border(colors.border.with_alpha(0.4), 0.75)
-            .text_color(colors.text_primary)
+            .hover(Style::bg(if is_light { Color::rgb(0.85, 0.85, 0.88) } else { colors.border.with_alpha(0.5) }))
+            .border((colors.border.with_alpha(0.4), 0.75))
+            .color(colors.text_primary)
             .size(10.5)
             .show();
         if add_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
@@ -1494,31 +1494,31 @@ fn draw_api_keys_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColor
     } else {
         // Inline form
         ui.container()
-            .full_width()
+            .fill_x()
             .padding(12.0, 14.0, 12.0, 14.0)
             .radius_all(7.0)
             .bg(if is_light { Color::rgb(0.96, 0.96, 0.98) } else { colors.bg_base })
-            .border(colors.accent.with_alpha(0.4), 1.0)
+            .border((colors.accent.with_alpha(0.4), 1.0))
             .column()
             .gap(8.0)
             .show(|ui| {
                 ui.text("Add Custom Provider")
                     .size(11.5)
-                    .weight(FontWeight::SemiBold)
+                    .font_weight(FontWeight::SemiBold)
                     .color(colors.text_primary)
                     .show();
 
                 // Name field
-                ui.container().full_width().row().valign(Align::Center).gap(8.0).show(|ui| {
+                ui.container().fill_x().row().valign(Align::Center).gap(8.0).show(|ui| {
                     ui.text("Name").size(10.0).color(colors.text_muted).max_width(60.0).show();
-                    ui.text_area(&mut state.ai_settings.custom_provider_name, "custom_prov_name")
+                    ui.text_area(&mut state.ai_settings.custom_provider_name).id("custom_prov_name")
                         .width(340.0)
                         .height(26.0)
                         .size(10.5)
                         .color(colors.text_primary)
                         .bg(if is_light { Color::WHITE } else { colors.bg_base.with_alpha(0.6) })
-                        .border(colors.border.with_alpha(0.5), 0.75)
-                        .focus_border(colors.accent.with_alpha(0.8), 1.0)
+                        .border((colors.border.with_alpha(0.5), 0.75))
+                        .focus_border((colors.accent.with_alpha(0.8), 1.0))
                         .radius(4.0, 4.0, 4.0, 4.0)
                         .padding(4.0, 6.0, 4.0, 6.0)
                         .placeholder("e.g. openai")
@@ -1527,17 +1527,17 @@ fn draw_api_keys_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColor
                 });
 
                 // API Key field
-                ui.container().full_width().row().valign(Align::Center).gap(8.0).show(|ui| {
+                ui.container().fill_x().row().valign(Align::Center).gap(8.0).show(|ui| {
                     ui.text("API Key").size(10.0).color(colors.text_muted).max_width(60.0).show();
                     let can_copy_key = !state.ai_settings.custom_provider_key.is_empty();
                     let copied_recently =
                         api_key_copy_succeeded_recently(state, "__custom_provider_form_api_key");
                     let copy_btn = ui.container()
-                        .clickable(can_copy_key)
+                        .interactive(can_copy_key)
                         .width(24.0)
                         .height(26.0)
                         .radius_all(4.0)
-                        .hover_bg(colors.highlight)
+                        .hover(Style::bg(colors.highlight))
                         .halign(Align::Center)
                         .valign(Align::Center)
                         .show(|ui| {
@@ -1560,14 +1560,14 @@ fn draw_api_keys_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColor
                         );
                         ui.needs_redraw = true;
                     }
-                    ui.text_area(&mut state.ai_settings.custom_provider_key, "custom_prov_key")
+                    ui.text_area(&mut state.ai_settings.custom_provider_key).id("custom_prov_key")
                         .width(340.0)
                         .height(26.0)
                         .size(10.5)
                         .color(colors.text_primary)
                         .bg(if is_light { Color::WHITE } else { colors.bg_base.with_alpha(0.6) })
-                        .border(colors.border.with_alpha(0.5), 0.75)
-                        .focus_border(colors.accent.with_alpha(0.8), 1.0)
+                        .border((colors.border.with_alpha(0.5), 0.75))
+                        .focus_border((colors.accent.with_alpha(0.8), 1.0))
                         .radius(4.0, 4.0, 4.0, 4.0)
                         .padding(4.0, 6.0, 4.0, 6.0)
                         .placeholder("sk-...")
@@ -1576,16 +1576,16 @@ fn draw_api_keys_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColor
                 });
 
                 // Base URL field
-                ui.container().full_width().row().valign(Align::Center).gap(8.0).show(|ui| {
+                ui.container().fill_x().row().valign(Align::Center).gap(8.0).show(|ui| {
                     ui.text("Base URL").size(10.0).color(colors.text_muted).max_width(60.0).show();
-                    ui.text_area(&mut state.ai_settings.custom_provider_url, "custom_prov_url")
+                    ui.text_area(&mut state.ai_settings.custom_provider_url).id("custom_prov_url")
                         .width(340.0)
                         .height(26.0)
                         .size(10.5)
                         .color(colors.text_primary)
                         .bg(if is_light { Color::WHITE } else { colors.bg_base.with_alpha(0.6) })
-                        .border(colors.border.with_alpha(0.5), 0.75)
-                        .focus_border(colors.accent.with_alpha(0.8), 1.0)
+                        .border((colors.border.with_alpha(0.5), 0.75))
+                        .focus_border((colors.accent.with_alpha(0.8), 1.0))
                         .radius(4.0, 4.0, 4.0, 4.0)
                         .padding(4.0, 6.0, 4.0, 6.0)
                         .placeholder("https://api.openai.com/v1")
@@ -1594,15 +1594,15 @@ fn draw_api_keys_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColor
                 });
 
                 // Buttons
-                ui.container().full_width().row().valign(Align::Center).halign(Align::Right).gap(8.0).show(|ui| {
+                ui.container().fill_x().row().valign(Align::Center).halign(Align::Right).gap(8.0).show(|ui| {
                     let cancel_btn = ui.button("Cancel")
                         .id(Id::from_u64(999999887))
                         .padding(4.5, 12.0, 4.5, 12.0)
                         .radius_all(5.0)
                         .bg(if is_light { Color::rgb(0.92, 0.92, 0.94) } else { colors.bg_base })
-                        .hover_bg(if is_light { Color::rgb(0.85, 0.85, 0.88) } else { colors.border.with_alpha(0.5) })
-                        .border(colors.border.with_alpha(0.4), 0.75)
-                        .text_color(colors.text_muted)
+                        .hover(Style::bg(if is_light { Color::rgb(0.85, 0.85, 0.88) } else { colors.border.with_alpha(0.5) }))
+                        .border((colors.border.with_alpha(0.4), 0.75))
+                        .color(colors.text_muted)
                         .size(10.0)
                         .show();
                     if cancel_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
@@ -1621,9 +1621,9 @@ fn draw_api_keys_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColor
                         .padding(4.5, 14.0, 4.5, 14.0)
                         .radius_all(5.0)
                         .bg(if can_add { colors.accent } else if is_light { Color::rgb(0.90, 0.90, 0.92) } else { colors.bg_base })
-                        .hover_bg(if can_add { colors.accent.with_alpha(0.85) } else if is_light { Color::rgb(0.90, 0.90, 0.92) } else { colors.bg_base })
-                        .border(if can_add { colors.accent.with_alpha(0.8) } else { colors.border.with_alpha(0.4) }, 0.75)
-                        .text_color(if can_add { Color::WHITE } else { colors.text_muted })
+                        .hover(Style::bg(if can_add { colors.accent.with_alpha(0.85) } else if is_light { Color::rgb(0.90, 0.90, 0.92) } else { colors.bg_base }))
+                        .border((if can_add { colors.accent.with_alpha(0.8) } else { colors.border.with_alpha(0.4) }, 0.75))
+                        .color(if can_add { Color::WHITE } else { colors.text_muted })
                         .size(10.0)
                         .show();
                     if add_btn.hovered && can_add { ui.cursor_icon = CursorIcon::Pointer; }
@@ -1650,13 +1650,13 @@ fn draw_api_keys_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColor
 
 fn draw_external_agents_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColors) {
     ui.container()
-        .full_width()
+        .fill_x()
         .column()
         .gap(3.0)
         .show(|ui| {
             ui.text("External Agents & ACP")
                 .size(14.0)
-                .weight(FontWeight::Bold)
+                .font_weight(FontWeight::Bold)
                 .color(colors.text_primary)
                 .show();
             ui.text("Connect autonomous external agents via Google ID OAuth or the Agent Client Protocol (ACP)")
@@ -1676,17 +1676,17 @@ fn draw_external_agents_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &The
 
     // ── 1. Google Antigravity Card ──
     ui.container()
-        .full_width()
+        .fill_x()
         .padding(14.0, 16.0, 14.0, 16.0)
         .radius_all(8.0)
         .bg(colors.bg_base)
-        .border(if is_antigravity_active { colors.accent.with_alpha(0.7) } else { colors.border.with_alpha(0.6) }, 1.0)
+        .border((if is_antigravity_active { colors.accent.with_alpha(0.7) } else { colors.border.with_alpha(0.6) }, 1.0))
         .column()
         .gap(12.0)
         .show(|ui| {
             // Header row: Logo + Name + Status Badge
             ui.container()
-                .full_width()
+                .fill_x()
                 .row()
                 .valign(Align::Center)
                 .halign(Align::SpaceBetween)
@@ -1710,7 +1710,7 @@ fn draw_external_agents_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &The
                             ui.container().row().valign(Align::Center).gap(6.0).show(|ui| {
                                 ui.text("Google Antigravity")
                                     .size(13.0)
-                                    .weight(FontWeight::SemiBold)
+                                    .font_weight(FontWeight::SemiBold)
                                     .color(colors.text_primary)
                                     .show();
                                 if is_antigravity_active {
@@ -1721,7 +1721,7 @@ fn draw_external_agents_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &The
                                         .show(|ui| {
                                             ui.text("ACTIVE IN CHAT")
                                                 .size(8.5)
-                                                .weight(FontWeight::Bold)
+                                                .font_weight(FontWeight::Bold)
                                                 .color(colors.accent)
                                                 .show();
                                         });
@@ -1762,11 +1762,11 @@ fn draw_external_agents_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &The
                         .padding(3.0, 10.0, 3.0, 10.0)
                         .radius_all(10.0)
                         .bg(badge_bg)
-                        .border(badge_border, 0.75)
+                        .border((badge_border, 0.75))
                         .show(|ui| {
                             ui.text(badge_text)
                                 .size(9.5)
-                                .weight(FontWeight::Medium)
+                                .font_weight(FontWeight::Medium)
                                 .color(badge_fg)
                                 .show();
                         });
@@ -1778,16 +1778,16 @@ fn draw_external_agents_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &The
                 .size(10.8)
                 .color(colors.text_muted)
                 .max_width(description_width)
-                .auto_wrap()
+                .wrap(true)
                 .show();
 
             // ── Controls row: Model Engine on Left, User & Actions on Right ──
             ui.container()
-                .full_width()
+                .fill_x()
                 .padding(10.0, 14.0, 10.0, 14.0)
                 .radius_all(6.0)
                 .bg(colors.bg_base)
-                .border(colors.border.with_alpha(0.5), 0.75)
+                .border((colors.border.with_alpha(0.5), 0.75))
                 .row()
                 .valign(Align::Center)
                 .halign(Align::SpaceBetween)
@@ -1800,7 +1800,7 @@ fn draw_external_agents_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &The
                         .show(|ui| {
                             ui.text("Model Engine")
                                 .size(11.5)
-                                .weight(FontWeight::Medium)
+                                .font_weight(FontWeight::Medium)
                                 .color(colors.text_primary)
                                 .show();
 
@@ -1835,7 +1835,7 @@ fn draw_external_agents_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &The
                                     let email_str = token.account_email.as_deref().unwrap_or("Signed in via Google OAuth");
                                     ui.text(email_str)
                                         .size(10.5)
-                                        .weight(FontWeight::SemiBold)
+                                        .font_weight(FontWeight::SemiBold)
                                         .color(colors.text_primary)
                                         .max_width(200.0)
                                         .ellipsis(true)
@@ -1849,9 +1849,9 @@ fn draw_external_agents_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &The
                                         .padding(4.5, 12.0, 4.5, 12.0)
                                         .radius_all(5.0)
                                         .bg(if is_light { Color::rgb(0.92, 0.92, 0.94) } else { colors.bg_base })
-                                        .hover_bg(if is_light { Color::rgb(0.86, 0.86, 0.88) } else { colors.border.with_alpha(0.6) })
-                                        .border(colors.border.with_alpha(0.5), 0.75)
-                                        .text_color(colors.text_primary)
+                                        .hover(Style::bg(if is_light { Color::rgb(0.86, 0.86, 0.88) } else { colors.border.with_alpha(0.6) }))
+                                        .border((colors.border.with_alpha(0.5), 0.75))
+                                        .color(colors.text_primary)
                                         .size(10.5)
                                         .show();
                                     if logout_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
@@ -1868,8 +1868,8 @@ fn draw_external_agents_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &The
                                         .padding(4.5, 12.0, 4.5, 12.0)
                                         .radius_all(5.0)
                                         .bg(if is_antigravity_active { colors.accent.with_alpha(0.35) } else { colors.accent })
-                                        .hover_bg(if is_antigravity_active { colors.accent.with_alpha(0.35) } else { colors.accent.with_alpha(0.85) })
-                                        .text_color(Color::WHITE)
+                                        .hover(Style::bg(if is_antigravity_active { colors.accent.with_alpha(0.35) } else { colors.accent.with_alpha(0.85) }))
+                                        .color(Color::WHITE)
                                         .size(10.5)
                                         .show();
                                     if !is_antigravity_active && switch_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
@@ -1884,9 +1884,9 @@ fn draw_external_agents_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &The
                                         .padding(4.5, 9.0, 4.5, 9.0)
                                         .radius_all(5.0)
                                         .bg(Color::rgb(220.0 / 255.0, 40.0 / 255.0, 40.0 / 255.0))
-                                        .hover_bg(Color::rgb(190.0 / 255.0, 30.0 / 255.0, 30.0 / 255.0))
-                                        .border(Color::rgb(180.0 / 255.0, 30.0 / 255.0, 30.0 / 255.0), 0.75)
-                                        .text_color(Color::WHITE)
+                                        .hover(Style::bg(Color::rgb(190.0 / 255.0, 30.0 / 255.0, 30.0 / 255.0)))
+                                        .border((Color::rgb(180.0 / 255.0, 30.0 / 255.0, 30.0 / 255.0), 0.75))
+                                        .color(Color::WHITE)
                                         .size(10.5)
                                         .show();
                                     if remove_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
@@ -1941,10 +1941,10 @@ fn draw_external_agents_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &The
 
                                         ui.text(status)
                                             .size(9.5)
-                                            .weight(FontWeight::Medium)
+                                            .font_weight(FontWeight::Medium)
                                             .color(colors.accent)
                                             .max_width(250.0)
-                                            .auto_wrap()
+                                            .wrap(true)
                                             .show();
 
                                         // Built-in progress bar widget
@@ -1964,7 +1964,7 @@ fn draw_external_agents_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &The
                                         .size(9.0)
                                         .color(Color::from_hex(0xe65050))
                                         .max_width(250.0)
-                                        .auto_wrap()
+                                        .wrap(true)
                                         .show();
                                 }
 
@@ -1977,8 +1977,8 @@ fn draw_external_agents_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &The
                                     .padding(5.0, 14.0, 5.0, 14.0)
                                     .radius_all(5.0)
                                     .bg(if is_installing { colors.accent.with_alpha(0.4) } else { colors.accent })
-                                    .hover_bg(colors.accent.with_alpha(0.85))
-                                    .text_color(Color::WHITE)
+                                    .hover(Style::bg(colors.accent.with_alpha(0.85)))
+                                    .color(Color::WHITE)
                                     .size(10.5)
                                     .show();
 
@@ -2067,10 +2067,10 @@ fn draw_external_agents_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &The
                                     if is_signing_in {
                                         ui.text(status)
                                             .size(9.5)
-                                            .weight(FontWeight::Medium)
+                                            .font_weight(FontWeight::Medium)
                                             .color(colors.accent)
                                             .max_width(250.0)
-                                            .auto_wrap()
+                                            .wrap(true)
                                             .show();
                                     }
                                 }
@@ -2080,7 +2080,7 @@ fn draw_external_agents_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &The
                                         .size(9.0)
                                         .color(Color::from_hex(0xe65050))
                                         .max_width(250.0)
-                                        .auto_wrap()
+                                        .wrap(true)
                                         .show();
                                 }
 
@@ -2094,8 +2094,8 @@ fn draw_external_agents_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &The
                                         .padding(5.0, 14.0, 5.0, 14.0)
                                         .radius_all(5.0)
                                         .bg(if is_signing_in { colors.accent.with_alpha(0.4) } else { colors.accent })
-                                        .hover_bg(colors.accent.with_alpha(0.85))
-                                        .text_color(Color::WHITE)
+                                        .hover(Style::bg(colors.accent.with_alpha(0.85)))
+                                        .color(Color::WHITE)
                                         .size(10.5)
                                         .show();
                                     if login_btn.hovered && !is_signing_in {
@@ -2147,9 +2147,9 @@ fn draw_external_agents_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &The
                                         .padding(5.0, 9.0, 5.0, 9.0)
                                         .radius_all(5.0)
                                         .bg(Color::rgb(220.0 / 255.0, 40.0 / 255.0, 40.0 / 255.0))
-                                        .hover_bg(Color::rgb(190.0 / 255.0, 30.0 / 255.0, 30.0 / 255.0))
-                                        .border(Color::rgb(180.0 / 255.0, 30.0 / 255.0, 30.0 / 255.0), 0.75)
-                                        .text_color(Color::WHITE)
+                                        .hover(Style::bg(Color::rgb(190.0 / 255.0, 30.0 / 255.0, 30.0 / 255.0)))
+                                        .border((Color::rgb(180.0 / 255.0, 30.0 / 255.0, 30.0 / 255.0), 0.75))
+                                        .color(Color::WHITE)
                                         .size(10.5)
                                         .show();
                                     if remove_btn.hovered && !is_signing_in { ui.cursor_icon = CursorIcon::Pointer; }
@@ -2170,13 +2170,13 @@ fn draw_external_agents_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &The
 
     // ── Extensible Registry: Other Agents (Future Ready) ──
     ui.container()
-        .full_width()
+        .fill_x()
         .column()
         .gap(3.0)
         .show(|ui| {
             ui.text("Additional External Agents")
                 .size(12.0)
-                .weight(FontWeight::SemiBold)
+                .font_weight(FontWeight::SemiBold)
                 .color(colors.text_primary)
                 .show();
             ui.text("Add more autonomous agents via the open Agent Client Protocol")
@@ -2189,11 +2189,11 @@ fn draw_external_agents_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &The
 
     // 2. GitHub Copilot Card (Coming Soon)
     ui.container()
-        .full_width()
+        .fill_x()
         .padding(12.0, 14.0, 12.0, 14.0)
         .radius_all(8.0)
         .bg(colors.bg_base)
-        .border(colors.border.with_alpha(0.4), 0.75)
+        .border((colors.border.with_alpha(0.4), 0.75))
         .row()
         .valign(Align::Center)
         .halign(Align::SpaceBetween)
@@ -2215,7 +2215,7 @@ fn draw_external_agents_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &The
                 ui.container().column().gap(2.0).show(|ui| {
                     ui.text("GitHub Copilot")
                         .size(12.0)
-                        .weight(FontWeight::SemiBold)
+                        .font_weight(FontWeight::SemiBold)
                         .color(colors.text_primary)
                         .show();
                     ui.text("GitHub Language Server & Workspace Agent (ACP)")
@@ -2241,11 +2241,11 @@ fn draw_external_agents_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &The
 
     // 3. Claude Code Card (Coming Soon)
     ui.container()
-        .full_width()
+        .fill_x()
         .padding(12.0, 14.0, 12.0, 14.0)
         .radius_all(8.0)
         .bg(colors.bg_base)
-        .border(colors.border.with_alpha(0.4), 0.75)
+        .border((colors.border.with_alpha(0.4), 0.75))
         .row()
         .valign(Align::Center)
         .halign(Align::SpaceBetween)
@@ -2261,14 +2261,14 @@ fn draw_external_agents_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &The
                     .show(|ui| {
                         ui.text("\u{EC82}")
                             .size(20.0)
-                            .family("Symbols Nerd Font")
+                            .font_family("Symbols Nerd Font")
                             .color(colors.accent)
                             .show();
                     });
                 ui.container().column().gap(2.0).show(|ui| {
                     ui.text("Claude Code")
                         .size(12.0)
-                        .weight(FontWeight::SemiBold)
+                        .font_weight(FontWeight::SemiBold)
                         .color(colors.text_primary)
                         .show();
                     ui.text("Anthropic Claude Code autonomous agent via local ACP daemon")
@@ -2294,11 +2294,11 @@ fn draw_external_agents_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &The
 
     // 4. Custom External Agent Card
     ui.container()
-        .full_width()
+        .fill_x()
         .padding(12.0, 14.0, 12.0, 14.0)
         .radius_all(8.0)
         .bg(colors.bg_base)
-        .border(colors.border.with_alpha(0.4), 0.75)
+        .border((colors.border.with_alpha(0.4), 0.75))
         .row()
         .valign(Align::Center)
         .halign(Align::SpaceBetween)
@@ -2320,7 +2320,7 @@ fn draw_external_agents_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &The
                 ui.container().column().gap(2.0).show(|ui| {
                     ui.text("Custom ACP Binary")
                         .size(12.0)
-                        .weight(FontWeight::SemiBold)
+                        .font_weight(FontWeight::SemiBold)
                         .color(colors.text_primary)
                         .show();
                     ui.text("Launch any local executable supporting stdio Agent Client Protocol")
@@ -2331,11 +2331,11 @@ fn draw_external_agents_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &The
             });
 
             ui.container()
-                .clickable(true)
+                .interactive(true)
                 .padding(4.0, 9.0, 4.0, 9.0)
                 .radius_all(5.0)
                 .bg(colors.highlight)
-                .border(colors.border.with_alpha(0.5), 0.75)
+                .border((colors.border.with_alpha(0.5), 0.75))
                 .show(|ui| {
                     ui.text("+ Add Binary")
                         .size(9.5)
@@ -2355,13 +2355,13 @@ fn draw_antigravity_settings_model_button(
         // Disabled button when not connected to external agent
         ui.container()
             .raw_id(AG_SETTINGS_MODEL_BTN_ID)
-            .clickable(false)
+            .interactive(false)
             .width(200.0)
             .height(28.0)
             .padding(4.0, 10.0, 4.0, 10.0)
             .radius_all(5.0)
             .bg(colors.bg_base)
-            .border(colors.border.with_alpha(0.3), 1.0)
+            .border((colors.border.with_alpha(0.3), 1.0))
             .row()
             .valign(Align::Center)
             .halign(Align::SpaceBetween)
@@ -2412,21 +2412,21 @@ fn draw_antigravity_settings_model_button(
 
     let model_btn = ui.container()
         .raw_id(AG_SETTINGS_MODEL_BTN_ID)
-        .clickable(true)
+        .interactive(true)
         .width(200.0)
         .height(28.0)
         .padding(4.0, 10.0, 4.0, 10.0)
         .radius_all(5.0)
         .bg(btn_bg)
-        .hover_bg(colors.highlight)
-        .border(btn_border, 0.75)
+        .hover(Style::bg(colors.highlight))
+        .border((btn_border, 0.75))
         .row()
         .valign(Align::Center)
         .halign(Align::SpaceBetween)
         .show(|ui| {
             ui.text(&display_title)
                 .size(10.5)
-                .weight(FontWeight::Medium)
+                .font_weight(FontWeight::Medium)
                 .color(colors.text_primary)
                 .show();
             ui.text(if is_open { "\u{f077}" } else { "\u{f078}" })
@@ -2517,7 +2517,7 @@ pub fn draw_antigravity_settings_model_popover(
         .width(menu_w)
         .height(menu_h)
         .bg(menu_bg)
-        .border(menu_border, 1.0)
+        .border((menu_border, 1.0))
         .radius_all(6.0)
         .shadow(menu_shadow, 0.0, 4.0, 16.0)
         .padding(4.0, 4.0, 4.0, 4.0);
@@ -2530,7 +2530,7 @@ pub fn draw_antigravity_settings_model_popover(
         let scroll_box_id = Id::from_u64(999999816);
         ui.container()
             .id(scroll_box_id)
-            .full_width()
+            .fill_x()
             .height(menu_h - 8.0)
             .column()
             .gap(1.5)
@@ -2538,7 +2538,7 @@ pub fn draw_antigravity_settings_model_popover(
             .show(|ui| {
                 if models.is_empty() {
                     ui.container()
-                        .full_width()
+                        .fill_x()
                         .padding(6.0, 8.0, 6.0, 8.0)
                         .show(|ui| {
                             ui.text("No models returned by agent")
@@ -2557,18 +2557,18 @@ pub fn draw_antigravity_settings_model_popover(
                     let row_id = ui.id_from(&format!("pop_ag_dynamic_model_{}", model.id));
                     let row = ui.container()
                         .id(row_id)
-                        .full_width()
+                        .fill_x()
                         .height(26.0)
                         .padding(2.0, 8.0, 2.0, 8.0)
                         .radius_all(4.0)
                         .bg(if is_selected { colors.accent.with_alpha(0.12) } else { Color::TRANSPARENT })
-                        .hover_bg(colors.highlight)
+                        .hover(Style::bg(colors.highlight))
                         .row()
                         .valign(Align::Center)
                         .show(|ui| {
                             ui.text(&model.display_name)
                                 .size(10.0)
-                                .weight(if is_selected { FontWeight::Medium } else { FontWeight::Regular })
+                                .font_weight(if is_selected { FontWeight::Medium } else { FontWeight::Regular })
                                 .color(if is_selected { colors.accent } else { colors.text_primary })
                                 .show();
                         });
@@ -2597,7 +2597,7 @@ pub fn draw_antigravity_settings_model_popover(
 
 fn draw_mcp_tab(ui: &mut Ui, _state: &mut ZenthreeState, colors: &ThemeColors) {
     ui.container()
-        .full_width()
+        .fill_x()
         .row()
         .valign(Align::Center)
         .halign(Align::SpaceBetween)
@@ -2605,7 +2605,7 @@ fn draw_mcp_tab(ui: &mut Ui, _state: &mut ZenthreeState, colors: &ThemeColors) {
             ui.container().column().gap(3.0).show(|ui| {
                 ui.text("Model Context Protocol (MCP)")
                     .size(14.0)
-                    .weight(FontWeight::Bold)
+                    .font_weight(FontWeight::Bold)
                     .color(colors.text_primary)
                     .show();
                 ui.text("Extend agents with external databases, CLI tools, and workspace context")
@@ -2618,11 +2618,11 @@ fn draw_mcp_tab(ui: &mut Ui, _state: &mut ZenthreeState, colors: &ThemeColors) {
                 .padding(4.5, 10.0, 4.5, 10.0)
                 .radius_all(5.0)
                 .bg(colors.highlight)
-                .border(colors.border.with_alpha(0.5), 0.75)
+                .border((colors.border.with_alpha(0.5), 0.75))
                 .show(|ui| {
                     ui.text("+ Add Server")
                         .size(10.5)
-                        .weight(FontWeight::Medium)
+                        .font_weight(FontWeight::Medium)
                         .color(colors.text_primary)
                         .show();
                 });
@@ -2632,16 +2632,16 @@ fn draw_mcp_tab(ui: &mut Ui, _state: &mut ZenthreeState, colors: &ThemeColors) {
 
     // MCP Server Card 1: sqlite-memory
     ui.container()
-        .full_width()
+        .fill_x()
         .padding(12.0, 14.0, 12.0, 14.0)
         .radius_all(8.0)
         .bg(colors.bg_base)
-        .border(colors.border.with_alpha(0.5), 1.0)
+        .border((colors.border.with_alpha(0.5), 1.0))
         .column()
         .gap(8.0)
         .show(|ui| {
             ui.container()
-                .full_width()
+                .fill_x()
                 .row()
                 .valign(Align::Center)
                 .halign(Align::SpaceBetween)
@@ -2653,7 +2653,7 @@ fn draw_mcp_tab(ui: &mut Ui, _state: &mut ZenthreeState, colors: &ThemeColors) {
                             .show();
                         ui.text("sqlite-memory")
                             .size(12.5)
-                            .weight(FontWeight::SemiBold)
+                            .font_weight(FontWeight::SemiBold)
                             .color(colors.text_primary)
                             .show();
                         ui.container()
@@ -2664,7 +2664,7 @@ fn draw_mcp_tab(ui: &mut Ui, _state: &mut ZenthreeState, colors: &ThemeColors) {
                                 ui.text("Active • 3 tools")
                                     .size(9.0)
                                     .color(Color::rgb(0.2, 0.9, 0.4))
-                                    .weight(FontWeight::Medium)
+                                    .font_weight(FontWeight::Medium)
                                     .show();
                             });
                     });
@@ -2674,7 +2674,7 @@ fn draw_mcp_tab(ui: &mut Ui, _state: &mut ZenthreeState, colors: &ThemeColors) {
                         .radius_all(10.0)
                         .bg(colors.accent.with_alpha(0.2))
                         .show(|ui| {
-                            ui.text("ON").size(9.5).weight(FontWeight::Bold).color(colors.accent).show();
+                            ui.text("ON").size(9.5).font_weight(FontWeight::Bold).color(colors.accent).show();
                         });
                 });
 
@@ -2703,16 +2703,16 @@ fn draw_mcp_tab(ui: &mut Ui, _state: &mut ZenthreeState, colors: &ThemeColors) {
 
     // MCP Server Card 2: github-context
     ui.container()
-        .full_width()
+        .fill_x()
         .padding(12.0, 14.0, 12.0, 14.0)
         .radius_all(8.0)
         .bg(colors.bg_base)
-        .border(colors.border.with_alpha(0.5), 1.0)
+        .border((colors.border.with_alpha(0.5), 1.0))
         .column()
         .gap(8.0)
         .show(|ui| {
             ui.container()
-                .full_width()
+                .fill_x()
                 .row()
                 .valign(Align::Center)
                 .halign(Align::SpaceBetween)
@@ -2724,7 +2724,7 @@ fn draw_mcp_tab(ui: &mut Ui, _state: &mut ZenthreeState, colors: &ThemeColors) {
                             .show();
                         ui.text("github-context")
                             .size(12.5)
-                            .weight(FontWeight::SemiBold)
+                            .font_weight(FontWeight::SemiBold)
                             .color(colors.text_primary)
                             .show();
                         ui.container()
@@ -2735,7 +2735,7 @@ fn draw_mcp_tab(ui: &mut Ui, _state: &mut ZenthreeState, colors: &ThemeColors) {
                                 ui.text("Active • 5 tools")
                                     .size(9.0)
                                     .color(Color::rgb(0.2, 0.9, 0.4))
-                                    .weight(FontWeight::Medium)
+                                    .font_weight(FontWeight::Medium)
                                     .show();
                             });
                     });
@@ -2745,7 +2745,7 @@ fn draw_mcp_tab(ui: &mut Ui, _state: &mut ZenthreeState, colors: &ThemeColors) {
                         .radius_all(10.0)
                         .bg(colors.accent.with_alpha(0.2))
                         .show(|ui| {
-                            ui.text("ON").size(9.5).weight(FontWeight::Bold).color(colors.accent).show();
+                            ui.text("ON").size(9.5).font_weight(FontWeight::Bold).color(colors.accent).show();
                         });
                 });
 
@@ -2775,7 +2775,7 @@ fn draw_mcp_tab(ui: &mut Ui, _state: &mut ZenthreeState, colors: &ThemeColors) {
     // Popular Presets
     ui.text("Popular MCP Presets (1-Click Install)")
         .size(11.5)
-        .weight(FontWeight::SemiBold)
+        .font_weight(FontWeight::SemiBold)
         .color(colors.text_primary)
         .show();
 
@@ -2791,13 +2791,13 @@ fn draw_mcp_tab(ui: &mut Ui, _state: &mut ZenthreeState, colors: &ThemeColors) {
                 .padding(8.0, 10.0, 8.0, 10.0)
                 .radius_all(6.0)
                 .bg(colors.bg_base)
-                .border(colors.border.with_alpha(0.4), 0.75)
+                .border((colors.border.with_alpha(0.4), 0.75))
                 .column()
                 .gap(4.0)
                 .show(|ui| {
                     ui.text(name)
                         .size(11.0)
-                        .weight(FontWeight::Medium)
+                        .font_weight(FontWeight::Medium)
                         .color(colors.text_primary)
                         .show();
                     ui.text(desc)
@@ -2815,13 +2815,13 @@ fn draw_mcp_tab(ui: &mut Ui, _state: &mut ZenthreeState, colors: &ThemeColors) {
 
 fn draw_customization_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColors) {
     ui.container()
-        .full_width()
+        .fill_x()
         .column()
         .gap(3.0)
         .show(|ui| {
             ui.text("Agent Customization")
                 .size(14.0)
-                .weight(FontWeight::Bold)
+                .font_weight(FontWeight::Bold)
                 .color(colors.text_primary)
                 .show();
             ui.text("Configure persona roles and global system instructions")
@@ -2834,7 +2834,7 @@ fn draw_customization_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &Theme
 
     // Row 1: Agent Persona Mode
     ui.container()
-        .full_width()
+        .fill_x()
         .row()
         .valign(Align::Center)
         .halign(Align::SpaceBetween)
@@ -2846,7 +2846,7 @@ fn draw_customization_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &Theme
                 .show(|ui| {
                     ui.text("Agent Persona")
                         .size(12.0)
-                        .weight(FontWeight::Medium)
+                        .font_weight(FontWeight::Medium)
                         .color(colors.text_primary)
                         .show();
                     ui.text("Specialization mode for autonomous coding assistance")
@@ -2865,15 +2865,15 @@ fn draw_customization_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &Theme
                     for mode in AgentMode::ALL {
                         let is_active = state.agent_mode == mode;
                         let btn = ui.container()
-                            .clickable(true)
+                            .interactive(true)
                             .padding(5.0, 11.0, 5.0, 11.0)
                             .radius_all(4.0)
                             .bg(if is_active { colors.accent } else { Color::TRANSPARENT })
-                            .hover_bg(if is_active { colors.accent } else { colors.highlight })
+                            .hover(Style::bg(if is_active { colors.accent } else { colors.highlight }))
                             .show(|ui| {
                                 ui.text(mode.display_name())
                                     .size(10.5)
-                                    .weight(if is_active { FontWeight::SemiBold } else { FontWeight::Regular })
+                                    .font_weight(if is_active { FontWeight::SemiBold } else { FontWeight::Regular })
                                     .color(if is_active { Color::WHITE } else { colors.text_muted })
                                     .show();
                             });
@@ -2892,13 +2892,13 @@ fn draw_customization_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &Theme
 
     // Row 2: Custom Instructions Header
     ui.container()
-        .full_width()
+        .fill_x()
         .column()
         .gap(6.0)
         .show(|ui| {
             ui.text("Custom System Instructions")
                 .size(12.0)
-                .weight(FontWeight::Medium)
+                .font_weight(FontWeight::Medium)
                 .color(colors.text_primary)
                 .show();
             ui.text("Injected into the system prompt at the beginning of each session")
@@ -2908,15 +2908,15 @@ fn draw_customization_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &Theme
 
             ui.spacing(2.0);
 
-            ui.text_area(&mut state.ai_settings.custom_instructions, "ai_custom_instructions_textarea")
+            ui.text_area(&mut state.ai_settings.custom_instructions).id("ai_custom_instructions_textarea")
                 .width(490.0)
                 .height(110.0)
                 .scrollable(true)
                 .size(11.0)
                 .color(colors.text_primary)
                 .bg(colors.bg_base)
-                .border(colors.border.with_alpha(0.5), 0.75)
-                .focus_border(colors.accent.with_alpha(0.8), 1.0)
+                .border((colors.border.with_alpha(0.5), 0.75))
+                .focus_border((colors.accent.with_alpha(0.8), 1.0))
                 .radius(6.0, 6.0, 6.0, 6.0)
                 .padding(8.0, 10.0, 8.0, 10.0)
                 .placeholder("e.g. Adhere to strict idiomatic Rust, never use unwrap() in production code.")
@@ -2943,7 +2943,7 @@ fn draw_toggle_row_inline(
 ) -> bool {
     let mut toggled = false;
     ui.container()
-        .full_width()
+        .fill_x()
         .row()
         .valign(Align::Center)
         .halign(Align::SpaceBetween)
@@ -2955,7 +2955,7 @@ fn draw_toggle_row_inline(
                 .show(|ui| {
                     ui.text(title)
                         .size(12.0)
-                        .weight(FontWeight::Medium)
+                        .font_weight(FontWeight::Medium)
                         .color(colors.text_primary.with_alpha(label_alpha))
                         .show();
                     ui.text(description)
@@ -2971,7 +2971,7 @@ fn draw_toggle_row_inline(
                 .show(|ui| {
                     let resp = ui.toggle(val, None)
                         .id(Id::from_u64(id_seed))
-                        .size(38.0, 20.0)
+                        .width(38.0).height(20.0)
                         .pill()
                         .colors(colors.accent, colors.border.with_alpha(0.6), Color::WHITE)
                         .disabled(is_locked)
@@ -2986,7 +2986,7 @@ fn draw_toggle_row_inline(
 
 fn draw_settings_divider(ui: &mut Ui, colors: &ThemeColors) {
     ui.container()
-        .full_width()
+        .fill_x()
         .height(1.0)
         .bg(colors.border.with_alpha(0.35))
         .show(|_| {});

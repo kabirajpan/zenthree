@@ -5,10 +5,11 @@ use serde_json::Value;
 use crate::traits::tool::{Tool, ToolRisk};
 use crate::types::error::ToolError;
 use super::diagnostics::GetDiagnosticsTool;
-use super::fs::{DeleteFileTool, EditFileTool, ListDirectoryTool, ReadFileTool, RenameFileTool, WriteFileTool};
+use super::fs::{DeleteFileTool, EditFileTool, ListDirectoryTool, MultiReplaceFileContentTool, ReadFileTool, RenameFileTool, WriteFileTool};
 use super::git::{GitDiffTool, GitStatusTool};
 use super::plan::{CreatePlanTool, PlanState, UpdatePlanStepTool};
 use super::search::SearchTool;
+use super::subagent::StartSubagentTool;
 use super::terminal::RunTerminalTool;
 
 /// Central registry managing agent tools, schema exports, and dynamic execution.
@@ -40,12 +41,13 @@ impl ToolRegistry {
     }
 
     /// Pre-configured registry with the essential tools:
-    /// read_file, write_file, edit_file, list_directory, search,
+    /// read_file, write_file, edit_file, multi_replace_file_content, list_directory, search,
     /// run_terminal, get_diagnostics, create_plan, update_plan_step.
     pub fn essentials() -> Self {
         let mut registry = Self::minimal();
-        registry.register(WriteFileTool);
-        registry.register(EditFileTool);
+        registry.register(WriteFileTool::default());
+        registry.register(EditFileTool::default());
+        registry.register(MultiReplaceFileContentTool::default());
         registry.register(ListDirectoryTool::new());
         registry.register(SearchTool::new());
         registry.register(RunTerminalTool::new());
@@ -56,13 +58,21 @@ impl ToolRegistry {
         registry
     }
 
-    /// Pre-configured registry containing all tools (essentials + git + file ops).
+    /// Pre-configured registry containing all tools (essentials + git + file ops + tasks + schedule).
     pub fn all() -> Self {
         let mut registry = Self::essentials();
-        registry.register(DeleteFileTool);
-        registry.register(RenameFileTool);
+        registry.register(DeleteFileTool::default());
+        registry.register(RenameFileTool::default());
         registry.register(GitStatusTool);
         registry.register(GitDiffTool);
+        registry.register(StartSubagentTool::default());
+
+        let task_mgr = crate::tasks::TaskManager::default();
+        let notifs = Arc::new(Mutex::new(Vec::new()));
+        let scheduler = crate::tasks::Scheduler::new(notifs);
+        registry.register(crate::tools::ManageTaskTool::new(task_mgr));
+        registry.register(crate::tools::ScheduleTool::new(scheduler));
+
         registry
     }
 
@@ -89,62 +99,20 @@ impl ToolRegistry {
             return Some(tool.as_ref());
         }
 
-        // Backward-compatibility aliases for legacy search tools
-        if (lookup_name == "find_files" || lookup_name == "search_codebase") && self.tools.contains_key("search") {
-            return self.tools.get("search").map(|t| t.as_ref());
+        // Canonical specification aliases:
+        match lookup_name {
+            "replace_file_content" => self.tools.get("edit_file").map(|t| t.as_ref()),
+            "write_to_file" => self.tools.get("write_file").map(|t| t.as_ref()),
+            "view_file" => self.tools.get("read_file").map(|t| t.as_ref()),
+            "run_command" => self.tools.get("run_terminal").map(|t| t.as_ref()),
+            "list_dir" | "get_project_structure" => self.tools.get("list_directory").map(|t| t.as_ref()),
+            "grep_search" | "find_files" | "search_codebase" => self.tools.get("search").map(|t| t.as_ref()),
+            _ => None,
         }
-
-        // Backward-compatibility alias for get_project_structure -> list_directory
-        if lookup_name == "get_project_structure" && self.tools.contains_key("list_directory") {
-            return self.tools.get("list_directory").map(|t| t.as_ref());
-        }
-
-        None
     }
 
-    /// Execute a tool by name with provided JSON arguments, handling aliases transparently.
+    /// Execute a tool by name with provided JSON arguments directly.
     pub fn execute(&self, name: &str, args: Value) -> Result<Value, ToolError> {
-        let lookup_name = if let Some(pos) = name.rfind('.') {
-            &name[pos + 1..]
-        } else {
-            name
-        };
-
-        // Handle backward-compatibility aliases: automatically adapt arguments to unified search
-        if lookup_name == "find_files" {
-            let mut new_args = args.clone();
-            if let Some(obj) = new_args.as_object_mut() {
-                if let Some(pat) = obj.remove("pattern") {
-                    obj.insert("query".to_string(), pat);
-                }
-                obj.insert("in".to_string(), Value::String("files".to_string()));
-            }
-            return self.execute("search", new_args);
-        }
-
-        if lookup_name == "search_codebase" {
-            let mut new_args = args.clone();
-            if let Some(obj) = new_args.as_object_mut() {
-                obj.insert("in".to_string(), Value::String("content".to_string()));
-            }
-            return self.execute("search", new_args);
-        }
-
-        // Handle backward-compatibility alias: adapt get_project_structure to list_directory with depth
-        if lookup_name == "get_project_structure" {
-            let mut new_args = args.clone();
-            if let Some(obj) = new_args.as_object_mut() {
-                if let Some(max_depth) = obj.remove("max_depth") {
-                    obj.insert("depth".to_string(), max_depth);
-                } else if !obj.contains_key("depth") {
-                    obj.insert("depth".to_string(), serde_json::json!(2));
-                }
-            } else {
-                new_args = serde_json::json!({ "depth": 2 });
-            }
-            return self.execute("list_directory", new_args);
-        }
-
         let tool = self.find(name)
             .ok_or_else(|| ToolError::ExecutionFailed(format!("Tool '{}' not found in registry", name)))?;
         tool.execute(args)

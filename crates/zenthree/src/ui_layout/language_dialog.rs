@@ -1,5 +1,5 @@
 use crate::state::ZenthreeState;
-use zenthra::{Color, Ui, Align, FontWeight, Id, TextWrap, use_context};
+use zenthra::{Color, Ui, Align, FontWeight, Id, TextWrap, TextDecoration, Style, use_context};
 use crate::theme::ThemeColors;
 use zenthra_widgets::ui::{DrawCommand, OverlayRectDraw};
 
@@ -83,12 +83,12 @@ fn draw_language_pack_prompt(ui: &mut Ui, state: &mut ZenthreeState) {
 
     let mut card = ui.container()
         .id(modal_id)
-        .absolute(center_x, center_y)
+        .pos(center_x, center_y)
         .overlay()
         .width(card_w)
         .height(card_h)
         .bg(card_bg)
-        .border(colors.accent.with_alpha(0.6), 1.5)
+        .border((colors.accent.with_alpha(0.6), 1.5))
         .radius_all(10.0);
 
     if state.glassmorphism {
@@ -100,7 +100,7 @@ fn draw_language_pack_prompt(ui: &mut Ui, state: &mut ZenthreeState) {
         .show(|ui| {
             // Header
             ui.container()
-                .full_width()
+                .fill_x()
                 .row()
                 .valign(Align::Center)
                 .halign(Align::SpaceBetween)
@@ -126,7 +126,7 @@ fn draw_language_pack_prompt(ui: &mut Ui, state: &mut ZenthreeState) {
 
                             ui.text("Language Pack Available")
                                 .size(13.0)
-                                .weight(FontWeight::Bold)
+                                .font_weight(FontWeight::Bold)
                                 .color(colors.text_primary)
                                 .show();
                         });
@@ -136,8 +136,8 @@ fn draw_language_pack_prompt(ui: &mut Ui, state: &mut ZenthreeState) {
                         .width(22.0)
                         .height(22.0)
                         .bg(Color::TRANSPARENT)
-                        .hover_bg(colors.highlight)
-                        .text_color(colors.text_muted)
+                        .hover(Style::bg(colors.highlight))
+                        .color(colors.text_muted)
                         .radius_all(4.0)
                         .size(12.0)
                         .show();
@@ -159,19 +159,19 @@ fn draw_language_pack_prompt(ui: &mut Ui, state: &mut ZenthreeState) {
                 .color(colors.text_muted)
                 .wrap(TextWrap::Word)
                 .max_width(content_w)
-                .line_height(1.4)
+                .decoration(TextDecoration::LineHeight(1.4))
                 .show();
 
             ui.spacing(10.0);
 
             // Checkbox
             let cb_resp = ui.checkbox(&mut dont_show, &format!("Don't ask again for {}", lang_name))
-                .size(15.0)
+                .box_size(15.0)
                 .radius_all(3.0)
                 .check_bg(colors.accent)
-                .border(colors.border, 1.0)
-                .label_size(11.5)
-                .label_color(colors.text_muted)
+                .border((colors.border, 1.0))
+                .size(11.5)
+                .color(colors.text_muted)
                 .show();
 
             if cb_resp.clicked || dont_show != dialog.dont_show_again_checked {
@@ -183,7 +183,7 @@ fn draw_language_pack_prompt(ui: &mut Ui, state: &mut ZenthreeState) {
 
             // Action Buttons
             ui.container()
-                .full_width()
+                .fill_x()
                 .row()
                 .valign(Align::Center)
                 .halign(Align::Right)
@@ -193,9 +193,9 @@ fn draw_language_pack_prompt(ui: &mut Ui, state: &mut ZenthreeState) {
                         .id(Id::from_u64(999998103))
                         .height(28.0)
                         .bg(colors.highlight.with_alpha(0.35))
-                        .hover_bg(colors.highlight)
-                        .border(colors.border, 1.0)
-                        .text_color(colors.text_primary)
+                        .hover(Style::bg(colors.highlight))
+                        .border((colors.border, 1.0))
+                        .color(colors.text_primary)
                         .radius_all(4.0)
                         .padding_left(16.0)
                         .padding_right(16.0)
@@ -211,8 +211,8 @@ fn draw_language_pack_prompt(ui: &mut Ui, state: &mut ZenthreeState) {
                         .id(Id::from_u64(999998104))
                         .height(28.0)
                         .bg(colors.accent)
-                        .hover_bg(colors.accent.with_alpha(0.85))
-                        .text_color(Color::WHITE)
+                        .hover(Style::bg(colors.accent.with_alpha(0.85)))
+                        .color(Color::WHITE)
                         .radius_all(4.0)
                         .padding_left(16.0)
                         .padding_right(16.0)
@@ -317,12 +317,12 @@ fn draw_lsp_prompt(ui: &mut Ui, state: &mut ZenthreeState) {
 
     let mut card = ui.container()
         .id(modal_id)
-        .absolute(center_x, center_y)
+        .pos(center_x, center_y)
         .overlay()
         .width(card_w)
         .height(card_h)
         .bg(card_bg)
-        .border(colors.accent.with_alpha(0.6), 1.5)
+        .border((colors.accent.with_alpha(0.6), 1.5))
         .radius_all(10.0);
 
     if state.glassmorphism {
@@ -334,7 +334,7 @@ fn draw_lsp_prompt(ui: &mut Ui, state: &mut ZenthreeState) {
         .show(|ui| {
             // Header
             ui.container()
-                .full_width()
+                .fill_x()
                 .row()
                 .valign(Align::Center)
                 .halign(Align::SpaceBetween)
@@ -360,7 +360,7 @@ fn draw_lsp_prompt(ui: &mut Ui, state: &mut ZenthreeState) {
 
                             ui.text("Language Server (LSP) Available")
                                 .size(13.0)
-                                .weight(FontWeight::Bold)
+                                .font_weight(FontWeight::Bold)
                                 .color(colors.text_primary)
                                 .show();
                         });
@@ -370,8 +370,8 @@ fn draw_lsp_prompt(ui: &mut Ui, state: &mut ZenthreeState) {
                         .width(22.0)
                         .height(22.0)
                         .bg(Color::TRANSPARENT)
-                        .hover_bg(colors.highlight)
-                        .text_color(colors.text_muted)
+                        .hover(Style::bg(colors.highlight))
+                        .color(colors.text_muted)
                         .radius_all(4.0)
                         .size(12.0)
                         .show();
@@ -393,19 +393,19 @@ fn draw_lsp_prompt(ui: &mut Ui, state: &mut ZenthreeState) {
                 .color(colors.text_muted)
                 .wrap(TextWrap::Word)
                 .max_width(content_w)
-                .line_height(1.4)
+                .decoration(TextDecoration::LineHeight(1.4))
                 .show();
 
             ui.spacing(10.0);
 
             // Checkbox
             let cb_resp = ui.checkbox(&mut dont_show, &format!("Don't ask again for {}", lang_name))
-                .size(15.0)
+                .box_size(15.0)
                 .radius_all(3.0)
                 .check_bg(colors.accent)
-                .border(colors.border, 1.0)
-                .label_size(11.5)
-                .label_color(colors.text_muted)
+                .border((colors.border, 1.0))
+                .size(11.5)
+                .color(colors.text_muted)
                 .show();
 
             if cb_resp.clicked || dont_show != dialog.dont_show_again_checked {
@@ -417,7 +417,7 @@ fn draw_lsp_prompt(ui: &mut Ui, state: &mut ZenthreeState) {
 
             // Action Buttons
             ui.container()
-                .full_width()
+                .fill_x()
                 .row()
                 .valign(Align::Center)
                 .halign(Align::Right)
@@ -427,9 +427,9 @@ fn draw_lsp_prompt(ui: &mut Ui, state: &mut ZenthreeState) {
                         .id(Id::from_u64(999998113))
                         .height(28.0)
                         .bg(colors.highlight.with_alpha(0.35))
-                        .hover_bg(colors.highlight)
-                        .border(colors.border, 1.0)
-                        .text_color(colors.text_primary)
+                        .hover(Style::bg(colors.highlight))
+                        .border((colors.border, 1.0))
+                        .color(colors.text_primary)
                         .radius_all(4.0)
                         .padding_left(16.0)
                         .padding_right(16.0)
@@ -445,8 +445,8 @@ fn draw_lsp_prompt(ui: &mut Ui, state: &mut ZenthreeState) {
                         .id(Id::from_u64(999998114))
                         .height(28.0)
                         .bg(colors.accent)
-                        .hover_bg(colors.accent.with_alpha(0.85))
-                        .text_color(Color::WHITE)
+                        .hover(Style::bg(colors.accent.with_alpha(0.85)))
+                        .color(Color::WHITE)
                         .radius_all(4.0)
                         .padding_left(16.0)
                         .padding_right(16.0)

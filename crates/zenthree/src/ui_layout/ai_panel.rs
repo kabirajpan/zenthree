@@ -1,5 +1,5 @@
 use crate::state::{ZenthreeState, AiModel, AiProvider, AgentMode, SelectedAgent, AntigravityMode, TrajectoryStep, ExplorationItem, path_matches, SessionSummary, AiSettingsTab, AiMessageBg};
-use zenthra::{Color, Ui, Align, FontWeight, Id, CursorIcon, use_context, Placement, PopoverAlign, Wrap};
+use zenthra::{Color, Ui, Align, FontWeight, Id, CursorIcon, use_context, Placement, PopoverAlign, Wrap, Style, TextDecoration};
 use crate::theme::ThemeColors;
 
 const AGENT_MODE_BTN_ID: Id = Id::from_u64(999999885);
@@ -38,7 +38,6 @@ fn draw_ai_chat_header(
         .row()
         .valign(Align::Center)
         .halign(Align::SpaceBetween)
-        .no_wrap()
         .show(|ui| {
             // Left: Expand/Collapse Arrow + Title
             ui.container()
@@ -50,12 +49,12 @@ fn draw_ai_chat_header(
                     let btn_w = 22.0;
                     let btn_h = 22.0;
                     let expand_btn = ui.container()
-                        .clickable(true)
+                        .interactive(true)
                         .width(btn_w)
                         .height(btn_h)
                         .radius_all(4.0)
                         .bg(if is_expanded { colors.highlight } else { Color::TRANSPARENT })
-                        .hover_bg(colors.highlight)
+                        .hover(Style::bg(colors.highlight))
                         .halign(Align::Center)
                         .valign(Align::Center)
                         .show(|ui| {
@@ -111,7 +110,7 @@ fn draw_ai_chat_header(
 
                             ui.text(title_text)
                                 .size(12.0)
-                                .weight(FontWeight::Bold)
+                                .font_weight(FontWeight::Bold)
                                 .color(colors.text_primary)
                                 .show();
 
@@ -123,7 +122,7 @@ fn draw_ai_chat_header(
                                     .show(|ui| {
                                         ui.text(badge)
                                             .size(8.5)
-                                            .weight(FontWeight::Medium)
+                                            .font_weight(FontWeight::Medium)
                                             .color(colors.text_muted)
                                             .show();
                                     });
@@ -138,10 +137,10 @@ fn draw_ai_chat_header(
                 .gap(3.0)
                 .show(|ui| {
                     let new_btn = ui.container()
-                        .clickable(true)
+                        .interactive(true)
                         .padding(2.0, 6.0, 2.0, 6.0)
                         .radius_all(4.0)
-                        .hover_bg(colors.highlight)
+                        .hover(Style::bg(colors.highlight))
                         .row()
                         .valign(Align::Center)
                         .gap(3.0)
@@ -162,11 +161,11 @@ fn draw_ai_chat_header(
                     }
 
                     let history_btn = ui.container()
-                        .clickable(true)
+                        .interactive(true)
                         .padding(2.0, 6.0, 2.0, 6.0)
                         .radius_all(4.0)
                         .bg(if state.ai_sessions_visible { colors.highlight } else { Color::TRANSPARENT })
-                        .hover_bg(colors.highlight)
+                        .hover(Style::bg(colors.highlight))
                         .row()
                         .valign(Align::Center)
                         .gap(4.0)
@@ -192,12 +191,12 @@ fn draw_ai_chat_header(
                     // Floating Thinking Orb Window Toggle Button
                     let is_orb_active = state.thinking_orbs_demo_open;
                     let orb_btn = ui.container()
-                        .clickable(true)
+                        .interactive(true)
                         .width(22.0)
                         .height(22.0)
                         .radius_all(4.0)
                         .bg(if is_orb_active { colors.highlight } else { Color::TRANSPARENT })
-                        .hover_bg(colors.highlight)
+                        .hover(Style::bg(colors.highlight))
                         .halign(Align::Center)
                         .valign(Align::Center)
                         .show(|ui| {
@@ -221,12 +220,12 @@ fn draw_ai_chat_header(
 
                     let more_btn = ui.container()
                         .raw_id(AI_MORE_BTN_ID)
-                        .clickable(true)
+                        .interactive(true)
                         .width(22.0)
                         .height(22.0)
                         .radius_all(4.0)
                         .bg(if state.ai_menu_open { colors.highlight } else { Color::TRANSPARENT })
-                        .hover_bg(colors.highlight)
+                        .hover(Style::bg(colors.highlight))
                         .halign(Align::Center)
                         .valign(Align::Center)
                         .show(|ui| {
@@ -237,6 +236,7 @@ fn draw_ai_chat_header(
                         });
                     if more_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
                     if more_btn.clicked {
+                        ui.consume_click();
                         state.ai_menu_open = !state.ai_menu_open;
                         ui.needs_redraw = true;
                     }
@@ -245,7 +245,7 @@ fn draw_ai_chat_header(
                         .width(22.0)
                         .height(22.0)
                         .radius_all(4.0)
-                        .hover_bg(colors.highlight)
+                        .hover(Style::bg(colors.highlight))
                         .halign(Align::Center)
                         .valign(Align::Center)
                         .show(|ui| {
@@ -272,7 +272,7 @@ fn draw_antigravity_signin_card(
     chat_w: f32,
 ) {
     ui.container()
-        .full_width()
+        .fill_x()
         .padding_top(24.0)
         .column()
         .halign(Align::Center)
@@ -284,7 +284,7 @@ fn draw_antigravity_signin_card(
                 .height(44.0)
                 .radius_all(22.0)
                 .bg(colors.accent.with_alpha(0.14))
-                .border(colors.accent.with_alpha(0.35), 1.0)
+                .border((colors.accent.with_alpha(0.35), 1.0))
                 .halign(Align::Center)
                 .valign(Align::Center)
                 .show(|ui| {
@@ -301,7 +301,7 @@ fn draw_antigravity_signin_card(
                 .show(|ui| {
                     ui.text("Google Antigravity")
                         .size(14.0)
-                        .weight(FontWeight::Bold)
+                        .font_weight(FontWeight::Bold)
                         .color(colors.text_primary)
                         .show();
 
@@ -318,7 +318,7 @@ fn draw_antigravity_signin_card(
                 .padding(10.0, 12.0, 10.0, 12.0)
                 .radius_all(6.0)
                 .bg(colors.bg_base)
-                .border(colors.border.with_alpha(0.6), 1.0)
+                .border((colors.border.with_alpha(0.6), 1.0))
                 .column()
                 .gap(6.0)
                 .show(|ui| {
@@ -350,12 +350,12 @@ fn draw_antigravity_signin_card(
             };
 
             let signin_btn = ui.container()
-                .clickable(!is_authenticating)
+                .interactive(!is_authenticating)
                 .width(box_w)
                 .height(30.0)
                 .radius_all(6.0)
                 .bg(colors.accent)
-                .hover_bg(colors.accent.with_alpha(0.85))
+                .hover(Style::bg(colors.accent.with_alpha(0.85)))
                 .halign(Align::Center)
                 .valign(Align::Center)
                 .row()
@@ -374,7 +374,7 @@ fn draw_antigravity_signin_card(
                     }
                     ui.text(btn_text)
                         .size(10.5)
-                        .weight(FontWeight::SemiBold)
+                        .font_weight(FontWeight::SemiBold)
                         .color(Color::WHITE)
                         .show();
                 });
@@ -391,10 +391,10 @@ fn draw_antigravity_signin_card(
 
             // Return to ZENE button
             let back_btn = ui.container()
-                .clickable(true)
+                .interactive(true)
                 .padding(3.0, 8.0, 3.0, 8.0)
                 .radius_all(4.0)
-                .hover_bg(colors.highlight)
+                .hover(Style::bg(colors.highlight))
                 .row()
                 .gap(4.0)
                 .valign(Align::Center)
@@ -418,7 +418,7 @@ fn draw_antigravity_connected_welcome(
     colors: &ThemeColors,
 ) {
     ui.container()
-        .full_width()
+        .fill_x()
         .padding_top(40.0)
         .column()
         .halign(Align::Center)
@@ -437,14 +437,14 @@ fn draw_antigravity_connected_welcome(
                         .show();
                     ui.text("Antigravity")
                         .size(10.0)
-                        .weight(FontWeight::Medium)
+                        .font_weight(FontWeight::Medium)
                         .color(colors.text_muted)
                         .show();
                 });
 
             ui.text("How can I help you today?")
                 .size(13.0)
-                .weight(FontWeight::Medium)
+                .font_weight(FontWeight::Medium)
                 .color(colors.text_primary)
                 .show();
         });
@@ -632,56 +632,33 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
     // ─── Floating Menu Panel: AI 3-Dot More Menu ──────────────────────────
     if state.ai_menu_open {
         let menu_w = 180.0;
-        let menu_h = 122.0;
+        let menu_h = 142.0;
 
-        if let Some(anchor) = ui.next_screen_layout_cache.get(&AI_MORE_BTN_ID)
-            .or_else(|| ui.screen_layout_cache.get(&AI_MORE_BTN_ID)).copied()
-        {
-            let (mx, my) = zenthra_widgets::compute_placement_pos(
-                anchor,
-                menu_w,
-                menu_h,
-                Placement::Bottom,
-                PopoverAlign::End,
-                4.0,
-                false,
-                ui.width,
-                ui.height,
-            );
-            let mouse_in_menu = ui.mouse_in_rect(mx, my, menu_w, menu_h);
-            let mouse_in_trigger = ui.mouse_in_rect(anchor.origin.x, anchor.origin.y, anchor.size.width, anchor.size.height);
-            if ui.clicked && !mouse_in_menu && !mouse_in_trigger {
-                state.ai_menu_open = false;
-                ui.needs_redraw = true;
-            }
+        let popover_bg = if state.glassmorphism {
+            colors.bg_sidebar.with_alpha((state.glass_opacity * 0.90).clamp(0.40, 0.95))
+        } else {
+            colors.bg_sidebar
+        };
+        let mut popover_builder = ui.popover(AI_MORE_BTN_ID)
+            .placement(Placement::Bottom)
+            .align(PopoverAlign::End)
+            .gap(4.0)
+            .auto_flip(false)
+            .width(menu_w)
+            .height(menu_h)
+            .bg(popover_bg)
+            .border((colors.border.with_alpha(0.8), 1.0))
+            .radius_all(6.0)
+            .shadow(Color::rgba(0.0, 0.0, 0.0, 0.5), 0.0, 4.0, 16.0)
+            .padding(3.0, 3.0, 3.0, 3.0);
+
+        if state.glassmorphism {
+            popover_builder = popover_builder.backdrop_blur(state.blur_strength.max(4.0));
         }
 
-        if state.ai_menu_open {
-            let popover_bg = if state.glassmorphism {
-                colors.bg_sidebar.with_alpha((state.glass_opacity * 0.90).clamp(0.40, 0.95))
-            } else {
-                colors.bg_sidebar
-            };
-            let mut popover_builder = ui.popover(AI_MORE_BTN_ID)
-                .placement(Placement::Bottom)
-                .align(PopoverAlign::End)
-                .gap(4.0)
-                .auto_flip(false)
-                .width(menu_w)
-                .height(menu_h)
-                .bg(popover_bg)
-                .border(colors.border.with_alpha(0.8), 1.0)
-                .radius_all(6.0)
-                .shadow(Color::rgba(0.0, 0.0, 0.0, 0.5), 0.0, 4.0, 16.0)
-                .padding(3.0, 3.0, 3.0, 3.0);
-
-            if state.glassmorphism {
-                popover_builder = popover_builder.backdrop_blur(state.blur_strength.max(4.0));
-            }
-
-            popover_builder.show(|ui| {
+        let popover_resp = popover_builder.show(|ui| {
                 ui.container()
-                    .full_width()
+                    .fill_x()
                     .column()
                     .gap(1.0)
                     .show(|ui| {
@@ -689,19 +666,19 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                         ui.container().padding(3.0, 6.0, 2.0, 6.0).show(|ui| {
                             ui.text("NATIVE AGENT")
                                 .size(8.5)
-                                .weight(FontWeight::Bold)
+                                .font_weight(FontWeight::Bold)
                                 .color(colors.text_muted)
                                 .show();
                         });
 
                         let is_zene_active = state.selected_agent == SelectedAgent::Zene;
                         let zene_btn = ui.container()
-                            .full_width()
+                            .fill_x()
                             .padding(4.0, 6.0, 4.0, 6.0)
                             .radius_all(3.5)
                             .bg(if is_zene_active { colors.highlight } else { Color::TRANSPARENT })
-                            .hover_bg(colors.highlight)
-                            .clickable(true)
+                            .hover(Style::bg(colors.highlight))
+                            .interactive(true)
                             .row()
                             .valign(Align::Center)
                             .halign(Align::SpaceBetween)
@@ -713,7 +690,7 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                         .show();
                                     ui.text("ZENE")
                                         .size(10.5)
-                                        .weight(if is_zene_active { FontWeight::SemiBold } else { FontWeight::Regular })
+                                        .font_weight(if is_zene_active { FontWeight::SemiBold } else { FontWeight::Regular })
                                         .color(colors.text_primary)
                                         .show();
                                 });
@@ -733,15 +710,15 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                         }
 
                         // Divider
-                        ui.container().full_width().padding(2.0, 4.0, 2.0, 4.0).show(|ui| {
-                            ui.container().full_width().height(1.0).bg(colors.border.with_alpha(0.4)).show(|_| {});
+                        ui.container().fill_x().padding(2.0, 4.0, 2.0, 4.0).show(|ui| {
+                            ui.container().fill_x().height(1.0).bg(colors.border.with_alpha(0.4)).show(|_| {});
                         });
 
                         // ── SECTION 2: EXTERNAL AGENTS ──
                         ui.container().padding(2.0, 6.0, 2.0, 6.0).show(|ui| {
                             ui.text("EXTERNAL AGENTS")
                                 .size(8.5)
-                                .weight(FontWeight::Bold)
+                                .font_weight(FontWeight::Bold)
                                 .color(colors.text_muted)
                                 .show();
                         });
@@ -751,12 +728,12 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                         let is_ag_connected = auth.load_token().is_some();
 
                         let ag_btn = ui.container()
-                            .full_width()
+                            .fill_x()
                             .padding(4.0, 6.0, 4.0, 6.0)
                             .radius_all(3.5)
                             .bg(if is_ag_active { colors.highlight } else { Color::TRANSPARENT })
-                            .hover_bg(colors.highlight)
-                            .clickable(true)
+                            .hover(Style::bg(colors.highlight))
+                            .interactive(true)
                             .row()
                             .valign(Align::Center)
                             .halign(Align::SpaceBetween)
@@ -768,7 +745,7 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                                         .show();
                                     ui.text("Google Antigravity")
                                         .size(10.5)
-                                        .weight(if is_ag_active { FontWeight::SemiBold } else { FontWeight::Regular })
+                                        .font_weight(if is_ag_active { FontWeight::SemiBold } else { FontWeight::Regular })
                                         .color(colors.text_primary)
                                         .show();
                                 });
@@ -798,17 +775,17 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                         }
 
                         // Divider
-                        ui.container().full_width().padding(2.0, 4.0, 2.0, 4.0).show(|ui| {
-                            ui.container().full_width().height(1.0).bg(colors.border.with_alpha(0.4)).show(|_| {});
+                        ui.container().fill_x().padding(2.0, 4.0, 2.0, 4.0).show(|ui| {
+                            ui.container().fill_x().height(1.0).bg(colors.border.with_alpha(0.4)).show(|_| {});
                         });
 
                         // ── SECTION 3: SETTINGS ──
                         let set_btn = ui.container()
-                            .full_width()
+                            .fill_x()
                             .padding(4.0, 6.0, 4.0, 6.0)
                             .radius_all(3.5)
-                            .hover_bg(colors.highlight)
-                            .clickable(true)
+                            .hover(Style::bg(colors.highlight))
+                            .interactive(true)
                             .row()
                             .valign(Align::Center)
                             .gap(6.0)
@@ -833,152 +810,147 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
                         }
                     });
             });
+
+        if ui.clicked && !popover_resp.hovered {
+            state.ai_menu_open = false;
+            ui.needs_redraw = true;
         }
     }
 
     // ─── Floating Menu Panel: Agent Mode ─────────────────────────────────
     if state.agent_mode_menu_open {
         let menu_w = 138.0;
-        let menu_h = 62.0;
+        let num_modes = match state.selected_agent {
+            SelectedAgent::Zene => AgentMode::ALL.len(),
+            SelectedAgent::Antigravity => AntigravityMode::ALL.len(),
+        };
+        let menu_h = num_modes as f32 * 27.5 + 8.0;
 
-        if let Some(anchor) = ui.next_screen_layout_cache.get(&AGENT_MODE_BTN_ID)
-            .or_else(|| ui.screen_layout_cache.get(&AGENT_MODE_BTN_ID)).copied()
-        {
-            let (mx, my) = zenthra_widgets::compute_placement_pos(
-                anchor,
-                menu_w,
-                menu_h,
-                Placement::Top,
-                PopoverAlign::Start,
-                3.0,
-                false,
-                ui.width,
-                ui.height,
-            );
-            let mouse_in_menu = ui.mouse_in_rect(mx, my, menu_w, menu_h);
-            let mouse_in_trigger = ui.mouse_in_rect(anchor.origin.x, anchor.origin.y, anchor.size.width, anchor.size.height);
-            if ui.clicked && !mouse_in_menu && !mouse_in_trigger {
-                state.agent_mode_menu_open = false;
-                ui.needs_redraw = true;
-            }
-        }
-
-        if state.agent_mode_menu_open {
-            ui.popover(AGENT_MODE_BTN_ID)
-                .placement(Placement::Top)
-                .align(PopoverAlign::Start)
-                .gap(3.0)
-                .auto_flip(false)
-                .width(menu_w)
-                .height(menu_h)
-                .bg(if colors.bg_base.r > 0.5 {
-                    colors.bg_editor
-                } else {
-                    Color::rgb(22.0 / 255.0, 22.0 / 255.0, 25.0 / 255.0)
-                })
-                .border(if colors.bg_base.r > 0.5 {
-                    colors.border
-                } else {
-                    Color::rgb(45.0 / 255.0, 45.0 / 255.0, 54.0 / 255.0)
-                }, 1.0)
-                .radius_all(6.0)
-                .shadow(
-                    Color::rgba(0.0, 0.0, 0.0, if colors.bg_base.r > 0.5 { 0.18 } else { 0.65 }),
-                    0.0,
-                    4.0,
-                    16.0,
-                )
-                .padding(3.0, 3.0, 3.0, 3.0)
-                .show(|ui| {
-                    ui.container()
-                        .full_width()
-                        .column()
-                        .gap(1.5)
-                        .show(|ui| {
-                            match state.selected_agent {
-                                SelectedAgent::Zene => {
-                                    for mode in AgentMode::ALL {
-                                        let is_sel = state.agent_mode == mode;
-                                        let row_id = ui.id_from(&format!("pop_agent_mode_{:?}", mode));
-                                        let row = ui.container()
-                                            .id(row_id)
-                                            .full_width()
-                                            .height(26.0)
-                                            .padding(2.0, 6.0, 2.0, 6.0)
-                                            .radius_all(3.5)
-                                            .bg(if is_sel { colors.accent.with_alpha(0.12) } else { Color::TRANSPARENT })
-                                            .hover_bg(colors.highlight)
-                                            .row()
-                                            .valign(Align::Center)
-                                            .halign(Align::SpaceBetween)
-                                            .show(|ui| {
-                                                ui.container().row().gap(5.0).valign(Align::Center).show(|ui| {
-                                                    ui.text(mode.icon())
-                                                        .size(10.0)
-                                                        .color(colors.text_muted)
-                                                        .show();
-                                                    ui.text(mode.display_name())
-                                                        .size(9.5)
-                                                        .weight(if is_sel { FontWeight::SemiBold } else { FontWeight::Regular })
-                                                        .color(if is_sel { colors.accent } else { colors.text_primary })
-                                                        .show();
-                                                });
-                                                if is_sel {
-                                                    ui.text("\u{f00c}").size(8.5).color(colors.accent).show();
-                                                }
+        let mut changed_mode = false;
+        let popover_resp = ui.popover(AGENT_MODE_BTN_ID)
+            .placement(Placement::Top)
+            .align(PopoverAlign::Start)
+            .gap(3.0)
+            .auto_flip(false)
+            .width(menu_w)
+            .height(menu_h)
+            .bg(if colors.bg_base.r > 0.5 {
+                colors.bg_editor
+            } else {
+                Color::rgb(22.0 / 255.0, 22.0 / 255.0, 25.0 / 255.0)
+            })
+            .border(((if colors.bg_base.r > 0.5 {
+                colors.border
+            } else {
+                Color::rgb(45.0 / 255.0, 45.0 / 255.0, 54.0 / 255.0)
+            }), 1.0))
+            .radius_all(6.0)
+            .shadow(
+                Color::rgba(0.0, 0.0, 0.0, if colors.bg_base.r > 0.5 { 0.18 } else { 0.65 }),
+                0.0,
+                4.0,
+                16.0,
+            )
+            .padding(3.0, 3.0, 3.0, 3.0)
+            .show(|ui| {
+                ui.container()
+                    .raw_id(Id::from_u64(0xF00D_1102))
+                    .fill_x()
+                    .column()
+                    .gap(1.5)
+                    .show(|ui| {
+                        match state.selected_agent {
+                            SelectedAgent::Zene => {
+                                for mode in AgentMode::ALL {
+                                    let is_sel = state.agent_mode == mode;
+                                    let row_id = ui.id_from(format!("pop_agent_mode_{:?}", mode));
+                                    let row = ui.container()
+                                        .raw_id(row_id)
+                                        .interactive(true)
+                                        .fill_x()
+                                        .height(26.0)
+                                        .padding(2.0, 6.0, 2.0, 6.0)
+                                        .radius_all(3.5)
+                                        .bg(if is_sel { colors.accent.with_alpha(0.12) } else { Color::TRANSPARENT })
+                                        .hover(Style::bg(colors.highlight))
+                                        .row()
+                                        .valign(Align::Center)
+                                        .halign(Align::SpaceBetween)
+                                        .show(|ui| {
+                                            ui.container().row().gap(5.0).valign(Align::Center).show(|ui| {
+                                                ui.text(mode.icon())
+                                                    .size(10.0)
+                                                    .color(colors.text_muted)
+                                                    .show();
+                                                ui.text(mode.display_name())
+                                                    .size(9.5)
+                                                    .font_weight(if is_sel { FontWeight::SemiBold } else { FontWeight::Regular })
+                                                    .color(if is_sel { colors.accent } else { colors.text_primary })
+                                                    .show();
                                             });
-                                        if row.hovered { ui.cursor_icon = CursorIcon::Pointer; }
-                                        if row.clicked {
-                                            ui.clicked = false;
-                                            state.agent_mode = mode;
-                                            state.agent_mode_menu_open = false;
-                                            ui.needs_redraw = true;
-                                        }
-                                    }
-                                }
-                                SelectedAgent::Antigravity => {
-                                    for mode in AntigravityMode::ALL {
-                                        let is_sel = state.antigravity_mode == mode;
-                                        let row_id = ui.id_from(&format!("pop_ag_mode_{:?}", mode));
-                                        let row = ui.container()
-                                            .id(row_id)
-                                            .full_width()
-                                            .height(26.0)
-                                            .padding(2.0, 6.0, 2.0, 6.0)
-                                            .radius_all(3.5)
-                                            .bg(if is_sel { colors.accent.with_alpha(0.12) } else { Color::TRANSPARENT })
-                                            .hover_bg(colors.highlight)
-                                            .row()
-                                            .valign(Align::Center)
-                                            .halign(Align::SpaceBetween)
-                                            .show(|ui| {
-                                                ui.container().row().gap(5.0).valign(Align::Center).show(|ui| {
-                                                    ui.text(mode.icon())
-                                                        .size(10.0)
-                                                        .color(colors.text_muted)
-                                                        .show();
-                                                    ui.text(mode.display_name())
-                                                        .size(9.5)
-                                                        .weight(if is_sel { FontWeight::SemiBold } else { FontWeight::Regular })
-                                                        .color(if is_sel { colors.accent } else { colors.text_primary })
-                                                        .show();
-                                                });
-                                                if is_sel {
-                                                    ui.text("\u{f00c}").size(8.5).color(colors.accent).show();
-                                                }
-                                            });
-                                        if row.hovered { ui.cursor_icon = CursorIcon::Pointer; }
-                                        if row.clicked {
-                                            ui.clicked = false;
-                                            state.antigravity_mode = mode;
-                                            state.agent_mode_menu_open = false;
-                                            ui.needs_redraw = true;
-                                        }
+                                            if is_sel {
+                                                ui.text("\u{f00c}").size(8.5).color(colors.accent).show();
+                                            }
+                                        });
+                                    if row.hovered { ui.cursor_icon = CursorIcon::Pointer; }
+                                    if row.clicked || (row.hovered && ui.clicked) {
+                                        ui.consume_click();
+                                        state.agent_mode = mode;
+                                        state.agent_mode_menu_open = false;
+                                        changed_mode = true;
+                                        ui.needs_redraw = true;
                                     }
                                 }
                             }
-                        });
-                });
+                            SelectedAgent::Antigravity => {
+                                for mode in AntigravityMode::ALL {
+                                    let is_sel = state.antigravity_mode == mode;
+                                    let row_id = ui.id_from(format!("pop_ag_mode_{:?}", mode));
+                                    let row = ui.container()
+                                        .raw_id(row_id)
+                                        .interactive(true)
+                                        .fill_x()
+                                        .height(26.0)
+                                        .padding(2.0, 6.0, 2.0, 6.0)
+                                        .radius_all(3.5)
+                                        .bg(if is_sel { colors.accent.with_alpha(0.12) } else { Color::TRANSPARENT })
+                                        .hover(Style::bg(colors.highlight))
+                                        .row()
+                                        .valign(Align::Center)
+                                        .halign(Align::SpaceBetween)
+                                        .show(|ui| {
+                                            ui.container().row().gap(5.0).valign(Align::Center).show(|ui| {
+                                                ui.text(mode.icon())
+                                                    .size(10.0)
+                                                    .color(colors.text_muted)
+                                                    .show();
+                                                ui.text(mode.display_name())
+                                                    .size(9.5)
+                                                    .font_weight(if is_sel { FontWeight::SemiBold } else { FontWeight::Regular })
+                                                    .color(if is_sel { colors.accent } else { colors.text_primary })
+                                                    .show();
+                                            });
+                                            if is_sel {
+                                                ui.text("\u{f00c}").size(8.5).color(colors.accent).show();
+                                            }
+                                        });
+                                    if row.hovered { ui.cursor_icon = CursorIcon::Pointer; }
+                                    if row.clicked || (row.hovered && ui.clicked) {
+                                        ui.consume_click();
+                                        state.antigravity_mode = mode;
+                                        state.agent_mode_menu_open = false;
+                                        changed_mode = true;
+                                        ui.needs_redraw = true;
+                                    }
+                                }
+                            }
+                        }
+                    });
+            });
+
+        if !changed_mode && ui.clicked && !popover_resp.hovered {
+            state.agent_mode_menu_open = false;
+            ui.needs_redraw = true;
         }
     }
 
@@ -994,35 +966,28 @@ fn draw_prompt_model_button(
     pill_hover_bg: Color,
     pill_border: Color,
 ) {
-    // Ensure selected model aligns with currently active agent
-    match state.selected_agent {
-        SelectedAgent::Zene => {
-            if state.selected_ai_model.is_antigravity() {
-                state.selected_ai_model = AiModel::Gemini25Flash;
-            }
-        }
-        SelectedAgent::Antigravity => {
-            if !state.selected_ai_model.is_antigravity() {
-                state.selected_ai_model = AiModel::AntigravityGemini38FlashHigh;
-            }
-        }
+    // Keep agent selection aligned with selected model
+    if state.selected_ai_model.is_antigravity() {
+        state.selected_agent = SelectedAgent::Antigravity;
+    } else {
+        state.selected_agent = SelectedAgent::Zene;
     }
 
     let model_btn = ui.container()
         .raw_id(MODEL_PICKER_BTN_ID)
-        .clickable(true)
+        .interactive(true)
         .padding(3.5, 8.0, 3.5, 8.0)
         .radius_all(6.0)
         .bg(if state.ai_model_menu_open { pill_hover_bg } else { pill_bg })
-        .hover_bg(pill_hover_bg)
-        .border(pill_border, 1.0)
+        .hover(Style::bg(pill_hover_bg))
+        .border((pill_border, 1.0))
         .row()
         .valign(Align::Center)
         .gap(5.0)
         .show(|ui| {
             ui.text(state.selected_ai_model.display_name())
                 .size(10.0)
-                .weight(FontWeight::Medium)
+                .font_weight(FontWeight::Medium)
                 .color(colors.text_primary)
                 .show();
             ui.text(if state.ai_model_menu_open { "\u{f077}" } else { "\u{f078}" })
@@ -1053,26 +1018,28 @@ fn draw_ai_model_popover(
         return;
     }
 
-    let models_to_show: Vec<AiModel> = match state.selected_agent {
-        SelectedAgent::Zene => {
-            if state.selected_ai_model.is_antigravity() {
-                state.selected_ai_model = AiModel::Gemini25Flash;
-            }
-            AiModel::ZENE_MODELS.to_vec()
-        }
-        SelectedAgent::Antigravity => {
-            if !state.selected_ai_model.is_antigravity() {
-                state.selected_ai_model = AiModel::AntigravityGemini38FlashHigh;
-            }
-            AiModel::ANTIGRAVITY_MODELS.to_vec()
-        }
-    };
+    let models_to_show: Vec<AiModel> = vec![
+        // Groq
+        AiModel::GroqGptOss120b,
+        AiModel::GroqGptOss20b,
+        AiModel::GroqQwen3_8_27b,
+        // Google Gemini
+        AiModel::Gemini35Flash,
+        AiModel::Gemini35FlashLite,
+        AiModel::Gemini25Flash,
+        AiModel::Gemini25Pro,
+        // Google Antigravity
+        AiModel::AntigravityGemini38FlashHigh,
+        AiModel::AntigravityGemini38FlashMedium,
+        AiModel::AntigravityGemini37FlashHigh,
+        AiModel::AntigravityGeminiProAgent,
+    ];
 
-    // Compact width: clean and not too wide
-    let menu_w = 175.0;
-    let total_item_h = models_to_show.len() as f32 * 25.0 + 35.0;
+    // Menu width & height
+    let menu_w = 236.0;
+    let total_item_h = models_to_show.len() as f32 * 28.0 + 85.0;
     let max_allowed_h = (ui.height - 110.0).max(200.0);
-    let menu_h = total_item_h.min(300.0).min(max_allowed_h);
+    let menu_h = total_item_h.min(340.0).min(max_allowed_h);
 
     let is_light = colors.bg_base.r > 0.5;
     let menu_bg = if is_light {
@@ -1091,31 +1058,8 @@ fn draw_ai_model_popover(
         Color::rgba(0.0, 0.0, 0.0, 0.65)
     };
 
-    if let Some(anchor) = ui.next_screen_layout_cache.get(&MODEL_PICKER_BTN_ID)
-        .or_else(|| ui.screen_layout_cache.get(&MODEL_PICKER_BTN_ID)).copied()
-    {
-        let (mx, my) = zenthra_widgets::compute_placement_pos(
-            anchor,
-            menu_w,
-            menu_h,
-            Placement::Top,
-            PopoverAlign::Start,
-            3.0,
-            false,
-            ui.width,
-            ui.height,
-        );
-        let mouse_in_menu = ui.mouse_in_rect(mx, my, menu_w, menu_h);
-        let mouse_in_trigger = ui.mouse_in_rect(anchor.origin.x, anchor.origin.y, anchor.size.width, anchor.size.height);
-        if ui.clicked && !mouse_in_menu && !mouse_in_trigger {
-            state.ai_model_menu_open = false;
-            ui.needs_redraw = true;
-            return;
-        }
-    }
-
     let mut select_model: Option<AiModel> = None;
-    ui.popover(MODEL_PICKER_BTN_ID)
+    let popover_resp = ui.popover(MODEL_PICKER_BTN_ID)
         .placement(Placement::Top)
         .align(PopoverAlign::Start)
         .gap(3.0)
@@ -1123,13 +1067,14 @@ fn draw_ai_model_popover(
         .width(menu_w)
         .height(menu_h)
         .bg(menu_bg)
-        .border(menu_border, 1.0)
+        .border((menu_border, 1.0))
         .radius_all(6.0)
         .shadow(menu_shadow, 0.0, 4.0, 16.0)
         .padding(3.0, 3.0, 3.0, 3.0)
         .show(|ui| {
             ui.container()
-                .full_width()
+                .raw_id(Id::from_u64(0xF00D_1101))
+                .fill_x()
                 .height(menu_h - 6.0)
                 .column()
                 .gap(1.2)
@@ -1144,12 +1089,12 @@ fn draw_ai_model_popover(
                                 AiProvider::Gemini => "GEMINI",
                             };
                             if last_provider.is_some() {
-                                ui.container().height(2.5).show(|_| {});
+                                ui.container().height(3.0).show(|_| {});
                             }
-                            ui.container().padding(2.0, 5.0, 1.0, 5.0).show(|ui| {
+                            ui.container().padding(3.0, 6.0, 1.0, 6.0).show(|ui| {
                                 ui.text(label)
                                     .size(7.5)
-                                    .weight(FontWeight::Bold)
+                                    .font_weight(FontWeight::Bold)
                                     .color(colors.text_muted.with_alpha(0.65))
                                     .show();
                             });
@@ -1157,28 +1102,37 @@ fn draw_ai_model_popover(
                         }
 
                         let is_selected = state.selected_ai_model == model;
-                        let row_id = ui.id_from(&format!("pop_model_opt_{}", model.model_id()));
+                        let row_id = ui.id_from(format!("pop_model_opt_{}", model.model_id()));
                         let row = ui.container()
-                            .id(row_id)
-                            .full_width()
-                            .height(24.0)
-                            .padding(2.0, 6.0, 2.0, 6.0)
-                            .radius_all(3.5)
-                            .bg(if is_selected { colors.accent.with_alpha(0.12) } else { Color::TRANSPARENT })
-                            .hover_bg(colors.highlight)
+                            .raw_id(row_id)
+                            .interactive(true)
+                            .fill_x()
+                            .height(26.0)
+                            .padding(2.0, 8.0, 2.0, 8.0)
+                            .radius_all(4.0)
+                            .bg(if is_selected { colors.accent.with_alpha(0.14) } else { Color::TRANSPARENT })
+                            .hover(Style::bg(colors.highlight))
                             .row()
                             .valign(Align::Center)
+                            .halign(Align::SpaceBetween)
                             .show(|ui| {
                                 ui.text(model.display_name())
                                     .size(9.5)
-                                    .weight(if is_selected { FontWeight::Medium } else { FontWeight::Regular })
+                                    .font_weight(if is_selected { FontWeight::SemiBold } else { FontWeight::Regular })
                                     .color(if is_selected { colors.accent } else { colors.text_primary })
                                     .show();
+
+                                if is_selected {
+                                    ui.text("\u{f00c}") // Checkmark icon
+                                        .size(8.5)
+                                        .color(colors.accent)
+                                        .show();
+                                }
                             });
 
                         if row.hovered { ui.cursor_icon = CursorIcon::Pointer; }
-                        if row.clicked {
-                            ui.clicked = false;
+                        if row.clicked || (row.hovered && ui.clicked) {
+                            ui.consume_click();
                             select_model = Some(model);
                         }
                     }
@@ -1187,9 +1141,19 @@ fn draw_ai_model_popover(
 
     if let Some(model) = select_model {
         state.selected_ai_model = model;
+        if model.is_antigravity() {
+            state.selected_agent = SelectedAgent::Antigravity;
+        } else {
+            state.selected_agent = SelectedAgent::Zene;
+        }
         state.ai_model_menu_open = false;
         state.ai_session_json = None;
         state.save_persistent_state();
+        ui.consume_click();
+        ui.needs_redraw = true;
+    } else if ui.clicked && !popover_resp.hovered {
+        // Outside click dismissed the popover
+        state.ai_model_menu_open = false;
         ui.needs_redraw = true;
     }
 }
@@ -1375,7 +1339,7 @@ fn draw_ai_chat_content(
                                         .height(36.0)
                                         .radius_all(18.0)
                                         .bg(colors.accent.with_alpha(0.12))
-                                        .border(colors.accent.with_alpha(0.25), 1.0)
+                                        .border((colors.accent.with_alpha(0.25), 1.0))
                                         .halign(Align::Center)
                                         .valign(Align::Center)
                                         .show(|ui| {
@@ -1387,7 +1351,7 @@ fn draw_ai_chat_content(
 
                                     ui.text("How can I assist you today?")
                                         .size(12.0)
-                                        .weight(FontWeight::Medium)
+                                        .font_weight(FontWeight::Medium)
                                         .color(colors.text_primary)
                                         .show();
 
@@ -1465,8 +1429,8 @@ fn draw_ai_chat_content(
                                                 .max_width(bubble_max_w)
                                                 .padding(6.0, 14.0, 6.0, 14.0)
                                                 .bg(user_bg)
-                                                .hover_bg(user_hover_bg)
-                                                .border(user_border, 1.0)
+                                                .hover(Style::bg(user_hover_bg))
+                                                .border((user_border, 1.0))
                                                 .radius_all(14.0)
                                                 .shadow(Color::rgba(0.0, 0.0, 0.0, 0.35), 0.0, 2.0, 6.0)
                                                 .row()
@@ -1475,7 +1439,7 @@ fn draw_ai_chat_content(
                                                 .show(|ui| {
                                                     ui.text(display_text)
                                                         .size(user_font_sz)
-                                                        .line_height(1.35)
+                                                        .decoration(TextDecoration::LineHeight(1.35))
                                                         .color(user_text_col)
                                                         .show();
 
@@ -1483,7 +1447,7 @@ fn draw_ai_chat_content(
                                                         .id(copy_btn_id)
                                                         .padding(2.0, 4.0, 2.0, 4.0)
                                                         .radius_all(4.0)
-                                                        .hover_bg(user_hover_bg)
+                                                        .hover(Style::bg(user_hover_bg))
                                                         .row()
                                                         .valign(Align::Center)
                                                         .gap(3.0)
@@ -1513,8 +1477,8 @@ fn draw_ai_chat_content(
                                                 .max_width(bubble_max_w)
                                                 .padding(8.0, 14.0, 8.0, 14.0)
                                                 .bg(user_bg)
-                                                .hover_bg(user_hover_bg)
-                                                .border(user_border, 1.0)
+                                                .hover(Style::bg(user_hover_bg))
+                                                .border((user_border, 1.0))
                                                 .radius_all(14.0)
                                                 .shadow(Color::rgba(0.0, 0.0, 0.0, 0.35), 0.0, 2.0, 6.0)
                                                 .column()
@@ -1523,7 +1487,7 @@ fn draw_ai_chat_content(
                                                 .show(|ui| {
                                                     ui.text(display_text)
                                                         .size(user_font_sz)
-                                                        .line_height(1.4)
+                                                        .decoration(TextDecoration::LineHeight(1.4))
                                                         .color(user_text_col)
                                                         .max_width(user_text_w)
                                                         .wrap(zenthra_text::prelude::TextWrap::Word)
@@ -1545,7 +1509,7 @@ fn draw_ai_chat_content(
                                                                 .id(copy_btn_id)
                                                                 .padding(2.0, 4.0, 2.0, 4.0)
                                                                 .radius_all(4.0)
-                                                                .hover_bg(user_hover_bg)
+                                                                .hover(Style::bg(user_hover_bg))
                                                                 .row()
                                                                 .valign(Align::Center)
                                                                 .gap(3.0)
@@ -1602,17 +1566,17 @@ fn draw_ai_chat_content(
                                                     let summary = grp.summary_label();
 
                                                     let exp_card = ui.container()
-                                                        .full_width()
+                                                        .fill_x()
                                                         .column()
                                                         .gap(4.0);
 
                                                     exp_card.show(|ui| {
                                                         let header_row = ui.container()
                                                             .id(step_id)
-                                                            .full_width()
+                                                            .fill_x()
                                                             .padding(2.0, 4.0, 2.0, 4.0)
                                                             .radius_all(4.0)
-                                                            .hover_bg(colors.highlight)
+                                                            .hover(Style::bg(colors.highlight))
                                                             .row()
                                                             .valign(Align::Center)
                                                             .gap(6.0)
@@ -1649,7 +1613,7 @@ fn draw_ai_chat_content(
                                                             let line_x = ui.cursor_x + 5.0;
                                                             let line_y = ui.cursor_y;
                                                             ui.container()
-                                                                .full_width()
+                                                                .fill_x()
                                                                 .padding_left(16.0)
                                                                 .column()
                                                                 .gap(3.0)
@@ -1723,10 +1687,10 @@ fn draw_ai_chat_content(
                                                                             let item_id = Id::from_u64(999_300_000 + (msg_idx as u64) * 10000 + (step_idx as u64) * 100 + (item_idx as u64));
                                                                             let file_row = ui.container()
                                                                                 .id(item_id)
-                                                                                .full_width()
+                                                                                .fill_x()
                                                                                 .padding(2.0, 4.0, 2.0, 4.0)
                                                                                 .radius_all(3.0)
-                                                                                .hover_bg(if file_exists { colors.highlight } else { colors.highlight.with_alpha(0.3) })
+                                                                                .hover(Style::bg(if file_exists { colors.highlight } else { colors.highlight.with_alpha(0.3) }))
                                                                                 .row()
                                                                                 .valign(Align::Center)
                                                                                 .gap(5.0)
@@ -1822,10 +1786,10 @@ fn draw_ai_chat_content(
                                                                             let item_id = Id::from_u64(999_310_000 + (msg_idx as u64) * 10000 + (step_idx as u64) * 100 + (item_idx as u64));
                                                                             let row = ui.container()
                                                                                 .id(item_id)
-                                                                                .full_width()
+                                                                                .fill_x()
                                                                                 .padding(2.0, 4.0, 2.0, 4.0)
                                                                                 .radius_all(3.0)
-                                                                                .hover_bg(colors.highlight)
+                                                                                .hover(Style::bg(colors.highlight))
                                                                                 .row()
                                                                                 .valign(Align::Center)
                                                                                 .gap(5.0)
@@ -1890,10 +1854,10 @@ fn draw_ai_chat_content(
                                                                             let item_id = Id::from_u64(999_320_000 + (msg_idx as u64) * 10000 + (step_idx as u64) * 100 + (item_idx as u64));
                                                                             let row = ui.container()
                                                                                 .id(item_id)
-                                                                                .full_width()
+                                                                                .fill_x()
                                                                                 .padding(2.0, 4.0, 2.0, 4.0)
                                                                                 .radius_all(3.0)
-                                                                                .hover_bg(colors.highlight)
+                                                                                .hover(Style::bg(colors.highlight))
                                                                                 .row()
                                                                                 .valign(Align::Center)
                                                                                 .gap(5.0)
@@ -1977,10 +1941,10 @@ fn draw_ai_chat_content(
                                                                             let item_id = Id::from_u64(999_330_000 + (msg_idx as u64) * 10000 + (step_idx as u64) * 100 + (item_idx as u64));
                                                                             let row = ui.container()
                                                                                 .id(item_id)
-                                                                                .full_width()
+                                                                                .fill_x()
                                                                                 .padding(2.0, 4.0, 2.0, 4.0)
                                                                                 .radius_all(3.0)
-                                                                                .hover_bg(colors.highlight)
+                                                                                .hover(Style::bg(colors.highlight))
                                                                                 .row()
                                                                                 .valign(Align::Center)
                                                                                 .gap(5.0)
@@ -2052,10 +2016,10 @@ fn draw_ai_chat_content(
                                                                             let item_id = Id::from_u64(999_340_000 + (msg_idx as u64) * 10000 + (step_idx as u64) * 100 + (item_idx as u64));
                                                                             let row = ui.container()
                                                                                 .id(item_id)
-                                                                                .full_width()
+                                                                                .fill_x()
                                                                                 .padding(2.0, 4.0, 2.0, 4.0)
                                                                                 .radius_all(3.0)
-                                                                                .hover_bg(colors.highlight)
+                                                                                .hover(Style::bg(colors.highlight))
                                                                                 .row()
                                                                                 .valign(Align::Center)
                                                                                 .gap(5.0)
@@ -2115,10 +2079,10 @@ fn draw_ai_chat_content(
                                                                             let item_id = Id::from_u64(999_350_000 + (msg_idx as u64) * 10000 + (step_idx as u64) * 100 + (item_idx as u64));
                                                                             let row = ui.container()
                                                                                 .id(item_id)
-                                                                                .full_width()
+                                                                                .fill_x()
                                                                                 .padding(2.0, 4.0, 2.0, 4.0)
                                                                                 .radius_all(3.0)
-                                                                                .hover_bg(colors.highlight)
+                                                                                .hover(Style::bg(colors.highlight))
                                                                                 .row()
                                                                                 .valign(Align::Center)
                                                                                 .gap(5.0)
@@ -2178,10 +2142,10 @@ fn draw_ai_chat_content(
                                                                             let item_id = Id::from_u64(999_360_000 + (msg_idx as u64) * 10000 + (step_idx as u64) * 100 + (item_idx as u64));
                                                                             let row = ui.container()
                                                                                 .id(item_id)
-                                                                                .full_width()
+                                                                                .fill_x()
                                                                                 .padding(2.0, 4.0, 2.0, 4.0)
                                                                                 .radius_all(3.0)
-                                                                                .hover_bg(colors.highlight)
+                                                                                .hover(Style::bg(colors.highlight))
                                                                                 .row()
                                                                                 .valign(Align::Center)
                                                                                 .gap(5.0)
@@ -2251,10 +2215,10 @@ fn draw_ai_chat_content(
                                                                             let item_id = Id::from_u64(999_370_000 + (msg_idx as u64) * 10000 + (step_idx as u64) * 100 + (item_idx as u64));
                                                                             let row = ui.container()
                                                                                 .id(item_id)
-                                                                                .full_width()
+                                                                                .fill_x()
                                                                                 .padding(2.0, 4.0, 2.0, 4.0)
                                                                                 .radius_all(3.0)
-                                                                                .hover_bg(colors.highlight)
+                                                                                .hover(Style::bg(colors.highlight))
                                                                                 .row()
                                                                                 .valign(Align::Center)
                                                                                 .gap(5.0)
@@ -2348,7 +2312,7 @@ fn draw_ai_chat_content(
                                                                                 ui.request_redraw_after(std::time::Duration::from_millis(80));
                                                                             }
                                                                             ui.container()
-                                                                                .full_width()
+                                                                                .fill_x()
                                                                                 .row()
                                                                                 .valign(Align::Center)
                                                                                 .gap(4.0)
@@ -2361,7 +2325,7 @@ fn draw_ai_chat_content(
                                                                                     }
                                                                                     ui.text(&thought_label)
                                                                                         .size(11.5)
-                                                                                        .italic()
+                                                                                        .decoration(TextDecoration::Italic)
                                                                                         .color(colors.text_muted)
                                                                                         .show();
                                                                                 });
@@ -2435,11 +2399,11 @@ fn draw_ai_chat_content(
 
                                                     let edit_row = ui.container()
                                                         .id(step_id)
-                                                        .full_width()
+                                                        .fill_x()
                                                         .padding(2.0, 4.0, 2.0, 4.0)
                                                         .radius_all(3.0)
-                                                        .clickable(true)
-                                                        .hover_bg(Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, 0.05))
+                                                        .interactive(true)
+                                                        .hover(Style::bg(Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, 0.05)))
                                                         .row()
                                                         .valign(Align::Center)
                                                         .gap(5.0)
@@ -2519,7 +2483,7 @@ fn draw_ai_chat_content(
                                                 TrajectoryStep::Command { command } => {
                                                     ui.container()
                                                         .id(step_id)
-                                                        .full_width()
+                                                        .fill_x()
                                                         .padding(2.0, 4.0, 2.0, 4.0)
                                                         .row()
                                                         .valign(Align::Center)
@@ -2535,7 +2499,7 @@ fn draw_ai_chat_content(
                                                                 .show();
                                                             ui.text(&format!("$ {}", command))
                                                                 .size(11.5)
-                                                                .monospace()
+                                                                .font_family("monospace")
                                                                 .color(colors.text_primary)
                                                                 .show();
                                                         });
@@ -2545,7 +2509,7 @@ fn draw_ai_chat_content(
                                                     let proceed_btn_id = Id::from_u64(999_400_000 + (msg_idx as u64) * 100 + (step_idx as u64) + 1);
 
                                                     ui.container()
-                                                        .full_width()
+                                                        .fill_x()
                                                         .padding(4.0, 2.0, 4.0, 2.0)
                                                         .row()
                                                         .valign(Align::Center)
@@ -2560,8 +2524,8 @@ fn draw_ai_chat_content(
                                                                 .padding(4.0, 10.0, 4.0, 10.0)
                                                                 .radius_all(6.0)
                                                                 .bg(colors.accent.with_alpha(0.12))
-                                                                .border(colors.accent.with_alpha(0.35), 1.0)
-                                                                .hover_bg(colors.accent.with_alpha(0.24))
+                                                                .border((colors.accent.with_alpha(0.35), 1.0))
+                                                                .hover(Style::bg(colors.accent.with_alpha(0.24)))
                                                                 .show(|ui| {
                                                                     ui.text("\u{f15c}")
                                                                         .size(10.0)
@@ -2569,7 +2533,7 @@ fn draw_ai_chat_content(
                                                                         .show();
                                                                     ui.text("Implementation Plan")
                                                                         .size(10.5)
-                                                                        .weight(FontWeight::SemiBold)
+                                                                        .font_weight(FontWeight::SemiBold)
                                                                         .color(colors.accent)
                                                                         .show();
                                                                     let step_count = steps.len();
@@ -2581,7 +2545,7 @@ fn draw_ai_chat_content(
                                                                             .show(|ui| {
                                                                                 ui.text(&format!("{} steps", step_count))
                                                                                     .size(9.0)
-                                                                                    .weight(FontWeight::Medium)
+                                                                                    .font_weight(FontWeight::Medium)
                                                                                     .color(colors.text_primary)
                                                                                     .show();
                                                                             });
@@ -2608,8 +2572,8 @@ fn draw_ai_chat_content(
                                                                 .padding(4.0, 10.0, 4.0, 10.0)
                                                                 .radius_all(6.0)
                                                                 .bg(Color::rgb(34.0 / 255.0, 197.0 / 255.0, 94.0 / 255.0).with_alpha(0.16))
-                                                                .border(Color::rgb(34.0 / 255.0, 197.0 / 255.0, 94.0 / 255.0).with_alpha(0.38), 1.0)
-                                                                .hover_bg(Color::rgb(34.0 / 255.0, 197.0 / 255.0, 94.0 / 255.0).with_alpha(0.26))
+                                                                .border((Color::rgb(34.0 / 255.0, 197.0 / 255.0, 94.0 / 255.0).with_alpha(0.38), 1.0))
+                                                                .hover(Style::bg(Color::rgb(34.0 / 255.0, 197.0 / 255.0, 94.0 / 255.0).with_alpha(0.26)))
                                                                 .show(|ui| {
                                                                     ui.text("\u{f04b}")
                                                                         .size(9.0)
@@ -2617,7 +2581,7 @@ fn draw_ai_chat_content(
                                                                         .show();
                                                                     ui.text("Proceed")
                                                                         .size(10.5)
-                                                                        .weight(FontWeight::SemiBold)
+                                                                        .font_weight(FontWeight::SemiBold)
                                                                         .color(Color::rgb(74.0 / 255.0, 222.0 / 255.0, 128.0 / 255.0))
                                                                         .show();
                                                                 });
@@ -2642,17 +2606,17 @@ fn draw_ai_chat_content(
                                                     let chevron = if is_expanded { "\u{f078}" } else { "\u{f054}" };
 
                                                     ui.container()
-                                                        .full_width()
+                                                        .fill_x()
                                                         .column()
                                                         .gap(4.0)
                                                         .show(|ui| {
                                                             let header_res = ui.container()
                                                                 .id(thought_id)
-                                                                .full_width()
-                                                                .clickable(true)
+                                                                .fill_x()
+                                                                .interactive(true)
                                                                 .padding(2.0, 4.0, 2.0, 4.0)
                                                                 .radius_all(4.0)
-                                                                .hover_bg(colors.highlight)
+                                                                .hover(Style::bg(colors.highlight))
                                                                 .row()
                                                                 .valign(Align::Center)
                                                                 .gap(6.0)
@@ -2683,7 +2647,7 @@ fn draw_ai_chat_content(
                                                                     };
                                                                     ui.text(title)
                                                                         .size(11.5)
-                                                                        .weight(FontWeight::Medium)
+                                                                        .font_weight(FontWeight::Medium)
                                                                         .color(colors.text_primary)
                                                                         .show();
                                                                 });
@@ -2698,14 +2662,14 @@ fn draw_ai_chat_content(
                                                             if is_expanded {
                                                                 let thought_content_w = (ai_text_w - 20.0).max(40.0);
                                                                 ui.container()
-                                                                    .full_width()
+                                                                    .fill_x()
                                                                     .padding_left(16.0)
                                                                     .padding_top(2.0)
                                                                     .padding_bottom(4.0)
                                                                     .show(|ui| {
                                                                         ui.text(thoughts.trim())
                                                                             .size(11.5)
-                                                                            .line_height(1.4)
+                                                                            .decoration(TextDecoration::LineHeight(1.4))
                                                                             .color(colors.text_muted)
                                                                             .max_width(thought_content_w)
                                                                             .wrap(zenthra_text::prelude::TextWrap::Word)
@@ -2734,14 +2698,14 @@ fn draw_ai_chat_content(
                                                         .show();
                                                     ui.text("Thinking...")
                                                         .size(12.0)
-                                                        .italic()
+                                                        .decoration(TextDecoration::Italic)
                                                         .color(colors.accent)
                                                         .show();
                                                 });
                                         } else if !msg.is_working && full_text.is_empty() && msg.trajectory.is_empty() && !has_visible_thoughts {
                                             ui.text("No response generated. Please check your model or API quota.")
                                                 .size(11.5)
-                                                .italic()
+                                                .decoration(TextDecoration::Italic)
                                                 .color(colors.text_muted)
                                                 .show();
                                         }
@@ -2754,17 +2718,17 @@ fn draw_ai_chat_content(
                                             let is_details_expanded = msg.expanded;
 
                                             ui.container()
-                                                .full_width()
+                                                .fill_x()
                                                 .radius_all(8.0)
                                                 .bg(Color::rgba(0.95, 0.25, 0.25, 0.08))
-                                                .border(Color::rgba(0.95, 0.30, 0.30, 0.28), 1.0)
+                                                .border((Color::rgba(0.95, 0.30, 0.30, 0.28), 1.0))
                                                 .padding(10.0, 12.0, 10.0, 12.0)
                                                 .column()
                                                 .gap(8.0)
                                                 .show(|ui| {
                                                     // Header row: Icon + Title + Error Badge
                                                     ui.container()
-                                                        .full_width()
+                                                        .fill_x()
                                                         .row()
                                                         .halign(Align::SpaceBetween)
                                                         .valign(Align::Center)
@@ -2780,7 +2744,7 @@ fn draw_ai_chat_content(
                                                                         .show();
                                                                     ui.text(&err_title)
                                                                         .size(11.5)
-                                                                        .weight(FontWeight::Bold)
+                                                                        .font_weight(FontWeight::Bold)
                                                                         .color(Color::rgba(0.98, 0.45, 0.45, 1.0))
                                                                         .show();
                                                                 });
@@ -2792,7 +2756,7 @@ fn draw_ai_chat_content(
                                                                 .show(|ui| {
                                                                     ui.text("Error")
                                                                         .size(9.0)
-                                                                        .weight(FontWeight::Medium)
+                                                                        .font_weight(FontWeight::Medium)
                                                                         .color(Color::rgba(0.98, 0.55, 0.55, 0.95))
                                                                         .show();
                                                                 });
@@ -2801,7 +2765,7 @@ fn draw_ai_chat_content(
                                                     // Friendly Description
                                                     ui.text(&err_desc)
                                                         .size(11.0)
-                                                        .line_height(1.4)
+                                                        .decoration(TextDecoration::LineHeight(1.4))
                                                         .color(colors.text_primary.with_alpha(0.9))
                                                         .max_width((ai_text_w - 24.0).max(60.0))
                                                         .wrap(zenthra_text::prelude::TextWrap::Word)
@@ -2813,7 +2777,7 @@ fn draw_ai_chat_content(
                                                             .id(err_details_id)
                                                             .padding(3.0, 6.0, 3.0, 6.0)
                                                             .radius_all(4.0)
-                                                            .hover_bg(Color::rgba(1.0, 1.0, 1.0, 0.05))
+                                                            .hover(Style::bg(Color::rgba(1.0, 1.0, 1.0, 0.05)))
                                                             .row()
                                                             .valign(Align::Center)
                                                             .gap(4.0)
@@ -2848,14 +2812,14 @@ fn draw_ai_chat_content(
                                                                 .padding(8.0, 10.0, 8.0, 10.0)
                                                                 .radius_all(6.0)
                                                                 .bg(colors.bg_base.with_alpha(0.85))
-                                                                .border(Color::rgba(0.95, 0.30, 0.30, 0.2), 0.5)
+                                                                .border((Color::rgba(0.95, 0.30, 0.30, 0.2), 0.5))
                                                                 .column()
                                                                 .gap(4.0)
                                                                 .show(|ui| {
                                                                     ui.text(raw)
                                                                         .size(9.5)
-                                                                        .monospace()
-                                                                        .line_height(1.5)
+                                                                        .font_family("monospace")
+                                                                        .decoration(TextDecoration::LineHeight(1.5))
                                                                         .color(colors.text_muted)
                                                                         .max_width((raw_w - 20.0).max(40.0))
                                                                         .wrap(zenthra_text::prelude::TextWrap::Word)
@@ -2866,7 +2830,7 @@ fn draw_ai_chat_content(
 
                                                     // Footer: Copy Button
                                                     ui.container()
-                                                        .full_width()
+                                                        .fill_x()
                                                         .row()
                                                         .halign(Align::Right)
                                                         .valign(Align::Center)
@@ -2876,7 +2840,7 @@ fn draw_ai_chat_content(
                                                                 .id(err_copy_id)
                                                                 .padding(2.0, 6.0, 2.0, 6.0)
                                                                 .radius_all(4.0)
-                                                                .hover_bg(Color::rgba(1.0, 1.0, 1.0, 0.08))
+                                                                .hover(Style::bg(Color::rgba(1.0, 1.0, 1.0, 0.08)))
                                                                 .row()
                                                                 .valign(Align::Center)
                                                                 .gap(4.0)
@@ -2917,7 +2881,7 @@ fn draw_ai_chat_content(
                                                 .map(|v| v.as_slice())
                                                 .unwrap_or(&[]);
                                             ui.container()
-                                                .full_width()
+                                                .fill_x()
                                                 .column()
                                                 .gap(0.0)
                                                 .show(|ui| {
@@ -2931,7 +2895,7 @@ fn draw_ai_chat_content(
                                                                     _ => (base_text_size - 0.5, if block_idx == 0 { 0.0 } else { 6.0 }, 3.0),
                                                                 };
                                                                 ui.container()
-                                                                    .full_width()
+                                                                    .fill_x()
                                                                     .padding_top(pad_t)
                                                                     .padding_bottom(pad_b)
                                                                     .show(|ui| {
@@ -2940,11 +2904,11 @@ fn draw_ai_chat_content(
                                                             }
                                                             MarkdownBlock::Rule => {
                                                                 ui.container()
-                                                                    .full_width()
+                                                                    .fill_x()
                                                                     .padding(10.0, 0.0, 10.0, 0.0)
                                                                     .show(|ui| {
                                                                         ui.container()
-                                                                            .full_width()
+                                                                            .fill_x()
                                                                             .height(1.0)
                                                                             .bg(colors.border.with_alpha(0.4))
                                                                             .show(|_| {});
@@ -2961,7 +2925,7 @@ fn draw_ai_chat_content(
                                                                 };
                                                                 let is_keyed = !badge_label.is_empty();
                                                                 ui.container()
-                                                                    .full_width()
+                                                                    .fill_x()
                                                                     .padding_bottom(8.0)
                                                                     .show(|ui| {
                                                                         ui.container()
@@ -2994,7 +2958,7 @@ fn draw_ai_chat_content(
                                                                                                         .show();
                                                                                                     ui.text(badge_label)
                                                                                                         .size(9.5)
-                                                                                                        .weight(FontWeight::Bold)
+                                                                                                        .font_weight(FontWeight::Bold)
                                                                                                         .color(accent_col)
                                                                                                         .show();
                                                                                                 });
@@ -3008,19 +2972,19 @@ fn draw_ai_chat_content(
                                                                 let col_count = headers.len().max(1);
                                                                 let col_w = ((ai_text_w - 2.0) / col_count as f32).max(40.0);
                                                                 ui.container()
-                                                                    .full_width()
+                                                                    .fill_x()
                                                                     .padding_bottom(8.0)
                                                                     .show(|ui| {
                                                                         ui.container()
                                                                             .max_width(ai_text_w)
                                                                             .radius_all(6.0)
-                                                                            .border(colors.border.with_alpha(0.5), 0.5)
+                                                                            .border((colors.border.with_alpha(0.5), 0.5))
                                                                             .clip(true)
                                                                             .column()
                                                                             .show(|ui| {
                                                                                 // Header row
                                                                                 ui.container()
-                                                                                    .full_width()
+                                                                                    .fill_x()
                                                                                     .row()
                                                                                     .gap(0.0)
                                                                                     .bg(colors.bg_sidebar.with_alpha(0.9))
@@ -3042,7 +3006,7 @@ fn draw_ai_chat_content(
                                                                                         }
                                                                                     });
                                                                                 // Divider under header
-                                                                                ui.container().full_width().height(0.5).bg(colors.border.with_alpha(0.5)).show(|_| {});
+                                                                                ui.container().fill_x().height(0.5).bg(colors.border.with_alpha(0.5)).show(|_| {});
                                                                                 // Data rows
                                                                                 for (ri, row) in rows.iter().enumerate() {
                                                                                     let row_bg = if ri % 2 == 1 {
@@ -3051,7 +3015,7 @@ fn draw_ai_chat_content(
                                                                                         Color::TRANSPARENT
                                                                                     };
                                                                                     ui.container()
-                                                                                        .full_width()
+                                                                                        .fill_x()
                                                                                         .row()
                                                                                         .gap(0.0)
                                                                                         .bg(row_bg)
@@ -3073,7 +3037,7 @@ fn draw_ai_chat_content(
                                                                                             }
                                                                                         });
                                                                                     if ri + 1 < rows.len() {
-                                                                                        ui.container().full_width().height(0.5).bg(colors.border.with_alpha(0.2)).show(|_| {});
+                                                                                        ui.container().fill_x().height(0.5).bg(colors.border.with_alpha(0.2)).show(|_| {});
                                                                                     }
                                                                                 }
                                                                             });
@@ -3085,7 +3049,7 @@ fn draw_ai_chat_content(
                                                                 let marker_w = 16.0;
                                                                 let avail_w = (ai_text_w - indent - marker_w - 6.0).max(40.0);
                                                                 ui.container()
-                                                                    .full_width()
+                                                                    .fill_x()
                                                                     .padding_bottom(4.0)
                                                                     .row()
                                                                     .valign(Align::Top)
@@ -3129,7 +3093,7 @@ fn draw_ai_chat_content(
                                                                 let num_w = 20.0;
                                                                 let avail_w = (ai_text_w - indent - num_w - 6.0).max(40.0);
                                                                 ui.container()
-                                                                    .full_width()
+                                                                    .fill_x()
                                                                     .padding_bottom(4.0)
                                                                     .row()
                                                                     .valign(Align::Top)
@@ -3145,7 +3109,7 @@ fn draw_ai_chat_content(
                                                                             .show(|ui| {
                                                                                 ui.text(&format!("{}.", num))
                                                                                     .size(12.0)
-                                                                                    .weight(FontWeight::Medium)
+                                                                                    .font_weight(FontWeight::Medium)
                                                                                     .color(colors.accent)
                                                                                     .show();
                                                                             });
@@ -3161,19 +3125,19 @@ fn draw_ai_chat_content(
                                                                 let lang_display = lang.as_deref().unwrap_or("code").to_uppercase();
 
                                                                 ui.container()
-                                                                    .full_width()
+                                                                    .fill_x()
                                                                     .padding_bottom(8.0)
                                                                     .show(|ui| {
                                                                         ui.container()
                                                                             .width(code_box_w)
                                                                             .radius_all(6.0)
                                                                             .bg(colors.bg_base.with_alpha(0.85))
-                                                                            .border(colors.border.with_alpha(0.5), 0.5)
+                                                                            .border((colors.border.with_alpha(0.5), 0.5))
                                                                             .column()
                                                                             .show(|ui| {
                                                                                 // Code card header: language badge + Copy Code button
                                                                                 ui.container()
-                                                                                    .full_width()
+                                                                                    .fill_x()
                                                                                     .height(24.0)
                                                                                     .padding(0.0, 8.0, 0.0, 8.0)
                                                                                     .bg(colors.bg_sidebar.with_alpha(0.6))
@@ -3184,7 +3148,7 @@ fn draw_ai_chat_content(
                                                                                     .show(|ui| {
                                                                                         ui.text(&lang_display)
                                                                                             .size(10.0)
-                                                                                            .weight(FontWeight::Bold)
+                                                                                            .font_weight(FontWeight::Bold)
                                                                                             .color(colors.text_muted)
                                                                                             .show();
 
@@ -3192,7 +3156,7 @@ fn draw_ai_chat_content(
                                                                                             .id(code_btn_id)
                                                                                             .padding(2.0, 6.0, 2.0, 6.0)
                                                                                             .radius_all(3.0)
-                                                                                            .hover_bg(colors.highlight)
+                                                                                            .hover(Style::bg(colors.highlight))
                                                                                             .row()
                                                                                             .valign(Align::Center)
                                                                                             .gap(4.0)
@@ -3218,12 +3182,12 @@ fn draw_ai_chat_content(
                                                                                 // Code content area
                                                                                 ui.container()
                                                                                     .padding(8.0, 10.0, 8.0, 10.0)
-                                                                                    .full_width()
+                                                                                    .fill_x()
                                                                                     .show(|ui| {
                                                                                         ui.text(code)
                                                                                             .size((base_text_size - 1.0).max(10.5))
-                                                                                            .monospace()
-                                                                                            .line_height(1.45)
+                                                                                            .font_family("monospace")
+                                                                                            .decoration(TextDecoration::LineHeight(1.45))
                                                                                             .color(colors.text_primary)
                                                                                             .max_width((code_box_w - 20.0).max(40.0))
                                                                                             .wrap(zenthra_text::prelude::TextWrap::Word)
@@ -3234,7 +3198,7 @@ fn draw_ai_chat_content(
                                                             }
                                                             MarkdownBlock::Paragraph(spans) => {
                                                                 ui.container()
-                                                                    .full_width()
+                                                                    .fill_x()
                                                                     .padding_bottom(8.0)
                                                                     .show(|ui| {
                                                                         draw_inline_spans(ui, spans, ai_text_w, base_text_size, FontWeight::Regular, colors.text_primary, colors);
@@ -3246,7 +3210,7 @@ fn draw_ai_chat_content(
 
                                             // ── Footer: copy button pinned right ──────────────
                                             ui.container()
-                                                .full_width()
+                                                .fill_x()
                                                 .row()
                                                 .halign(Align::Right)
                                                 .valign(Align::Center)
@@ -3256,7 +3220,7 @@ fn draw_ai_chat_content(
                                                         .id(copy_btn_id)
                                                         .padding(2.0, 5.0, 2.0, 5.0)
                                                         .radius_all(4.0)
-                                                        .hover_bg(colors.highlight)
+                                                        .hover(Style::bg(colors.highlight))
                                                         .row()
                                                         .valign(Align::Center)
                                                         .gap(3.0)
@@ -3450,7 +3414,7 @@ fn draw_ai_chat_content(
                     if state.show_agent_terminal_popup && !state.active_agent_terminal_tasks.is_empty() {
                         let term_list_h = (state.active_agent_terminal_tasks.len().max(1) as f32 * 24.0 + 8.0).min(140.0);
                         let mut term_box_builder = ui.container()
-                            .full_width()
+                            .fill_x()
                             .height(term_list_h)
                             .bg(input_box_bg)
                             .radius_all(7.0)
@@ -3463,7 +3427,7 @@ fn draw_ai_chat_content(
                             term_box_builder = term_box_builder.shadow(input_shadow_col, 0.0, 2.0, 12.0);
                         }
                         if state.ai_settings.effective_input_outline() {
-                            term_box_builder = term_box_builder.border(colors.border.with_alpha(0.6), 0.75);
+                            term_box_builder = term_box_builder.border((colors.border.with_alpha(0.6), 0.75));
                         }
                         if state.glassmorphism {
                             term_box_builder = term_box_builder.backdrop_blur(state.blur_strength.max(4.0));
@@ -3476,11 +3440,11 @@ fn draw_ai_chat_content(
                                 let row_id = ui.id_from(&format!("active_term_task_{}", idx));
                                 let row = ui.container()
                                     .id(row_id)
-                                    .full_width()
+                                    .fill_x()
                                     .height(22.0)
                                     .radius_all(3.0)
                                     .bg(Color::TRANSPARENT)
-                                    .hover_bg(Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, 0.05))
+                                    .hover(Style::bg(Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, 0.05)))
                                     .padding(0.0, 4.0, 0.0, 4.0)
                                     .row()
                                     .valign(Align::Center)
@@ -3503,7 +3467,7 @@ fn draw_ai_chat_content(
                                                 // Command string (e.g. cargo test -p agent)
                                                 ui.text(&task.command)
                                                     .size(11.0)
-                                                    .weight(FontWeight::Medium)
+                                                    .font_weight(FontWeight::Medium)
                                                     .color(colors.text_primary)
                                                     .show();
 
@@ -3520,10 +3484,10 @@ fn draw_ai_chat_content(
                                         let cross_id = ui.id_from(&format!("term_task_cross_{}", idx));
                                         let cross_btn = ui.container()
                                             .id(cross_id)
-                                            .clickable(true)
+                                            .interactive(true)
                                             .padding(2.0, 5.0, 2.0, 5.0)
                                             .radius_all(2.5)
-                                            .hover_bg(Color::rgba(239.0 / 255.0, 68.0 / 255.0, 68.0 / 255.0, 0.15))
+                                            .hover(Style::bg(Color::rgba(239.0 / 255.0, 68.0 / 255.0, 68.0 / 255.0, 0.15)))
                                             .show(|ui| {
                                                 ui.text("✕")
                                                     .size(9.0)
@@ -3546,7 +3510,7 @@ fn draw_ai_chat_content(
 
                         // 2. Toolbar row below container: [ ‹ 💻 Terminal ] on left, [ ▾ ] on right
                         ui.container()
-                            .full_width()
+                            .fill_x()
                             .height(20.0)
                             .padding(0.0, 2.0, 0.0, 2.0)
                             .row()
@@ -3556,18 +3520,18 @@ fn draw_ai_chat_content(
                                 // Left: [ ‹ 💻 Terminal ] toggle button with back arrow ‹
                                 let back_btn = ui.container()
                                     .id(Id::from_u64(999999870))
-                                    .clickable(true)
+                                    .interactive(true)
                                     .padding(2.0, 5.0, 2.0, 5.0)
                                     .radius_all(3.0)
                                     .bg(Color::TRANSPARENT)
-                                    .hover_bg(Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, 0.05))
+                                    .hover(Style::bg(Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, 0.05)))
                                     .row()
                                     .valign(Align::Center)
                                     .gap(5.0)
                                     .show(|ui| {
                                         ui.text("‹")
                                             .size(13.0)
-                                            .weight(FontWeight::Bold)
+                                            .font_weight(FontWeight::Bold)
                                             .color(colors.text_muted)
                                             .show();
                                         ui.text("\u{f489}")
@@ -3582,7 +3546,7 @@ fn draw_ai_chat_content(
                                         };
                                         ui.text(&label)
                                             .size(10.5)
-                                            .weight(FontWeight::Medium)
+                                            .font_weight(FontWeight::Medium)
                                             .color(colors.accent)
                                             .show();
                                     });
@@ -3595,11 +3559,11 @@ fn draw_ai_chat_content(
                                 // Right: Down arrow ▾ to collapse
                                 let arrow_btn = ui.container()
                                     .id(Id::from_u64(999999871))
-                                    .clickable(true)
+                                    .interactive(true)
                                     .padding(2.0, 5.0, 2.0, 5.0)
                                     .radius_all(3.0)
                                     .bg(Color::TRANSPARENT)
-                                    .hover_bg(Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, 0.05))
+                                    .hover(Style::bg(Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, 0.05)))
                                     .show(|ui| {
                                         ui.text("\u{f078}")
                                             .size(7.5)
@@ -3617,7 +3581,7 @@ fn draw_ai_chat_content(
                             // 1. Scrollable file list container (only for the file list) with input background & drop shadow
                             let file_list_h = (modified_files.len().max(1) as f32 * 22.0 + 8.0).min(140.0);
                             let mut mod_files_builder = ui.container()
-                                .full_width()
+                                .fill_x()
                                 .height(file_list_h)
                                 .bg(input_box_bg)
                                 .radius_all(7.0)
@@ -3630,7 +3594,7 @@ fn draw_ai_chat_content(
                                 mod_files_builder = mod_files_builder.shadow(input_shadow_col, 0.0, 2.0, 12.0);
                             }
                             if state.ai_settings.effective_input_outline() {
-                                mod_files_builder = mod_files_builder.border(colors.border.with_alpha(0.6), 0.75);
+                                mod_files_builder = mod_files_builder.border((colors.border.with_alpha(0.6), 0.75));
                             }
                             if state.glassmorphism {
                                 mod_files_builder = mod_files_builder.backdrop_blur(state.blur_strength.max(4.0));
@@ -3650,13 +3614,13 @@ fn draw_ai_chat_content(
                                         let row_id = ui.id_from(&format!("mod_file_row_{}_{}", idx, item.file_name));
                                         let row = ui.container()
                                             .id(row_id)
-                                            .full_width()
+                                            .fill_x()
                                             .height(20.0)
                                             .radius_all(3.0)
                                             .bg(Color::TRANSPARENT)
-                                            .hover_bg(Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, 0.05))
+                                            .hover(Style::bg(Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, 0.05)))
                                             .padding(0.0, 4.0, 0.0, 4.0)
-                                            .clickable(true)
+                                            .interactive(true)
                                             .row()
                                             .valign(Align::Center)
                                             .halign(Align::SpaceBetween)
@@ -3671,7 +3635,7 @@ fn draw_ai_chat_content(
                                                             .width(12.0)
                                                             .height(12.0)
                                                             .radius_all(2.5)
-                                                            .border(icon_color, 1.0)
+                                                            .border((icon_color, 1.0))
                                                             .halign(Align::Center)
                                                             .valign(Align::Center)
                                                             .show(|ui| {
@@ -3685,7 +3649,7 @@ fn draw_ai_chat_content(
 
                                                         ui.text(&item.file_name)
                                                             .size(11.0)
-                                                            .weight(FontWeight::Medium)
+                                                            .font_weight(FontWeight::Medium)
                                                             .color(colors.text_primary)
                                                             .show();
 
@@ -3711,14 +3675,14 @@ fn draw_ai_chat_content(
                                                         if item.lines_added > 0 {
                                                             ui.text(&format!("+{}", item.lines_added))
                                                                 .size(10.0)
-                                                                .weight(FontWeight::Medium)
+                                                                .font_weight(FontWeight::Medium)
                                                                 .color(Color { r: 74.0 / 255.0, g: 222.0 / 255.0, b: 128.0 / 255.0, a: 1.0 })
                                                                 .show();
                                                         }
                                                         if item.lines_removed > 0 {
                                                             ui.text(&format!("-{}", item.lines_removed))
                                                                 .size(10.0)
-                                                                .weight(FontWeight::Medium)
+                                                                .font_weight(FontWeight::Medium)
                                                                 .color(Color { r: 248.0 / 255.0, g: 113.0 / 255.0, b: 113.0 / 255.0, a: 1.0 })
                                                                 .show();
                                                         }
@@ -3727,10 +3691,10 @@ fn draw_ai_chat_content(
                                                         let cross_id = ui.id_from(&format!("mod_file_cross_{}_{}", idx, item.file_name));
                                                         let cross_btn = ui.container()
                                                             .id(cross_id)
-                                                            .clickable(true)
+                                                            .interactive(true)
                                                             .padding(1.0, 3.0, 1.0, 3.0)
                                                             .radius_all(2.5)
-                                                            .hover_bg(Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, 0.08))
+                                                            .hover(Style::bg(Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, 0.08)))
                                                             .show(|ui| {
                                                                 ui.text("✕")
                                                                     .size(8.5)
@@ -3756,7 +3720,7 @@ fn draw_ai_chat_content(
 
                             // 2. Toolbar row (outside container): [ ‹ 📄 N Files] on left, Reject all / Accept all / ▾ on right
                             ui.container()
-                                .full_width()
+                                .fill_x()
                                 .height(20.0)
                                 .padding(0.0, 2.0, 0.0, 2.0)
                                 .row()
@@ -3766,18 +3730,18 @@ fn draw_ai_chat_content(
                                     // Left: [ ‹ 📄 N Files] toggle button (left back icon to close)
                                     let toggle_btn = ui.container()
                                         .id(Id::from_u64(999999865))
-                                        .clickable(true)
+                                        .interactive(true)
                                         .padding(2.0, 5.0, 2.0, 5.0)
                                         .radius_all(3.0)
                                         .bg(Color::TRANSPARENT)
-                                        .hover_bg(Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, 0.05))
+                                        .hover(Style::bg(Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, 0.05)))
                                         .row()
                                         .valign(Align::Center)
                                         .gap(5.0)
                                         .show(|ui| {
                                             ui.text("‹")
                                                 .size(13.0)
-                                                .weight(FontWeight::Bold)
+                                                .font_weight(FontWeight::Bold)
                                                 .color(colors.text_muted)
                                                 .show();
                                             ui.text("\u{f15c}")
@@ -3788,7 +3752,7 @@ fn draw_ai_chat_content(
                                             let label = format!("{} {}", count, if count == 1 { "File" } else { "Files" });
                                             ui.text(&label)
                                                 .size(10.5)
-                                                .weight(FontWeight::Medium)
+                                                .font_weight(FontWeight::Medium)
                                                 .color(colors.accent)
                                                 .show();
                                         });
@@ -3806,11 +3770,11 @@ fn draw_ai_chat_content(
                                         .show(|ui| {
                                             let rej_btn = ui.container()
                                                 .id(Id::from_u64(999999866))
-                                                .clickable(true)
+                                                .interactive(true)
                                                 .padding(2.0, 6.0, 2.0, 6.0)
                                                 .radius_all(3.0)
                                                 .bg(Color::TRANSPARENT)
-                                                .hover_bg(Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, 0.05))
+                                                .hover(Style::bg(Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, 0.05)))
                                                 .show(|ui| {
                                                     ui.text("Reject all")
                                                         .size(11.0)
@@ -3824,15 +3788,15 @@ fn draw_ai_chat_content(
 
                                             let acc_btn = ui.container()
                                                 .id(Id::from_u64(999999867))
-                                                .clickable(true)
+                                                .interactive(true)
                                                 .padding(2.0, 8.0, 2.0, 8.0)
                                                 .radius_all(4.0)
                                                 .bg(colors.accent)
-                                                .hover_bg(colors.accent.with_alpha(0.85))
+                                                .hover(Style::bg(colors.accent.with_alpha(0.85)))
                                                 .show(|ui| {
                                                     ui.text("Accept all")
                                                         .size(11.0)
-                                                        .weight(FontWeight::SemiBold)
+                                                        .font_weight(FontWeight::SemiBold)
                                                         .color(Color::WHITE)
                                                         .show();
                                                 });
@@ -3844,11 +3808,11 @@ fn draw_ai_chat_content(
                                             // Down arrow to collapse
                                             let arrow_btn = ui.container()
                                                 .id(Id::from_u64(999999868))
-                                                .clickable(true)
+                                                .interactive(true)
                                                 .padding(2.0, 5.0, 2.0, 5.0)
                                                 .radius_all(3.0)
                                                 .bg(Color::TRANSPARENT)
-                                                .hover_bg(Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, 0.05))
+                                                .hover(Style::bg(Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, 0.05)))
                                                 .show(|ui| {
                                                     ui.text("\u{f078}")
                                                         .size(7.5)
@@ -3865,7 +3829,7 @@ fn draw_ai_chat_content(
                         } else {
                             // Empty state: show inline on toolbar row (no box, other icons hidden)
                             ui.container()
-                                .full_width()
+                                .fill_x()
                                 .height(20.0)
                                 .padding(0.0, 2.0, 0.0, 2.0)
                                 .row()
@@ -3873,11 +3837,11 @@ fn draw_ai_chat_content(
                                 .gap(6.0)
                                 .show(|ui| {
                                     let toggle_btn = ui.container()
-                                        .clickable(true)
+                                        .interactive(true)
                                         .padding(2.0, 4.0, 2.0, 4.0)
                                         .radius_all(3.0)
                                         .bg(Color::TRANSPARENT)
-                                        .hover_bg(Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, 0.05))
+                                        .hover(Style::bg(Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, 0.05)))
                                         .show(|ui| {
                                             ui.text("\u{f15c}")
                                                 .size(11.5)
@@ -3899,7 +3863,7 @@ fn draw_ai_chat_content(
                     } else {
                         // Standard quick toolbar when closed (all icons visible)
                         ui.container()
-                            .full_width()
+                            .fill_x()
                             .height(20.0)
                             .padding(0.0, 2.0, 0.0, 2.0)
                             .row()
@@ -3916,11 +3880,11 @@ fn draw_ai_chat_content(
                                         let count = modified_files.len();
                                         let file_btn = ui.container()
                                             .id(file_id)
-                                            .clickable(true)
+                                            .interactive(true)
                                             .padding(2.0, 4.0, 2.0, 4.0)
                                             .radius_all(3.0)
                                             .bg(Color::TRANSPARENT)
-                                            .hover_bg(Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, 0.05))
+                                            .hover(Style::bg(Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, 0.05)))
                                             .row()
                                             .valign(Align::Center)
                                             .gap(3.0)
@@ -3932,7 +3896,7 @@ fn draw_ai_chat_content(
                                                 if count > 0 {
                                                     ui.text(&format!("{}", count))
                                                         .size(9.5)
-                                                        .weight(FontWeight::Medium)
+                                                        .font_weight(FontWeight::Medium)
                                                         .color(colors.accent)
                                                         .show();
                                                 }
@@ -3956,11 +3920,11 @@ fn draw_ai_chat_content(
                                         };
                                         let term_btn = ui.container()
                                             .id(term_id)
-                                            .clickable(true)
+                                            .interactive(true)
                                             .padding(2.0, 4.0, 2.0, 4.0)
                                             .radius_all(3.0)
                                             .bg(term_bg)
-                                            .hover_bg(colors.highlight)
+                                            .hover(Style::bg(colors.highlight))
                                             .row()
                                             .valign(Align::Center)
                                             .gap(2.5)
@@ -4000,10 +3964,10 @@ fn draw_ai_chat_content(
                                         let inbox_id = Id::from_u64(999999862);
                                         let inbox_btn = ui.container()
                                             .id(inbox_id)
-                                            .clickable(true)
+                                            .interactive(true)
                                             .padding(2.0, 4.0, 2.0, 4.0)
                                             .radius_all(3.0)
-                                            .hover_bg(colors.highlight)
+                                            .hover(Style::bg(colors.highlight))
                                             .row()
                                             .valign(Align::Center)
                                             .gap(1.5)
@@ -4025,10 +3989,10 @@ fn draw_ai_chat_content(
                                         let chrome_id = Id::from_u64(999999863);
                                         let chrome_btn = ui.container()
                                             .id(chrome_id)
-                                            .clickable(true)
+                                            .interactive(true)
                                             .padding(2.0, 4.0, 2.0, 4.0)
                                             .radius_all(3.0)
-                                            .hover_bg(colors.highlight)
+                                            .hover(Style::bg(colors.highlight))
                                             .show(|ui| {
                                                 ui.text("\u{f059f}")
                                                     .size(12.5)
@@ -4047,11 +4011,11 @@ fn draw_ai_chat_content(
                                         .show(|ui| {
                                             let rej_btn = ui.container()
                                                 .id(Id::from_u64(999999866))
-                                                .clickable(true)
+                                                .interactive(true)
                                                 .padding(2.0, 6.0, 2.0, 6.0)
                                                 .radius_all(3.0)
                                                 .bg(Color::TRANSPARENT)
-                                                .hover_bg(Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, 0.05))
+                                                .hover(Style::bg(Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, 0.05)))
                                                 .show(|ui| {
                                                     ui.text("Reject all")
                                                         .size(11.0)
@@ -4065,15 +4029,15 @@ fn draw_ai_chat_content(
 
                                             let acc_btn = ui.container()
                                                 .id(Id::from_u64(999999867))
-                                                .clickable(true)
+                                                .interactive(true)
                                                 .padding(2.0, 8.0, 2.0, 8.0)
                                                 .radius_all(4.0)
                                                 .bg(colors.accent)
-                                                .hover_bg(colors.accent.with_alpha(0.85))
+                                                .hover(Style::bg(colors.accent.with_alpha(0.85)))
                                                 .show(|ui| {
                                                     ui.text("Accept all")
                                                         .size(11.0)
-                                                        .weight(FontWeight::SemiBold)
+                                                        .font_weight(FontWeight::SemiBold)
                                                         .color(Color::WHITE)
                                                         .show();
                                                 });
@@ -4085,11 +4049,11 @@ fn draw_ai_chat_content(
                                             // Top arrow button to open/expand
                                             let arrow_btn = ui.container()
                                                 .id(Id::from_u64(999999869))
-                                                .clickable(true)
+                                                .interactive(true)
                                                 .padding(2.0, 5.0, 2.0, 5.0)
                                                 .radius_all(3.0)
                                                 .bg(Color::TRANSPARENT)
-                                                .hover_bg(Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, 0.05))
+                                                .hover(Style::bg(Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, 0.05)))
                                                 .show(|ui| {
                                                     ui.text("\u{f077}")
                                                         .size(7.5)
@@ -4117,11 +4081,11 @@ fn draw_ai_chat_content(
                                             }
                                             let arrow_btn = ui.container()
                                                 .id(Id::from_u64(999999872))
-                                                .clickable(true)
+                                                .interactive(true)
                                                 .padding(2.0, 5.0, 2.0, 5.0)
                                                 .radius_all(3.0)
                                                 .bg(Color::TRANSPARENT)
-                                                .hover_bg(Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, 0.05))
+                                                .hover(Style::bg(Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, 0.05)))
                                                 .show(|ui| {
                                                     ui.text("\u{f077}")
                                                         .size(7.5)
@@ -4139,7 +4103,7 @@ fn draw_ai_chat_content(
                     }
 
                     let mut input_box_builder = ui.container()
-                        .full_width()
+                        .fill_x()
                         .bg(input_box_bg)
                         .radius_all(14.0) // Matching rounded-2xl in HTML mockup
                         .padding(8.0, 12.0, 8.0, 12.0)
@@ -4159,7 +4123,7 @@ fn draw_ai_chat_content(
                         } else {
                             (input_border_col.with_alpha(0.70), 0.65)
                         };
-                        input_box_builder = input_box_builder.border(outline_col, outline_w);
+                        input_box_builder = input_box_builder.border((outline_col, outline_w));
                     }
 
                     let prompt_text_size = state.ai_settings.effective_text_size().pt();
@@ -4215,7 +4179,7 @@ fn draw_ai_chat_content(
                             let orb_id = Id::from_u64(999999990);
                             let mut input_submitted = false;
                             ui.container()
-                                .full_width()
+                                .fill_x()
                                 .row()
                                 .valign(Align::Top)
                                 .gap(4.0)
@@ -4243,18 +4207,17 @@ fn draw_ai_chat_content(
                                             );
                                         });
 
-                                    let text_res = ui.text_area(&mut state.ai_input, "ai_prompt_text_area")
+                                    let text_res = ui.text_area(&mut state.ai_input).id("ai_prompt_text_area")
                                         .width(input_w)
                                         .height(prompt_box_h)
                                         .max_height(MAX_PROMPT_H)
                                         .scrollable(true)
                                         .size(prompt_text_size)
-                                        .line_height(1.30)
-                                        .color(colors.text_primary)
+                                                                                .color(colors.text_primary)
                                         .cursor_color(colors.text_primary)
                                         .bg(if state.glassmorphism { Color::TRANSPARENT } else { input_box_bg })
-                                        .border(Color::TRANSPARENT, 0.0)
-                                        .focus_border(Color::TRANSPARENT, 0.0)
+                                        .border((Color::TRANSPARENT, 0.0))
+                                        .focus_border((Color::TRANSPARENT, 0.0))
                                         .padding(2.0, 2.0, 2.0, 2.0)
                                         .placeholder(placeholder)
                                         .placeholder_color(colors.text_muted)
@@ -4267,7 +4230,7 @@ fn draw_ai_chat_content(
 
                             // Bottom bar of input dock: Mode & Model pills on left, Send button on right
                             ui.container()
-                                .full_width()
+                                .fill_x()
                                 .height(26.0)
                                 .row()
                                 .valign(Align::Center)
@@ -4287,12 +4250,12 @@ fn draw_ai_chat_content(
 
                                             let mode_btn = ui.container()
                                                 .raw_id(AGENT_MODE_BTN_ID)
-                                                .clickable(true)
+                                                .interactive(true)
                                                 .padding(3.5, 8.0, 3.5, 8.0)
                                                 .radius_all(6.0)
                                                 .bg(if state.agent_mode_menu_open { pill_hover_bg } else { pill_bg })
-                                                .hover_bg(pill_hover_bg)
-                                                .border(pill_border, 1.0)
+                                                .hover(Style::bg(pill_hover_bg))
+                                                .border((pill_border, 1.0))
                                                 .row()
                                                 .valign(Align::Center)
                                                 .gap(5.0)
@@ -4303,7 +4266,7 @@ fn draw_ai_chat_content(
                                                         .show();
                                                     ui.text(mode_name)
                                                         .size(10.0)
-                                                        .weight(FontWeight::Medium)
+                                                        .font_weight(FontWeight::Medium)
                                                         .color(colors.text_primary)
                                                         .show();
                                                     ui.text(if state.agent_mode_menu_open { "\u{f077}" } else { "\u{f078}" })
@@ -4356,8 +4319,8 @@ fn draw_ai_chat_content(
                                         .height(24.0)
                                         .radius_all(5.0)
                                         .bg(send_bg)
-                                        .hover_bg(send_hover_bg)
-                                        .border(send_border, 1.0)
+                                        .hover(Style::bg(send_hover_bg))
+                                        .border((send_border, 1.0))
                                         .halign(Align::Center)
                                         .valign(Align::Center)
                                         .show(|ui| {
@@ -4870,9 +4833,9 @@ pub(crate) fn draw_inline_spans(
             InlineSpan::Text(t) => {
                 ui.text(t)
                     .size(base_size)
-                    .weight(base_weight)
+                    .font_weight(base_weight)
                     .color(base_color)
-                    .line_height(1.4)
+                    .decoration(TextDecoration::LineHeight(1.4))
                     .max_width(max_width)
                     .wrap(zenthra_text::prelude::TextWrap::Word)
                     .show();
@@ -4882,12 +4845,12 @@ pub(crate) fn draw_inline_spans(
                 ui.container()
                     .radius_all(3.0)
                     .bg(colors.bg_base.with_alpha(0.8))
-                    .border(colors.border.with_alpha(0.4), 0.5)
+                    .border((colors.border.with_alpha(0.4), 0.5))
                     .padding(1.0, 4.0, 1.0, 4.0)
                     .show(|ui| {
                         ui.text(t)
                             .size((base_size - 0.5).max(8.5))
-                            .monospace()
+                            .font_family("monospace")
                             .color(colors.accent.with_alpha(0.9))
                             .max_width(max_width)
                             .wrap(zenthra_text::prelude::TextWrap::Word)
@@ -4901,7 +4864,7 @@ pub(crate) fn draw_inline_spans(
 
     // Multi-span: row with wrapping
     ui.container()
-        .full_width()
+        .fill_x()
         .row()
         .wrap(Wrap::Auto)
         .valign(Align::Top)
@@ -4918,9 +4881,9 @@ pub(crate) fn draw_inline_spans(
                         };
                         ui.text(t)
                             .size(base_size)
-                            .weight(base_weight)
+                            .font_weight(base_weight)
                             .color(color)
-                            .line_height(1.4)
+                            .decoration(TextDecoration::LineHeight(1.4))
                             .max_width(max_width)
                             .wrap(zenthra_text::prelude::TextWrap::Word)
                             .show();
@@ -4928,9 +4891,9 @@ pub(crate) fn draw_inline_spans(
                     InlineSpan::Bold(t) => {
                         ui.text(t)
                             .size(base_size)
-                            .weight(FontWeight::SemiBold)
+                            .font_weight(FontWeight::SemiBold)
                             .color(base_color)
-                            .line_height(1.4)
+                            .decoration(TextDecoration::LineHeight(1.4))
                             .max_width(max_width)
                             .wrap(zenthra_text::prelude::TextWrap::Word)
                             .show();
@@ -4938,10 +4901,10 @@ pub(crate) fn draw_inline_spans(
                     InlineSpan::Italic(t) => {
                         ui.text(t)
                             .size(base_size)
-                            .weight(base_weight)
-                            .italic()
+                            .font_weight(base_weight)
+                            .decoration(TextDecoration::Italic)
                             .color(base_color.with_alpha(0.85))
-                            .line_height(1.4)
+                            .decoration(TextDecoration::LineHeight(1.4))
                             .max_width(max_width)
                             .wrap(zenthra_text::prelude::TextWrap::Word)
                             .show();
@@ -4949,10 +4912,10 @@ pub(crate) fn draw_inline_spans(
                     InlineSpan::BoldItalic(t) => {
                         ui.text(t)
                             .size(base_size)
-                            .weight(FontWeight::SemiBold)
-                            .italic()
+                            .font_weight(FontWeight::SemiBold)
+                            .decoration(TextDecoration::Italic)
                             .color(base_color)
-                            .line_height(1.4)
+                            .decoration(TextDecoration::LineHeight(1.4))
                             .max_width(max_width)
                             .wrap(zenthra_text::prelude::TextWrap::Word)
                             .show();
@@ -4961,12 +4924,12 @@ pub(crate) fn draw_inline_spans(
                         ui.container()
                             .radius_all(3.0)
                             .bg(colors.bg_base.with_alpha(0.8))
-                            .border(colors.border.with_alpha(0.4), 0.5)
+                            .border((colors.border.with_alpha(0.4), 0.5))
                             .padding(1.0, 4.0, 1.0, 4.0)
                             .show(|ui| {
                                 ui.text(t)
                                     .size((base_size - 0.5).max(8.5))
-                                    .monospace()
+                                    .font_family("monospace")
                                     .color(colors.accent.with_alpha(0.9))
                                     .max_width(max_width)
                                     .wrap(zenthra_text::prelude::TextWrap::Word)
@@ -5024,10 +4987,10 @@ fn draw_session_history_panel(
                     if !state.ai_panel_expanded {
                         // Docked mode: Back button with chevron + "Chat"
                         let back_btn = ui.container()
-                            .clickable(true)
+                            .interactive(true)
                             .padding(2.0, 6.0, 2.0, 4.0)
                             .radius_all(4.0)
-                            .hover_bg(colors.highlight)
+                            .hover(Style::bg(colors.highlight))
                             .row()
                             .valign(Align::Center)
                             .gap(5.0)
@@ -5059,7 +5022,7 @@ fn draw_session_history_panel(
                                     .show();
                                 ui.text("Session History")
                                     .size(11.5)
-                                    .weight(FontWeight::Medium)
+                                    .font_weight(FontWeight::Medium)
                                     .color(colors.text_primary)
                                     .show();
                             });
@@ -5067,11 +5030,11 @@ fn draw_session_history_panel(
 
                     // Right: Close button
                     let close_side_btn = ui.container()
-                        .clickable(true)
+                        .interactive(true)
                         .width(22.0)
                         .height(22.0)
                         .radius_all(4.0)
-                        .hover_bg(colors.highlight)
+                        .hover(Style::bg(colors.highlight))
                         .halign(Align::Center)
                         .valign(Align::Center)
                         .show(|ui| {
@@ -5122,20 +5085,20 @@ fn draw_session_history_panel(
 
                             let query_empty = state.ai_sessions_search_query.is_empty();
 
-                            ui.input(&mut state.ai_sessions_search_query, search_input_id)
+                            ui.input(&mut state.ai_sessions_search_query).id(search_input_id)
                                 .fill_x()
                                 .size(11.0)
                                 .color(colors.text_primary)
-                                .no_bg()
-                                .no_border()
+                                .bg(Color::TRANSPARENT)
+                                .border(None)
                                 .show();
 
                             if !query_empty {
                                 let clear_btn = ui.container()
                                     .padding(2.0, 4.0, 2.0, 4.0)
                                     .radius_all(3.0)
-                                    .hover_bg(colors.highlight)
-                                    .clickable(true)
+                                    .hover(Style::bg(colors.highlight))
+                                    .interactive(true)
                                     .show(|ui| {
                                         ui.text("\u{f00d}")
                                             .size(9.0)
@@ -5240,14 +5203,13 @@ fn draw_session_history_panel(
 
                         let proj_hdr = ui.container()
                             .id(proj_line_id)
-                            .full_width()
-                            .clickable(true)
+                            .fill_x()
+                            .interactive(true)
                             .padding(3.0, 4.0, 3.0, 4.0)
                             .radius_all(4.0)
                             .row()
                             .valign(Align::Center)
                             .halign(Align::SpaceBetween)
-                            .no_wrap()
                             .show(|ui| {
                                 // Left details: arrow, icon, name, count, optional path
                                 ui.container()
@@ -5255,7 +5217,6 @@ fn draw_session_history_panel(
                                     .row()
                                     .valign(Align::Center)
                                     .gap(5.0)
-                                    .no_wrap()
                                     .show(|ui| {
                                         ui.container()
                                             .width(12.0)
@@ -5289,7 +5250,7 @@ fn draw_session_history_panel(
 
                                         ui.text(display_name)
                                             .size(11.5)
-                                            .weight(FontWeight::Bold)
+                                            .font_weight(FontWeight::Bold)
                                             .color(colors.text_primary)
                                             .max_width(75.0)
                                             .ellipsis(true)
@@ -5365,7 +5326,7 @@ fn draw_session_history_panel(
                                             ui.text(if is_general { "active" } else { "current" })
                                                 .size(8.5)
                                                 .color(colors.accent)
-                                                .weight(FontWeight::Medium)
+                                                .font_weight(FontWeight::Medium)
                                                 .show();
                                         });
                                 }
@@ -5379,7 +5340,7 @@ fn draw_session_history_panel(
                         // ── Project Session Items (if expanded) ─────────────
                         if is_expanded {
                             ui.container()
-                                .full_width()
+                                .fill_x()
                                 .column()
                                 .gap(6.0)
                                 .padding_left(16.0)
@@ -5390,7 +5351,7 @@ fn draw_session_history_panel(
                                             .show(|ui| {
                                                 ui.text("No sessions in this project yet.")
                                                     .size(10.5)
-                                                    .italic()
+                                                    .decoration(TextDecoration::Italic)
                                                     .color(colors.text_muted.with_alpha(0.6))
                                                     .show();
                                             });
@@ -5404,9 +5365,9 @@ fn draw_session_history_panel(
 
                                             let card_res = ui.container()
                                                 .id(sess_card_id)
-                                                .full_width()
+                                                .fill_x()
                                                 .height(36.0)
-                                                .clickable(true)
+                                                .interactive(true)
                                                 .padding(0.0, 10.0, 0.0, 10.0)
                                                 .radius_all(6.0)
                                                 .row()
@@ -5417,16 +5378,16 @@ fn draw_session_history_panel(
                                                 } else {
                                                     colors.bg_sidebar
                                                 })
-                                                .hover_bg(if is_active {
+                                                .hover(Style::bg(if is_active {
                                                     colors.accent.with_alpha(0.18)
                                                 } else {
                                                     colors.highlight
-                                                })
-                                                .border(if is_active {
+                                                }))
+                                                .border((if is_active {
                                                     colors.accent.with_alpha(0.60)
                                                 } else {
                                                     colors.border.with_alpha(0.50)
-                                                }, 1.0)
+                                                }, 1.0))
                                                 .show(|ui| {
                                                     // Left: optional active dot + Title
                                                     ui.container()
@@ -5446,7 +5407,7 @@ fn draw_session_history_panel(
                                                             let title_max_w = (panel_w - 130.0).max(40.0);
                                                             ui.text(&sess.title)
                                                                 .size(11.5)
-                                                                .weight(if is_active { FontWeight::Bold } else { FontWeight::Medium })
+                                                                .font_weight(if is_active { FontWeight::Bold } else { FontWeight::Medium })
                                                                 .color(colors.text_primary)
                                                                 .max_width(title_max_w)
                                                                 .ellipsis(true)
@@ -5466,10 +5427,10 @@ fn draw_session_history_panel(
 
                                                             let del_btn = ui.container()
                                                                 .id(sess_del_id)
-                                                                .clickable(true)
+                                                                .interactive(true)
                                                                 .padding(2.5, 5.0, 2.5, 5.0)
                                                                 .radius_all(3.0)
-                                                                .hover_bg(Color::rgba(239.0 / 255.0, 68.0 / 255.0, 68.0 / 255.0, 0.18))
+                                                                .hover(Style::bg(Color::rgba(239.0 / 255.0, 68.0 / 255.0, 68.0 / 255.0, 0.18)))
                                                                 .show(|ui| {
                                                                     ui.text("\u{f014}") // trash / delete icon
                                                                         .size(10.0)
@@ -5500,11 +5461,11 @@ fn draw_session_history_panel(
                         ui.container()
                             .padding_top(20.0)
                             .halign(Align::Center)
-                            .full_width()
+                            .fill_x()
                             .show(|ui| {
                                 ui.text("No matching sessions found.")
                                     .size(11.0)
-                                    .italic()
+                                    .decoration(TextDecoration::Italic)
                                     .color(colors.text_muted)
                                     .show();
                             });
@@ -5635,17 +5596,17 @@ fn render_write_file_box(
     let card_bg = colors.bg_base;
 
     ui.container()
-        .full_width()
+        .fill_x()
         .padding(6.0, 8.0, 6.0, 8.0)
         .radius_all(5.0)
         .bg(card_bg)
-        .border(colors.border.with_alpha(0.6), 1.0)
+        .border((colors.border.with_alpha(0.6), 1.0))
         .column()
         .gap(5.0)
         .show(|ui| {
             // Header row with title on left, delta_info and action buttons on right
             ui.container()
-                .full_width()
+                .fill_x()
                 .row()
                 .valign(Align::Center)
                 .halign(Align::SpaceBetween)
@@ -5668,7 +5629,7 @@ fn render_write_file_box(
                             let title_prefix = if is_created { "Created:" } else { "Edited:" };
                             ui.text(&format!("{} {}", title_prefix, display_path))
                                 .size(11.0)
-                                .bold()
+                                .font_weight(FontWeight::Bold)
                                 .color(colors.text_primary)
                                 .show();
                         });
@@ -5692,7 +5653,7 @@ fn render_write_file_box(
                                 .id(copy_btn_id)
                                 .padding(2.0, 5.0, 2.0, 5.0)
                                 .radius_all(3.0)
-                                .hover_bg(colors.highlight)
+                                .hover(Style::bg(colors.highlight))
                                 .row()
                                 .valign(Align::Center)
                                 .gap(3.0)
@@ -5719,7 +5680,7 @@ fn render_write_file_box(
                                 .id(open_btn_id)
                                 .padding(2.0, 5.0, 2.0, 5.0)
                                 .radius_all(3.0)
-                                .hover_bg(colors.highlight)
+                                .hover(Style::bg(colors.highlight))
                                 .row()
                                 .valign(Align::Center)
                                 .gap(3.0)
@@ -5744,36 +5705,36 @@ fn render_write_file_box(
 
             // Content preview container (max 5 lines)
             ui.container()
-                .full_width()
+                .fill_x()
                 .padding(5.0, 7.0, 5.0, 7.0)
                 .radius_all(3.5)
                 .bg(colors.bg_sidebar.with_alpha(0.6))
-                .border(colors.border.with_alpha(0.3), 1.0)
+                .border((colors.border.with_alpha(0.3), 1.0))
                 .column()
                 .gap(1.5)
                 .show(|ui| {
                     for (line_num, line_str, diff_state) in preview_lines {
                         ui.container()
-                            .full_width()
+                            .fill_x()
                             .row()
                             .valign(Align::Center)
                             .gap(6.0)
                             .show(|ui| {
                                 ui.text(&format!("{:>3}", line_num))
                                     .size(9.5)
-                                    .monospace()
+                                    .font_family("monospace")
                                     .color(colors.text_muted.with_alpha(0.5))
                                     .show();
                                 match diff_state {
                                     Some(crate::state::DiffLineState::Added) => {
                                         ui.text("+")
                                             .size(10.0)
-                                            .monospace()
+                                            .font_family("monospace")
                                             .color(Color { r: 74.0 / 255.0, g: 222.0 / 255.0, b: 128.0 / 255.0, a: 1.0 })
                                             .show();
                                         ui.text(line_str)
                                             .size(10.0)
-                                            .monospace()
+                                            .font_family("monospace")
                                             .color(Color { r: 187.0 / 255.0, g: 247.0 / 255.0, b: 208.0 / 255.0, a: 1.0 })
                                             .wrap(zenthra_text::prelude::TextWrap::Word)
                                             .show();
@@ -5781,12 +5742,12 @@ fn render_write_file_box(
                                     Some(crate::state::DiffLineState::Removed) => {
                                         ui.text("-")
                                             .size(10.0)
-                                            .monospace()
+                                            .font_family("monospace")
                                             .color(Color { r: 248.0 / 255.0, g: 113.0 / 255.0, b: 113.0 / 255.0, a: 1.0 })
                                             .show();
                                         ui.text(line_str)
                                             .size(10.0)
-                                            .monospace()
+                                            .font_family("monospace")
                                             .color(Color { r: 254.0 / 255.0, g: 202.0 / 255.0, b: 202.0 / 255.0, a: 1.0 })
                                             .wrap(zenthra_text::prelude::TextWrap::Word)
                                             .show();
@@ -5794,7 +5755,7 @@ fn render_write_file_box(
                                     _ => {
                                         ui.text(line_str)
                                             .size(10.0)
-                                            .monospace()
+                                            .font_family("monospace")
                                             .color(colors.text_primary)
                                             .wrap(zenthra_text::prelude::TextWrap::Word)
                                             .show();
@@ -5809,10 +5770,10 @@ fn render_write_file_box(
                         let more_btn_id = Id::from_u64(card_id.raw() + 5);
                         let more_btn = ui.container()
                             .id(more_btn_id)
-                            .full_width()
+                            .fill_x()
                             .padding(3.0, 4.0, 3.0, 4.0)
                             .radius_all(3.0)
-                            .hover_bg(colors.highlight)
+                            .hover(Style::bg(colors.highlight))
                             .row()
                             .valign(Align::Center)
                             .gap(4.0)
@@ -5852,17 +5813,17 @@ fn render_tool_output_box(
     let card_bg = colors.bg_base;
 
     ui.container()
-        .full_width()
+        .fill_x()
         .padding(6.0, 8.0, 6.0, 8.0)
         .radius_all(5.0)
         .bg(card_bg)
-        .border(colors.border.with_alpha(0.6), 1.0)
+        .border((colors.border.with_alpha(0.6), 1.0))
         .column()
         .gap(5.0)
         .show(|ui| {
             // Header row with title on left, metadata and action buttons on right
             ui.container()
-                .full_width()
+                .fill_x()
                 .row()
                 .valign(Align::Center)
                 .halign(Align::SpaceBetween)
@@ -5883,7 +5844,7 @@ fn render_tool_output_box(
                             }
                             ui.text(title)
                                 .size(11.0)
-                                .bold()
+                                .font_weight(FontWeight::Bold)
                                 .color(colors.text_primary)
                                 .show();
                         });
@@ -5907,7 +5868,7 @@ fn render_tool_output_box(
                                 .id(copy_btn_id)
                                 .padding(2.0, 5.0, 2.0, 5.0)
                                 .radius_all(3.0)
-                                .hover_bg(colors.highlight)
+                                .hover(Style::bg(colors.highlight))
                                 .row()
                                 .valign(Align::Center)
                                 .gap(3.0)
@@ -5935,7 +5896,7 @@ fn render_tool_output_box(
                                     .id(open_btn_id)
                                     .padding(2.0, 5.0, 2.0, 5.0)
                                     .radius_all(3.0)
-                                    .hover_bg(colors.highlight)
+                                    .hover(Style::bg(colors.highlight))
                                     .row()
                                     .valign(Align::Center)
                                     .gap(3.0)
@@ -5961,11 +5922,11 @@ fn render_tool_output_box(
 
             // Content preview container
             ui.container()
-                .full_width()
+                .fill_x()
                 .padding(5.0, 7.0, 5.0, 7.0)
                 .radius_all(3.5)
                 .bg(colors.bg_sidebar.with_alpha(0.6))
-                .border(colors.border.with_alpha(0.3), 1.0)
+                .border((colors.border.with_alpha(0.3), 1.0))
                 .column()
                 .gap(1.5)
                 .show(|ui| {
@@ -5973,19 +5934,19 @@ fn render_tool_output_box(
                     let max_display_lines = 25;
                     for (i, line) in content.lines().take(max_display_lines).enumerate() {
                         ui.container()
-                            .full_width()
+                            .fill_x()
                             .row()
                             .valign(Align::Center)
                             .gap(6.0)
                             .show(|ui| {
                                 ui.text(&format!("{:>3}", i + 1))
                                     .size(9.5)
-                                    .monospace()
+                                    .font_family("monospace")
                                     .color(colors.text_muted.with_alpha(0.5))
                                     .show();
                                 ui.text(line)
                                     .size(10.0)
-                                    .monospace()
+                                    .font_family("monospace")
                                     .color(colors.text_primary)
                                     .wrap(zenthra_text::prelude::TextWrap::Word)
                                     .show();

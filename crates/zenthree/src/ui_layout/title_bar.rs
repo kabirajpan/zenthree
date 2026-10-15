@@ -1,6 +1,6 @@
 use crate::state::ZenthreeState;
 use crate::theme::{ThemeMode, ACCENT_COLOR_OPTIONS, ICON_THEME_OPTIONS};
-use zenthra::{Color, Ui, FontWeight, Align, Id, use_context};
+use zenthra::{Color, Ui, FontWeight, Align, Id, Style, use_context};
 use crate::theme::ThemeColors;
 
 pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
@@ -20,15 +20,14 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
     };
 
     ui.container()
-        .full_width()
+        .fill_x()
         .height(BAR_H)
         .bg(titlebar_bg)
         .row()
         .valign(Align::Center)
         .halign(Align::SpaceBetween) // Use SpaceBetween: Left menus vs Right controls
         .draggable_window(true)
-        .no_wrap()
-        .show(|ui| {
+                .show(|ui| {
             // LEFT: compact icon  +  inline menu items
             ui.container()
                 .row()
@@ -48,7 +47,7 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                                 .show();
                             ui.text("Zenthree")
                                 .size(12.0)
-                                .weight(FontWeight::Bold)
+                                .font_weight(FontWeight::Bold)
                                 .color(colors.text_primary)
                                 .show();
                         });
@@ -79,7 +78,7 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                         }
 
                         // Cascading Submenu: Open Recent
-                        ui.sub_menu("Open Recent").show(|ui| {
+                        ui.menu("Open Recent").show(|ui| {
                             let recent = state.recent_files.clone();
                             if recent.is_empty() {
                                 ui.menu_item("No Recent Files").show();
@@ -121,7 +120,7 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                         ui.spacing(4.0);
 
                         // Cascading Submenu: Line Endings
-                        ui.sub_menu("Line Endings").show(|ui| {
+                        ui.menu("Line Endings").show(|ui| {
                             if ui.menu_item("● LF (Unix)").show().clicked {
                                 state.set_status("Line endings set to LF");
                                 ui.request_redraw();
@@ -135,7 +134,7 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                         ui.spacing(4.0);
 
                         // Cascading Submenu: Preferences
-                        ui.sub_menu("Preferences").show(|ui| {
+                        ui.menu("Preferences").show(|ui| {
                             if ui.menu_item("Editor Settings").shortcut("Ctrl+,").show().clicked {
                                 state.editor_settings_open = true;
                                 state.editor_settings_just_opened = true;
@@ -182,7 +181,7 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                         ui.spacing(4.0);
 
                         // Cascading Submenu: Text Transform
-                        ui.sub_menu("Transform").show(|ui| {
+                        ui.menu("Transform").show(|ui| {
                             if ui.menu_item("UPPERCASE").show().clicked {
                                 state.set_status("Transformed to UPPERCASE");
                                 ui.request_redraw();
@@ -198,7 +197,7 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                         });
 
                         // Cascading Submenu: Selection
-                        ui.sub_menu("Selection").show(|ui| {
+                        ui.menu("Selection").show(|ui| {
                             if ui.menu_item("Select All").shortcut("Ctrl+A").show().clicked {
                                 if let Some(idx) = state.active_tab {
                                     if idx < state.tabs.len() {
@@ -247,7 +246,7 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                         ui.spacing(4.0);
 
                         // Cascading Submenu: Appearance
-                        ui.sub_menu("Appearance").show(|ui| {
+                        ui.menu("Appearance").show(|ui| {
                             let sb_mark = if state.sidebar_visible { "● " } else { "  " };
                             if ui.menu_item(&format!("{}Sidebar", sb_mark)).shortcut("Ctrl+B").show().clicked {
                                 state.sidebar_visible = !state.sidebar_visible;
@@ -276,7 +275,7 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                         });
 
                         // Cascading Submenu: File Explorer
-                        ui.sub_menu("File Explorer").show(|ui| {
+                        ui.menu("File Explorer").show(|ui| {
                             // Presets
                             let p_modern = if state.explorer_preset == crate::state::ExplorerPreset::ModernMinimalist { "● " } else { "  " };
                             if ui.menu_item(&format!("{}Minimal", p_modern)).show().clicked {
@@ -337,7 +336,7 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                         });
 
                         // Cascading Submenu: Zoom
-                        ui.sub_menu("Zoom").show(|ui| {
+                        ui.menu("Zoom").show(|ui| {
                             let z = state.zoom_level;
                             let z100 = if (z - 1.0).abs() < 0.01 { "● " } else { "  " };
                             let z125 = if (z - 1.25).abs() < 0.01 { "● " } else { "  " };
@@ -369,7 +368,7 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
 
                     ui.menu("Theme").show(|ui| {
                         // Cascading Submenu: Color Mode
-                        ui.sub_menu("Color Mode").show(|ui| {
+                        ui.menu("Color Mode").show(|ui| {
                             let dark_mark = if state.theme == ThemeMode::Dark { "● " } else { "  " };
                             if ui.menu_item(&format!("{}Dark Theme", dark_mark)).show().clicked {
                                 state.set_theme(ThemeMode::Dark);
@@ -398,7 +397,7 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                         ui.spacing(4.0);
 
                         // Cascading Submenu: Accent Color
-                        ui.sub_menu("Accent Color").show(|ui| {
+                        ui.menu("Accent Color").show(|ui| {
                             for (color_id, color_name) in ACCENT_COLOR_OPTIONS {
                                 let is_active = state.accent_color == *color_id;
                                 let label = if is_active {
@@ -415,7 +414,7 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                         });
 
                         // Cascading Submenu: File Icon Theme
-                        ui.sub_menu("File Icon Theme").show(|ui| {
+                        ui.menu("File Icon Theme").show(|ui| {
                             for (theme_id, theme_name) in ICON_THEME_OPTIONS {
                                 let is_active = state.icon_theme == *theme_id;
                                 let label = if is_active {
@@ -433,7 +432,7 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                         });
 
                         // Cascading Submenu: Syntax Theme
-                        ui.sub_menu("Syntax Highlighting").show(|ui| {
+                        ui.menu("Syntax Highlighting").show(|ui| {
                             let is_dark = state.theme == ThemeMode::Dark;
                             let dark_s = if is_dark { "● " } else { "  " };
                             let light_s = if !is_dark { "● " } else { "  " };
@@ -482,7 +481,7 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                     let focus_key = Id::from_u64(999999909);
                     let focus_hov = ui.interaction_state.get(&focus_key).copied().unwrap_or(0.0) > 0.5;
                     let focus_resp = ui.container()
-                        .clickable(true)
+                        .interactive(true)
                         .width(22.0).height(20.0)
                         .radius_all(3.0)
                         .bg(if focus_hov {
@@ -528,7 +527,7 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                     let left_key = Id::from_u64(999999910);
                     let left_hov = ui.interaction_state.get(&left_key).copied().unwrap_or(0.0) > 0.5;
                     let left_resp = ui.container()
-                        .clickable(true)
+                        .interactive(true)
                         .width(22.0).height(20.0)
                         .radius_all(3.0)
                         .bg(if left_hov {
@@ -566,7 +565,7 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                     let btm_key = Id::from_u64(999999911);
                     let btm_hov = ui.interaction_state.get(&btm_key).copied().unwrap_or(0.0) > 0.5;
                     let btm_resp = ui.container()
-                        .clickable(true)
+                        .interactive(true)
                         .width(22.0).height(20.0)
                         .radius_all(3.0)
                         .bg(if btm_hov {
@@ -607,7 +606,7 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                     let right_key = Id::from_u64(999999912);
                     let right_hov = ui.interaction_state.get(&right_key).copied().unwrap_or(0.0) > 0.5;
                     let right_resp = ui.container()
-                        .clickable(true)
+                        .interactive(true)
                         .width(22.0).height(20.0)
                         .radius_all(3.0)
                         .bg(if right_hov {
@@ -645,7 +644,7 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                     let user_key = Id::from_u64(999999913);
                     let user_hov = ui.interaction_state.get(&user_key).copied().unwrap_or(0.0) > 0.5;
                     let user_resp = ui.container()
-                        .clickable(true)
+                        .interactive(true)
                         .width(22.0).height(22.0)
                         .radius_all(4.0)
                         .bg(if user_hov {
@@ -696,7 +695,7 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                     let min_key = Id::from_u64(999999903);
                     let min_hov = ui.interaction_state.get(&min_key).copied().unwrap_or(0.0) > 0.5;
                     let min_resp = ui.container()
-                        .clickable(true)
+                        .interactive(true)
                         .width(24.0).height(24.0)
                         .radius_all(4.0)
                         .bg(if min_hov {
@@ -724,7 +723,7 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                     let max_key = Id::from_u64(999999904);
                     let max_hov = ui.interaction_state.get(&max_key).copied().unwrap_or(0.0) > 0.5;
                     let max_resp = ui.container()
-                        .clickable(true)
+                        .interactive(true)
                         .width(24.0).height(24.0)
                         .radius_all(4.0)
                         .bg(if max_hov {
@@ -752,7 +751,7 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                     let cls_key = Id::from_u64(999999905);
                     let cls_hov = ui.interaction_state.get(&cls_key).copied().unwrap_or(0.0) > 0.5;
                     let cls_resp = ui.container()
-                        .clickable(true)
+                        .interactive(true)
                         .width(24.0).height(24.0)
                         .radius_all(4.0)
                         .bg(if cls_hov { Color::rgb(0.85, 0.15, 0.15) } else { Color::TRANSPARENT })
@@ -782,11 +781,11 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
 
         ui.container()
             .raw_id(profile_popup_id)
-            .absolute(pop_x, pop_y)
+            .pos(pop_x, pop_y)
             .overlay()
             .width(pop_w)
             .bg(colors.bg_sidebar)
-            .border(colors.border, 1.0)
+            .border((colors.border, 1.0))
             .radius_all(8.0)
             .padding(12.0, 12.0, 12.0, 12.0)
             .column()
@@ -802,7 +801,7 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                             .width(36.0).height(36.0)
                             .radius_all(18.0)
                             .bg(colors.accent.with_alpha(0.2))
-                            .border(colors.accent, 1.0)
+                            .border((colors.accent, 1.0))
                             .halign(Align::Center)
                             .valign(Align::Center)
                             .show(|ui| {
@@ -818,7 +817,7 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                             .show(|ui| {
                                 ui.text("Kabir")
                                     .size(13.0)
-                                    .weight(FontWeight::Bold)
+                                    .font_weight(FontWeight::Bold)
                                     .color(colors.text_primary)
                                     .show();
 
@@ -831,7 +830,7 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
 
                 // Divider
                 ui.container()
-                    .full_width().height(1.0)
+                    .fill_x().height(1.0)
                     .bg(colors.border)
                     .show(|_| {});
 
@@ -850,13 +849,13 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                     .show(|ui| {
                         ui.text("WORKSPACE")
                             .size(9.0)
-                            .weight(FontWeight::Bold)
+                            .font_weight(FontWeight::Bold)
                             .color(colors.text_muted)
                             .show();
 
                         ui.text(ws_name)
                             .size(11.0)
-                            .weight(FontWeight::Medium)
+                            .font_weight(FontWeight::Medium)
                             .color(colors.text_primary)
                             .show();
                     });
@@ -869,7 +868,7 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                         ui.container()
                             .padding(2.0, 6.0, 2.0, 6.0)
                             .bg(colors.bg_base)
-                            .border(colors.border, 1.0)
+                            .border((colors.border, 1.0))
                             .radius_all(3.0)
                             .show(|ui| {
                                 ui.text(&format!("{} Tabs", state.tabs.len()))
@@ -881,7 +880,7 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                         ui.container()
                             .padding(2.0, 6.0, 2.0, 6.0)
                             .bg(colors.bg_base)
-                            .border(colors.border, 1.0)
+                            .border((colors.border, 1.0))
                             .radius_all(3.0)
                             .show(|ui| {
                                 ui.text("PTY: Active")
@@ -895,12 +894,12 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                 let close_profile_id = Id::from_u64(999999088);
                 let close_prof = ui.container()
                     .raw_id(close_profile_id)
-                    .full_width()
-                    .clickable(true)
+                    .fill_x()
+                    .interactive(true)
                     .padding(5.0, 0.0, 5.0, 0.0)
                     .bg(colors.bg_base)
-                    .hover_bg(colors.highlight)
-                    .border(colors.border, 1.0)
+                    .hover(Style::bg(colors.highlight))
+                    .border((colors.border, 1.0))
                     .radius_all(4.0)
                     .halign(Align::Center)
                     .show(|ui| {

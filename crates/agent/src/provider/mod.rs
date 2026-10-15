@@ -20,11 +20,15 @@ pub fn get_key(name: &str) -> Option<String> {
     // 1. config.json — look up by env var name (e.g. "GEMINI_API_KEY" → provider "gemini")
     let cfg = ZenthreeConfig::load();
     if let Some(val) = cfg.get_key_by_env_var(name) {
-        return Some(val);
+        if val.len() >= 15 {
+            return Some(val);
+        }
     }
     // Also allow direct provider name lookup (e.g. get_key("gemini"))
     if let Some(val) = cfg.get_provider_key(name) {
-        return Some(val);
+        if val.len() >= 15 {
+            return Some(val);
+        }
     }
 
     // 2. Environment variable

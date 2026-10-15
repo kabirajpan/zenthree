@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use crate::state::{ZenthreeState, path_matches, DiffLineState};
 use crate::lsp::protocol::DiagnosticSeverity;
-use zenthra::{Color, Ui, Align, FontWeight, Id, CursorIcon, use_context};
+use zenthra::{Color, Ui, Align, FontWeight, Id, CursorIcon, Style, use_context};
 use zenthra_widgets::ui::{DrawCommand, TextDraw, RectDraw, ScrollDrag};
 use zenthra_render::RectInstance;
 use zenthra_text::prelude::{CosmicFontProvider, TextOptions, ShapedBuffer};
@@ -57,7 +57,7 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                     .show(|ui| {
                         ui.text("Zenthree Code Editor")
                             .size(24.0)
-                            .weight(FontWeight::Bold)
+                            .font_weight(FontWeight::Bold)
                             .color(colors.accent)
                             .show();
 
@@ -88,7 +88,7 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                                                 .show(|ui| {
                                                     ui.text(keys)
                                                         .size(11.0)
-                                                        .weight(FontWeight::Bold)
+                                                        .font_weight(FontWeight::Bold)
                                                         .color(colors.text_primary)
                                                         .show();
                                                 });
@@ -147,13 +147,13 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                                 .id(tab_id)
                                 .height(tab_bar_h)
                                 .bg(bg)
-                                .border(border_col, 1.0)
+                                .border((border_col, 1.0))
                                 .row()
                                 .valign(Align::Center)
                                 .gap(5.0)
                                 .padding_left(9.0)
                                 .padding_right(6.0)
-                                .hover_bg(colors.highlight)
+                                .hover(Style::bg(colors.highlight))
                                 .show(|ui| {
                                     if state.tabs[idx].path.is_none() {
                                         ui.text("\u{f04e9}")
@@ -211,8 +211,8 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                                         .width(14.0)
                                         .height(14.0)
                                         .bg(Color::TRANSPARENT)
-                                        .hover_bg(Color::rgb(30.0 / 255.0, 144.0 / 255.0, 255.0 / 255.0))
-                                        .text_color(colors.text_primary)
+                                        .hover(Style::bg(Color::rgb(30.0 / 255.0, 144.0 / 255.0, 255.0 / 255.0)))
+                                        .color(colors.text_primary)
                                         .radius_all(3.0)
                                         .padding(0.0, 0.0, 0.0, 0.0)
                                         .size(9.0)
@@ -353,9 +353,8 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                         .valign(Align::Center)
                         .halign(Align::SpaceBetween)
                         .padding_left(12.0)
-                        .padding_right(12.0)
-                        .no_wrap();
-
+                        .padding_right(12.0);
+                        
                     if is_scrolled && !state.glassmorphism {
                         let shadow_col = if state.theme == crate::theme::ThemeMode::Dark {
                             Color::rgba(0.0, 0.0, 0.0, 0.5)
@@ -393,7 +392,7 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                                         .gap(4.0)
                                         .radius_all(0.0)
                                         .padding(2.0, 4.0, 2.0, 4.0)
-                                        .hover_bg(colors.highlight)
+                                        .hover(Style::bg(colors.highlight))
                                         .bg(if is_open { colors.highlight } else { Color::TRANSPARENT })
                                         .show(|ui| {
                                             if is_last {
@@ -446,11 +445,11 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                                 .padding(2.0, 8.0, 2.0, 8.0)
                                 .radius_all(4.0)
                                 .bg(if tab.is_markdown_preview { colors.accent.with_alpha(0.18) } else { colors.bg_sidebar.with_alpha(0.7) })
-                                .border(if tab.is_markdown_preview { colors.accent.with_alpha(0.4) } else { colors.border.with_alpha(0.3) }, 0.5)
-                                .hover_bg(colors.highlight)
+                                .border(((if tab.is_markdown_preview { colors.accent.with_alpha(0.4) } else { colors.border.with_alpha(0.3) }), 0.5))
+                                .hover(Style::bg(colors.highlight))
                                 .show(|ui| {
                                     ui.text(icon).size(9.0).color(if tab.is_markdown_preview { colors.accent } else { colors.text_muted }).show();
-                                    ui.text(label).size(10.5).weight(FontWeight::Medium).color(if tab.is_markdown_preview { colors.accent } else { colors.text_muted }).show();
+                                    ui.text(label).size(10.5).font_weight(FontWeight::Medium).color(if tab.is_markdown_preview { colors.accent } else { colors.text_muted }).show();
                                 });
 
                             if !is_modal_open && toggle_resp.hovered {
@@ -1302,7 +1301,7 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                                             ui.draws.push(DrawCommand::Text(TextDraw {
                                                 text: "+".to_string(),
                                                 pos: [editor_x + gutter_w - 9.0, line_y + 3.0],
-                                                options: TextOptions::new().font_size(12.0).font_family("monospace").color(Color::rgb(0.35, 0.85, 0.45)),
+                                                options: TextOptions::new().size(12.0).font_family("monospace").color(Color::rgb(0.35, 0.85, 0.45)),
                                                 clip,
                                             }));
                                         }
@@ -1330,7 +1329,7 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                                             ui.draws.push(DrawCommand::Text(TextDraw {
                                                 text: "-".to_string(),
                                                 pos: [editor_x + gutter_w - 9.0, line_y + 3.0],
-                                                options: TextOptions::new().font_size(12.0).font_family("monospace").color(Color::rgb(0.97, 0.45, 0.45)),
+                                                options: TextOptions::new().size(12.0).font_family("monospace").color(Color::rgb(0.97, 0.45, 0.45)),
                                                 clip,
                                             }));
                                         }
@@ -1367,7 +1366,7 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                                         ui.draws.push(DrawCommand::Text(TextDraw {
                                             text: num_str,
                                             pos: [num_x, line_y + 3.0],
-                                            options: TextOptions::new().font_size((eff_font_size - 1.0).max(10.0)).font_family("monospace").color(num_color),
+                                            options: TextOptions::new().size((eff_font_size - 1.0).max(10.0)).font_family("monospace").color(num_color),
                                             clip,
                                         }));
                                     }
@@ -1393,7 +1392,7 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                                     }
 
                                     // Shape code line (cached - zero buffer allocation if line matches)
-                                    let opts = TextOptions::new().font_size(eff_font_size).font_family("monospace").color(colors.text_primary);
+                                    let opts = TextOptions::new().size(eff_font_size).font_family("monospace").color(colors.text_primary);
                                     let is_cache_valid = if let Some((cached_text, _)) = tab.shaping_cache.get(&i) {
                                         tab.editor.buffer.line_matches(i, cached_text)
                                     } else {
@@ -1444,7 +1443,7 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
 
                                     // Draw code line text itself
                                     if diff_line_state == Some(DiffLineState::Removed) {
-                                        let removed_opts = TextOptions::new().font_size(eff_font_size).font_family("monospace").color(Color::rgb(0.97, 0.50, 0.50));
+                                        let removed_opts = TextOptions::new().size(eff_font_size).font_family("monospace").color(Color::rgb(0.97, 0.50, 0.50));
                                         ui.draws.push(DrawCommand::Text(TextDraw {
                                             text: clean_text.to_string(),
                                             pos: [editor_x + gutter_w, line_y + 2.0],
@@ -1457,7 +1456,7 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                                             let styled_spans = get_styled_spans(clean_text, spans, colors.text_primary, &shaped);
                                             for span in styled_spans {
                                                 let span_opts = TextOptions::new()
-                                                    .font_size(eff_font_size)
+                                                    .size(eff_font_size)
                                                     .font_family("monospace")
                                                     .color(span.color);
                                                 ui.draws.push(DrawCommand::Text(TextDraw {
@@ -1526,7 +1525,7 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                                                                 Color::rgb(1.0, 1.0, 1.0)
                                                             };
                                                             let opts = TextOptions::new()
-                                                                .font_size(eff_font_size)
+                                                                .size(eff_font_size)
                                                                 .font_family("monospace")
                                                                 .color(inv_color);
                                                             ui.draws.push(DrawCommand::Text(TextDraw {
@@ -1588,7 +1587,7 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                                                     let first_line_ghost = ghost_text.lines().next().unwrap_or("");
                                                     if !first_line_ghost.is_empty() {
                                                         let ghost_opts = TextOptions::new()
-                                                            .font_size(eff_font_size)
+                                                            .size(eff_font_size)
                                                             .font_family("monospace")
                                                             .color(colors.text_dim.with_alpha(0.50));
                                                         ui.draws.push(DrawCommand::Text(TextDraw {
@@ -1732,7 +1731,7 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
 
                             let mut col_idx = 0;
                             if let Some(fs) = ui.font_system.as_ref() {
-                                let opts = TextOptions::new().font_size(state.font_size).font_family("monospace");
+                                let opts = TextOptions::new().size(state.font_size).font_family("monospace");
                                 let is_cache_valid = if let Some((cached_text, _)) = tab.shaping_cache.get(&line_idx) {
                                     tab.editor.buffer.line_matches(line_idx, cached_text)
                                 } else {
@@ -1808,13 +1807,13 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                     ui.overlay(|ui| {
                         ui.container()
                             .raw_id(popup_id)
-                            .absolute(px, py)
+                            .pos(px, py)
                             .overlay()
                             .width(popup_w)
                             .height(popup_h)
                             .scroll_y(true)
                             .bg(popup_bg)
-                            .border(colors.border, 1.0)
+                            .border((colors.border, 1.0))
                             .radius_all(0.0)
                             .shadow(Color::rgba(0.0, 0.0, 0.0, 0.4), 0.0, 4.0, 8.0)
                             .padding(4.0, 4.0, 4.0, 4.0)
@@ -1823,7 +1822,7 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                             .show(|ui| {
                                 if items.is_empty() {
                                     ui.container()
-                                        .full_width()
+                                        .fill_x()
                                         .height(row_h)
                                         .padding_left(8.0)
                                         .valign(Align::Center)
@@ -1850,7 +1849,7 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
 
                                         let mut item_container = ui.container()
                                             .id(item_id)
-                                            .full_width()
+                                            .fill_x()
                                             .row()
                                             .valign(Align::Center)
                                             .padding_left(8.0 + indent)
@@ -1865,7 +1864,7 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                                         } else {
                                             item_container = item_container
                                                 .bg(Color::TRANSPARENT)
-                                                .hover_bg(colors.highlight);
+                                                .hover(Style::bg(colors.highlight));
                                         }
 
                                         let resp = item_container.show(|ui| {
@@ -2053,11 +2052,11 @@ fn draw_editor_context_menu(
     ui.overlay(|ui| {
         ui.container()
             .raw_id(Id::from_u64(999997200))
-            .absolute(menu_x, menu_y)
+            .pos(menu_x, menu_y)
             .overlay()
             .width(menu_w)
             .bg(colors.bg_sidebar)
-            .border(colors.border, 1.0)
+            .border((colors.border, 1.0))
             .radius_all(6.0)
             .shadow(Color::rgba(0.0, 0.0, 0.0, 0.5), 0.0, 4.0, 16.0)
             .padding(4.0, 4.0, 4.0, 4.0)
@@ -2070,7 +2069,7 @@ fn draw_editor_context_menu(
                 if super::sidebar::draw_menu_item(ui, Id::from_u64(999997209), "\u{ea80}", "New Folder...", "", state.has_workspace, false, colors) {
                     action = Some(EditorContextAction::File(crate::state::FileContextAction::NewFolder));
                 }
-                ui.container().full_width().height(1.0).bg(colors.border).show(|_| {});
+                ui.container().fill_x().height(1.0).bg(colors.border).show(|_| {});
                 if has_active_tab {
                     if super::sidebar::draw_menu_item(ui, Id::from_u64(999997201), "\u{f0e2}", "Undo", "Ctrl+Z", true, false, colors) {
                         action = Some(EditorContextAction::Undo);
@@ -2078,7 +2077,7 @@ fn draw_editor_context_menu(
                     if super::sidebar::draw_menu_item(ui, Id::from_u64(999997202), "\u{f01e}", "Redo", "Ctrl+Y", true, false, colors) {
                         action = Some(EditorContextAction::Redo);
                     }
-                    ui.container().full_width().height(1.0).bg(colors.border).show(|_| {});
+                    ui.container().fill_x().height(1.0).bg(colors.border).show(|_| {});
                     if super::sidebar::draw_menu_item(ui, Id::from_u64(999997203), "\u{f0c4}", "Cut", "Ctrl+X", has_selection, false, colors) {
                         action = Some(EditorContextAction::Cut);
                     }
@@ -2094,7 +2093,7 @@ fn draw_editor_context_menu(
                     if super::sidebar::draw_menu_item(ui, Id::from_u64(999997207), "\u{f0ad}", "Format Document", "Ctrl+Shift+F", true, false, colors) {
                         action = Some(EditorContextAction::Format);
                     }
-                    ui.container().full_width().height(1.0).bg(colors.border).show(|_| {});
+                    ui.container().fill_x().height(1.0).bg(colors.border).show(|_| {});
                 }
                 if super::sidebar::draw_menu_item(ui, Id::from_u64(999997210), "\u{f044}", "Rename File...", "F2", has_file_target, false, colors) {
                     action = Some(EditorContextAction::File(crate::state::FileContextAction::Rename));
@@ -2102,7 +2101,7 @@ fn draw_editor_context_menu(
                 if super::sidebar::draw_menu_item(ui, Id::from_u64(999997211), "\u{f014}", "Delete File", "Del", has_file_target, true, colors) {
                     action = Some(EditorContextAction::File(crate::state::FileContextAction::Delete));
                 }
-                ui.container().full_width().height(1.0).bg(colors.border).show(|_| {});
+                ui.container().fill_x().height(1.0).bg(colors.border).show(|_| {});
                 if super::sidebar::draw_menu_item(ui, Id::from_u64(999997212), "\u{f0c4}", "Cut File", "", has_file_target, false, colors) {
                     action = Some(EditorContextAction::File(crate::state::FileContextAction::Cut));
                 }
@@ -2112,7 +2111,7 @@ fn draw_editor_context_menu(
                 if super::sidebar::draw_menu_item(ui, Id::from_u64(999997214), "\u{f0ea}", "Paste File", "", has_file_clipboard, false, colors) {
                     action = Some(EditorContextAction::File(crate::state::FileContextAction::Paste));
                 }
-                ui.container().full_width().height(1.0).bg(colors.border).show(|_| {});
+                ui.container().fill_x().height(1.0).bg(colors.border).show(|_| {});
                 if super::sidebar::draw_menu_item(ui, Id::from_u64(999997215), "\u{f0c1}", "Copy Path", "", true, false, colors) {
                     action = Some(EditorContextAction::File(crate::state::FileContextAction::CopyPath));
                 }

@@ -31,7 +31,7 @@ pub fn draw_activity_bar(ui: &mut Ui, state: &mut ZenthreeState, height: f32) {
                     let exp_hov = ui.interaction_state.get(&exp_key).copied().unwrap_or(0.0) > 0.5;
 
                     let exp_btn = ui.container()
-                        .clickable(true)
+                        .interactive(true)
                         .width(40.0)
                         .height(38.0)
                         .radius_all(4.0)
@@ -102,7 +102,7 @@ pub fn draw_activity_bar(ui: &mut Ui, state: &mut ZenthreeState, height: f32) {
 
                     let git_btn = ui.container()
                         .raw_id(git_btn_id)
-                        .clickable(true)
+                        .interactive(true)
                         .width(40.0)
                         .height(38.0)
                         .radius_all(4.0)
@@ -155,7 +155,7 @@ pub fn draw_activity_bar(ui: &mut Ui, state: &mut ZenthreeState, height: f32) {
                             ui.overlay(|ui| {
                                 ui.container()
                                     .raw_id(Id::from_u64(999997205))
-                                    .absolute(badge_x, badge_y)
+                                    .pos(badge_x, badge_y)
                                     .overlay()
                                     .height(13.0)
                                     .padding(0.0, 3.5, 0.0, 3.5)
@@ -166,7 +166,7 @@ pub fn draw_activity_bar(ui: &mut Ui, state: &mut ZenthreeState, height: f32) {
                                     .show(|ui| {
                                         ui.text(&badge_text)
                                             .size(8.5)
-                                            .weight(zenthra::FontWeight::Bold)
+                                            .font_weight(zenthra::FontWeight::Bold)
                                             .color(Color::WHITE)
                                             .show();
                                     });
@@ -196,7 +196,7 @@ pub fn draw_activity_bar(ui: &mut Ui, state: &mut ZenthreeState, height: f32) {
                     let notes_hov = ui.interaction_state.get(&notes_key).copied().unwrap_or(0.0) > 0.5;
 
                     let notes_btn = ui.container()
-                        .clickable(true)
+                        .interactive(true)
                         .width(40.0)
                         .height(38.0)
                         .radius_all(4.0)
@@ -264,7 +264,7 @@ pub fn draw_activity_bar(ui: &mut Ui, state: &mut ZenthreeState, height: f32) {
                     let ext_hov = ui.interaction_state.get(&ext_key).copied().unwrap_or(0.0) > 0.5;
 
                     let ext_btn = ui.container()
-                        .clickable(true)
+                        .interactive(true)
                         .width(40.0)
                         .height(38.0)
                         .radius_all(4.0)
@@ -333,7 +333,7 @@ pub fn draw_activity_bar(ui: &mut Ui, state: &mut ZenthreeState, height: f32) {
                     let set_hov = ui.interaction_state.get(&set_key).copied().unwrap_or(0.0) > 0.5;
 
                     let set_btn = ui.container()
-                        .clickable(true)
+                        .interactive(true)
                         .width(40.0)
                         .height(38.0)
                         .radius_all(4.0)

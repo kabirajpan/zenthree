@@ -1,5 +1,5 @@
 use crate::state::ZenthreeState;
-use zenthra::{Color, Ui, Align, FontWeight, Id, CursorIcon, use_context};
+use zenthra::{Color, Ui, Align, FontWeight, Id, CursorIcon, Style, use_context};
 use crate::theme::ThemeColors;
 use zenthra_text::prelude::TextOptions;
 use zenthra_widgets::ui::{DrawCommand, TextDraw, RectDraw, ScrollDrag};
@@ -573,8 +573,7 @@ pub fn draw_terminal_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, h
                 .row()
                 .valign(Align::Center)
                 .halign(Align::SpaceBetween)
-                .no_wrap()
-                .show(|ui| {
+                                .show(|ui| {
                     // Child 1: Left Title (Terminal Icon + Label) & New Terminal Button
                     ui.container()
                         .row()
@@ -595,13 +594,13 @@ pub fn draw_terminal_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, h
                                     if width >= 320.0 {
                                         ui.text("TERMINAL")
                                             .size(11.0)
-                                            .weight(FontWeight::Bold)
+                                            .font_weight(FontWeight::Bold)
                                             .color(colors.text_primary)
                                             .show();
                                     } else if width >= 240.0 {
                                         ui.text("TERM")
                                             .size(10.5)
-                                            .weight(FontWeight::Bold)
+                                            .font_weight(FontWeight::Bold)
                                             .color(colors.text_primary)
                                             .show();
                                     }
@@ -612,7 +611,7 @@ pub fn draw_terminal_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, h
                                 .width(20.0)
                                 .height(20.0)
                                 .radius_all(3.0)
-                                .hover_bg(colors.highlight)
+                                .hover(Style::bg(colors.highlight))
                                 .halign(Align::Center)
                                 .valign(Align::Center)
                                 .show(|ui| {
@@ -643,7 +642,7 @@ pub fn draw_terminal_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, h
                                 .width(22.0)
                                 .height(20.0)
                                 .radius_all(3.0)
-                                .hover_bg(colors.highlight)
+                                .hover(Style::bg(colors.highlight))
                                 .halign(Align::Center)
                                 .valign(Align::Center)
                                 .show(|ui| {
@@ -663,7 +662,7 @@ pub fn draw_terminal_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, h
                                 .width(22.0)
                                 .height(20.0)
                                 .radius_all(3.0)
-                                .hover_bg(colors.highlight)
+                                .hover(Style::bg(colors.highlight))
                                 .halign(Align::Center)
                                 .valign(Align::Center)
                                 .show(|ui| {
@@ -693,7 +692,7 @@ pub fn draw_terminal_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, h
                                 .width(22.0)
                                 .height(20.0)
                                 .radius_all(3.0)
-                                .hover_bg(colors.highlight)
+                                .hover(Style::bg(colors.highlight))
                                 .halign(Align::Center)
                                 .valign(Align::Center)
                                 .show(|ui| {
@@ -718,7 +717,7 @@ pub fn draw_terminal_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, h
                             // Clear text button
                             let clear_btn = ui.container()
                                 .padding(2.0, 6.0, 2.0, 6.0)
-                                .hover_bg(colors.highlight)
+                                .hover(Style::bg(colors.highlight))
                                 .radius_all(3.0)
                                 .show(|ui| {
                                     ui.text("Clear")
@@ -740,7 +739,7 @@ pub fn draw_terminal_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, h
                                 .width(22.0)
                                 .height(20.0)
                                 .radius_all(3.0)
-                                .hover_bg(colors.highlight)
+                                .hover(Style::bg(colors.highlight))
                                 .halign(Align::Center)
                                 .valign(Align::Center)
                                 .show(|ui| {
@@ -781,7 +780,7 @@ pub fn draw_terminal_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, h
             let font_sz = (state.font_size * state.zoom_level).max(8.0);
             let (cell_w, cell_h) = if let Some(fs) = ui.font_system.as_ref() {
                 let mut adapter = zenthra_text::prelude::CosmicFontProvider::new_with_system(fs.clone());
-                let opts = TextOptions::new().font_size(font_sz).font_family("monospace");
+                let opts = TextOptions::new().size(font_sz).font_family("monospace");
                 let shaped = adapter.shape("M", &opts);
                 let w = shaped.glyphs().first().map(|g| g.width).unwrap_or(0.0);
                 let final_w = if w > 3.0 && w < 40.0 { w } else { (font_sz * 0.6).round().max(7.0) };
@@ -930,7 +929,7 @@ pub fn draw_terminal_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, h
                                         }
                                         if !cur_span_text.trim().is_empty() {
                                             let mut opts = TextOptions::new()
-                                                .font_size(font_sz)
+                                                .size(font_sz)
                                                 .scale_factor(ui.scale_factor)
                                                 .font_family("monospace")
                                                 .color(cur_span_fg);
@@ -976,7 +975,7 @@ pub fn draw_terminal_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, h
                                     }
                                     if !cur_span_text.trim().is_empty() {
                                         let mut opts = TextOptions::new()
-                                            .font_size(font_sz)
+                                            .size(font_sz)
                                             .scale_factor(ui.scale_factor)
                                             .font_family("monospace")
                                             .color(cur_span_fg);
@@ -1034,7 +1033,7 @@ pub fn draw_terminal_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, h
                                                             Color::rgb(1.0, 1.0, 1.0)
                                                         };
                                                         let mut opts = TextOptions::new()
-                                                            .font_size(font_sz)
+                                                            .size(font_sz)
                                                             .scale_factor(ui.scale_factor)
                                                             .font_family("monospace")
                                                             .color(inv_color);
@@ -1122,7 +1121,7 @@ pub fn draw_terminal_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, h
                     } else {
                         ui.text("Initializing terminal...")
                             .size(11.0)
-                            .monospace()
+                            .font_family("monospace")
                             .color(colors.text_muted)
                             .show();
                     }
@@ -1211,11 +1210,11 @@ fn draw_terminal_context_menu(
     ui.overlay(|ui| {
         ui.container()
             .raw_id(Id::from_u64(999997300))
-            .absolute(menu_x, menu_y)
+            .pos(menu_x, menu_y)
             .overlay()
             .width(menu_w)
             .bg(colors.bg_sidebar)
-            .border(colors.border, 1.0)
+            .border((colors.border, 1.0))
             .radius_all(6.0)
             .shadow(Color::rgba(0.0, 0.0, 0.0, 0.5), 0.0, 4.0, 16.0)
             .padding(4.0, 4.0, 4.0, 4.0)
@@ -1246,7 +1245,7 @@ fn draw_terminal_context_menu(
                 ) {
                     action = Some(TerminalContextAction::Paste);
                 }
-                ui.container().full_width().height(1.0).bg(colors.border).show(|_| {});
+                ui.container().fill_x().height(1.0).bg(colors.border).show(|_| {});
                 if super::sidebar::draw_menu_item(
                     ui,
                     Id::from_u64(999997303),
@@ -1259,7 +1258,7 @@ fn draw_terminal_context_menu(
                 ) {
                     action = Some(TerminalContextAction::Clear);
                 }
-                ui.container().full_width().height(1.0).bg(colors.border).show(|_| {});
+                ui.container().fill_x().height(1.0).bg(colors.border).show(|_| {});
                 if super::sidebar::draw_menu_item(
                     ui,
                     Id::from_u64(999997304),
@@ -1284,7 +1283,7 @@ fn draw_terminal_context_menu(
                 ) {
                     action = Some(TerminalContextAction::File(crate::state::FileContextAction::NewFolder));
                 }
-                ui.container().full_width().height(1.0).bg(colors.border).show(|_| {});
+                ui.container().fill_x().height(1.0).bg(colors.border).show(|_| {});
                 if super::sidebar::draw_menu_item(
                     ui,
                     Id::from_u64(999997306),
@@ -1309,7 +1308,7 @@ fn draw_terminal_context_menu(
                 ) {
                     action = Some(TerminalContextAction::File(crate::state::FileContextAction::Delete));
                 }
-                ui.container().full_width().height(1.0).bg(colors.border).show(|_| {});
+                ui.container().fill_x().height(1.0).bg(colors.border).show(|_| {});
                 if super::sidebar::draw_menu_item(
                     ui,
                     Id::from_u64(999997308),
@@ -1346,7 +1345,7 @@ fn draw_terminal_context_menu(
                 ) {
                     action = Some(TerminalContextAction::File(crate::state::FileContextAction::Paste));
                 }
-                ui.container().full_width().height(1.0).bg(colors.border).show(|_| {});
+                ui.container().fill_x().height(1.0).bg(colors.border).show(|_| {});
                 if super::sidebar::draw_menu_item(
                     ui,
                     Id::from_u64(999997311),

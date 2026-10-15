@@ -75,7 +75,8 @@ impl Tool for ListDirectoryTool {
     }
 
     fn execute(&self, args: Value) -> Result<Value, ToolError> {
-        let path_str = args.get("path")
+        let path_str = args.get("DirectoryPath")
+            .or_else(|| args.get("path"))
             .and_then(|v| v.as_str())
             .unwrap_or(".");
 

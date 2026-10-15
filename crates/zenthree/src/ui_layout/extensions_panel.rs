@@ -1,7 +1,7 @@
 use crate::state::{ZenthreeState, ExtensionFilterTab, ExtensionMainTab};
 use crate::extensions::ExtensionCatalog;
 use crate::lsp::LanguageServerCatalogItem;
-use zenthra::{Color, Ui, Align, FontWeight, Id, use_context};
+use zenthra::{Color, Ui, Align, FontWeight, Id, Style, use_context};
 use crate::theme::ThemeColors;
 
 pub fn draw_extensions_panel(ui: &mut Ui, state: &mut ZenthreeState, panel_w: f32) {
@@ -26,14 +26,14 @@ pub fn draw_extensions_panel(ui: &mut Ui, state: &mut ZenthreeState, panel_w: f3
             let tab_w = (total_avail * 0.50).floor();
 
             ui.container()
-                .full_width()
+                .fill_x()
                 .padding(6.0, 8.0, 3.0, 8.0)
                 .show(|ui| {
                     ui.container()
-                        .full_width()
+                        .fill_x()
                         .height(26.0)
                         .bg(colors.bg_base)
-                        .border(colors.border.with_alpha(0.4), 1.0)
+                        .border((colors.border.with_alpha(0.4), 1.0))
                         .radius_all(4.0)
                         .padding(2.0, 2.0, 2.0, 2.0)
                         .row()
@@ -47,8 +47,8 @@ pub fn draw_extensions_panel(ui: &mut Ui, state: &mut ZenthreeState, panel_w: f3
                                 .width(tab_w)
                                 .padding(0.0, 4.0, 0.0, 4.0)
                                 .bg(if is_packs { colors.accent.with_alpha(0.20) } else { Color::TRANSPARENT })
-                                .hover_bg(if is_packs { colors.accent.with_alpha(0.28) } else { Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, 0.07) })
-                                .text_color(if is_packs { colors.accent } else { colors.text_muted })
+                                .hover(Style::bg(if is_packs { colors.accent.with_alpha(0.28) } else { Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, 0.07) }))
+                                .color(if is_packs { colors.accent } else { colors.text_muted })
                                 .radius_all(3.0)
                                 .size(10.5)
                                 .show();
@@ -67,8 +67,8 @@ pub fn draw_extensions_panel(ui: &mut Ui, state: &mut ZenthreeState, panel_w: f3
                                 .width(tab_w)
                                 .padding(0.0, 4.0, 0.0, 4.0)
                                 .bg(if is_servers { colors.accent.with_alpha(0.20) } else { Color::TRANSPARENT })
-                                .hover_bg(if is_servers { colors.accent.with_alpha(0.28) } else { Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, 0.07) })
-                                .text_color(if is_servers { colors.accent } else { colors.text_muted })
+                                .hover(Style::bg(if is_servers { colors.accent.with_alpha(0.28) } else { Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, 0.07) }))
+                                .color(if is_servers { colors.accent } else { colors.text_muted })
                                 .radius_all(3.0)
                                 .size(10.5)
                                 .show();
@@ -84,16 +84,16 @@ pub fn draw_extensions_panel(ui: &mut Ui, state: &mut ZenthreeState, panel_w: f3
 
             // 2. Search Box
             ui.container()
-                .full_width()
+                .fill_x()
                 .padding(2.0, 10.0, 4.0, 10.0)
                 .column()
                 .gap(6.0)
                 .show(|ui| {
                     ui.container()
-                        .full_width()
+                        .fill_x()
                         .height(28.0)
                         .bg(colors.bg_base)
-                        .border(colors.border, 1.0)
+                        .border((colors.border, 1.0))
                         .radius_all(4.0)
                         .padding_left(8.0)
                         .padding_right(8.0)
@@ -108,10 +108,10 @@ pub fn draw_extensions_panel(ui: &mut Ui, state: &mut ZenthreeState, panel_w: f3
 
                             let query_empty = state.extension_search_query.is_empty();
 
-                            ui.input(&mut state.extension_search_query, Id::from_u64(999998200))
+                            ui.input(&mut state.extension_search_query).id(Id::from_u64(999998200))
                                 .fill_x()
-                                .no_bg()
-                                .no_border()
+                                .bg(Color::TRANSPARENT)
+                                .border(None)
                                 .color(colors.text_primary)
                                 .size(11.0)
                                 .show();
@@ -120,8 +120,8 @@ pub fn draw_extensions_panel(ui: &mut Ui, state: &mut ZenthreeState, panel_w: f3
                                 let clear_btn = ui.container()
                                     .padding(2.0, 4.0, 2.0, 4.0)
                                     .radius_all(3.0)
-                                    .hover_bg(colors.highlight)
-                                    .clickable(true)
+                                    .hover(Style::bg(colors.highlight))
+                                    .interactive(true)
                                     .show(|ui| {
                                         ui.text("\u{f00d}")
                                             .size(9.0)
@@ -162,7 +162,7 @@ fn draw_language_packs_tab(
 
     // Subheader: Filter Tabs
     ui.container()
-        .full_width()
+        .fill_x()
         .padding(2.0, 10.0, 6.0, 10.0)
         .row()
         .valign(Align::Center)
@@ -173,7 +173,7 @@ fn draw_language_packs_tab(
                 .id(Id::from_u64(999998201))
                 .height(22.0)
                 .bg(if tab_all { colors.accent.with_alpha(0.2) } else { Color::TRANSPARENT })
-                .text_color(if tab_all { colors.accent } else { colors.text_muted })
+                .color(if tab_all { colors.accent } else { colors.text_muted })
                 .radius_all(3.0)
                 .padding_left(6.0)
                 .padding_right(6.0)
@@ -189,7 +189,7 @@ fn draw_language_packs_tab(
                 .id(Id::from_u64(999998202))
                 .height(22.0)
                 .bg(if tab_inst { colors.accent.with_alpha(0.2) } else { Color::TRANSPARENT })
-                .text_color(if tab_inst { colors.accent } else { colors.text_muted })
+                .color(if tab_inst { colors.accent } else { colors.text_muted })
                 .radius_all(3.0)
                 .padding_left(6.0)
                 .padding_right(6.0)
@@ -205,7 +205,7 @@ fn draw_language_packs_tab(
                 .id(Id::from_u64(999998203))
                 .height(22.0)
                 .bg(if tab_avail { colors.accent.with_alpha(0.2) } else { Color::TRANSPARENT })
-                .text_color(if tab_avail { colors.accent } else { colors.text_muted })
+                .color(if tab_avail { colors.accent } else { colors.text_muted })
                 .radius_all(3.0)
                 .padding_left(6.0)
                 .padding_right(6.0)
@@ -219,14 +219,14 @@ fn draw_language_packs_tab(
 
     // Separator border
     ui.container()
-        .full_width()
+        .fill_x()
         .height(1.0)
         .bg(colors.border)
         .show(|_| {});
 
     // Scrollable List of Language Packs
     ui.container()
-        .full_width()
+        .fill_x()
         .fill_y()
         .scroll_y(true)
         .clip(true)
@@ -264,7 +264,7 @@ fn draw_language_packs_tab(
 
             if filtered.is_empty() {
                 ui.container()
-                    .full_width()
+                    .fill_x()
                     .padding(24.0, 10.0, 24.0, 10.0)
                     .valign(Align::Center)
                     .halign(Align::Center)
@@ -289,8 +289,8 @@ fn draw_language_packs_tab(
                     .width(card_w)
                     .clip(true)
                     .bg(colors.bg_sidebar)
-                    .hover_bg(colors.highlight)
-                    .border(colors.border, 1.0)
+                    .hover(Style::bg(colors.highlight))
+                    .border((colors.border, 1.0))
                     .radius_all(6.0)
                     .padding(8.0, 8.0, 8.0, 8.0)
                     .column()
@@ -325,7 +325,7 @@ fn draw_language_packs_tab(
 
                                         ui.text(ext.name)
                                             .size(12.0)
-                                            .weight(FontWeight::Bold)
+                                            .font_weight(FontWeight::Bold)
                                             .color(colors.text_primary)
                                             .show();
                                     });
@@ -336,8 +336,8 @@ fn draw_language_packs_tab(
                                         .id(Id::from_u64(999998400 + idx as u64))
                                         .height(20.0)
                                         .bg(Color::TRANSPARENT)
-                                        .hover_bg(Color::rgba(239.0 / 255.0, 68.0 / 255.0, 68.0 / 255.0, 0.15))
-                                        .text_color(colors.text_muted)
+                                        .hover(Style::bg(Color::rgba(239.0 / 255.0, 68.0 / 255.0, 68.0 / 255.0, 0.15)))
+                                        .color(colors.text_muted)
                                         .radius_all(3.0)
                                         .padding_left(6.0)
                                         .padding_right(6.0)
@@ -352,8 +352,8 @@ fn draw_language_packs_tab(
                                         .id(Id::from_u64(999998400 + idx as u64))
                                         .height(20.0)
                                         .bg(colors.accent)
-                                        .hover_bg(colors.accent.with_alpha(0.85))
-                                        .text_color(Color::WHITE)
+                                        .hover(Style::bg(colors.accent.with_alpha(0.85)))
+                                        .color(Color::WHITE)
                                         .radius_all(3.0)
                                         .padding_left(8.0)
                                         .padding_right(8.0)
@@ -431,7 +431,7 @@ fn draw_language_servers_tab(
 
     // Subheader: Filter Tabs
     ui.container()
-        .full_width()
+        .fill_x()
         .padding(2.0, 10.0, 6.0, 10.0)
         .row()
         .valign(Align::Center)
@@ -442,7 +442,7 @@ fn draw_language_servers_tab(
                 .id(Id::from_u64(999998210))
                 .height(22.0)
                 .bg(if tab_all { colors.accent.with_alpha(0.2) } else { Color::TRANSPARENT })
-                .text_color(if tab_all { colors.accent } else { colors.text_muted })
+                .color(if tab_all { colors.accent } else { colors.text_muted })
                 .radius_all(3.0)
                 .padding_left(6.0)
                 .padding_right(6.0)
@@ -458,7 +458,7 @@ fn draw_language_servers_tab(
                 .id(Id::from_u64(999998211))
                 .height(22.0)
                 .bg(if tab_inst { colors.accent.with_alpha(0.2) } else { Color::TRANSPARENT })
-                .text_color(if tab_inst { colors.accent } else { colors.text_muted })
+                .color(if tab_inst { colors.accent } else { colors.text_muted })
                 .radius_all(3.0)
                 .padding_left(6.0)
                 .padding_right(6.0)
@@ -474,7 +474,7 @@ fn draw_language_servers_tab(
                 .id(Id::from_u64(999998212))
                 .height(22.0)
                 .bg(if tab_avail { colors.accent.with_alpha(0.2) } else { Color::TRANSPARENT })
-                .text_color(if tab_avail { colors.accent } else { colors.text_muted })
+                .color(if tab_avail { colors.accent } else { colors.text_muted })
                 .radius_all(3.0)
                 .padding_left(6.0)
                 .padding_right(6.0)
@@ -488,14 +488,14 @@ fn draw_language_servers_tab(
 
     // Separator border
     ui.container()
-        .full_width()
+        .fill_x()
         .height(1.0)
         .bg(colors.border)
         .show(|_| {});
 
     // Scrollable List of Language Servers
     ui.container()
-        .full_width()
+        .fill_x()
         .fill_y()
         .scroll_y(true)
         .clip(true)
@@ -533,7 +533,7 @@ fn draw_language_servers_tab(
 
             if filtered.is_empty() {
                 ui.container()
-                    .full_width()
+                    .fill_x()
                     .padding(24.0, 10.0, 24.0, 10.0)
                     .valign(Align::Center)
                     .halign(Align::Center)
@@ -557,8 +557,8 @@ fn draw_language_servers_tab(
                     .width(card_w)
                     .clip(true)
                     .bg(colors.bg_sidebar)
-                    .hover_bg(colors.highlight)
-                    .border(colors.border, 1.0)
+                    .hover(Style::bg(colors.highlight))
+                    .border((colors.border, 1.0))
                     .radius_all(6.0)
                     .padding(8.0, 8.0, 8.0, 8.0)
                     .column()
@@ -593,7 +593,7 @@ fn draw_language_servers_tab(
 
                                         ui.text(srv.name)
                                             .size(12.0)
-                                            .weight(FontWeight::Bold)
+                                            .font_weight(FontWeight::Bold)
                                             .color(colors.text_primary)
                                             .show();
                                     });
@@ -604,7 +604,7 @@ fn draw_language_servers_tab(
                                         .id(Id::from_u64(999998600 + idx as u64))
                                         .height(20.0)
                                         .bg(colors.accent.with_alpha(0.2))
-                                        .text_color(colors.accent)
+                                        .color(colors.accent)
                                         .radius_all(3.0)
                                         .padding_left(6.0)
                                         .padding_right(6.0)
@@ -615,7 +615,7 @@ fn draw_language_servers_tab(
                                         .id(Id::from_u64(999998600 + idx as u64))
                                         .height(20.0)
                                         .bg(Color::rgb(74.0 / 255.0, 222.0 / 255.0, 128.0 / 255.0).with_alpha(0.15))
-                                        .text_color(Color::rgb(74.0 / 255.0, 222.0 / 255.0, 128.0 / 255.0))
+                                        .color(Color::rgb(74.0 / 255.0, 222.0 / 255.0, 128.0 / 255.0))
                                         .radius_all(3.0)
                                         .padding_left(6.0)
                                         .padding_right(6.0)
@@ -626,8 +626,8 @@ fn draw_language_servers_tab(
                                         .id(Id::from_u64(999998600 + idx as u64))
                                         .height(20.0)
                                         .bg(colors.accent)
-                                        .hover_bg(colors.accent.with_alpha(0.85))
-                                        .text_color(Color::WHITE)
+                                        .hover(Style::bg(colors.accent.with_alpha(0.85)))
+                                        .color(Color::WHITE)
                                         .radius_all(3.0)
                                         .padding_left(8.0)
                                         .padding_right(8.0)

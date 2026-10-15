@@ -1,5 +1,5 @@
 use crate::state::ZenthreeState;
-use zenthra::{Color, Ui, Align, FontWeight, Id, use_context};
+use zenthra::{Color, Ui, Align, FontWeight, Id, Style, use_context};
 use crate::theme::ThemeColors;
 
 pub fn draw_unsaved_changes_dialog(ui: &mut Ui, state: &mut ZenthreeState) {
@@ -30,7 +30,7 @@ pub fn draw_unsaved_changes_dialog(ui: &mut Ui, state: &mut ZenthreeState) {
     // Semi-transparent backdrop overlay across entire viewport to block clicks behind
     ui.container()
         .id(Id::from_u64(999996001))
-        .absolute(viewport.origin.x, viewport.origin.y)
+        .pos(viewport.origin.x, viewport.origin.y)
         .overlay()
         .width(viewport.size.width)
         .height(viewport.size.height)
@@ -71,11 +71,11 @@ pub fn draw_unsaved_changes_dialog(ui: &mut Ui, state: &mut ZenthreeState) {
 
     let mut card = ui.container()
         .id(modal_id)
-        .absolute(center_x, center_y)
+        .pos(center_x, center_y)
         .overlay()
         .width(win_w)
         .bg(card_bg)
-        .border(colors.border, 1.0)
+        .border((colors.border, 1.0))
         .radius_all(8.0);
 
     if state.glassmorphism {
@@ -88,7 +88,7 @@ pub fn draw_unsaved_changes_dialog(ui: &mut Ui, state: &mut ZenthreeState) {
         .show(|ui| {
             // Row 1: Header (Warning Badge + Title + Close Button)
             ui.container()
-                .full_width()
+                .fill_x()
                 .row()
                 .valign(Align::Center)
                 .halign(Align::SpaceBetween)
@@ -113,7 +113,7 @@ pub fn draw_unsaved_changes_dialog(ui: &mut Ui, state: &mut ZenthreeState) {
 
                             ui.text("Unsaved Changes")
                                 .size(13.5)
-                                .weight(FontWeight::Bold)
+                                .font_weight(FontWeight::Bold)
                                 .color(colors.text_primary)
                                 .show();
                         });
@@ -123,8 +123,8 @@ pub fn draw_unsaved_changes_dialog(ui: &mut Ui, state: &mut ZenthreeState) {
                         .width(20.0)
                         .height(20.0)
                         .bg(Color::TRANSPARENT)
-                        .hover_bg(colors.highlight)
-                        .text_color(colors.text_muted)
+                        .hover(Style::bg(colors.highlight))
+                        .color(colors.text_muted)
                         .radius_all(3.0)
                         .size(11.0)
                         .show();
@@ -153,9 +153,9 @@ pub fn draw_unsaved_changes_dialog(ui: &mut Ui, state: &mut ZenthreeState) {
 
             // Row 3: List of dirty files
             ui.container()
-                .full_width()
+                .fill_x()
                 .bg(colors.bg_base.with_alpha(0.60))
-                .border(colors.border.with_alpha(0.60), 0.5)
+                .border((colors.border.with_alpha(0.60), 0.5))
                 .radius_all(4.0)
                 .padding(8.0, 10.0, 8.0, 10.0)
                 .column()
@@ -195,7 +195,7 @@ pub fn draw_unsaved_changes_dialog(ui: &mut Ui, state: &mut ZenthreeState) {
 
             // Row 4: Action Buttons Row: [Cancel]  [Don't Save]  [Save / Save All]
             ui.container()
-                .full_width()
+                .fill_x()
                 .row()
                 .valign(Align::Center)
                 .halign(Align::Right)
@@ -205,9 +205,9 @@ pub fn draw_unsaved_changes_dialog(ui: &mut Ui, state: &mut ZenthreeState) {
                         .id(Id::from_u64(999996004))
                         .height(26.0)
                         .bg(Color::TRANSPARENT)
-                        .hover_bg(colors.highlight)
-                        .border(colors.border, 1.0)
-                        .text_color(colors.text_primary)
+                        .hover(Style::bg(colors.highlight))
+                        .border((colors.border, 1.0))
+                        .color(colors.text_primary)
                         .radius_all(4.0)
                         .padding_left(12.0)
                         .padding_right(12.0)
@@ -222,9 +222,9 @@ pub fn draw_unsaved_changes_dialog(ui: &mut Ui, state: &mut ZenthreeState) {
                         .id(Id::from_u64(999996005))
                         .height(26.0)
                         .bg(Color { r: 239.0 / 255.0, g: 68.0 / 255.0, b: 68.0 / 255.0, a: 0.15 })
-                        .hover_bg(Color { r: 239.0 / 255.0, g: 68.0 / 255.0, b: 68.0 / 255.0, a: 0.28 })
-                        .border(Color { r: 239.0 / 255.0, g: 68.0 / 255.0, b: 68.0 / 255.0, a: 0.40 }, 1.0)
-                        .text_color(Color { r: 248.0 / 255.0, g: 113.0 / 255.0, b: 113.0 / 255.0, a: 1.0 })
+                        .hover(Style::bg(Color { r: 239.0 / 255.0, g: 68.0 / 255.0, b: 68.0 / 255.0, a: 0.28 }))
+                        .border((Color { r: 239.0 / 255.0, g: 68.0 / 255.0, b: 68.0 / 255.0, a: 0.40 }, 1.0))
+                        .color(Color { r: 248.0 / 255.0, g: 113.0 / 255.0, b: 113.0 / 255.0, a: 1.0 })
                         .radius_all(4.0)
                         .padding_left(12.0)
                         .padding_right(12.0)
@@ -240,8 +240,8 @@ pub fn draw_unsaved_changes_dialog(ui: &mut Ui, state: &mut ZenthreeState) {
                         .id(Id::from_u64(999996006))
                         .height(26.0)
                         .bg(colors.accent)
-                        .hover_bg(colors.accent.with_alpha(0.85))
-                        .text_color(Color::WHITE)
+                        .hover(Style::bg(colors.accent.with_alpha(0.85)))
+                        .color(Color::WHITE)
                         .radius_all(4.0)
                         .padding_left(14.0)
                         .padding_right(14.0)

@@ -3,7 +3,7 @@ use crate::theme::ThemeColors;
 use crate::ui_layout::ai_panel::{
     draw_inline_spans, parse_markdown_blocks_impl, MarkdownBlock, QuoteKind,
 };
-use zenthra::{Align, Color, FontWeight, Id, Ui};
+use zenthra::{Align, Color, FontWeight, Id, Ui, Style, TextDecoration};
 
 pub fn draw_markdown_buffer_preview(
     ui: &mut Ui,
@@ -88,7 +88,7 @@ pub fn draw_markdown_buffer_preview(
                                         );
                                         if is_h1_h2 {
                                             ui.container()
-                                                .full_width()
+                                                .fill_x()
                                                 .height(1.0)
                                                 .bg(colors.border.with_alpha(0.35))
                                                 .show(|_| {});
@@ -97,7 +97,7 @@ pub fn draw_markdown_buffer_preview(
                             }
                             MarkdownBlock::Rule => {
                                 ui.container()
-                                    .full_width()
+                                    .fill_x()
                                     .height(1.0)
                                     .bg(colors.border.with_alpha(0.4))
                                     .padding_top(8.0)
@@ -128,7 +128,7 @@ pub fn draw_markdown_buffer_preview(
 
                                         ui.container()
                                             .bg(accent_col.with_alpha(0.08))
-                                            .border(accent_col.with_alpha(0.2), 0.5)
+                                            .border((accent_col.with_alpha(0.2), 0.5))
                                             .radius(4.0, 0.0, 0.0, 4.0)
                                             .padding(8.0, 14.0, 8.0, 14.0)
                                             .column()
@@ -143,7 +143,7 @@ pub fn draw_markdown_buffer_preview(
                                                             ui.text(badge_icon).size(10.0).color(accent_col).show();
                                                             ui.text(badge_label)
                                                                 .size(10.0)
-                                                                .weight(FontWeight::Bold)
+                                                                .font_weight(FontWeight::Bold)
                                                                 .color(accent_col)
                                                                 .show();
                                                         });
@@ -171,13 +171,13 @@ pub fn draw_markdown_buffer_preview(
                                 ui.container()
                                     .max_width(doc_max_w)
                                     .radius_all(6.0)
-                                    .border(colors.border.with_alpha(0.5), 1.0)
+                                    .border((colors.border.with_alpha(0.5), 1.0))
                                     .clip(true)
                                     .column()
                                     .show(|ui| {
                                         // Header row
                                         ui.container()
-                                            .full_width()
+                                            .fill_x()
                                             .row()
                                             .gap(0.0)
                                             .bg(colors.bg_sidebar.with_alpha(0.9))
@@ -207,7 +207,7 @@ pub fn draw_markdown_buffer_preview(
                                                 }
                                             });
 
-                                        ui.container().full_width().height(1.0).bg(colors.border.with_alpha(0.5)).show(|_| {});
+                                        ui.container().fill_x().height(1.0).bg(colors.border.with_alpha(0.5)).show(|_| {});
 
                                         // Data rows
                                         for (ri, row) in rows.iter().enumerate() {
@@ -218,7 +218,7 @@ pub fn draw_markdown_buffer_preview(
                                             };
 
                                             ui.container()
-                                                .full_width()
+                                                .fill_x()
                                                 .row()
                                                 .gap(0.0)
                                                 .bg(row_bg)
@@ -249,7 +249,7 @@ pub fn draw_markdown_buffer_preview(
                                                 });
 
                                             if ri + 1 < rows.len() {
-                                                ui.container().full_width().height(0.5).bg(colors.border.with_alpha(0.25)).show(|_| {});
+                                                ui.container().fill_x().height(0.5).bg(colors.border.with_alpha(0.25)).show(|_| {});
                                             }
                                         }
                                     });
@@ -259,7 +259,7 @@ pub fn draw_markdown_buffer_preview(
                                 let avail_w = (doc_max_w - indent - 20.0).max(40.0);
 
                                 ui.container()
-                                    .full_width()
+                                    .fill_x()
                                     .row()
                                     .valign(Align::Top)
                                     .gap(8.0)
@@ -285,7 +285,7 @@ pub fn draw_markdown_buffer_preview(
                                 let avail_w = (doc_max_w - indent - 24.0).max(40.0);
 
                                 ui.container()
-                                    .full_width()
+                                    .fill_x()
                                     .row()
                                     .valign(Align::Top)
                                     .gap(8.0)
@@ -293,7 +293,7 @@ pub fn draw_markdown_buffer_preview(
                                     .show(|ui| {
                                         ui.text(&format!("{}.", num))
                                             .size(11.5)
-                                            .weight(FontWeight::Medium)
+                                            .font_weight(FontWeight::Medium)
                                             .color(colors.accent)
                                             .show();
                                         draw_inline_spans(ui, spans, avail_w, 12.0, FontWeight::Regular, colors.text_primary, colors);
@@ -307,11 +307,11 @@ pub fn draw_markdown_buffer_preview(
                                     .max_width(doc_max_w)
                                     .radius_all(6.0)
                                     .bg(colors.bg_base.with_alpha(0.85))
-                                    .border(colors.border.with_alpha(0.5), 1.0)
+                                    .border((colors.border.with_alpha(0.5), 1.0))
                                     .column()
                                     .show(|ui| {
                                         ui.container()
-                                            .full_width()
+                                            .fill_x()
                                             .height(26.0)
                                             .bg(colors.bg_sidebar.with_alpha(0.6))
                                             .padding(0.0, 10.0, 0.0, 10.0)
@@ -321,8 +321,8 @@ pub fn draw_markdown_buffer_preview(
                                             .show(|ui| {
                                                 ui.text(&lang_display)
                                                     .size(9.0)
-                                                    .weight(FontWeight::Bold)
-                                                    .monospace()
+                                                    .font_weight(FontWeight::Bold)
+                                                    .font_family("monospace")
                                                     .color(colors.accent)
                                                     .show();
 
@@ -333,7 +333,7 @@ pub fn draw_markdown_buffer_preview(
                                                     .gap(4.0)
                                                     .padding(2.0, 6.0, 2.0, 6.0)
                                                     .radius_all(3.0)
-                                                    .hover_bg(colors.highlight)
+                                                    .hover(Style::bg(colors.highlight))
                                                     .show(|ui| {
                                                         ui.text("\u{f0c5}").size(9.0).color(colors.text_muted).show();
                                                         ui.text("Copy").size(9.5).color(colors.text_muted).show();
@@ -344,15 +344,15 @@ pub fn draw_markdown_buffer_preview(
                                                 }
                                             });
 
-                                        ui.container().full_width().height(0.5).bg(colors.border.with_alpha(0.3)).show(|_| {});
+                                        ui.container().fill_x().height(0.5).bg(colors.border.with_alpha(0.3)).show(|_| {});
 
                                         ui.container()
                                             .padding(10.0, 12.0, 10.0, 12.0)
                                             .show(|ui| {
                                                 ui.text(code)
                                                     .size(11.0)
-                                                    .monospace()
-                                                    .line_height(1.5)
+                                                    .font_family("monospace")
+                                                    .decoration(TextDecoration::LineHeight(1.5))
                                                     .color(colors.text_primary)
                                                     .show();
                                             });

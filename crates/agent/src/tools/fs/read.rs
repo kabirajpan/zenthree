@@ -176,9 +176,11 @@ impl Tool for ReadFileTool {
         }
 
         let path_str = args
-            .get("path")
+            .get("AbsolutePath")
+            .or_else(|| args.get("TargetFile"))
+            .or_else(|| args.get("path"))
             .and_then(|v| v.as_str())
-            .ok_or_else(|| ToolError::InvalidArgs("Missing required parameter 'path' or 'paths'".to_string()))?;
+            .ok_or_else(|| ToolError::InvalidArgs("Missing required parameter 'AbsolutePath' or 'path'".to_string()))?;
 
         self.read_single_file(path_str, &args)
     }
@@ -297,8 +299,8 @@ impl ReadFileTool {
 
         let is_peek = args.get("peek").and_then(|v| v.as_bool()).unwrap_or(false);
         let symbol_param = args.get("symbol").and_then(|v| v.as_str());
-        let start_line = args.get("start_line").and_then(|v| v.as_u64()).map(|v| v as usize);
-        let end_line = args.get("end_line").and_then(|v| v.as_u64()).map(|v| v as usize);
+        let start_line = args.get("StartLine").or_else(|| args.get("start_line")).and_then(|v| v.as_u64()).map(|v| v as usize);
+        let end_line = args.get("EndLine").or_else(|| args.get("end_line")).and_then(|v| v.as_u64()).map(|v| v as usize);
         let show_all = args.get("show_all").and_then(|v| v.as_bool()).unwrap_or(false);
 
         let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");

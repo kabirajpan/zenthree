@@ -1,5 +1,5 @@
 use crate::state::ZenthreeState;
-use zenthra::{Color, Ui, Align, FontWeight, Id, use_context};
+use zenthra::{Color, Ui, Align, FontWeight, Id, Style, use_context};
 use crate::theme::ThemeColors;
 use zenthra_widgets::ui::{DrawCommand, OverlayRectDraw};
 use std::path::PathBuf;
@@ -638,11 +638,11 @@ pub fn draw_cmdline_dialog(ui: &mut Ui, state: &mut ZenthreeState) {
 
     let mut card = ui.container()
         .id(modal_id)
-        .absolute(center_x, center_y)
+        .pos(center_x, center_y)
         .overlay()
         .width(card_w)
         .bg(card_bg)
-        .border(border_col, 1.5)
+        .border((border_col, 1.5))
         .radius_all(4.0)
         .shadow(Color::rgba(0.0, 0.0, 0.0, 0.50), 0.0, 8.0, 24.0);
 
@@ -656,7 +656,7 @@ pub fn draw_cmdline_dialog(ui: &mut Ui, state: &mut ZenthreeState) {
         .show(|ui| {
             // Header title embedded in top border layout: ─── Cmdline ───
             ui.container()
-                .full_width()
+                .fill_x()
                 .height(20.0)
                 .row()
                 .valign(Align::Center)
@@ -665,7 +665,7 @@ pub fn draw_cmdline_dialog(ui: &mut Ui, state: &mut ZenthreeState) {
                     ui.container().width(24.0).height(1.5).bg(border_col).show(|_| {});
                     ui.text("Cmdline")
                         .size(12.0)
-                        .weight(FontWeight::Bold)
+                        .font_weight(FontWeight::Bold)
                         .color(border_col)
                         .show();
                     ui.container().fill_x().height(1.5).bg(border_col).show(|_| {});
@@ -673,7 +673,7 @@ pub fn draw_cmdline_dialog(ui: &mut Ui, state: &mut ZenthreeState) {
 
             // Prompt row: red/pink chevron right '\u{f054}' (file tree arrow) | input text with blinking cursor | 'Esc' badge
             ui.container()
-                .full_width()
+                .fill_x()
                 .row()
                 .valign(Align::Center)
                 .gap(8.0)
@@ -681,7 +681,7 @@ pub fn draw_cmdline_dialog(ui: &mut Ui, state: &mut ZenthreeState) {
                 .show(|ui| {
                     ui.text("\u{f120}")
                         .size(11.0)
-                        .weight(FontWeight::Bold)
+                        .font_weight(FontWeight::Bold)
                         .color(Color::rgb(247.0 / 255.0, 118.0 / 255.0, 142.0 / 255.0))
                         .show();
 
@@ -733,7 +733,7 @@ pub fn draw_cmdline_dialog(ui: &mut Ui, state: &mut ZenthreeState) {
                         .padding(2.0, 6.0, 2.0, 6.0)
                         .radius_all(2.0)
                         .bg(colors.bg_base.with_alpha(0.40))
-                        .hover_bg(colors.highlight)
+                        .hover(Style::bg(colors.highlight))
                         .show(|ui| {
                             ui.text("Esc")
                                 .size(9.5)
@@ -767,12 +767,12 @@ pub fn draw_cmdline_dialog(ui: &mut Ui, state: &mut ZenthreeState) {
         let dropdown_id = Id::from_u64(999998205);
         let mut dropdown_container = ui.container()
             .id(dropdown_id)
-            .absolute(dropdown_x, dropdown_y)
+            .pos(dropdown_x, dropdown_y)
             .overlay()
             .width(dropdown_w)
             .height(dropdown_h)
             .bg(card_bg)
-            .border(Color::rgba(255.0, 255.0, 255.0, 0.16), 1.0)
+            .border((Color::rgba(1.0, 1.0, 1.0, 0.16), 1.0))
             .radius_all(3.0)
             .shadow(Color::rgba(0.0, 0.0, 0.0, 0.50), 0.0, 8.0, 20.0);
 
@@ -798,10 +798,10 @@ pub fn draw_cmdline_dialog(ui: &mut Ui, state: &mut ZenthreeState) {
                     };
 
                     let row = ui.container()
-                        .full_width()
+                        .fill_x()
                         .height(item_h)
                         .bg(row_bg)
-                        .hover_bg(colors.highlight)
+                        .hover(Style::bg(colors.highlight))
                         .radius_all(2.0)
                         .padding(2.0, 6.0, 2.0, 6.0)
                         .row()
@@ -1061,11 +1061,11 @@ pub fn draw_delete_confirm_dialog(ui: &mut Ui, state: &mut ZenthreeState) {
 
     let mut card = ui.container()
         .id(modal_id)
-        .absolute(center_x, center_y)
+        .pos(center_x, center_y)
         .overlay()
         .width(card_w)
         .bg(card_bg)
-        .border(border_col, 1.5)
+        .border((border_col, 1.5))
         .radius_all(4.0)
         .shadow(Color::rgba(0.0, 0.0, 0.0, 0.50), 0.0, 8.0, 24.0);
 
@@ -1082,7 +1082,7 @@ pub fn draw_delete_confirm_dialog(ui: &mut Ui, state: &mut ZenthreeState) {
         .show(|ui| {
             // Header title embedded in top border layout: ─── Delete <path>? ───
             ui.container()
-                .full_width()
+                .fill_x()
                 .height(20.0)
                 .row()
                 .valign(Align::Center)
@@ -1091,7 +1091,7 @@ pub fn draw_delete_confirm_dialog(ui: &mut Ui, state: &mut ZenthreeState) {
                     ui.container().width(24.0).height(1.5).bg(border_col).show(|_| {});
                     ui.text(&title_text)
                         .size(12.0)
-                        .weight(FontWeight::Bold)
+                        .font_weight(FontWeight::Bold)
                         .color(border_col)
                         .show();
                     ui.container().fill_x().height(1.5).bg(border_col).show(|_| {});
@@ -1099,7 +1099,7 @@ pub fn draw_delete_confirm_dialog(ui: &mut Ui, state: &mut ZenthreeState) {
 
             // Prompt row: red/pink chevron right '\u{f054}' | typed filter with blinking cursor | '1/2' or '2/2' counter
             ui.container()
-                .full_width()
+                .fill_x()
                 .height(24.0)
                 .row()
                 .valign(Align::Center)
@@ -1108,7 +1108,7 @@ pub fn draw_delete_confirm_dialog(ui: &mut Ui, state: &mut ZenthreeState) {
                 .show(|ui| {
                     ui.text("\u{f054}")
                         .size(10.5)
-                        .weight(FontWeight::Bold)
+                        .font_weight(FontWeight::Bold)
                         .color(Color::rgb(247.0 / 255.0, 118.0 / 255.0, 142.0 / 255.0))
                         .show();
 
@@ -1153,7 +1153,7 @@ pub fn draw_delete_confirm_dialog(ui: &mut Ui, state: &mut ZenthreeState) {
 
             // Divider line
             ui.container()
-                .full_width()
+                .fill_x()
                 .height(1.0)
                 .bg(colors.border.with_alpha(0.60))
                 .show(|_| {});
@@ -1162,23 +1162,23 @@ pub fn draw_delete_confirm_dialog(ui: &mut Ui, state: &mut ZenthreeState) {
             for (idx, opt) in filtered_options.iter().enumerate() {
                 let is_sel = sel_idx == idx;
                 let row = ui.container()
-                    .full_width()
+                    .fill_x()
                     .height(22.0)
                     .row()
                     .valign(Align::Center)
                     .padding_left(6.0)
                     .bg(if is_sel { Color::rgba(1.0, 1.0, 1.0, 0.08) } else { Color::TRANSPARENT })
-                    .hover_bg(colors.highlight)
+                    .hover(Style::bg(colors.highlight))
                     .radius_all(2.0)
                     .show(|ui| {
                         ui.text(opt.num_str)
                             .size(12.0)
-                            .weight(FontWeight::Bold)
+                            .font_weight(FontWeight::Bold)
                             .color(Color::rgb(247.0 / 255.0, 118.0 / 255.0, 142.0 / 255.0))
                             .show();
                         ui.text(opt.label)
                             .size(12.0)
-                            .weight(if is_sel { FontWeight::Bold } else { FontWeight::Regular })
+                            .font_weight(if is_sel { FontWeight::Bold } else { FontWeight::Regular })
                             .color(colors.text_primary)
                             .show();
                     });
@@ -1283,11 +1283,11 @@ pub fn draw_rename_dialog(ui: &mut Ui, state: &mut ZenthreeState) {
 
     let mut card = ui.container()
         .id(modal_id)
-        .absolute(center_x, center_y)
+        .pos(center_x, center_y)
         .overlay()
         .width(card_w)
         .bg(card_bg)
-        .border(border_col, 1.5)
+        .border((border_col, 1.5))
         .radius_all(4.0)
         .shadow(Color::rgba(0.0, 0.0, 0.0, 0.50), 0.0, 8.0, 24.0);
 
@@ -1303,7 +1303,7 @@ pub fn draw_rename_dialog(ui: &mut Ui, state: &mut ZenthreeState) {
         .show(|ui| {
             // Header title embedded in top border layout: ─── Rename <name> ───
             ui.container()
-                .full_width()
+                .fill_x()
                 .height(20.0)
                 .row()
                 .valign(Align::Center)
@@ -1312,7 +1312,7 @@ pub fn draw_rename_dialog(ui: &mut Ui, state: &mut ZenthreeState) {
                     ui.container().width(24.0).height(1.5).bg(border_col).show(|_| {});
                     ui.text(&title_text)
                         .size(12.0)
-                        .weight(FontWeight::Bold)
+                        .font_weight(FontWeight::Bold)
                         .color(border_col)
                         .show();
                     ui.container().fill_x().height(1.5).bg(border_col).show(|_| {});
@@ -1320,7 +1320,7 @@ pub fn draw_rename_dialog(ui: &mut Ui, state: &mut ZenthreeState) {
 
             // Input row: red chevron '\u{f054}' | input field | 'Esc' badge
             ui.container()
-                .full_width()
+                .fill_x()
                 .row()
                 .valign(Align::Center)
                 .gap(8.0)
@@ -1328,7 +1328,7 @@ pub fn draw_rename_dialog(ui: &mut Ui, state: &mut ZenthreeState) {
                 .show(|ui| {
                     ui.text("\u{f054}")
                         .size(10.5)
-                        .weight(FontWeight::Bold)
+                        .font_weight(FontWeight::Bold)
                         .color(Color::rgb(247.0 / 255.0, 118.0 / 255.0, 142.0 / 255.0))
                         .show();
 
@@ -1374,7 +1374,7 @@ pub fn draw_rename_dialog(ui: &mut Ui, state: &mut ZenthreeState) {
                         .padding(2.0, 6.0, 2.0, 6.0)
                         .radius_all(2.0)
                         .bg(colors.bg_base.with_alpha(0.40))
-                        .hover_bg(colors.highlight)
+                        .hover(Style::bg(colors.highlight))
                         .show(|ui| {
                             ui.text("Esc")
                                 .size(9.5)

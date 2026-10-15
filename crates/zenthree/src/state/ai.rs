@@ -137,6 +137,125 @@ impl ZenthreeState {
         // Cancel any currently running background AI task before starting a new one
         self.cancel_active_ai();
 
+        // Prompt box commands
+        if trimmed == "/clear" || trimmed == ":clear" {
+            self.ai_messages.clear();
+            self.ai_session_json = None;
+            self.ai_input.clear();
+            self.save_persistent_state();
+            return;
+        }
+
+        if trimmed.starts_with("/model") || trimmed.starts_with(":model") {
+            let query = trimmed
+                .strip_prefix("/model")
+                .or_else(|| trimmed.strip_prefix(":model"))
+                .unwrap_or("")
+                .trim()
+                .to_lowercase();
+
+            if query.is_empty() {
+                let current = self.selected_ai_model;
+                let reply = format!(
+                    "**Active Model:** `{}` ({:?})\n\n**Available Models:**\n\
+                    • **Groq:** `groq` or `gpt-oss-120b`, `gpt-oss-20b`, `qwen`\n\
+                    • **Gemini:** `gemini-3.5-flash`, `gemini-3.5-flash-lite`, `gemini-2.5-flash`, `gemini-2.5-pro`\n\
+                    • **Antigravity:** `antigravity` or `gemini-3.8`, `gemini-3.7`\n\n\
+                    *Type `/model <name>` (e.g. `/model groq` or `/model 120b`) to switch instantly.*",
+                    current.display_name(), current.provider()
+                );
+                self.ai_messages.push(AiMessage {
+                    is_user: true,
+                    content: trimmed.to_string(),
+                    code_snippet: None,
+                    thoughts: None,
+                    thoughts_expanded: false,
+                    expanded: false,
+                    trajectory: Vec::new(),
+                    is_working: false,
+                });
+                self.ai_messages.push(AiMessage {
+                    is_user: false,
+                    content: reply,
+                    code_snippet: None,
+                    thoughts: None,
+                    thoughts_expanded: false,
+                    expanded: false,
+                    trajectory: Vec::new(),
+                    is_working: false,
+                });
+                self.ai_input.clear();
+                return;
+            }
+
+            let matched = if query.contains("120b") || query == "groq" || query.contains("gpt-oss") {
+                Some(AiModel::GroqGptOss120b)
+            } else if query.contains("20b") {
+                Some(AiModel::GroqGptOss20b)
+            } else if query.contains("qwen") {
+                Some(AiModel::GroqQwen3_8_27b)
+            } else if query.contains("3.8") || query.contains("antigravity") {
+                Some(AiModel::AntigravityGemini38FlashHigh)
+            } else if query.contains("3.7") {
+                Some(AiModel::AntigravityGemini37FlashHigh)
+            } else if query.contains("3.5-lite") || query.contains("flash-lite") {
+                Some(AiModel::Gemini35FlashLite)
+            } else if query.contains("3.5") || (query.contains("flash") && !query.contains("2.5")) {
+                Some(AiModel::Gemini35Flash)
+            } else if query.contains("2.5-pro") {
+                Some(AiModel::Gemini25Pro)
+            } else if query.contains("2.5") || query == "gemini" {
+                Some(AiModel::Gemini25Flash)
+            } else {
+                None
+            };
+
+            self.ai_messages.push(AiMessage {
+                is_user: true,
+                content: trimmed.to_string(),
+                code_snippet: None,
+                thoughts: None,
+                thoughts_expanded: false,
+                expanded: false,
+                trajectory: Vec::new(),
+                is_working: false,
+            });
+
+            if let Some(model) = matched {
+                self.selected_ai_model = model;
+                if model.is_antigravity() {
+                    self.selected_agent = SelectedAgent::Antigravity;
+                } else {
+                    self.selected_agent = SelectedAgent::Zene;
+                }
+                self.ai_session_json = None;
+                self.save_persistent_state();
+                self.ai_messages.push(AiMessage {
+                    is_user: false,
+                    content: format!("✓ Switched active model to **{}** ({:?}).", model.display_name(), model.provider()),
+                    code_snippet: None,
+                    thoughts: None,
+                    thoughts_expanded: false,
+                    expanded: false,
+                    trajectory: Vec::new(),
+                    is_working: false,
+                });
+            } else {
+                self.ai_messages.push(AiMessage {
+                    is_user: false,
+                    content: format!("Unknown model '{}'. Type `/model` to see all available models.", query),
+                    code_snippet: None,
+                    thoughts: None,
+                    thoughts_expanded: false,
+                    expanded: false,
+                    trajectory: Vec::new(),
+                    is_working: false,
+                });
+            }
+            self.ai_input.clear();
+            return;
+        }
+
         let cancel_token = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
         self.ai_cancel_token = Some(cancel_token.clone());
 
@@ -1210,31 +1329,21 @@ impl ZenthreeState {
                                   || clean_done.starts_with("cat ")
                                   || clean_done.contains('|');
 
-                                let is_background_res = if let Some(ref res) = result {
-                                    let s = match res {
-                                        serde_json::Value::String(s) => s.as_str(),
-                                        _other => "",
-                                    };
-                                    s.contains("background") || s.contains("ready on http") || s.contains("Local: http") || s.contains("task-") || s.contains("daemon") || s.contains("Server running")
-                                } else {
-                                    false
-                                };
 
                                 if is_term_done && !self.active_agent_terminal_tasks.is_empty() {
+                                    // Remove the completed task immediately so only running commands are listed
                                     if let Some(pos) = self.active_agent_terminal_tasks.iter().position(|t| {
                                         t.command.contains(clean_done) || clean_done.contains(&t.command)
                                     }) {
-                                        let is_bg = self.active_agent_terminal_tasks[pos].is_background || is_background_res;
+                                        let is_bg = self.active_agent_terminal_tasks[pos].is_background;
                                         if is_bg {
-                                            self.active_agent_terminal_tasks[pos].is_background = true;
                                             self.active_agent_terminal_tasks[pos].latest_status = "Running in background".to_string();
                                         } else {
                                             self.active_agent_terminal_tasks.remove(pos);
                                         }
                                     } else {
-                                        let is_bg = self.active_agent_terminal_tasks[0].is_background || is_background_res;
+                                        let is_bg = self.active_agent_terminal_tasks[0].is_background;
                                         if is_bg {
-                                            self.active_agent_terminal_tasks[0].is_background = true;
                                             self.active_agent_terminal_tasks[0].latest_status = "Running in background".to_string();
                                         } else {
                                             self.active_agent_terminal_tasks.remove(0);

@@ -1,11 +1,25 @@
 use std::fs;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use serde_json::{json, Value};
 use crate::traits::tool::{Tool, ToolRisk};
 use crate::types::error::ToolError;
 
-/// Tool to delete a file.
-pub struct DeleteFileTool;
+/// Tool to delete a file safely within workspace boundaries.
+#[derive(Default)]
+pub struct DeleteFileTool {
+    workspace_root: Option<PathBuf>,
+}
+
+impl DeleteFileTool {
+    pub fn new() -> Self {
+        Self { workspace_root: None }
+    }
+
+    pub fn with_workspace(mut self, root: PathBuf) -> Self {
+        self.workspace_root = Some(root);
+        self
+    }
+}
 
 impl Tool for DeleteFileTool {
     fn name(&self) -> &str {
@@ -43,7 +57,36 @@ impl Tool for DeleteFileTool {
             return Err(ToolError::ExecutionFailed("Refusing to delete project root or parent directory".to_string()));
         }
 
-        let path = Path::new(trimmed);
+        let rel_norm = trimmed.replace('\\', "/");
+        if rel_norm.contains(".zenthree_sessions") || rel_norm.contains(".zenthree_state.json") {
+            return Err(ToolError::ExecutionFailed(
+                "Access denied: Cannot delete internal IDE runtime files.".to_string(),
+            ));
+        }
+
+        let resolved = if let Some(ref ws) = self.workspace_root {
+            if Path::new(trimmed).is_absolute() {
+                PathBuf::from(trimmed)
+            } else {
+                ws.join(trimmed)
+            }
+        } else {
+            PathBuf::from(trimmed)
+        };
+
+        if let Some(ref ws) = self.workspace_root {
+            let canon_ws = ws.canonicalize().unwrap_or_else(|_| ws.clone());
+            let canon_res = resolved.canonicalize().unwrap_or_else(|_| resolved.clone());
+            if !canon_res.starts_with(&canon_ws) {
+                return Err(ToolError::ExecutionFailed(format!(
+                    "Access denied: Path '{}' is outside the project workspace boundary ('{}'). You are strictly forbidden from modifying files in parent directories.",
+                    path_str,
+                    ws.display()
+                )));
+            }
+        }
+
+        let path = &resolved;
         if !path.exists() {
             return Err(ToolError::ExecutionFailed(format!("File does not exist: {}", path_str)));
         }
@@ -60,8 +103,22 @@ impl Tool for DeleteFileTool {
     }
 }
 
-/// Tool to rename or move a file.
-pub struct RenameFileTool;
+/// Tool to rename or move a file safely within workspace boundaries.
+#[derive(Default)]
+pub struct RenameFileTool {
+    workspace_root: Option<PathBuf>,
+}
+
+impl RenameFileTool {
+    pub fn new() -> Self {
+        Self { workspace_root: None }
+    }
+
+    pub fn with_workspace(mut self, root: PathBuf) -> Self {
+        self.workspace_root = Some(root);
+        self
+    }
+}
 
 impl Tool for RenameFileTool {
     fn name(&self) -> &str {
@@ -102,12 +159,56 @@ impl Tool for RenameFileTool {
             .and_then(|v| v.as_str())
             .ok_or_else(|| ToolError::InvalidArgs("Missing required parameter 'new_path'".to_string()))?;
 
-        let old = Path::new(old_path);
+        let resolve_path = |p: &str| -> PathBuf {
+            if let Some(ref ws) = self.workspace_root {
+                if Path::new(p).is_absolute() {
+                    PathBuf::from(p)
+                } else {
+                    ws.join(p)
+                }
+            } else {
+                PathBuf::from(p)
+            }
+        };
+
+        let old_res = resolve_path(old_path);
+        let new_res = resolve_path(new_path);
+
+        if let Some(ref ws) = self.workspace_root {
+            let canon_ws = ws.canonicalize().unwrap_or_else(|_| ws.clone());
+            let canon_old = old_res.canonicalize().unwrap_or_else(|_| old_res.clone());
+            if !canon_old.starts_with(&canon_ws) {
+                return Err(ToolError::ExecutionFailed(format!(
+                    "Access denied: Source path '{}' is outside the project workspace boundary ('{}').",
+                    old_path,
+                    ws.display()
+                )));
+            }
+
+            let check_dir = if let Some(parent) = new_res.parent() {
+                if parent.exists() {
+                    parent.canonicalize().unwrap_or_else(|_| parent.to_path_buf())
+                } else {
+                    canon_ws.clone()
+                }
+            } else {
+                canon_ws.clone()
+            };
+            if !check_dir.starts_with(&canon_ws) {
+                return Err(ToolError::ExecutionFailed(format!(
+                    "Access denied: Destination path '{}' is outside the project workspace boundary ('{}').",
+                    new_path,
+                    ws.display()
+                )));
+            }
+        }
+
+        let old = &old_res;
         if !old.exists() {
             return Err(ToolError::ExecutionFailed(format!("Source path '{}' does not exist", old_path)));
         }
 
-        let new = Path::new(new_path);
+        let new = &new_res;
         if let Some(parent) = new.parent() {
             if !parent.as_os_str().is_empty() && !parent.exists() {
                 fs::create_dir_all(parent)

@@ -3,7 +3,7 @@ use crate::state::notes::{InlineCreateMode, NoteTreeNode, NotesVaultScope};
 use crate::state::{path_matches, ZenthreeState};
 use crate::theme::ThemeColors;
 use std::path::PathBuf;
-use zenthra::{use_context, Align, Color, FontWeight, Id, Ui};
+use zenthra::{use_context, Align, Color, FontWeight, Id, Style, Ui};
 
 pub fn draw_notes_panel(ui: &mut Ui, state: &mut ZenthreeState, sidebar_w: f32) {
     let colors = use_context::<ThemeColors>().map(|c| *c).unwrap_or_else(|| state.colors());
@@ -45,7 +45,7 @@ pub fn draw_notes_panel(ui: &mut Ui, state: &mut ZenthreeState, sidebar_w: f32) 
         .show(|ui| {
             // 1. Top Obsidian Icon Action Bar
             ui.container()
-                .full_width()
+                .fill_x()
                 .height(32.0)
                 .padding(4.0, 8.0, 4.0, 8.0)
                 .row()
@@ -64,7 +64,7 @@ pub fn draw_notes_panel(ui: &mut Ui, state: &mut ZenthreeState, sidebar_w: f32) 
                                 .show();
                             ui.text("NOTES")
                                 .size(10.5)
-                                .weight(FontWeight::Bold)
+                                .font_weight(FontWeight::Bold)
                                 .color(colors.text_muted)
                                 .show();
                         });
@@ -80,8 +80,8 @@ pub fn draw_notes_panel(ui: &mut Ui, state: &mut ZenthreeState, sidebar_w: f32) 
                                 .container()
                                 .padding(3.0, 5.0, 3.0, 5.0)
                                 .radius_all(3.0)
-                                .hover_bg(colors.highlight.with_alpha(0.20))
-                                .clickable(true)
+                                .hover(Style::bg(colors.highlight.with_alpha(0.20)))
+                                .interactive(true)
                                 .show(|ui| {
                                     ui.text("\u{f044}") // New note
                                         .size(11.0)
@@ -100,8 +100,8 @@ pub fn draw_notes_panel(ui: &mut Ui, state: &mut ZenthreeState, sidebar_w: f32) 
                                 .container()
                                 .padding(3.0, 5.0, 3.0, 5.0)
                                 .radius_all(3.0)
-                                .hover_bg(colors.highlight.with_alpha(0.20))
-                                .clickable(true)
+                                .hover(Style::bg(colors.highlight.with_alpha(0.20)))
+                                .interactive(true)
                                 .show(|ui| {
                                     ui.text("\u{f07b}") // New folder
                                         .size(11.0)
@@ -120,8 +120,8 @@ pub fn draw_notes_panel(ui: &mut Ui, state: &mut ZenthreeState, sidebar_w: f32) 
                                 .container()
                                 .padding(3.0, 5.0, 3.0, 5.0)
                                 .radius_all(3.0)
-                                .hover_bg(colors.highlight.with_alpha(0.20))
-                                .clickable(true)
+                                .hover(Style::bg(colors.highlight.with_alpha(0.20)))
+                                .interactive(true)
                                 .show(|ui| {
                                     ui.text("\u{f066}")
                                         .size(10.5)
@@ -140,8 +140,8 @@ pub fn draw_notes_panel(ui: &mut Ui, state: &mut ZenthreeState, sidebar_w: f32) 
                                 .container()
                                 .padding(3.0, 5.0, 3.0, 5.0)
                                 .radius_all(3.0)
-                                .hover_bg(colors.highlight.with_alpha(0.20))
-                                .clickable(true)
+                                .hover(Style::bg(colors.highlight.with_alpha(0.20)))
+                                .interactive(true)
                                 .show(|ui| {
                                     ui.text(zenthra::icons::NF_FA_SEARCH)
                                         .size(10.5)
@@ -165,8 +165,8 @@ pub fn draw_notes_panel(ui: &mut Ui, state: &mut ZenthreeState, sidebar_w: f32) 
                                 .container()
                                 .padding(3.0, 5.0, 3.0, 5.0)
                                 .radius_all(3.0)
-                                .hover_bg(colors.highlight.with_alpha(0.20))
-                                .clickable(true)
+                                .hover(Style::bg(colors.highlight.with_alpha(0.20)))
+                                .interactive(true)
                                 .show(|ui| {
                                     ui.text("\u{f0450}")
                                         .size(10.5)
@@ -185,14 +185,14 @@ pub fn draw_notes_panel(ui: &mut Ui, state: &mut ZenthreeState, sidebar_w: f32) 
             // 2. Search Box (Collapsible)
             if state.notes_state.search_active || !state.notes_state.search_query.is_empty() {
                 ui.container()
-                    .full_width()
+                    .fill_x()
                     .padding(2.0, 8.0, 4.0, 8.0)
                     .show(|ui| {
                         ui.container()
-                            .full_width()
+                            .fill_x()
                             .height(24.0)
                             .bg(colors.bg_base)
-                            .border(colors.border.with_alpha(0.4), 1.0)
+                            .border((colors.border.with_alpha(0.4), 1.0))
                             .radius_all(4.0)
                             .padding_left(6.0)
                             .padding_right(6.0)
@@ -207,10 +207,10 @@ pub fn draw_notes_panel(ui: &mut Ui, state: &mut ZenthreeState, sidebar_w: f32) 
 
                                 let query_empty = state.notes_state.search_query.is_empty();
 
-                                ui.input(&mut state.notes_state.search_query, Id::from_u64(999999020))
+                                ui.input(&mut state.notes_state.search_query).id(Id::from_u64(999999020))
                                     .fill_x()
-                                    .no_bg()
-                                    .no_border()
+                                    .bg(Color::TRANSPARENT)
+                                    .border(None)
                                     .color(colors.text_primary)
                                     .size(10.5)
                                     .show();
@@ -220,8 +220,8 @@ pub fn draw_notes_panel(ui: &mut Ui, state: &mut ZenthreeState, sidebar_w: f32) 
                                         .container()
                                         .padding(2.0, 3.0, 2.0, 3.0)
                                         .radius_all(2.0)
-                                        .hover_bg(colors.highlight.with_alpha(0.25))
-                                        .clickable(true)
+                                        .hover(Style::bg(colors.highlight.with_alpha(0.25)))
+                                        .interactive(true)
                                         .show(|ui| {
                                             ui.text("\u{f00d}")
                                                 .size(8.5)
@@ -244,7 +244,7 @@ pub fn draw_notes_panel(ui: &mut Ui, state: &mut ZenthreeState, sidebar_w: f32) 
 
             // Separator line
             ui.container()
-                .full_width()
+                .fill_x()
                 .height(1.0)
                 .bg(colors.border.with_alpha(0.3))
                 .show(|_| {});
@@ -276,7 +276,7 @@ pub fn draw_notes_panel(ui: &mut Ui, state: &mut ZenthreeState, sidebar_w: f32) 
                 .and_then(|t| t.path.clone());
 
             ui.container()
-                .full_width()
+                .fill_x()
                 .fill_y()
                 .scroll_y(true)
                 .clip(true)
@@ -285,7 +285,7 @@ pub fn draw_notes_panel(ui: &mut Ui, state: &mut ZenthreeState, sidebar_w: f32) 
                 .show(|ui| {
                     if tree_nodes.is_empty() {
                         ui.container()
-                            .full_width()
+                            .fill_x()
                             .padding(28.0, 10.0, 28.0, 10.0)
                             .column()
                             .valign(Align::Center)
@@ -352,10 +352,10 @@ pub fn draw_notes_panel(ui: &mut Ui, state: &mut ZenthreeState, sidebar_w: f32) 
 
             // 5. Obsidian-Style Bottom Bar: Vault Switcher & Daily Note
             ui.container()
-                .full_width()
+                .fill_x()
                 .height(30.0)
                 .bg(colors.bg_base)
-                .border(colors.border.with_alpha(0.3), 1.0)
+                .border((colors.border.with_alpha(0.3), 1.0))
                 .padding(3.0, 6.0, 3.0, 6.0)
                 .row()
                 .valign(Align::Center)
@@ -378,7 +378,7 @@ pub fn draw_notes_panel(ui: &mut Ui, state: &mut ZenthreeState, sidebar_w: f32) 
                                 } else {
                                     Color::TRANSPARENT
                                 })
-                                .text_color(if is_proj {
+                                .color(if is_proj {
                                     colors.accent
                                 } else {
                                     colors.text_muted
@@ -402,7 +402,7 @@ pub fn draw_notes_panel(ui: &mut Ui, state: &mut ZenthreeState, sidebar_w: f32) 
                                 } else {
                                     Color::TRANSPARENT
                                 })
-                                .text_color(if is_glob {
+                                .color(if is_glob {
                                     colors.accent
                                 } else {
                                     colors.text_muted
@@ -422,8 +422,8 @@ pub fn draw_notes_panel(ui: &mut Ui, state: &mut ZenthreeState, sidebar_w: f32) 
                         .container()
                         .padding(2.0, 5.0, 2.0, 5.0)
                         .radius_all(3.0)
-                        .hover_bg(colors.highlight.with_alpha(0.20))
-                        .clickable(true)
+                        .hover(Style::bg(colors.highlight.with_alpha(0.20)))
+                        .interactive(true)
                         .show(|ui| {
                             ui.text("\u{f0e17}")
                                 .size(11.0)
@@ -553,13 +553,13 @@ fn draw_folder_row(
 
     let row = ui
         .container()
-        .full_width()
+        .fill_x()
         .height(23.0)
         .padding_left(indent)
         .padding_right(6.0)
         .radius_all(3.0)
-        .hover_bg(colors.highlight.with_alpha(0.18))
-        .clickable(true)
+        .hover(Style::bg(colors.highlight.with_alpha(0.18)))
+        .interactive(true)
         .row()
         .valign(Align::Center)
         .halign(Align::SpaceBetween)
@@ -583,7 +583,7 @@ fn draw_folder_row(
                     // Folder Name
                     ui.text(&node.name)
                         .size(12.0)
-                        .weight(FontWeight::Medium)
+                        .font_weight(FontWeight::Medium)
                         .color(colors.text_muted)
                         .show();
                 });
@@ -600,7 +600,7 @@ fn draw_folder_row(
                         .id(Id::from_u64(999999400 + (idx * 3) as u64))
                         .height(15.0)
                         .bg(Color::TRANSPARENT)
-                        .text_color(colors.text_dim)
+                        .color(colors.text_dim)
                         .size(9.0)
                         .show();
                     if add_f_btn.clicked {
@@ -613,7 +613,7 @@ fn draw_folder_row(
                         .id(Id::from_u64(999999402 + (idx * 3) as u64))
                         .height(15.0)
                         .bg(Color::TRANSPARENT)
-                        .text_color(colors.text_dim)
+                        .color(colors.text_dim)
                         .size(8.5)
                         .show();
                     if add_sub_btn.clicked {
@@ -626,7 +626,7 @@ fn draw_folder_row(
                         .id(Id::from_u64(999999401 + (idx * 3) as u64))
                         .height(15.0)
                         .bg(Color::TRANSPARENT)
-                        .text_color(colors.text_dim)
+                        .color(colors.text_dim)
                         .size(8.5)
                         .show();
                     if del_btn.clicked {
@@ -658,7 +658,7 @@ fn draw_file_row(
 
     let row = ui
         .container()
-        .full_width()
+        .fill_x()
         .height(23.0)
         .padding_left(indent)
         .padding_right(6.0)
@@ -668,12 +668,12 @@ fn draw_file_row(
         } else {
             Color::TRANSPARENT
         })
-        .hover_bg(if is_active {
+        .hover(Style::bg(if is_active {
             colors.accent.with_alpha(0.20)
         } else {
             colors.highlight.with_alpha(0.18)
-        })
-        .clickable(true)
+        }))
+        .interactive(true)
         .row()
         .valign(Align::Center)
         .halign(Align::SpaceBetween)
@@ -701,7 +701,7 @@ fn draw_file_row(
                     // Display name (Obsidian-style)
                     ui.text(&node.name)
                         .size(12.0)
-                        .weight(if is_active {
+                        .font_weight(if is_active {
                             FontWeight::Bold
                         } else {
                             FontWeight::Regular
@@ -723,7 +723,7 @@ fn draw_file_row(
                     if let Some(ref ext) = node.ext_badge {
                         ui.text(ext)
                             .size(8.5)
-                            .weight(FontWeight::Medium)
+                            .font_weight(FontWeight::Medium)
                             .color(colors.text_dim)
                             .show();
                     }
@@ -734,7 +734,7 @@ fn draw_file_row(
                         .id(Id::from_u64(999999500 + (idx * 2) as u64))
                         .height(15.0)
                         .bg(Color::TRANSPARENT)
-                        .text_color(if node.is_pinned {
+                        .color(if node.is_pinned {
                             colors.accent
                         } else {
                             colors.text_dim
@@ -751,7 +751,7 @@ fn draw_file_row(
                         .id(Id::from_u64(999999501 + (idx * 2) as u64))
                         .height(15.0)
                         .bg(Color::TRANSPARENT)
-                        .text_color(colors.text_dim)
+                        .color(colors.text_dim)
                         .size(8.5)
                         .show();
                     if del_btn.clicked {
@@ -782,13 +782,13 @@ fn draw_inline_creator(
     let is_folder = matches!(mode, InlineCreateMode::Folder { .. });
 
     ui.container()
-        .full_width()
+        .fill_x()
         .height(24.0)
         .padding_left(indent)
         .padding_right(6.0)
         .radius_all(3.0)
         .bg(colors.bg_base)
-        .border(colors.accent.with_alpha(0.6), 1.0)
+        .border((colors.accent.with_alpha(0.6), 1.0))
         .row()
         .valign(Align::Center)
         .gap(4.0)
@@ -798,10 +798,10 @@ fn draw_inline_creator(
                 .color(colors.accent)
                 .show();
 
-            ui.input(input_text, Id::from_u64(999999080))
+            ui.input(input_text).id(Id::from_u64(999999080))
                 .fill_x()
-                .no_bg()
-                .no_border()
+                .bg(Color::TRANSPARENT)
+                .border(None)
                 .color(colors.text_primary)
                 .size(10.5)
                 .show();
@@ -812,7 +812,7 @@ fn draw_inline_creator(
                 .id(Id::from_u64(999999081))
                 .height(18.0)
                 .bg(colors.accent)
-                .text_color(colors.text_primary)
+                .color(colors.text_primary)
                 .radius_all(2.0)
                 .padding_left(5.0)
                 .padding_right(5.0)
@@ -828,7 +828,7 @@ fn draw_inline_creator(
                 .id(Id::from_u64(999999082))
                 .height(18.0)
                 .bg(colors.highlight.with_alpha(0.3))
-                .text_color(colors.text_muted)
+                .color(colors.text_muted)
                 .radius_all(2.0)
                 .padding_left(5.0)
                 .padding_right(5.0)

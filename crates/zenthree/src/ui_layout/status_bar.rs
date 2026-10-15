@@ -1,5 +1,5 @@
 use crate::state::ZenthreeState;
-use zenthra::{Ui, Align, Color, FontWeight, use_context};
+use zenthra::{Ui, Align, Color, FontWeight, Style, use_context};
 use crate::theme::ThemeColors;
 
 pub fn draw_status_bar(ui: &mut Ui, state: &mut ZenthreeState) {
@@ -9,13 +9,12 @@ pub fn draw_status_bar(ui: &mut Ui, state: &mut ZenthreeState) {
     let bar_y = ui.cursor_y;
 
     ui.container()
-        .full_width()
+        .fill_x()
         .height(24.0)
         .bg(colors.bg_sidebar)
         .row()
         .valign(Align::Center)
         .halign(Align::SpaceBetween) // SpaceBetween: Left status vs Right details
-        .no_wrap()
         .padding_left(12.0)
         .padding_right(8.0)
         .show(|ui| {
@@ -42,7 +41,7 @@ pub fn draw_status_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                         .show(|ui| {
                             ui.text(mode_name)
                                 .size(9.5)
-                                .weight(FontWeight::Bold)
+                                .font_weight(FontWeight::Bold)
                                 .color(mode_color)
                                 .show();
                         });
@@ -128,8 +127,8 @@ pub fn draw_status_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                                             .padding(2.0, 6.0, 2.0, 6.0)
                                             .radius_all(3.0)
                                             .bg(colors.accent.with_alpha(0.18))
-                                            .hover_bg(colors.accent.with_alpha(0.28))
-                                            .clickable(true)
+                                            .hover(Style::bg(colors.accent.with_alpha(0.28)))
+                                            .interactive(true)
                                             .row()
                                             .valign(Align::Center)
                                             .gap(4.0)
@@ -148,8 +147,8 @@ pub fn draw_status_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                                             .id(zenthra::Id::from_u64(999998141))
                                             .height(18.0)
                                             .bg(colors.accent.with_alpha(0.18))
-                                            .hover_bg(colors.accent.with_alpha(0.35))
-                                            .text_color(colors.accent)
+                                            .hover(Style::bg(colors.accent.with_alpha(0.35)))
+                                            .color(colors.accent)
                                             .radius_all(3.0)
                                             .padding_left(6.0)
                                             .padding_right(6.0)
@@ -164,8 +163,8 @@ pub fn draw_status_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                                             .id(zenthra::Id::from_u64(999998142))
                                             .height(18.0)
                                             .bg(Color::TRANSPARENT)
-                                            .hover_bg(colors.highlight)
-                                            .text_color(colors.text_muted)
+                                            .hover(Style::bg(colors.highlight))
+                                            .color(colors.text_muted)
                                             .radius_all(3.0)
                                             .padding_left(6.0)
                                             .padding_right(6.0)
@@ -180,8 +179,8 @@ pub fn draw_status_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                                             .id(zenthra::Id::from_u64(999998140))
                                             .height(18.0)
                                             .bg(colors.accent.with_alpha(0.25))
-                                            .hover_bg(colors.accent.with_alpha(0.50))
-                                            .text_color(colors.accent)
+                                            .hover(Style::bg(colors.accent.with_alpha(0.50)))
+                                            .color(colors.accent)
                                             .radius_all(3.0)
                                             .padding_left(6.0)
                                             .padding_right(6.0)
@@ -200,8 +199,8 @@ pub fn draw_status_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                                     .id(zenthra::Id::from_u64(999998150))
                                     .height(18.0)
                                     .bg(colors.accent.with_alpha(0.15))
-                                    .hover_bg(colors.accent.with_alpha(0.35))
-                                    .text_color(colors.accent)
+                                    .hover(Style::bg(colors.accent.with_alpha(0.35)))
+                                    .color(colors.accent)
                                     .radius_all(3.0)
                                     .padding_left(6.0)
                                     .padding_right(6.0)
@@ -221,8 +220,8 @@ pub fn draw_status_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                                     .id(zenthra::Id::from_u64(999998150))
                                     .height(18.0)
                                     .bg(colors.highlight.with_alpha(0.25))
-                                    .hover_bg(colors.highlight)
-                                    .text_color(colors.text_muted)
+                                    .hover(Style::bg(colors.highlight))
+                                    .color(colors.text_muted)
                                     .radius_all(3.0)
                                     .padding_left(6.0)
                                     .padding_right(6.0)
@@ -238,8 +237,8 @@ pub fn draw_status_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                                     .id(zenthra::Id::from_u64(999998150))
                                     .height(18.0)
                                     .bg(colors.highlight.with_alpha(0.25))
-                                    .hover_bg(colors.highlight)
-                                    .text_color(colors.text_muted)
+                                    .hover(Style::bg(colors.highlight))
+                                    .color(colors.text_muted)
                                     .radius_all(3.0)
                                     .padding_left(6.0)
                                     .padding_right(6.0)
@@ -322,7 +321,7 @@ pub fn draw_status_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                                         .show();
                                     ui.text(&current_time)
                                         .size(11.0)
-                                        .weight(FontWeight::Medium)
+                                        .font_weight(FontWeight::Medium)
                                         .color(clock_fg)
                                         .show();
                                 });
@@ -332,12 +331,12 @@ pub fn draw_status_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                     let panel_btn_id = zenthra::Id::from_u64(999999125);
                     let panel_btn = ui.container()
                         .raw_id(panel_btn_id)
-                        .clickable(true)
+                        .interactive(true)
                         .height(18.0)
                         .padding_left(6.0)
                         .padding_right(6.0)
                         .bg(if state.sidebar_visible { colors.accent.with_alpha(0.20) } else { Color::TRANSPARENT })
-                        .hover_bg(colors.highlight)
+                        .hover(Style::bg(colors.highlight))
                         .radius_all(3.0)
                         .row()
                         .valign(Align::Center)

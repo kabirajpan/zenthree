@@ -227,12 +227,26 @@ impl Provider for GeminiProvider {
                     }
                 }
                 Role::Tool => {
+                    // Gemini requires the actual function name in functionResponse.name, not an arbitrary UUID/call_id.
+                    let fn_name = messages.iter().rev().find_map(|prev| {
+                        if prev.role == Role::Assistant {
+                            if let Some(tcs) = &prev.tool_calls {
+                                for tc in tcs {
+                                    if Some(&tc.id) == m.tool_call_id.as_ref() {
+                                        return Some(tc.name.clone());
+                                    }
+                                }
+                            }
+                        }
+                        None
+                    }).unwrap_or_else(|| m.tool_call_id.clone().unwrap_or_else(|| "tool".to_string()));
+
                     // Gemini expects tool results as a "user" turn with functionResponse parts
                     contents.push(json!({
                         "role": "user",
                         "parts": [{
                             "functionResponse": {
-                                "name": m.tool_call_id.as_deref().unwrap_or("tool"),
+                                "name": fn_name,
                                 "response": { "output": m.content }
                             }
                         }]

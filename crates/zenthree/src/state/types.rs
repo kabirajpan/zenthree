@@ -263,6 +263,7 @@ impl AiModel {
         AiModel::Gemini38Flash,
     ];
 
+    #[allow(dead_code)]
     pub const ANTIGRAVITY_MODELS: [AiModel; 6] = [
         AiModel::AntigravityGemini38FlashHigh,
         AiModel::AntigravityGemini38FlashMedium,
@@ -272,6 +273,7 @@ impl AiModel {
         AiModel::AntigravityGemini31ProLow,
     ];
 
+    #[allow(dead_code)]
     pub const ZENE_MODELS: [AiModel; 13] = [
         AiModel::GroqGptOss120b,
         AiModel::GroqGptOss20b,

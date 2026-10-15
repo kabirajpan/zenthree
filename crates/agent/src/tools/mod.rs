@@ -5,17 +5,21 @@ pub mod plan;
 pub mod registry;
 pub mod search;
 pub mod skill;
+pub mod subagent;
+pub mod tasks;
 pub mod terminal;
 pub mod traits;
 
 // Top-level re-exports for easy consumption
 pub use diagnostics::GetDiagnosticsTool;
-pub use fs::{DeleteFileTool, EditFileTool, ListDirectoryTool, ReadFileTool, RenameFileTool, WriteFileTool};
+pub use fs::{DeleteFileTool, EditFileTool, ListDirectoryTool, MultiReplaceFileContentTool, ReadFileTool, RenameFileTool, WriteFileTool};
 pub use git::{GitDiffTool, GitStatusTool};
 pub use plan::{CreatePlanTool, PlanState, PlanStep, UpdatePlanStepTool};
 pub use registry::ToolRegistry;
 pub use search::SearchTool;
 pub use skill::ActivateSkillTool;
+pub use subagent::StartSubagentTool;
+pub use tasks::{ManageTaskTool, ScheduleTool};
 pub use terminal::RunTerminalTool;
 pub use traits::Tool;
 
@@ -35,12 +39,13 @@ mod tests {
     #[test]
     fn test_essentials_registry() {
         let reg = ToolRegistry::essentials();
-        assert_eq!(reg.len(), 9);
+        assert_eq!(reg.len(), 10);
         let names = reg.list_names();
         assert!(names.contains(&"read_file"));
         assert!(names.contains(&"get_diagnostics"));
         assert!(names.contains(&"write_file"));
         assert!(names.contains(&"edit_file"));
+        assert!(names.contains(&"multi_replace_file_content"));
         assert!(names.contains(&"list_directory"));
         assert!(names.contains(&"search"));
         assert!(names.contains(&"run_terminal"));
@@ -53,7 +58,7 @@ mod tests {
     #[test]
     fn test_all_registry() {
         let reg = ToolRegistry::all();
-        assert_eq!(reg.len(), 13);
+        assert_eq!(reg.len(), 17);
         let names = reg.list_names();
         assert!(names.contains(&"search"));
         assert!(names.contains(&"create_plan"));
@@ -63,6 +68,10 @@ mod tests {
         assert!(names.contains(&"git_diff"));
         assert!(names.contains(&"rename_file"));
         assert!(names.contains(&"update_plan_step"));
+        assert!(names.contains(&"start_subagent"));
+        assert!(names.contains(&"multi_replace_file_content"));
+        assert!(names.contains(&"manage_task"));
+        assert!(names.contains(&"schedule"));
         // get_project_structure is available via alias
         assert!(reg.find("get_project_structure").is_some());
     }
@@ -199,10 +208,10 @@ mod tests {
 
         let reg = ToolRegistry::essentials();
         let openai = reg.to_openai_tools();
-        assert_eq!(openai.as_array().unwrap().len(), 9);
+        assert_eq!(openai.as_array().unwrap().len(), 10);
 
         let gemini = reg.to_gemini_tools();
-        assert_eq!(gemini.as_array().unwrap().len(), 9);
+        assert_eq!(gemini.as_array().unwrap().len(), 10);
     }
 
     #[test]

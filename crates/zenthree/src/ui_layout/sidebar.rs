@@ -1,5 +1,5 @@
 use crate::state::{ZenthreeState, InlineTreeInputMode, TreeContextMenu};
-use zenthra::{Color, Ui, Align, FontWeight, Id, CursorIcon, use_context};
+use zenthra::{Color, Ui, Align, FontWeight, Id, CursorIcon, Style, use_context};
 use crate::theme::ThemeColors;
 use std::path::PathBuf;
 
@@ -103,14 +103,14 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
                     let proj_label = truncate_filename(&project_name, max_chars);
 
                     ui.container()
-                        .full_width()
+                        .fill_x()
                         .padding(6.0, 8.0, 3.0, 8.0)
                         .show(|ui| {
                             ui.container()
-                                .full_width()
+                                .fill_x()
                                 .height(26.0)
                                 .bg(colors.bg_base)
-                                .border(colors.border.with_alpha(0.4), 1.0)
+                                .border((colors.border.with_alpha(0.4), 1.0))
                                 .radius_all(4.0)
                                 .padding(2.0, 2.0, 2.0, 2.0)
                                 .row()
@@ -124,8 +124,8 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
                                         .width(tab_proj_w)
                                         .padding(0.0, 4.0, 0.0, 4.0)
                                         .bg(if is_proj { colors.accent.with_alpha(0.20) } else { Color::TRANSPARENT })
-                                        .hover_bg(if is_proj { colors.accent.with_alpha(0.28) } else { Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, 0.07) })
-                                        .text_color(if is_proj { colors.accent } else { colors.text_muted })
+                                        .hover(Style::bg(if is_proj { colors.accent.with_alpha(0.28) } else { Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, 0.07) }))
+                                        .color(if is_proj { colors.accent } else { colors.text_muted })
                                         .radius_all(3.0)
                                         .size(10.5)
                                         .show();
@@ -143,8 +143,8 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
                                         .width(tab_glob_w)
                                         .padding(0.0, 4.0, 0.0, 4.0)
                                         .bg(if is_glob { colors.accent.with_alpha(0.20) } else { Color::TRANSPARENT })
-                                        .hover_bg(if is_glob { colors.accent.with_alpha(0.28) } else { Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, 0.07) })
-                                        .text_color(if is_glob { colors.accent } else { colors.text_muted })
+                                        .hover(Style::bg(if is_glob { colors.accent.with_alpha(0.28) } else { Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, 0.07) }))
+                                        .color(if is_glob { colors.accent } else { colors.text_muted })
                                         .radius_all(3.0)
                                         .size(10.5)
                                         .show();
@@ -176,13 +176,12 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
                     let _do_collapse = false;
 
                     ui.container()
-                        .full_width()
+                        .fill_x()
                         .padding(8.0, 10.0, 6.0, 10.0)
                         .row()
                         .valign(Align::Center)
                         .halign(Align::SpaceBetween)
-                        .no_wrap()
-                        .show(|ui| {
+                                                .show(|ui| {
                             // Child 1: Left prompt and title box
                             ui.container()
                                 .row()
@@ -192,14 +191,14 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
                                     // Prompt arrow '>' in Gruvbox Red
                                     ui.text(">")
                                         .size(11.5)
-                                        .weight(FontWeight::Bold)
+                                        .font_weight(FontWeight::Bold)
                                         .color(Color::rgb(251.0 / 255.0, 73.0 / 255.0, 52.0 / 255.0))
                                         .show();
 
                                      // Box with title and border: ╭────── Explorer ──────╮
                                     ui.container()
                                         .padding(2.0, 10.0, 2.0, 10.0)
-                                        .border(Color::rgb(235.0 / 255.0, 219.0 / 255.0, 178.0 / 255.0), 1.0)
+                                        .border((Color::rgb(235.0 / 255.0, 219.0 / 255.0, 178.0 / 255.0), 1.0))
                                         .radius_all(3.0)
                                         .row()
                                         .valign(Align::Center)
@@ -214,7 +213,7 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
                                             let title = if is_notes_view { "Notes" } else { "Explorer" };
                                             ui.text(title)
                                                 .size(11.0)
-                                                .weight(FontWeight::Bold)
+                                                .font_weight(FontWeight::Bold)
                                                 .color(Color::rgb(235.0 / 255.0, 219.0 / 255.0, 178.0 / 255.0))
                                                 .show();
                                         });
@@ -231,8 +230,8 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
                                         .width(18.0)
                                         .height(18.0)
                                         .bg(Color::TRANSPARENT)
-                                        .hover_bg(colors.highlight)
-                                        .text_color(colors.text_muted)
+                                        .hover(Style::bg(colors.highlight))
+                                        .color(colors.text_muted)
                                         .radius_all(3.0)
                                         .padding(0.0, 0.0, 0.0, 0.0)
                                         .size(12.0)
@@ -246,8 +245,8 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
                                         .width(18.0)
                                         .height(18.0)
                                         .bg(Color::TRANSPARENT)
-                                        .hover_bg(colors.highlight)
-                                        .text_color(colors.text_muted)
+                                        .hover(Style::bg(colors.highlight))
+                                        .color(colors.text_muted)
                                         .radius_all(3.0)
                                         .padding(0.0, 0.0, 0.0, 0.0)
                                         .size(12.0)
@@ -262,8 +261,8 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
                                             .width(18.0)
                                             .height(18.0)
                                             .bg(Color::TRANSPARENT)
-                                            .hover_bg(colors.highlight)
-                                            .text_color(colors.text_muted)
+                                            .hover(Style::bg(colors.highlight))
+                                            .color(colors.text_muted)
                                             .radius_all(3.0)
                                             .padding(0.0, 0.0, 0.0, 0.0)
                                             .size(11.0)
@@ -310,13 +309,12 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
                     };
 
                     ui.container()
-                        .full_width()
+                        .fill_x()
                         .padding(8.0, 10.0, 6.0, 10.0)
                         .row()
                         .valign(Align::Center)
                         .halign(Align::SpaceBetween)
-                        .no_wrap()
-                        .show(|ui| {
+                                                .show(|ui| {
                             // Child 1: Left Title
                             ui.container()
                                 .row()
@@ -331,7 +329,7 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
                                     }
                                     ui.text(&root_name)
                                         .size(10.5)
-                                        .weight(FontWeight::Bold)
+                                        .font_weight(FontWeight::Bold)
                                         .color(colors.text_muted)
                                         .show();
                                 });
@@ -347,8 +345,8 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
                                         .width(18.0)
                                         .height(18.0)
                                         .bg(Color::TRANSPARENT)
-                                        .hover_bg(colors.highlight)
-                                        .text_color(colors.text_muted)
+                                        .hover(Style::bg(colors.highlight))
+                                        .color(colors.text_muted)
                                         .radius_all(3.0)
                                         .padding(0.0, 0.0, 0.0, 0.0)
                                         .size(12.0)
@@ -362,8 +360,8 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
                                         .width(18.0)
                                         .height(18.0)
                                         .bg(Color::TRANSPARENT)
-                                        .hover_bg(colors.highlight)
-                                        .text_color(colors.text_muted)
+                                        .hover(Style::bg(colors.highlight))
+                                        .color(colors.text_muted)
                                         .radius_all(3.0)
                                         .padding(0.0, 0.0, 0.0, 0.0)
                                         .size(12.0)
@@ -378,8 +376,8 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
                                             .width(18.0)
                                             .height(18.0)
                                             .bg(Color::TRANSPARENT)
-                                            .hover_bg(colors.highlight)
-                                            .text_color(colors.text_muted)
+                                            .hover(Style::bg(colors.highlight))
+                                            .color(colors.text_muted)
                                             .radius_all(3.0)
                                             .padding(0.0, 0.0, 0.0, 0.0)
                                             .size(11.0)
@@ -399,8 +397,8 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
                                         .width(18.0)
                                         .height(18.0)
                                         .bg(Color::TRANSPARENT)
-                                        .hover_bg(colors.highlight)
-                                        .text_color(colors.text_muted)
+                                        .hover(Style::bg(colors.highlight))
+                                        .color(colors.text_muted)
                                         .radius_all(3.0)
                                         .padding(0.0, 0.0, 0.0, 0.0)
                                         .size(11.5)
@@ -414,8 +412,8 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
                                         .width(18.0)
                                         .height(18.0)
                                         .bg(Color::TRANSPARENT)
-                                        .hover_bg(colors.highlight)
-                                        .text_color(colors.text_muted)
+                                        .hover(Style::bg(colors.highlight))
+                                        .color(colors.text_muted)
                                         .radius_all(3.0)
                                         .padding(0.0, 0.0, 0.0, 0.0)
                                         .size(11.5)
@@ -459,7 +457,7 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
                     };
 
                     ui.container()
-                        .full_width()
+                        .fill_x()
                         .padding(8.0, 10.0, 6.0, 10.0)
                         .row()
                         .valign(Align::Center)
@@ -472,7 +470,7 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
                                 .show();
                             ui.text(&root_name)
                                 .size(11.0)
-                                .weight(FontWeight::Bold)
+                                .font_weight(FontWeight::Bold)
                                 .color(colors.text_primary)
                                 .show();
 
@@ -488,8 +486,8 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
                                 .width(18.0)
                                 .height(18.0)
                                 .bg(Color::TRANSPARENT)
-                                .hover_bg(colors.highlight)
-                                .text_color(colors.text_muted)
+                                .hover(Style::bg(colors.highlight))
+                                .color(colors.text_muted)
                                 .radius_all(3.0)
                                 .padding(0.0, 0.0, 0.0, 0.0)
                                 .size(12.0)
@@ -503,8 +501,8 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
                                 .width(18.0)
                                 .height(18.0)
                                 .bg(Color::TRANSPARENT)
-                                .hover_bg(colors.highlight)
-                                .text_color(colors.text_muted)
+                                .hover(Style::bg(colors.highlight))
+                                .color(colors.text_muted)
                                 .radius_all(3.0)
                                 .padding(0.0, 0.0, 0.0, 0.0)
                                 .size(12.0)
@@ -519,8 +517,8 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
                                     .width(18.0)
                                     .height(18.0)
                                     .bg(Color::TRANSPARENT)
-                                    .hover_bg(colors.highlight)
-                                    .text_color(colors.text_muted)
+                                    .hover(Style::bg(colors.highlight))
+                                    .color(colors.text_muted)
                                     .radius_all(3.0)
                                     .padding(0.0, 0.0, 0.0, 0.0)
                                     .size(11.0)
@@ -539,8 +537,8 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
                                 .width(18.0)
                                 .height(18.0)
                                 .bg(Color::TRANSPARENT)
-                                .hover_bg(colors.highlight)
-                                .text_color(colors.text_muted)
+                                .hover(Style::bg(colors.highlight))
+                                .color(colors.text_muted)
                                 .radius_all(3.0)
                                 .padding(0.0, 0.0, 0.0, 0.0)
                                 .size(11.5)
@@ -554,8 +552,8 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
                                 .width(18.0)
                                 .height(18.0)
                                 .bg(Color::TRANSPARENT)
-                                .hover_bg(colors.highlight)
-                                .text_color(colors.text_muted)
+                                .hover(Style::bg(colors.highlight))
+                                .color(colors.text_muted)
                                 .radius_all(3.0)
                                 .padding(0.0, 0.0, 0.0, 0.0)
                                 .size(11.5)
@@ -585,7 +583,7 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
             }
 
             ui.container()
-                .full_width()
+                .fill_x()
                 .height(1.0)
                 .bg(colors.border)
                 .show(|_| {});
@@ -649,7 +647,7 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
             let is_modal_open = state.is_modal_or_dialog_open();
 
             let tree_resp = ui.container()
-                .full_width()
+                .fill_x()
                 .fill_y()
                 .scroll_y(true)
                 .padding(2.0, 4.0, 2.0, scroll_padding_h)
@@ -657,7 +655,7 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
                 .show(|ui| {
                     if is_notes_view && items.is_empty() && state.inline_tree_input.is_none() {
                         ui.container()
-                            .full_width()
+                            .fill_x()
                             .padding(24.0, 16.0, 24.0, 16.0)
                             .column()
                             .valign(Align::Center)
@@ -670,15 +668,15 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
                                     .show();
                                 ui.text("No notes yet")
                                     .size(11.5)
-                                    .weight(FontWeight::Medium)
+                                    .font_weight(FontWeight::Medium)
                                     .color(colors.text_muted)
                                     .show();
                                 let create_btn = ui.button("+ New Note")
                                     .id(Id::from_u64(999997180))
                                     .height(24.0)
                                     .bg(colors.accent.with_alpha(0.15))
-                                    .hover_bg(colors.accent.with_alpha(0.25))
-                                    .text_color(colors.accent)
+                                    .hover(Style::bg(colors.accent.with_alpha(0.25)))
+                                    .color(colors.accent)
                                     .radius_all(4.0)
                                     .padding(0.0, 12.0, 0.0, 12.0)
                                     .size(11.0)
@@ -771,12 +769,11 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
 
                         let mut item_container = ui.container()
                             .id(item_id)
-                            .full_width()
+                            .fill_x()
                             .row()
                             .valign(Align::Center)
                             .halign(Align::SpaceBetween)
-                            .no_wrap()
-                            .padding_left(pad_left)
+                                                        .padding_left(pad_left)
                             .padding_right(pad_right)
                             .padding_top(pad_v)
                             .padding_bottom(pad_v)
@@ -796,7 +793,7 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
                         } else {
                             item_container = item_container
                                 .bg(Color::TRANSPARENT)
-                                .hover_bg(Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, 0.05));
+                                .hover(Style::bg(Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, 0.05)));
                         }
 
                         let resp = item_container.show(|ui| {
@@ -820,8 +817,7 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
                             ui.container()
                                 .row()
                                 .valign(Align::Center)
-                                .no_wrap()
-                                .gap(4.0)
+                                                                .gap(4.0)
                                 .show(|ui| {
                                     // Dedicated cursor slot always on the far left side
                                     let cursor_w = 7.0;
@@ -946,12 +942,12 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
                                                 "file name…"
                                             };
 
-                                            ui.input(&mut inline.text, input_seed)
+                                            ui.input(&mut inline.text).id(input_seed)
                                                 .width(avail_w)
                                                 .min_width(20.0)
                                                 .color(colors.text_primary)
-                                                .no_bg()
-                                                .no_border()
+                                                .bg(Color::TRANSPARENT)
+                                                .border(None)
                                                 .placeholder(placeholder)
                                                 .placeholder_color(colors.text_dim)
                                                 .padding_x(2.0)
@@ -1003,8 +999,7 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
                                     ui.container()
                                         .row()
                                         .valign(Align::Center)
-                                        .no_wrap()
-                                        .padding_right(2.0)
+                                                                                .padding_right(2.0)
                                         .show(|ui| {
                                             if node.is_dir {
                                                 ui.container()
@@ -1024,7 +1019,7 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
                                                 };
                                                 ui.text(badge)
                                                     .size(9.0)
-                                                    .weight(FontWeight::Bold)
+                                                    .font_weight(FontWeight::Bold)
                                                     .color(color)
                                                     .show();
                                             }
@@ -1157,11 +1152,11 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
         ui.overlay(|ui| {
             ui.container()
                 .raw_id(Id::from_u64(999996000))
-                .absolute(menu_x, menu_y)
+                .pos(menu_x, menu_y)
                 .overlay()
                 .width(menu_w)
                 .bg(colors.bg_sidebar)
-                .border(colors.border, 1.0)
+                .border((colors.border, 1.0))
                 .radius_all(6.0)
                 .shadow(Color::rgba(0.0, 0.0, 0.0, 0.5), 0.0, 4.0, 16.0)
                 .padding(4.0, 4.0, 4.0, 4.0)
@@ -1179,7 +1174,7 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
                     }
 
                     if is_notes && menu.is_dir {
-                        ui.container().full_width().height(1.0).bg(colors.border).show(|_| {});
+                        ui.container().fill_x().height(1.0).bg(colors.border).show(|_| {});
                         let current_opt = state.notes_state.get_folder_option(&menu.target_path);
                         for (i, opt) in crate::state::notes::NoteFolderOption::all().iter().enumerate() {
                             let is_cur = current_opt == *opt;
@@ -1209,7 +1204,7 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
                     }
 
                     // Divider
-                    ui.container().full_width().height(1.0).bg(colors.border).show(|_| {});
+                    ui.container().fill_x().height(1.0).bg(colors.border).show(|_| {});
 
                     if draw_menu_item(ui, Id::from_u64(999996003), "\u{f044}", "Rename...", "F2", true, false, &colors) {
                         state.open_rename_modal(menu.target_path.clone());
@@ -1223,7 +1218,7 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
                     }
 
                     // Divider
-                    ui.container().full_width().height(1.0).bg(colors.border).show(|_| {});
+                    ui.container().fill_x().height(1.0).bg(colors.border).show(|_| {});
 
                     if draw_menu_item(ui, Id::from_u64(999996005), "\u{f0c4}", "Cut", "Ctrl+X", true, false, &colors) {
                         state.cut_tree_path(&menu.target_path);
@@ -1239,7 +1234,7 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
                     }
 
                     // Divider
-                    ui.container().full_width().height(1.0).bg(colors.border).show(|_| {});
+                    ui.container().fill_x().height(1.0).bg(colors.border).show(|_| {});
 
                     if draw_menu_item(ui, Id::from_u64(999996008), "\u{f0c1}", "Copy Path", "", true, false, &colors) {
                         state.set_clipboard(menu.target_path.display().to_string());
@@ -1378,7 +1373,7 @@ fn draw_inline_create_row(
     let input_w = (sidebar_w - used_w).max(40.0);
 
     ui.container()
-        .full_width()
+        .fill_x()
         .row()
         .valign(Align::Center)
         .padding_left(pad_left)
@@ -1450,12 +1445,12 @@ fn draw_inline_create_row(
                 "file name…"
             };
 
-            ui.input(&mut inline.text, input_seed)
+            ui.input(&mut inline.text).id(input_seed)
                 .width(input_w)
                 .min_width(20.0)
                 .color(colors.text_primary)
-                .no_bg()
-                .no_border()
+                .bg(Color::TRANSPARENT)
+                .border(None)
                 .placeholder(placeholder)
                 .placeholder_color(colors.text_dim)
                 .padding_x(2.0)
@@ -1486,7 +1481,7 @@ pub(super) fn draw_menu_item(
 
     let resp = ui.container()
         .id(id)
-        .full_width()
+        .fill_x()
         .height(26.0)
         .row()
         .valign(Align::Center)
@@ -1495,7 +1490,7 @@ pub(super) fn draw_menu_item(
         .gap(8.0)
         .radius_all(4.0)
         .bg(Color::TRANSPARENT)
-        .hover_bg(if enabled { colors.highlight } else { Color::TRANSPARENT })
+        .hover(Style::bg(if enabled { colors.highlight } else { Color::TRANSPARENT }))
         .show(|ui| {
             // Icon column (fixed width so labels align)
             ui.container()
@@ -1535,7 +1530,7 @@ fn draw_no_folder_view(ui: &mut Ui, state: &mut ZenthreeState, sidebar_w: f32) {
 
     // Section header
     ui.container()
-        .full_width()
+        .fill_x()
         .padding(8.0, 10.0, 6.0, 10.0)
         .row()
         .valign(Align::Center)
@@ -1543,20 +1538,20 @@ fn draw_no_folder_view(ui: &mut Ui, state: &mut ZenthreeState, sidebar_w: f32) {
         .show(|ui| {
             ui.text("NO FOLDER OPENED")
                 .size(10.5)
-                .weight(FontWeight::Bold)
+                .font_weight(FontWeight::Bold)
                 .color(colors.text_primary.with_alpha(1.0))
                 .show();
         });
 
     ui.container()
-        .full_width()
+        .fill_x()
         .height(1.0)
         .bg(colors.border)
         .show(|_| {});
 
     // Body
     ui.container()
-        .full_width()
+        .fill_x()
         .padding(20.0, 12.0, 20.0, 12.0)
         .column()
         .gap(12.0)
@@ -1574,8 +1569,8 @@ fn draw_no_folder_view(ui: &mut Ui, state: &mut ZenthreeState, sidebar_w: f32) {
                 .width(inner_w)
                 .height(28.0)
                 .bg(colors.accent)
-                .hover_bg(colors.accent.with_alpha(0.85))
-                .text_color(Color::WHITE)
+                .hover(Style::bg(colors.accent.with_alpha(0.85)))
+                .color(Color::WHITE)
                 .radius_all(4.0)
                 .size(11.0)
                 .show();
@@ -1592,9 +1587,9 @@ fn draw_no_folder_view(ui: &mut Ui, state: &mut ZenthreeState, sidebar_w: f32) {
                 .width(inner_w)
                 .height(26.0)
                 .bg(Color::TRANSPARENT)
-                .hover_bg(colors.highlight)
-                .border(colors.border, 1.0)
-                .text_color(colors.text_primary)
+                .hover(Style::bg(colors.highlight))
+                .border((colors.border, 1.0))
+                .color(colors.text_primary)
                 .radius_all(4.0)
                 .size(11.0)
                 .show();
@@ -1617,7 +1612,7 @@ fn draw_no_folder_view(ui: &mut Ui, state: &mut ZenthreeState, sidebar_w: f32) {
                     };
                     ui.text("Shortcuts:")
                         .size(9.5)
-                        .weight(FontWeight::Bold)
+                        .font_weight(FontWeight::Bold)
                         .color(shortcut_color)
                         .max_width(inner_w)
                         .show();

@@ -47,7 +47,7 @@ pub fn draw_source_control_panel(ui: &mut Ui, state: &mut ZenthreeState, panel_w
         .show(|ui| {
             // Header: "SOURCE CONTROL" + branch pill + actions
             ui.container()
-                .full_width()
+                .fill_x()
                 .padding(8.0, 10.0, 6.0, 10.0)
                 .row()
                 .valign(Align::Center)
@@ -60,7 +60,7 @@ pub fn draw_source_control_panel(ui: &mut Ui, state: &mut ZenthreeState, panel_w
                         .show(|ui| {
                             ui.text("SOURCE CONTROL")
                                 .size(11.0)
-                                .weight(FontWeight::Bold)
+                                .font_weight(FontWeight::Bold)
                                 .color(colors.text_muted)
                                 .show();
 
@@ -89,7 +89,7 @@ pub fn draw_source_control_panel(ui: &mut Ui, state: &mut ZenthreeState, panel_w
 
                                         ui.text(&branch_name)
                                             .size(9.5)
-                                            .weight(FontWeight::Bold)
+                                            .font_weight(FontWeight::Bold)
                                             .color(colors.accent)
                                             .show();
                                     });
@@ -107,7 +107,7 @@ pub fn draw_source_control_panel(ui: &mut Ui, state: &mut ZenthreeState, panel_w
                                     .id(Id::from_u64(999998310))
                                     .height(20.0)
                                     .bg(Color::TRANSPARENT)
-                                    .text_color(colors.text_muted)
+                                    .color(colors.text_muted)
                                     .size(11.0)
                                     .radius_all(3.0)
                                     .padding_left(4.0)
@@ -124,7 +124,7 @@ pub fn draw_source_control_panel(ui: &mut Ui, state: &mut ZenthreeState, panel_w
                                         .id(Id::from_u64(999998311))
                                         .height(20.0)
                                         .bg(Color::TRANSPARENT)
-                                        .text_color(colors.text_muted)
+                                        .color(colors.text_muted)
                                         .size(10.5)
                                         .radius_all(3.0)
                                         .padding_left(4.0)
@@ -154,7 +154,7 @@ pub fn draw_source_control_panel(ui: &mut Ui, state: &mut ZenthreeState, panel_w
             // 3. Git repository view
             // Commit message input area
             ui.container()
-                .full_width()
+                .fill_x()
                 .padding(4.0, 10.0, 8.0, 10.0)
                 .column()
                 .gap(6.0)
@@ -164,16 +164,15 @@ pub fn draw_source_control_panel(ui: &mut Ui, state: &mut ZenthreeState, panel_w
                     let commit_input_id = Id::from_u64(999998300);
                     let is_input_focused = ui.focused_id == Some(commit_input_id);
 
-                    let _commit_input = ui.text_area(&mut state.git_state.commit_message, commit_input_id)
+                    let _commit_input = ui.text_area(&mut state.git_state.commit_message).id(commit_input_id)
                         .width(text_area_w)
                         .height(34.0)
                         .max_height(80.0)
                         .size(11.0)
-                        .line_height(1.25)
-                        .color(colors.text_primary)
+                                                .color(colors.text_primary)
                         .bg(colors.bg_base)
-                        .border(Color::TRANSPARENT, 0.0)
-                        .focus_border(Color::TRANSPARENT, 0.0)
+                        .border((Color::TRANSPARENT, 0.0))
+                        .focus_border((Color::TRANSPARENT, 0.0))
                         .radius_all(4.0)
                         .padding(4.0, 8.0, 4.0, 8.0)
                         .placeholder("Message (Ctrl+Enter to commit)")
@@ -200,8 +199,8 @@ pub fn draw_source_control_panel(ui: &mut Ui, state: &mut ZenthreeState, panel_w
                     }
 
                     let commit_btn = ui.container()
-                        .clickable(can_commit)
-                        .full_width()
+                        .interactive(can_commit)
+                        .fill_x()
                         .height(26.0)
                         .radius_all(4.0)
                         .bg(if can_commit { colors.accent } else { colors.highlight })
@@ -217,7 +216,7 @@ pub fn draw_source_control_panel(ui: &mut Ui, state: &mut ZenthreeState, panel_w
 
                             ui.text("Commit")
                                 .size(11.0)
-                                .weight(FontWeight::Medium)
+                                .font_weight(FontWeight::Medium)
                                 .color(if can_commit { Color::WHITE } else { colors.text_dim })
                                 .show();
                         });
@@ -230,10 +229,10 @@ pub fn draw_source_control_panel(ui: &mut Ui, state: &mut ZenthreeState, panel_w
                     // Status / error message banner if commit failed
                     if let Some(ref err) = state.git_state.status_error {
                         ui.container()
-                            .full_width()
+                            .fill_x()
                             .radius_all(4.0)
                             .bg(color_error().with_alpha(0.12))
-                            .border(color_error().with_alpha(0.3), 1.0)
+                            .border((color_error().with_alpha(0.3), 1.0))
                             .padding(4.0, 6.0, 4.0, 6.0)
                             .show(|ui| {
                                 ui.text(err)
@@ -256,7 +255,7 @@ pub fn draw_source_control_panel(ui: &mut Ui, state: &mut ZenthreeState, panel_w
 
             // Scrollable section for changes (staged + unstaged)
             ui.container()
-                .full_width()
+                .fill_x()
                 .height(changes_h)
                 .scroll_y(true)
                 .clip(true)
@@ -278,7 +277,7 @@ pub fn draw_source_control_panel(ui: &mut Ui, state: &mut ZenthreeState, panel_w
 
                         // Accordion header: sleek dark bar matching sidebar, highlights on hover
                         ui.container()
-                            .full_width()
+                            .fill_x()
                             .height(24.0)
                             .padding_left(8.0)
                             .padding_right(8.0)
@@ -286,15 +285,13 @@ pub fn draw_source_control_panel(ui: &mut Ui, state: &mut ZenthreeState, panel_w
                             .row()
                             .valign(Align::Center)
                             .halign(Align::SpaceBetween)
-                            .no_wrap()
-                            .show(|ui| {
+                                                        .show(|ui| {
                                 let hdr_btn = ui.container()
                                     .raw_id(staged_hdr_key)
-                                    .clickable(true)
+                                    .interactive(true)
                                     .row()
                                     .valign(Align::Center)
-                                    .no_wrap()
-                                    .gap(5.0)
+                                                                        .gap(5.0)
                                     .show(|ui| {
                                         ui.text(if staged_expanded { "\u{f078}" } else { "\u{f054}" })
                                             .size(9.0)
@@ -303,7 +300,7 @@ pub fn draw_source_control_panel(ui: &mut Ui, state: &mut ZenthreeState, panel_w
 
                                         ui.text("STAGED CHANGES")
                                             .size(10.5)
-                                            .weight(FontWeight::Bold)
+                                            .font_weight(FontWeight::Bold)
                                             .color(if staged_hdr_hov { colors.text_primary } else { colors.text_muted })
                                             .show();
 
@@ -318,7 +315,7 @@ pub fn draw_source_control_panel(ui: &mut Ui, state: &mut ZenthreeState, panel_w
                                             .show(|ui| {
                                                 ui.text(&format!("{}", staged_len))
                                                     .size(9.0)
-                                                    .weight(FontWeight::Bold)
+                                                    .font_weight(FontWeight::Bold)
                                                     .color(colors.accent)
                                                     .show();
                                             });
@@ -337,7 +334,7 @@ pub fn draw_source_control_panel(ui: &mut Ui, state: &mut ZenthreeState, panel_w
                                     .id(Id::from_u64(999998312))
                                     .height(18.0)
                                     .bg(Color::TRANSPARENT)
-                                    .text_color(if staged_hdr_hov { colors.text_primary } else { colors.text_muted })
+                                    .color(if staged_hdr_hov { colors.text_primary } else { colors.text_muted })
                                     .size(9.5)
                                     .radius_all(3.0)
                                     .padding_left(4.0)
@@ -377,8 +374,8 @@ pub fn draw_source_control_panel(ui: &mut Ui, state: &mut ZenthreeState, panel_w
                                 let left_max_w = (panel_w - right_reserved - 20.0).max(25.0);
 
                                 let row = ui.container()
-                                    .clickable(true)
-                                    .full_width()
+                                    .interactive(true)
+                                    .fill_x()
                                     .height(22.0)
                                     .padding_left(12.0)
                                     .padding_right(8.0)
@@ -386,16 +383,14 @@ pub fn draw_source_control_panel(ui: &mut Ui, state: &mut ZenthreeState, panel_w
                                     .row()
                                     .valign(Align::Center)
                                     .halign(Align::SpaceBetween)
-                                    .no_wrap()
-                                    .show(|ui| {
+                                                                        .show(|ui| {
                                         // Left: icon + filename + dynamic dir path (only truncates when shrinking close)
                                         ui.container()
                                             .max_width(left_max_w)
                                             .clip(true)
                                             .row()
                                             .valign(Align::Center)
-                                            .no_wrap()
-                                            .gap(5.0)
+                                                                                        .gap(5.0)
                                             .show(|ui| {
                                                 icon.show(ui, 13.0);
 
@@ -431,15 +426,14 @@ pub fn draw_source_control_panel(ui: &mut Ui, state: &mut ZenthreeState, panel_w
                                         ui.container()
                                             .row()
                                             .valign(Align::Center)
-                                            .no_wrap()
-                                            .gap(4.0)
+                                                                                        .gap(4.0)
                                             .show(|ui| {
                                                 if item_hov {
                                                     let unstage_btn = ui.button("\u{f068}") // minus icon
                                                         .id(Id::from_u64(999998500 + idx as u64))
                                                         .height(18.0)
                                                         .bg(Color::TRANSPARENT)
-                                                        .text_color(colors.text_muted)
+                                                        .color(colors.text_muted)
                                                         .size(9.5)
                                                         .radius_all(3.0)
                                                         .padding_left(3.0)
@@ -452,7 +446,7 @@ pub fn draw_source_control_panel(ui: &mut Ui, state: &mut ZenthreeState, panel_w
 
                                                 ui.text(badge_char)
                                                     .size(10.5)
-                                                    .weight(FontWeight::Bold)
+                                                    .font_weight(FontWeight::Bold)
                                                     .color(badge_color)
                                                     .show();
                                             });
@@ -480,7 +474,7 @@ pub fn draw_source_control_panel(ui: &mut Ui, state: &mut ZenthreeState, panel_w
 
                         // Accordion header: sleek dark bar matching sidebar, highlights on hover
                         ui.container()
-                            .full_width()
+                            .fill_x()
                             .height(24.0)
                             .padding_left(8.0)
                             .padding_right(8.0)
@@ -488,15 +482,13 @@ pub fn draw_source_control_panel(ui: &mut Ui, state: &mut ZenthreeState, panel_w
                             .row()
                             .valign(Align::Center)
                             .halign(Align::SpaceBetween)
-                            .no_wrap()
-                            .show(|ui| {
+                                                        .show(|ui| {
                                 let hdr_btn = ui.container()
                                     .raw_id(changes_hdr_key)
-                                    .clickable(true)
+                                    .interactive(true)
                                     .row()
                                     .valign(Align::Center)
-                                    .no_wrap()
-                                    .gap(5.0)
+                                                                        .gap(5.0)
                                     .show(|ui| {
                                         ui.text(if changes_expanded { "\u{f078}" } else { "\u{f054}" })
                                             .size(9.0)
@@ -505,7 +497,7 @@ pub fn draw_source_control_panel(ui: &mut Ui, state: &mut ZenthreeState, panel_w
 
                                         ui.text("CHANGES")
                                              .size(10.5)
-                                             .weight(FontWeight::Bold)
+                                             .font_weight(FontWeight::Bold)
                                              .color(if changes_hdr_hov { colors.text_primary } else { colors.text_muted })
                                              .show();
 
@@ -520,7 +512,7 @@ pub fn draw_source_control_panel(ui: &mut Ui, state: &mut ZenthreeState, panel_w
                                              .show(|ui| {
                                                  ui.text(&format!("{}", unstaged_len))
                                                      .size(9.0)
-                                                     .weight(FontWeight::Bold)
+                                                     .font_weight(FontWeight::Bold)
                                                      .color(colors.accent)
                                                      .show();
                                              });
@@ -539,7 +531,7 @@ pub fn draw_source_control_panel(ui: &mut Ui, state: &mut ZenthreeState, panel_w
                                     .id(Id::from_u64(999998313))
                                     .height(18.0)
                                     .bg(Color::TRANSPARENT)
-                                    .text_color(if changes_hdr_hov { colors.text_primary } else { colors.text_muted })
+                                    .color(if changes_hdr_hov { colors.text_primary } else { colors.text_muted })
                                     .size(9.5)
                                     .radius_all(3.0)
                                     .padding_left(4.0)
@@ -581,8 +573,8 @@ pub fn draw_source_control_panel(ui: &mut Ui, state: &mut ZenthreeState, panel_w
                                 let left_max_w = (panel_w - right_reserved - 20.0).max(25.0);
 
                                 let row = ui.container()
-                                    .clickable(true)
-                                    .full_width()
+                                    .interactive(true)
+                                    .fill_x()
                                     .height(22.0)
                                     .padding_left(12.0)
                                     .padding_right(8.0)
@@ -590,16 +582,14 @@ pub fn draw_source_control_panel(ui: &mut Ui, state: &mut ZenthreeState, panel_w
                                     .row()
                                     .valign(Align::Center)
                                     .halign(Align::SpaceBetween)
-                                    .no_wrap()
-                                    .show(|ui| {
+                                                                        .show(|ui| {
                                         // Left: icon + filename + dynamic dir path (only truncates when shrinking close)
                                         ui.container()
                                             .max_width(left_max_w)
                                             .clip(true)
                                             .row()
                                             .valign(Align::Center)
-                                            .no_wrap()
-                                            .gap(5.0)
+                                                                                        .gap(5.0)
                                             .show(|ui| {
                                                 icon.show(ui, 13.0);
 
@@ -635,8 +625,7 @@ pub fn draw_source_control_panel(ui: &mut Ui, state: &mut ZenthreeState, panel_w
                                         ui.container()
                                             .row()
                                             .valign(Align::Center)
-                                            .no_wrap()
-                                            .gap(4.0)
+                                                                                        .gap(4.0)
                                             .show(|ui| {
                                                 if item_hov {
                                                     // Discard button (\u{f0e2} undo icon)
@@ -644,7 +633,7 @@ pub fn draw_source_control_panel(ui: &mut Ui, state: &mut ZenthreeState, panel_w
                                                         .id(Id::from_u64(999998700 + idx as u64))
                                                         .height(18.0)
                                                         .bg(Color::TRANSPARENT)
-                                                        .text_color(colors.text_muted)
+                                                        .color(colors.text_muted)
                                                         .size(9.0)
                                                         .radius_all(3.0)
                                                         .padding_left(3.0)
@@ -659,7 +648,7 @@ pub fn draw_source_control_panel(ui: &mut Ui, state: &mut ZenthreeState, panel_w
                                                         .id(Id::from_u64(999998800 + idx as u64))
                                                         .height(18.0)
                                                         .bg(Color::TRANSPARENT)
-                                                        .text_color(colors.text_muted)
+                                                        .color(colors.text_muted)
                                                         .size(9.5)
                                                         .radius_all(3.0)
                                                         .padding_left(3.0)
@@ -672,7 +661,7 @@ pub fn draw_source_control_panel(ui: &mut Ui, state: &mut ZenthreeState, panel_w
 
                                                 ui.text(badge_char)
                                                     .size(10.5)
-                                                    .weight(FontWeight::Bold)
+                                                    .font_weight(FontWeight::Bold)
                                                     .color(badge_color)
                                                     .show();
                                             });
@@ -692,7 +681,7 @@ pub fn draw_source_control_panel(ui: &mut Ui, state: &mut ZenthreeState, panel_w
                     // Clean working tree banner
                     if staged_len == 0 && unstaged_len == 0 {
                         ui.container()
-                            .full_width()
+                            .fill_x()
                             .padding(16.0, 16.0, 16.0, 16.0)
                             .column()
                             .halign(Align::Center)
@@ -705,7 +694,7 @@ pub fn draw_source_control_panel(ui: &mut Ui, state: &mut ZenthreeState, panel_w
 
                                 ui.text("Working Tree Clean")
                                     .size(11.5)
-                                    .weight(FontWeight::Bold)
+                                    .font_weight(FontWeight::Bold)
                                     .color(colors.text_primary)
                                     .show();
 
@@ -801,7 +790,7 @@ pub fn draw_source_control_panel(ui: &mut Ui, state: &mut ZenthreeState, panel_w
 
             // Accordion header: "v Graph   repo" (sleek dark bar, highlights on hover)
             ui.container()
-                .full_width()
+                .fill_x()
                 .height(24.0)
                 .padding_left(8.0)
                 .padding_right(8.0)
@@ -809,15 +798,13 @@ pub fn draw_source_control_panel(ui: &mut Ui, state: &mut ZenthreeState, panel_w
                 .row()
                 .valign(Align::Center)
                 .halign(Align::SpaceBetween)
-                .no_wrap()
-                .show(|ui| {
+                                .show(|ui| {
                     let hdr_btn = ui.container()
                         .raw_id(graph_hdr_key)
-                        .clickable(true)
+                        .interactive(true)
                         .row()
                         .valign(Align::Center)
-                        .no_wrap()
-                        .gap(6.0)
+                                                .gap(6.0)
                         .show(|ui| {
                             ui.text(if graph_expanded { "\u{f078}" } else { "\u{f054}" })
                                 .size(9.0)
@@ -826,7 +813,7 @@ pub fn draw_source_control_panel(ui: &mut Ui, state: &mut ZenthreeState, panel_w
 
                             ui.text("Graph")
                                 .size(11.0)
-                                .weight(FontWeight::Bold)
+                                .font_weight(FontWeight::Bold)
                                 .color(if graph_hdr_hov { colors.text_primary } else { colors.text_muted })
                                 .show();
 
@@ -861,7 +848,7 @@ pub fn draw_source_control_panel(ui: &mut Ui, state: &mut ZenthreeState, panel_w
                         .id(Id::from_u64(999998399))
                         .height(18.0)
                         .bg(Color::TRANSPARENT)
-                        .text_color(if graph_hdr_hov { colors.text_primary } else { colors.text_muted })
+                        .color(if graph_hdr_hov { colors.text_primary } else { colors.text_muted })
                         .size(9.5)
                         .radius_all(3.0)
                         .padding_left(3.0)
@@ -880,7 +867,7 @@ pub fn draw_source_control_panel(ui: &mut Ui, state: &mut ZenthreeState, panel_w
 
             if graph_expanded {
                 ui.container()
-                    .full_width()
+                    .fill_x()
                     .height(state.git_state.graph_height)
                     .scroll_y(true)
                     .clip(true)
@@ -899,8 +886,8 @@ pub fn draw_source_control_panel(ui: &mut Ui, state: &mut ZenthreeState, panel_w
                             let is_last = idx == history_len.saturating_sub(1);
 
                             let commit_row = ui.container()
-                                .clickable(true)
-                                .full_width()
+                                .interactive(true)
+                                .fill_x()
                                 .height(22.0)
                                 .padding_left(6.0)
                                 .padding_right(6.0)
@@ -908,8 +895,7 @@ pub fn draw_source_control_panel(ui: &mut Ui, state: &mut ZenthreeState, panel_w
                                 .row()
                                 .valign(Align::Center)
                                 .halign(Align::SpaceBetween)
-                                .no_wrap()
-                                .show(|ui| {
+                                                                .show(|ui| {
                                     // Left: Connected Graph Tracks + Node + Hash + Commit Message
                                     let content_max_w = (panel_w - 20.0).max(40.0);
                                     ui.container()
@@ -917,8 +903,7 @@ pub fn draw_source_control_panel(ui: &mut Ui, state: &mut ZenthreeState, panel_w
                                         .clip(true)
                                         .row()
                                         .valign(Align::Center)
-                                        .no_wrap()
-                                        .gap(6.0)
+                                                                                .gap(6.0)
                                         .show(|ui| {
                                             // Graph column with vertical connector rails
                                             let graph_col_w = (lane as f32 + 1.0) * 14.0 + 2.0;
@@ -1006,7 +991,7 @@ pub fn draw_source_control_panel(ui: &mut Ui, state: &mut ZenthreeState, panel_w
                                                     .height(15.0)
                                                     .radius_all(3.0)
                                                     .bg(lane_color.with_alpha(0.18))
-                                                    .border(lane_color.with_alpha(0.4), 1.0)
+                                                    .border((lane_color.with_alpha(0.4), 1.0))
                                                     .padding(0.0, 4.0, 0.0, 4.0)
                                                     .row()
                                                     .valign(Align::Center)
@@ -1019,7 +1004,7 @@ pub fn draw_source_control_panel(ui: &mut Ui, state: &mut ZenthreeState, panel_w
 
                                                         ui.text(&state.git_state.branch)
                                                             .size(9.0)
-                                                            .weight(FontWeight::Bold)
+                                                            .font_weight(FontWeight::Bold)
                                                             .color(lane_color)
                                                             .show();
                                                     });
@@ -1086,7 +1071,7 @@ fn draw_empty_no_workspace(ui: &mut Ui, state: &mut ZenthreeState, panel_w: f32)
     let text_width = (panel_w - 32.0).max(1.0);
 
     ui.container()
-        .full_width()
+        .fill_x()
         .fill_y()
         .padding(32.0, 16.0, 16.0, 16.0)
         .column()
@@ -1100,7 +1085,7 @@ fn draw_empty_no_workspace(ui: &mut Ui, state: &mut ZenthreeState, panel_w: f32)
 
             ui.text("No Folder Open")
                 .size(13.0)
-                .weight(FontWeight::Bold)
+                .font_weight(FontWeight::Bold)
                 .color(colors.text_primary)
                 .show();
 
@@ -1116,7 +1101,7 @@ fn draw_empty_no_workspace(ui: &mut Ui, state: &mut ZenthreeState, panel_w: f32)
                 .id(Id::from_u64(999998350))
                 .height(28.0)
                 .bg(colors.accent)
-                .text_color(Color::WHITE)
+                .color(Color::WHITE)
                 .radius_all(4.0)
                 .padding_left(12.0)
                 .padding_right(12.0)
@@ -1136,7 +1121,7 @@ fn draw_empty_not_a_repo(ui: &mut Ui, state: &mut ZenthreeState, panel_w: f32) {
     let text_width = (panel_w - 32.0).max(1.0);
 
     ui.container()
-        .full_width()
+        .fill_x()
         .fill_y()
         .padding(32.0, 16.0, 16.0, 16.0)
         .column()
@@ -1151,7 +1136,7 @@ fn draw_empty_not_a_repo(ui: &mut Ui, state: &mut ZenthreeState, panel_w: f32) {
 
             ui.text("No Git Repository")
                 .size(13.0)
-                .weight(FontWeight::Bold)
+                .font_weight(FontWeight::Bold)
                 .color(colors.text_primary)
                 .show();
 
@@ -1167,7 +1152,7 @@ fn draw_empty_not_a_repo(ui: &mut Ui, state: &mut ZenthreeState, panel_w: f32) {
                 .id(Id::from_u64(999998351))
                 .height(28.0)
                 .bg(colors.accent)
-                .text_color(Color::WHITE)
+                .color(Color::WHITE)
                 .radius_all(4.0)
                 .padding_left(12.0)
                 .padding_right(12.0)

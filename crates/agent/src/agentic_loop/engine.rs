@@ -13,24 +13,22 @@
 //! - Situation O: Session export/import for persistence across restarts.
 
 use std::sync::atomic::Ordering;
-use serde_json::Value;
+use std::collections::HashSet;
+use std::sync::Arc;
 
-use crate::orchestrator::config::AgentConfig;
 use crate::context::pruner::ContextManager;
-use crate::orchestrator::session::AgentSession;
+use crate::skills::SkillRegistry;
 use crate::tools::registry::ToolRegistry;
 use crate::traits::provider::Provider;
-use crate::traits::tool::ToolRisk;
 use crate::types::approval::{ApprovalDecision, ApprovalRequest};
 use crate::types::error::ProviderError;
 use crate::types::event::{AgentEvent, ProviderEvent};
 use crate::types::message::{Message, ToolCall};
 use crate::verification::VerificationRunner;
-
-use std::collections::HashSet;
-use std::sync::Arc;
-use crate::skills::SkillRegistry;
-use crate::orchestrator::AgentIntent;
+use crate::orchestrator::{
+    AgentConfig, AgentHook, AgentIntent, AgentSession, DispatchOutcome, HookRegistry,
+    ProvisioningResult, RepetitionTracker, ToolDispatcher, ToolProvisioner,
+};
 
 /// The main autonomous agent orchestrator tying Provider, Tools, and Conversation together.
 pub struct Agent {
@@ -44,6 +42,10 @@ pub struct Agent {
     explicit_intent: Option<AgentIntent>,
     explicit_tools: Option<HashSet<String>>,
     reflex: crate::orchestrator::BioReflexClient,
+    hooks: HookRegistry,
+    rules: Vec<crate::rules::Rule>,
+    trust_status: crate::trust::TrustStatus,
+    task_manager: crate::tasks::TaskManager,
 }
 
 impl Agent {
@@ -70,18 +72,28 @@ impl Agent {
             explicit_intent: None,
             explicit_tools: None,
             reflex: crate::orchestrator::BioReflexClient::default(),
+            hooks: HookRegistry::default(),
+            rules: Vec::new(),
+            trust_status: crate::trust::TrustStatus::Trusted,
+            task_manager: crate::tasks::TaskManager::default(),
         }
     }
 
-    /// Create an agent initialized for a specific workspace root, discovering project skills.
+    /// Create an agent initialized for a specific workspace root, discovering project skills and rules.
     pub fn with_workspace(
         provider: Box<dyn Provider>,
         mut tools: ToolRegistry,
         workspace: impl AsRef<std::path::Path>,
     ) -> Self {
         let ws_path = workspace.as_ref().to_path_buf();
+        let trust_mgr = crate::trust::WorkspaceTrustManager::default();
+        let trust_status = trust_mgr.check_trust(&ws_path);
+        let mut hooks = HookRegistry::default();
+        hooks.register(crate::trust::WorkspaceTrustHook::new(trust_status));
+
         let skills_report = crate::skills::discover(&ws_path).unwrap_or_default();
         let skills = Arc::new(skills_report.registry);
+        let rules = crate::rules::discover_rules(&ws_path);
         let ast = Arc::new(crate::ast::DynamicAstEngine::new());
         tools.register(crate::tools::ActivateSkillTool::new(skills.clone()));
         let tools_list = tools.manifest_pairs();
@@ -97,11 +109,30 @@ impl Agent {
         if tools.find("read_file").is_some() {
             tools.register(crate::tools::ReadFileTool::new().with_ast(ast.clone()).with_workspace(ws_path.clone()));
         }
+        if tools.find("write_file").is_some() {
+            tools.register(crate::tools::WriteFileTool::new().with_workspace(ws_path.clone()));
+        }
+        if tools.find("edit_file").is_some() {
+            tools.register(crate::tools::EditFileTool::new().with_workspace(ws_path.clone()));
+        }
+        if tools.find("multi_replace_file_content").is_some() {
+            tools.register(crate::tools::MultiReplaceFileContentTool::new().with_workspace(ws_path.clone()));
+        }
+        if tools.find("delete_file").is_some() {
+            tools.register(crate::tools::DeleteFileTool::new().with_workspace(ws_path.clone()));
+        }
+        if tools.find("rename_file").is_some() {
+            tools.register(crate::tools::RenameFileTool::new().with_workspace(ws_path.clone()));
+        }
         if tools.find("list_directory").is_some() {
             tools.register(crate::tools::ListDirectoryTool::new().with_workspace(ws_path.clone()));
         }
+        let task_mgr = crate::tasks::TaskManager::with_log_dir(ws_path.join(".zene").join("tasks"));
         if tools.find("run_terminal").is_some() {
-            tools.register(crate::tools::RunTerminalTool::new().with_workspace(ws_path.clone()));
+            tools.register(crate::tools::RunTerminalTool::new().with_workspace(ws_path.clone()).with_task_manager(task_mgr.clone()));
+        }
+        if tools.find("manage_task").is_some() {
+            tools.register(crate::tools::ManageTaskTool::new(task_mgr.clone()));
         }
         Self {
             provider,
@@ -114,7 +145,66 @@ impl Agent {
             explicit_intent: None,
             explicit_tools: None,
             reflex: crate::orchestrator::BioReflexClient::default(),
+            hooks,
+            rules,
+            trust_status,
+            task_manager: task_mgr,
         }
+    }
+
+    /// Read-only access to background task supervisor.
+    pub fn task_manager(&self) -> &crate::tasks::TaskManager {
+        &self.task_manager
+    }
+
+    /// Read-only trust status of the workspace.
+    pub fn trust_status(&self) -> crate::trust::TrustStatus {
+        self.trust_status
+    }
+
+    /// Set trust status on this agent, updating security enforcement hooks.
+    pub fn with_trust_status(mut self, status: crate::trust::TrustStatus) -> Self {
+        self.set_trust_status(status);
+        self
+    }
+
+    /// Update trust status dynamically in-place, registering updated security enforcement hooks.
+    pub fn set_trust_status(&mut self, status: crate::trust::TrustStatus) {
+        self.trust_status = status;
+        self.hooks.register(crate::trust::WorkspaceTrustHook::new(status));
+    }
+
+
+    /// Discovered rules and custom instructions active for this agent.
+    pub fn rules(&self) -> &[crate::rules::Rule] {
+        &self.rules
+    }
+
+    /// Formatted `<custom_instructions>` XML block for injection into system prompts.
+    pub fn rules_prompt(&self) -> String {
+        crate::rules::format_rules_prompt(&self.rules)
+    }
+
+    /// Register a lifecycle hook into the agent.
+    pub fn with_hook<H: AgentHook + 'static>(mut self, hook: H) -> Self {
+        self.hooks.register(hook);
+        self
+    }
+
+    /// Set or replace the entire hook registry.
+    pub fn with_hooks(mut self, hooks: HookRegistry) -> Self {
+        self.hooks = hooks;
+        self
+    }
+
+    /// Read-only reference to the active hook registry.
+    pub fn hooks(&self) -> &HookRegistry {
+        &self.hooks
+    }
+
+    /// Mutable reference to the hook registry.
+    pub fn hooks_mut(&mut self) -> &mut HookRegistry {
+        &mut self.hooks
     }
 
     /// Set a custom bio-reflex client (e.g. for custom endpoint or mock tests).
@@ -141,6 +231,12 @@ impl Agent {
     /// Dynamically register a Tree-sitter language grammar for multiple extensions.
     pub fn register_extensions(&self, exts: &[&str], language: tree_sitter::Language) {
         self.ast.register_extensions(exts, language);
+    }
+
+    /// Builder method to set or override the active intent.
+    pub fn with_intent(mut self, intent: AgentIntent) -> Self {
+        self.set_intent(intent);
+        self
     }
 
     /// Set or override the active intent for the next run.
@@ -259,6 +355,16 @@ impl Agent {
         Ok(())
     }
 
+    /// Compact historical conversation context and tool results.
+    /// Returns (total_messages, initial_chars, compacted_chars).
+    pub fn compact_memory(&mut self) -> (usize, usize, usize) {
+        let initial_chars: usize = self.conversation.iter().map(|m| m.content.len()).sum();
+        let total_msgs = self.conversation.len();
+        ContextManager::compact_prior_tool_results(&mut self.conversation);
+        let compacted_chars: usize = self.conversation.iter().map(|m| m.content.len()).sum();
+        (total_msgs, initial_chars, compacted_chars)
+    }
+
     /// Execute a user request through the agent loop.
     pub fn run(
         &mut self,
@@ -266,66 +372,37 @@ impl Agent {
         on_event: &mut dyn FnMut(AgentEvent),
         ask_approval: &mut dyn FnMut(ApprovalRequest) -> ApprovalDecision,
     ) -> Result<String, ProviderError> {
+        // Ingest any pending reactive background notifications from completed tasks
+        for notif in self.task_manager.drain_notifications() {
+            self.conversation.push(Message::user(format!("<SYSTEM_NOTIFICATION>\n{}\n</SYSTEM_NOTIFICATION>", notif)));
+        }
+
         self.conversation.push(Message::user(user_input));
+        self.hooks.trigger_turn_start(user_input);
 
-        // Dynamically provision tool schemas per turn: LLM decides autonomously unless explicitly overridden
-        if let Some(tools) = self.explicit_tools.take() {
-            self.active_tools = tools;
-        } else if let Some(intent) = self.explicit_intent.take() {
-            self.active_tools.clear();
-            match intent {
-                AgentIntent::Discussion | AgentIntent::Exploration => {
-                    for name in self.tools.safe_names() {
-                        self.active_tools.insert(name.to_string());
-                    }
-                }
-                AgentIntent::Action(_) => {
-                    for name in self.tools.list_names() {
-                        self.active_tools.insert(name.to_string());
-                    }
-                }
+        // Modular Tool Provisioning: evaluate overrides, biological reflex, and active tool set
+        match ToolProvisioner::provision(
+            user_input,
+            &self.tools,
+            self.explicit_tools.take(),
+            self.explicit_intent.take(),
+            &self.reflex,
+        ) {
+            ProvisioningResult::ReflexLockout(decision) => {
+                let lock_msg = format!(
+                    "🚨 PHYSICAL SAFETY REFLEX LOCK ENGAGED ({} µs latency, {:.1}% confidence)\n{}\nExecution blocked to prevent workspace damage.",
+                    decision.reaction_time_us, decision.confidence, decision.explanation
+                );
+                on_event(AgentEvent::Failed(lock_msg.clone()));
+                self.hooks.trigger_turn_finish(&lock_msg);
+                return Ok(lock_msg);
             }
-        } else {
-
-
-            // Biological Connectome Reflex Engine: Classify user intent & enforce physical safety lockout
-            if let Some(decision) = self.reflex.classify(user_input) {
-                if decision.is_danger {
-                    let lock_msg = format!(
-                        "🚨 PHYSICAL SAFETY REFLEX LOCK ENGAGED ({} µs latency, {:.1}% confidence)\n{}\nExecution blocked to prevent workspace damage.",
-                        decision.reaction_time_us, decision.confidence, decision.explanation
-                    );
-                    on_event(AgentEvent::Failed(lock_msg.clone()));
-                    return Ok(lock_msg);
-                }
-                self.active_tools.clear();
-                match decision.intent {
-                    AgentIntent::Discussion | AgentIntent::Exploration => {
-                        // Safe read-only inspection mode: dynamically provision all ReadOnly tools
-                        for name in self.tools.safe_names() {
-                            self.active_tools.insert(name.to_string());
-                        }
-                    }
-                    AgentIntent::Action(_) => {
-                        // Execution / mutation mode: dynamically provision ALL registered tools (zero whitelist)
-                        for name in self.tools.list_names() {
-                            self.active_tools.insert(name.to_string());
-                        }
-                    }
-                }
-
-
-            } else {
-                // Fallback (when bio-reflex engine offline): provision all tools registered in self.tools
-                self.active_tools.clear();
-                for name in self.tools.list_names() {
-                    self.active_tools.insert(name.to_string());
-                }
+            ProvisioningResult::ActiveTools(tools) => {
+                self.active_tools = tools;
             }
         }
 
-        let mut last_call_signature = String::new();
-        let mut consecutive_repeat_count = 0;
+        let mut repetition_tracker = RepetitionTracker::new();
 
         for iteration in 0..self.config.max_iterations {
             // Adaptive Throttling: Inject a 3-second delay between consecutive iterations
@@ -462,6 +539,7 @@ impl Agent {
                     let result = VerificationRunner::run(cmd, cwd.as_deref());
                     if result.is_pass() {
                         on_event(AgentEvent::Finished);
+                        self.hooks.trigger_turn_finish(&assistant_text);
                         return Ok(assistant_text);
                     } else {
                         // Feed failure back into the loop as a new user message
@@ -475,6 +553,7 @@ impl Agent {
                 // ── End verification ─────────────────────────────────────────
 
                 on_event(AgentEvent::Finished);
+                self.hooks.trigger_turn_finish(&assistant_text);
                 return Ok(assistant_text);
             }
 
@@ -484,135 +563,35 @@ impl Agent {
                 pending_tool_calls.clone(),
             ));
 
-            // Situation B & C: Process tool calls (batch gathered for next LLM turn)
+            let cancel_token = self.config.cancellation_token.clone();
+            let is_cancelled = move || {
+                cancel_token.as_ref().map(|t| t.load(Ordering::Relaxed)).unwrap_or(false)
+            };
+
+            // Situation B & C: Process tool calls through modular ToolDispatcher
             for tool_call in pending_tool_calls {
-                // Check cancellation between tool steps
-                if self.is_cancelled() {
-                    let cancel_msg = "Task interrupted by user. Stopping cleanly.";
-                    on_event(AgentEvent::Failed(cancel_msg.to_string()));
-                    self.conversation.push(Message::tool_result(&tool_call.id, cancel_msg));
-                    return Ok(cancel_msg.to_string());
-                }
+                let tool_id = tool_call.id.clone();
+                let outcome = ToolDispatcher::dispatch(
+                    tool_call,
+                    &self.tools,
+                    &self.hooks,
+                    &mut self.active_tools,
+                    &mut repetition_tracker,
+                    self.config.max_tool_output_chars,
+                    self.config.auto_approve_all,
+                    &is_cancelled,
+                    on_event,
+                    ask_approval,
+                );
 
-                let tool_name = &tool_call.name;
-                let tool_id = &tool_call.id;
-                let mut tool_args = tool_call.args;
-
-                // Repetitive call loop breaker: Prevents model from getting stuck repeating identical tool calls
-                let call_sig = format!("{}:{}", tool_name, tool_args);
-                if call_sig == last_call_signature {
-                    consecutive_repeat_count += 1;
-                } else {
-                    consecutive_repeat_count = 1;
-                    last_call_signature = call_sig.clone();
-                }
-
-                if consecutive_repeat_count >= 3 {
-                    let loop_msg = format!(
-                        "Repetitive call blocked: You have called tool '{}' with identical arguments {} times consecutively. \
-                         You already have this output in your context. \
-                         Do NOT call this tool again. Immediately formulate your final response or conclusion for the user.",
-                        tool_name, consecutive_repeat_count
-                    );
-                    self.conversation.push(Message::tool_result(tool_id, &loop_msg));
-                    continue;
-                }
-
-                // Situation E: Model requested unknown / hallucinated tool
-                let tool = match self.tools.find(tool_name) {
-                    Some(t) => {
-                        self.active_tools.insert(tool_name.clone());
-                        t
-                    }
-                    None => {
-                        let valid = self.tools.list_names().join(", ");
-                        let err_msg = format!(
-                            "Error: Unknown tool '{}'. Available tools are: [{}]. Please call a valid tool.",
-                            tool_name, valid
-                        );
-                        self.conversation.push(Message::tool_result(tool_id, &err_msg));
-                        continue;
-                    }
-                };
-
-                // Situation H: Destructive action gating & preview rendering
-                if !self.config.auto_approve_all && tool.risk() != ToolRisk::ReadOnly {
-                    let preview = match tool.risk() {
-                        ToolRisk::Destructive => {
-                            format!("⚠️ DESTRUCTIVE ACTION: '{}'\nArguments: {}", tool_name, tool_args)
-                        }
-                        _ => format!("Tool '{}': {}", tool_name, tool_args),
-                    };
-
-                    let req = ApprovalRequest {
-                        id: tool_id.clone(),
-                        tool_name: tool_name.clone(),
-                        args: tool_args.clone(),
-                        preview,
-                    };
-                    on_event(AgentEvent::NeedsApproval(req.clone()));
-
-                    match ask_approval(req) {
-                        ApprovalDecision::Approve => {}
-                        ApprovalDecision::ApproveWithEdits(new_args) => {
-                            tool_args = new_args;
-                        }
-                        // Situation I: User rejects a proposed action
-                        ApprovalDecision::Reject => {
-                            let reject_msg = format!("User rejected execution of tool '{}'. Please try an alternative approach.", tool_name);
-                            self.conversation.push(Message::tool_result(tool_id, &reject_msg));
-                            continue;
-                        }
-                    }
-                }
-
-                on_event(AgentEvent::ToolStarted {
-                    name: tool_name.clone(),
-                    args: tool_args.clone(),
-                });
-
-                // Situation D: Tool execution (failures feed back to model as data, never crash loop)
-                match tool.execute(tool_args) {
-                    Ok(result) => {
-                        on_event(AgentEvent::ToolFinished {
-                            name: tool_name.clone(),
-                            result: result.clone(),
-                        });
-                        let result_str = match &result {
-                            Value::String(s) => s.clone(),
-                            other => other.to_string(),
-                        };
-                        let sanitized_result = ContextManager::sanitize_tool_result(&result_str, self.config.max_tool_output_chars);
+                match outcome {
+                    DispatchOutcome::Result(sanitized_result) => {
                         self.conversation.push(Message::tool_result(tool_id, sanitized_result));
-
-                        // Dynamic mid-task tool discovery: If `search` discovered tools (in: "tools" or "tools+skills"),
-                        // elevate those tool names into `self.active_tools` (the session cache)
-                        // so their full schemas are automatically provisioned in the next turn of the loop.
-                        if tool_name == "search" && result_str.contains("[tools]") {
-                            let mut in_tools_section = false;
-                            for line in result_str.lines() {
-                                let trimmed = line.trim();
-                                if trimmed == "[tools]" {
-                                    in_tools_section = true;
-                                    continue;
-                                } else if trimmed.starts_with('[') && trimmed.ends_with(']') {
-                                    in_tools_section = false;
-                                }
-                                if in_tools_section {
-                                    if let Some((cand, _)) = trimmed.split_once(':') {
-                                        let cand = cand.trim();
-                                        if self.tools.find(cand).is_some() {
-                                            self.active_tools.insert(cand.to_string());
-                                        }
-                                    }
-                                }
-                            }
-                        }
                     }
-                    Err(e) => {
-                        let err_str = format!("Tool '{}' failed: {}", tool_name, e);
-                        let sanitized_err = ContextManager::sanitize_tool_result(&err_str, 2000);
-                        self.conversation.push(Message::tool_result(tool_id, sanitized_err));
+                    DispatchOutcome::Cancelled(cancel_msg) => {
+                        self.conversation.push(Message::tool_result(tool_id, &cancel_msg));
+                        self.hooks.trigger_turn_finish(&cancel_msg);
+                        return Ok(cancel_msg);
                     }
                 }
             }
@@ -626,6 +605,7 @@ impl Agent {
             self.config.max_iterations
         );
         on_event(AgentEvent::Failed(cap_msg.clone()));
+        self.hooks.trigger_turn_finish(&cap_msg);
         Ok(cap_msg)
     }
 }

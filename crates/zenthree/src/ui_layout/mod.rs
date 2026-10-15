@@ -36,7 +36,7 @@ pub use unsaved_dialog::draw_unsaved_changes_dialog;
 pub use cmdline_dialog::{draw_cmdline_dialog, draw_delete_confirm_dialog, draw_rename_dialog};
 
 use crate::state::ZenthreeState;
-use zenthra::{Color, Ui, Align, FontWeight, Id, use_context};
+use zenthra::{Color, Ui, Align, FontWeight, Id, Style, use_context};
 use crate::theme::ThemeColors;
 
 pub fn draw_about_dialog(ui: &mut Ui, state: &mut ZenthreeState) {
@@ -83,12 +83,12 @@ pub fn draw_about_dialog(ui: &mut Ui, state: &mut ZenthreeState) {
 
     let mut card = ui.container()
         .id(modal_id)
-        .absolute(center_x, center_y)
+        .pos(center_x, center_y)
         .overlay()
         .width(win_w)
         .height(win_h)
         .bg(card_bg)
-        .border(colors.border, 1.0)
+        .border((colors.border, 1.0))
         .radius_all(8.0);
 
     if state.glassmorphism {
@@ -108,7 +108,7 @@ pub fn draw_about_dialog(ui: &mut Ui, state: &mut ZenthreeState) {
 
             ui.text("Zenthree Editor")
                 .size(18.0)
-                .weight(FontWeight::Bold)
+                .font_weight(FontWeight::Bold)
                 .color(colors.text_primary)
                 .show();
 
@@ -128,14 +128,15 @@ pub fn draw_about_dialog(ui: &mut Ui, state: &mut ZenthreeState) {
             ui.spacing(8.0);
 
             let close_btn = ui.container()
+                .interactive(true)
                 .padding(6.0, 16.0, 6.0, 16.0)
                 .bg(colors.accent)
-                .hover_bg(colors.highlight)
+                .hover(Style::bg(colors.highlight))
                 .radius_all(4.0)
                 .show(|ui| {
                     ui.text("Close")
                         .size(12.0)
-                        .weight(FontWeight::Bold)
+                        .font_weight(FontWeight::Bold)
                         .color(Color::WHITE)
                         .show();
                 });

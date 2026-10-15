@@ -171,8 +171,9 @@ impl Tool for SearchTool {
     fn execute(&self, args: Value) -> Result<Value, ToolError> {
         let query = args
             .get("query")
+            .or_else(|| args.get("pattern"))
             .and_then(|v| v.as_str())
-            .ok_or_else(|| ToolError::InvalidArgs("Missing required parameter 'query'".to_string()))?;
+            .ok_or_else(|| ToolError::InvalidArgs("Missing required parameter 'query' or 'pattern'".to_string()))?;
 
         let in_param = args.get("in").and_then(|v| v.as_str()).unwrap_or("all");
         let path_param = args.get("path").and_then(|v| v.as_str()).unwrap_or(".");
@@ -279,7 +280,18 @@ impl Tool for SearchTool {
 
                 if current.is_dir() {
                     // Skip ignored directories
-                    if file_name_str.starts_with('.') || file_name_str == "target" || file_name_str == "node_modules" || file_name_str == "dist" || file_name_str == "build" {
+                    if file_name_str.starts_with('.')
+                        || file_name_str == "target"
+                        || file_name_str == "node_modules"
+                        || file_name_str == "dist"
+                        || file_name_str == "build"
+                        || file_name_str == ".cargo"
+                        || file_name_str == ".next"
+                        || file_name_str == "venv"
+                        || file_name_str == ".venv"
+                        || file_name_str == "__pycache__"
+                        || file_name_str == "coverage"
+                    {
                         continue;
                     }
 

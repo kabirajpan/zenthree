@@ -201,9 +201,9 @@ impl Provider for GroqProvider {
             body["tools"] = Value::Array(tools.to_vec());
         }
 
-        // Default max_tokens to 1000 for Groq to adhere to the 1000 OTPM on-demand tier limit
+        // Default max_tokens to 4096 for Groq to allow complete code generation
         if body.get("max_tokens").is_none() {
-            body["max_tokens"] = json!(1000);
+            body["max_tokens"] = json!(4096);
         }
 
         // Send the request with 429 retry logic.
