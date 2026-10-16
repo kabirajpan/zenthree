@@ -4,6 +4,7 @@ pub mod editor;
 pub mod git;
 pub mod notes;
 pub mod persistent;
+pub mod tasks;
 pub mod terminal;
 pub mod types;
 pub mod workspace;
@@ -101,6 +102,9 @@ pub struct ZenthreeState {
     pub ai_input: String,
     pub user_profile_open: bool,
     pub terminal_session: Option<crate::native_terminal::NativeTerminalSession>,
+    pub additional_terminal_sessions: Vec<crate::native_terminal::NativeTerminalSession>,
+    pub active_terminal_idx: usize,
+    pub terminal_split: bool,
     pub terminal_spawn_failed: bool,
     pub terminal_scroll_accum: f32,
     pub terminal_last_scroll_time: std::time::Instant,
@@ -440,6 +444,9 @@ impl ZenthreeState {
             ai_input: String::new(),
             user_profile_open: false,
             terminal_session: None,
+            additional_terminal_sessions: Vec::new(),
+            active_terminal_idx: 0,
+            terminal_split: false,
             terminal_spawn_failed: false,
             terminal_scroll_accum: 0.0,
             terminal_last_scroll_time: std::time::Instant::now(),
@@ -2547,6 +2554,4 @@ mod tests {
         assert!(state.show_modified_files_popup);
     }
 }
-
-
 

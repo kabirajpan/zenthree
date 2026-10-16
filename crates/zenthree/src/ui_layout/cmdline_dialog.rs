@@ -61,7 +61,7 @@ impl ZenthreeState {
                 self.notes_state.scan_notes(&self.current_dir);
 
                 // Keep terminal session working directory in sync
-                if let Some(ref mut sess) = self.terminal_session {
+                if let Some(sess) = self.active_terminal_session_mut() {
                     let clean = crate::native_terminal::strip_unc_prefix(&canon);
                     sess.write_raw(format!("cd \"{}\"\r", clean.display()).as_bytes());
                 }
@@ -117,11 +117,10 @@ impl ZenthreeState {
         // ── 4. Terminal Command: `!<cmd>` or `:!<cmd>` or `term` ──────────
         if cmd.starts_with('!') {
             let shell_cmd = cmd[1..].trim();
-            self.ensure_terminal_session();
-            self.terminal_visible = true;
+            self.show_terminal();
             self.focused_panel = crate::state::types::FocusedPanel::Terminal;
             if !shell_cmd.is_empty() {
-                if let Some(ref mut sess) = self.terminal_session {
+                if let Some(sess) = self.active_terminal_session_mut() {
                     sess.write_raw(format!("{}\r", shell_cmd).as_bytes());
                 }
             }
@@ -131,8 +130,7 @@ impl ZenthreeState {
         }
 
         if cmd.eq_ignore_ascii_case("term") || cmd.eq_ignore_ascii_case("terminal") {
-            self.ensure_terminal_session();
-            self.terminal_visible = true;
+            self.show_terminal();
             self.focused_panel = crate::state::types::FocusedPanel::Terminal;
             self.close_cmdline();
             return Ok("Terminal opened".to_string());
@@ -201,7 +199,7 @@ impl ZenthreeState {
             self.refresh_git_status();
             self.fs_watcher.watch(&self.current_dir);
 
-            if let Some(ref mut sess) = self.terminal_session {
+            if let Some(sess) = self.active_terminal_session_mut() {
                 let clean = crate::native_terminal::strip_unc_prefix(&canon);
                 sess.write_raw(format!("cd \"{}\"\r", clean.display()).as_bytes());
             }

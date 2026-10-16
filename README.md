@@ -25,7 +25,9 @@ Designed for speed, visual clarity, and responsiveness, Zenthree blends the aest
 
 ### 🖥️ Native Embedded Terminal
 - **Integrated PTY**: Full pseudo-terminal session powered by `portable-pty`.
-- **Run Active File**: Launch supported Python, JavaScript, TypeScript (Deno), Go, Ruby, PHP, Lua, shell, and PowerShell files from the title-bar Run menu.
+- **Run Active File**: Launch supported Python, JavaScript, TypeScript (Deno), Go, Ruby, PHP, Lua, shell, and PowerShell files from the title-bar Run menu. JSX/TSX files run the nearest project's `dev`, `start`, or `serve` package script using its detected package manager.
+- **Title-bar Terminal Menu**: Create, switch, split, focus, hide, clear, or close terminal sessions. Run the active file or selected editor text, launch workspace tasks, run the default build task, and configure task files from the Terminal menu after Run.
+- **Workspace Tasks**: Read and run shell tasks from `.vscode/tasks.json`, including `${workspaceFolder}`, `${file}`, `${fileBasename}`, and `${fileDirname}` substitutions. Configure Tasks opens or creates the workspace task file.
 - **Direct Inline Console Prompt**: Type directly inside the console (`❯ command█`) with an animated blinking block cursor.
 - **Terminal Productivity**: Command history (`Up`/`Down`), process interrupt (`Ctrl+C`), screen clear (`Ctrl+L`), and tab completion (`Tab`).
 - **Resizable Splitter**: Smooth horizontal resizing with a visual accent pill grip handle and `RowResize` cursor feedback.

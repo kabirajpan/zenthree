@@ -43,10 +43,43 @@ fn convert_vt_color(c: vt100::Color, default_color: Color) -> Color {
 
 pub fn draw_terminal_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height: f32) {
     let colors = use_context::<ThemeColors>().map(|c| *c).unwrap_or_else(|| state.colors());
-    state.ensure_terminal_session();
+    state.show_terminal();
+    if state.terminal_split && state.terminal_session_count() > 1 {
+        let pane_width = (width - 1.0) / 2.0;
+        let right_terminal_idx = if state.active_terminal_idx == 0 {
+            1
+        } else {
+            state.active_terminal_idx
+        };
+        ui.container()
+            .width(width)
+            .height(height)
+            .row()
+            .show(|ui| {
+                draw_terminal_session_panel(ui, state, pane_width, height, 0);
+                draw_terminal_session_panel(ui, state, width - pane_width, height, right_terminal_idx);
+            });
+    } else {
+        draw_terminal_session_panel(ui, state, width, height, state.active_terminal_idx);
+    }
+    draw_terminal_context_menu(ui, state, &colors);
+}
 
-    let term_id = Id::from_u64(999999800);
-    let is_focused = state.focused_panel == crate::state::types::FocusedPanel::Terminal;
+fn terminal_widget_id(index: usize) -> Id {
+    Id::from_u64(999999800 + (index as u64 * 1000))
+}
+
+fn draw_terminal_session_panel(
+    ui: &mut Ui,
+    state: &mut ZenthreeState,
+    width: f32,
+    height: f32,
+    terminal_idx: usize,
+) {
+    let colors = use_context::<ThemeColors>().map(|c| *c).unwrap_or_else(|| state.colors());
+    let term_id = terminal_widget_id(terminal_idx);
+    let is_focused = state.focused_panel == crate::state::types::FocusedPanel::Terminal
+        && state.active_terminal_idx == terminal_idx;
 
     if is_focused {
         if ui.focused_id != Some(term_id) {
@@ -76,7 +109,7 @@ pub fn draw_terminal_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, h
     let splitter_y = panel_y;
     let splitter_w = width;
     let is_blocked = ui.modal_active || state.is_modal_or_dialog_open();
-    let is_splitter_hovered = !is_blocked && ui.mouse_in_rect(
+    let is_splitter_hovered = terminal_idx == 0 && !is_blocked && ui.mouse_in_rect(
         splitter_x,
         splitter_y - splitter_h / 2.0,
         splitter_w,
@@ -90,6 +123,7 @@ pub fn draw_terminal_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, h
         && ui.mouse_in_rect(panel_x, panel_y, panel_w, panel_h);
 
     if ui.right_clicked && mouse_in_terminal {
+        state.active_terminal_idx = terminal_idx;
         let root = state.current_dir.clone();
         let target_path = state
             .active_tab
@@ -100,6 +134,7 @@ pub fn draw_terminal_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, h
             target: crate::state::PanelContextMenuTarget::Terminal,
             target_is_dir: target_path.is_dir(),
             target_path,
+            terminal_index: Some(terminal_idx),
             menu_x: ui.mouse_x,
             menu_y: ui.mouse_y,
         });
@@ -112,6 +147,7 @@ pub fn draw_terminal_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, h
     }
 
     if mouse_in_terminal && (ui.clicked || (ui.mouse_down && ui.active_drag.is_none())) {
+        state.active_terminal_idx = terminal_idx;
         ui.focused_id = Some(term_id);
         state.focused_panel = crate::state::types::FocusedPanel::Terminal;
         state.last_cursor_activity = std::time::Instant::now();
@@ -147,13 +183,18 @@ pub fn draw_terminal_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, h
             }
             state.terminal_last_scroll_time = now;
 
-            if let Some(ref mut sess) = state.terminal_session {
-                let is_alt_screen = {
-                    let p = sess.parser.lock().unwrap();
-                    p.screen().alternate_screen()
-                };
+            let is_alt_screen = state
+                .terminal_session_at(terminal_idx)
+                .map(|sess| {
+                    sess.parser
+                        .lock()
+                        .map(|parser| parser.screen().alternate_screen())
+                        .unwrap_or(false)
+                })
+                .unwrap_or(false);
 
-                if is_alt_screen {
+            if is_alt_screen {
+                if let Some(sess) = state.terminal_session_at_mut(terminal_idx) {
                     // In alternate screen applications (vim, less, htop, nano):
                     // Standard terminal behavior: 3 lines per wheel notch
                     let count = if term_scroll_delta.abs() <= 1.5 {
@@ -166,21 +207,23 @@ pub fn draw_terminal_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, h
                         sess.write_raw(key_seq);
                     }
                     ui.needs_redraw = true;
+                }
+            } else {
+                // Standard terminal scrolling (matches VS Code / GNOME Terminal / Alacritty):
+                // Discrete mouse wheel notch: 3 lines per notch
+                // Continuous touchpad: ~18px (1 text line height) per line
+                let delta_lines = if term_scroll_delta.abs() <= 1.5 {
+                    term_scroll_delta.signum() * 3.0
                 } else {
-                    // Standard terminal scrolling (matches VS Code / GNOME Terminal / Alacritty):
-                    // Discrete mouse wheel notch: 3 lines per notch
-                    // Continuous touchpad: ~18px (1 text line height) per line
-                    let delta_lines = if term_scroll_delta.abs() <= 1.5 {
-                        term_scroll_delta.signum() * 3.0
-                    } else {
-                        term_scroll_delta / 18.0
-                    };
+                    term_scroll_delta / 18.0
+                };
 
-                    state.terminal_scroll_accum += delta_lines;
+                state.terminal_scroll_accum += delta_lines;
 
-                    let whole_lines = (state.terminal_scroll_accum.trunc() as i32).clamp(-12, 12);
-                    if whole_lines != 0 {
-                        state.terminal_scroll_accum -= whole_lines as f32;
+                let whole_lines = (state.terminal_scroll_accum.trunc() as i32).clamp(-12, 12);
+                if whole_lines != 0 {
+                    state.terminal_scroll_accum -= whole_lines as f32;
+                    if let Some(sess) = state.terminal_session_at_mut(terminal_idx) {
                         if let Ok(mut p) = sess.parser.lock() {
                             let cur_sb = p.screen().scrollback();
                             // Wheel up (positive whole_lines) moves backward into scrollback history
@@ -270,7 +313,7 @@ pub fn draw_terminal_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, h
     }
 
     // ─── PTY Output Streaming Poll ───────────────────────────────
-    if let Some(ref sess) = state.terminal_session {
+    if let Some(sess) = state.terminal_session_at(terminal_idx) {
         if sess.has_new_output.swap(false, std::sync::atomic::Ordering::Relaxed) {
             ui.needs_redraw = true;
         }
@@ -287,7 +330,7 @@ pub fn draw_terminal_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, h
                         state.last_cursor_activity = std::time::Instant::now();
                         let mut buf = [0u8; 4];
                         let bytes = c.encode_utf8(&mut buf).as_bytes();
-                        if let Some(ref mut sess) = state.terminal_session {
+                        if let Some(sess) = state.terminal_session_at_mut(terminal_idx) {
                             if let Ok(mut p) = sess.parser.lock() {
                                 if p.screen().scrollback() > 0 {
                                     p.screen_mut().set_scrollback(0);
@@ -305,7 +348,7 @@ pub fn draw_terminal_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, h
                     // ── 1. Clipboard & Terminal Control Actions ─────────────
                     // Ctrl+Shift+C: Copy terminal contents to clipboard
                     if state.ctrl_pressed && state.shift_pressed && *key == winit::keyboard::KeyCode::KeyC {
-                        let full_text = if let Some(ref sess) = state.terminal_session {
+                        let full_text = if let Some(sess) = state.terminal_session_at(terminal_idx) {
                             if let Ok(p) = sess.parser.lock() {
                                 p.screen().contents()
                             } else {
@@ -327,7 +370,7 @@ pub fn draw_terminal_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, h
                         && (*key == winit::keyboard::KeyCode::KeyV || *key == winit::keyboard::KeyCode::Insert)
                     {
                         if let Some(text) = state.get_clipboard() {
-                            if let Some(ref mut sess) = state.terminal_session {
+                            if let Some(sess) = state.terminal_session_at_mut(terminal_idx) {
                                 sess.write_raw(text.as_bytes());
                             }
                         }
@@ -345,7 +388,7 @@ pub fn draw_terminal_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, h
                     // ── 2. Scrollback History Navigation ─────────────────────
                     // Shift+PageUp / Shift+PageDown (15 lines)
                     if state.shift_pressed && !state.ctrl_pressed && *key == winit::keyboard::KeyCode::PageUp {
-                        if let Some(ref sess) = state.terminal_session {
+                        if let Some(sess) = state.terminal_session_at(terminal_idx) {
                             if let Ok(mut p) = sess.parser.lock() {
                                 let cur = p.screen().scrollback();
                                 p.screen_mut().set_scrollback(cur.saturating_add(15));
@@ -355,7 +398,7 @@ pub fn draw_terminal_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, h
                         return false;
                     }
                     if state.shift_pressed && !state.ctrl_pressed && *key == winit::keyboard::KeyCode::PageDown {
-                        if let Some(ref sess) = state.terminal_session {
+                        if let Some(sess) = state.terminal_session_at(terminal_idx) {
                             if let Ok(mut p) = sess.parser.lock() {
                                 let cur = p.screen().scrollback();
                                 p.screen_mut().set_scrollback(cur.saturating_sub(15));
@@ -367,7 +410,7 @@ pub fn draw_terminal_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, h
 
                     // Shift+Home / Shift+End (scroll to top/bottom of scrollback)
                     if state.shift_pressed && !state.ctrl_pressed && *key == winit::keyboard::KeyCode::Home {
-                        if let Some(ref sess) = state.terminal_session {
+                        if let Some(sess) = state.terminal_session_at(terminal_idx) {
                             if let Ok(mut p) = sess.parser.lock() {
                                 if !p.screen().alternate_screen() {
                                     p.screen_mut().set_scrollback(usize::MAX / 2);
@@ -378,7 +421,7 @@ pub fn draw_terminal_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, h
                         }
                     }
                     if state.shift_pressed && !state.ctrl_pressed && *key == winit::keyboard::KeyCode::End {
-                        if let Some(ref sess) = state.terminal_session {
+                        if let Some(sess) = state.terminal_session_at(terminal_idx) {
                             if let Ok(mut p) = sess.parser.lock() {
                                 if !p.screen().alternate_screen() {
                                     p.screen_mut().set_scrollback(0);
@@ -391,7 +434,7 @@ pub fn draw_terminal_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, h
 
                     // Shift+Up / Shift+Down (scroll 1 line into scrollback in normal screen)
                     if state.shift_pressed && !state.ctrl_pressed && !state.alt_pressed && *key == winit::keyboard::KeyCode::ArrowUp {
-                        if let Some(ref sess) = state.terminal_session {
+                        if let Some(sess) = state.terminal_session_at(terminal_idx) {
                             if let Ok(mut p) = sess.parser.lock() {
                                 if !p.screen().alternate_screen() {
                                     let cur = p.screen().scrollback();
@@ -403,7 +446,7 @@ pub fn draw_terminal_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, h
                         }
                     }
                     if state.shift_pressed && !state.ctrl_pressed && !state.alt_pressed && *key == winit::keyboard::KeyCode::ArrowDown {
-                        if let Some(ref sess) = state.terminal_session {
+                        if let Some(sess) = state.terminal_session_at(terminal_idx) {
                             if let Ok(mut p) = sess.parser.lock() {
                                 if !p.screen().alternate_screen() {
                                     let cur = p.screen().scrollback();
@@ -531,7 +574,7 @@ pub fn draw_terminal_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, h
                     };
 
                     if let Some(raw) = bytes {
-                        if let Some(ref mut sess) = state.terminal_session {
+                        if let Some(sess) = state.terminal_session_at_mut(terminal_idx) {
                             if let Ok(mut p) = sess.parser.lock() {
                                 if p.screen().scrollback() > 0 {
                                     p.screen_mut().set_scrollback(0);
@@ -622,10 +665,10 @@ pub fn draw_terminal_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, h
                                 });
 
                             if new_term_btn.clicked {
-                                state.terminal_session = None;
-                                state.ensure_terminal_session();
+                                state.create_terminal_session();
+                                state.terminal_split = false;
                                 state.last_cursor_activity = std::time::Instant::now();
-                                ui.focused_id = Some(term_id);
+                                ui.focused_id = Some(terminal_widget_id(state.active_terminal_idx));
                                 state.focused_panel = crate::state::types::FocusedPanel::Terminal;
                                 ui.needs_redraw = true;
                             }
@@ -653,7 +696,15 @@ pub fn draw_terminal_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, h
                                 });
 
                             if split_btn.clicked {
-                                state.set_status("Terminal split (coming soon)");
+                                if state.terminal_session_count() < 2 {
+                                    state.create_terminal_session();
+                                }
+                                state.terminal_split = state.terminal_session_count() > 1;
+                                if state.terminal_split {
+                                    state.active_terminal_idx = state.terminal_session_count() - 1;
+                                    ui.focused_id = Some(terminal_widget_id(state.active_terminal_idx));
+                                    state.focused_panel = crate::state::types::FocusedPanel::Terminal;
+                                }
                                 ui.needs_redraw = true;
                             }
 
@@ -673,7 +724,7 @@ pub fn draw_terminal_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, h
                                 });
 
                             if copy_btn.clicked {
-                                let full_text = if let Some(ref sess) = state.terminal_session {
+                                let full_text = if let Some(sess) = state.terminal_session_at(terminal_idx) {
                                     if let Ok(p) = sess.parser.lock() {
                                         p.screen().contents()
                                     } else {
@@ -704,7 +755,7 @@ pub fn draw_terminal_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, h
 
                             if paste_btn.clicked {
                                 if let Some(text) = state.get_clipboard() {
-                                    if let Some(ref mut sess) = state.terminal_session {
+                                    if let Some(sess) = state.terminal_session_at_mut(terminal_idx) {
                                         sess.write_raw(text.as_bytes());
                                     }
                                     state.last_cursor_activity = std::time::Instant::now();
@@ -750,10 +801,15 @@ pub fn draw_terminal_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, h
                                 });
 
                             if close_btn.clicked {
-                                state.terminal_visible = false;
-                                if state.focused_panel == crate::state::types::FocusedPanel::Terminal {
-                                    state.focused_panel = crate::state::types::FocusedPanel::Editor;
-                                    ui.focused_id = state.active_tab.map(|idx| Id::from_u64(999996000 + idx as u64));
+                                state.close_terminal_session(terminal_idx);
+                                state.terminal_split = false;
+                                if state.terminal_visible {
+                                    ui.focused_id =
+                                        Some(terminal_widget_id(state.active_terminal_idx));
+                                } else {
+                                    ui.focused_id = state
+                                        .active_tab
+                                        .map(|idx| Id::from_u64(999996000 + idx as u64));
                                 }
                                 state.save_persistent_state();
                                 ui.needs_redraw = true;
@@ -795,7 +851,7 @@ pub fn draw_terminal_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, h
             let target_cols = ((width - pad_left - 8.0) / cell_w).floor().max(20.0) as u16;
             let target_rows = ((body_h - pad_top - 4.0) / cell_h).floor().max(4.0) as u16;
 
-            if let Some(ref mut sess) = state.terminal_session {
+            if let Some(sess) = state.terminal_session_at_mut(terminal_idx) {
                 let (cur_rows, cur_cols) = {
                     let p = sess.parser.lock().unwrap();
                     p.screen().size()
@@ -808,12 +864,12 @@ pub fn draw_terminal_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, h
             let clip = [term_body_x, term_body_y, width, body_h];
 
             let body_resp = ui.container()
-                .id(Id::from_u64(999999802))
+                .id(Id::from_u64(999999802 + (terminal_idx as u64 * 1000)))
                 .width(width)
                 .height(body_h)
                 .bg(colors.bg_base)
                 .show(|ui| {
-                    if let Some(ref sess) = state.terminal_session {
+                    if let Some(sess) = state.terminal_session_at(terminal_idx) {
                         if let Ok(mut p) = sess.parser.lock() {
                             let mut cur_sb = p.screen().scrollback();
                             p.screen_mut().set_scrollback(usize::MAX);
@@ -827,7 +883,7 @@ pub fn draw_terminal_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, h
                             let track_h = (body_h - thumb_h).max(0.0);
 
                             // Handle scrollbar drag / click before borrowing screen immutably
-                            let terminal_sb_id = Id::from_u64(999999805);
+                            let terminal_sb_id = Id::from_u64(999999805 + (terminal_idx as u64 * 1000));
                             let sb_w = 5.0;
                             let sb_x = term_body_x + width - sb_w - 3.0;
                             let sb_hit_x = sb_x - 4.0;
@@ -1142,7 +1198,6 @@ pub fn draw_terminal_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, h
         ui.needs_redraw = true;
     }
 
-    draw_terminal_context_menu(ui, state, &colors, term_id);
 }
 
 #[derive(Clone, Copy)]
@@ -1157,7 +1212,6 @@ fn draw_terminal_context_menu(
     ui: &mut Ui,
     state: &mut ZenthreeState,
     colors: &ThemeColors,
-    term_id: Id,
 ) {
     let Some(menu) = state.panel_context_menu.clone() else {
         return;
@@ -1200,9 +1254,11 @@ fn draw_terminal_context_menu(
         return;
     }
 
-    let has_terminal = state.terminal_session.is_some();
     let target_path = menu.target_path.clone();
     let target_is_dir = menu.target_is_dir;
+    let terminal_idx = menu.terminal_index.unwrap_or(state.active_terminal_idx);
+    let term_id = terminal_widget_id(terminal_idx);
+    let has_terminal = state.terminal_session_at(terminal_idx).is_some();
     let root = state.current_dir.clone();
     let has_file_target = target_path != root;
     let has_file_clipboard = state.tree_clipboard.is_some();
@@ -1404,8 +1460,7 @@ fn draw_terminal_context_menu(
                 match action {
             TerminalContextAction::CopyAll => {
                 let contents = state
-                    .terminal_session
-                    .as_ref()
+                    .terminal_session_at(terminal_idx)
                     .map(|sess| {
                         sess.parser
                             .lock()
@@ -1423,7 +1478,7 @@ fn draw_terminal_context_menu(
             }
             TerminalContextAction::Paste => {
                 if let Some(text) = state.get_clipboard() {
-                    if let Some(ref mut sess) = state.terminal_session {
+                    if let Some(sess) = state.terminal_session_at_mut(terminal_idx) {
                         sess.write_raw(text.as_bytes());
                     }
                     state.last_cursor_activity = std::time::Instant::now();

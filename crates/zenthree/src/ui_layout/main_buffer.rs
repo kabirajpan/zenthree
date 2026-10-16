@@ -21,6 +21,7 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
             target: crate::state::PanelContextMenuTarget::Editor,
             target_path: state.current_dir.clone(),
             target_is_dir: true,
+            terminal_index: None,
             menu_x: ui.mouse_x,
             menu_y: ui.mouse_y,
         });
@@ -1693,6 +1694,7 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                             target: crate::state::PanelContextMenuTarget::Editor,
                             target_is_dir: target_path.is_dir(),
                             target_path,
+                            terminal_index: None,
                             menu_x: ui.mouse_x,
                             menu_y: ui.mouse_y,
                         });

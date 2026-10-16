@@ -453,10 +453,200 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                                 state.focused_panel =
                                     crate::state::types::FocusedPanel::Terminal;
                                 state.last_cursor_activity = std::time::Instant::now();
-                                ui.focused_id = Some(Id::from_u64(999999800));
+                                ui.focused_id = Some(Id::from_u64(
+                                    999999800 + state.active_terminal_idx as u64 * 1000,
+                                ));
                             }
                             ui.request_redraw();
                         }
+                    });
+
+                    ui.menu("Terminal").show(|ui| {
+                        if ui.menu_item("New Terminal").show().clicked {
+                            if state.create_terminal_session() {
+                                state.focused_panel =
+                                    crate::state::types::FocusedPanel::Terminal;
+                                ui.focused_id = Some(Id::from_u64(
+                                    999999800 + state.active_terminal_idx as u64 * 1000,
+                                ));
+                            }
+                            ui.request_redraw();
+                        }
+                        if ui.menu_item("Split Terminal").show().clicked {
+                            if state.terminal_session_count() < 2 {
+                                state.create_terminal_session();
+                            }
+                            state.terminal_split = state.terminal_session_count() > 1;
+                            if state.terminal_split {
+                                state.active_terminal_idx = state.terminal_session_count() - 1;
+                                state.terminal_visible = true;
+                                state.focused_panel =
+                                    crate::state::types::FocusedPanel::Terminal;
+                                ui.focused_id = Some(Id::from_u64(
+                                    999999800 + state.active_terminal_idx as u64 * 1000,
+                                ));
+                            }
+                            ui.request_redraw();
+                        }
+                        ui.menu("Switch Terminal").show(|ui| {
+                            let count = state.terminal_session_count();
+                            if count == 0 {
+                                ui.menu_item("No terminals open").show();
+                            } else {
+                                for index in 0..count {
+                                    let label = if state.active_terminal_idx == index {
+                                        format!("● Terminal {}", index + 1)
+                                    } else {
+                                        format!("  Terminal {}", index + 1)
+                                    };
+                                    if ui.menu_item(&label).show().clicked {
+                                        state.select_terminal_session(index);
+                                        state.terminal_visible = true;
+                                        ui.focused_id = Some(Id::from_u64(
+                                            999999800 + index as u64 * 1000,
+                                        ));
+                                        ui.request_redraw();
+                                    }
+                                }
+                            }
+                        });
+                        if ui.menu_item("Kill Terminal").show().clicked {
+                            state.close_active_terminal_session();
+                            state.terminal_split = state.terminal_session_count() > 1;
+                            ui.request_redraw();
+                        }
+                        if ui.menu_item("Show Terminal").show().clicked {
+                            state.show_terminal();
+                            state.save_persistent_state();
+                            ui.request_redraw();
+                        }
+                        if ui.menu_item("Focus Terminal").show().clicked {
+                            state.show_terminal();
+                            state.focused_panel =
+                                crate::state::types::FocusedPanel::Terminal;
+                            state.last_cursor_activity = std::time::Instant::now();
+                            ui.focused_id = Some(Id::from_u64(
+                                999999800 + state.active_terminal_idx as u64 * 1000,
+                            ));
+                            state.save_persistent_state();
+                            ui.request_redraw();
+                        }
+                        if ui.menu_item("Hide Terminal").show().clicked {
+                            state.terminal_visible = false;
+                            if state.focused_panel == crate::state::types::FocusedPanel::Terminal {
+                                state.focused_panel = crate::state::types::FocusedPanel::Editor;
+                                ui.focused_id = state
+                                    .active_tab
+                                    .map(|idx| Id::from_u64(999996000 + idx as u64));
+                            }
+                            state.save_persistent_state();
+                            ui.request_redraw();
+                        }
+                        ui.spacing(4.0);
+                        if ui.menu_item("Clear Terminal").show().clicked {
+                            state.clear_terminal();
+                            state.last_cursor_activity = std::time::Instant::now();
+                            ui.request_redraw();
+                        }
+                        ui.spacing(4.0);
+                        ui.menu("Run Task").show(|ui| {
+                            let tasks = state.get_workspace_tasks();
+                            if tasks.is_empty() {
+                                ui.menu_item("No tasks configured").show();
+                            } else {
+                                for task in tasks {
+                                    if ui.menu_item(&task.label).show().clicked {
+                                        state.run_workspace_task(&task.label);
+                                        ui.focused_id = Some(Id::from_u64(
+                                            999999800 + state.active_terminal_idx as u64 * 1000,
+                                        ));
+                                        ui.request_redraw();
+                                    }
+                                }
+                            }
+                        });
+                        if ui.menu_item("Run Build Task").show().clicked {
+                            if state.run_default_build_task() {
+                                ui.focused_id = Some(Id::from_u64(
+                                    999999800 + state.active_terminal_idx as u64 * 1000,
+                                ));
+                            }
+                            ui.request_redraw();
+                        }
+                        ui.menu("Select Build Task").show(|ui| {
+                            let build_tasks: Vec<_> = state
+                                .get_workspace_tasks()
+                                .into_iter()
+                                .filter(|task| task.is_build_task)
+                                .collect();
+                            if build_tasks.is_empty() {
+                                ui.menu_item("No build tasks configured").show();
+                            } else {
+                                for task in build_tasks {
+                                    let label = if task.is_default_build_task {
+                                        format!("● {}", task.label)
+                                    } else {
+                                        task.label.clone()
+                                    };
+                                    if ui.menu_item(&label).show().clicked {
+                                        state.run_workspace_task(&task.label);
+                                        ui.focused_id = Some(Id::from_u64(
+                                            999999800 + state.active_terminal_idx as u64 * 1000,
+                                        ));
+                                        ui.request_redraw();
+                                    }
+                                }
+                            }
+                        });
+                        if ui.menu_item("Run Active File").show().clicked {
+                            if state.run_active_file() {
+                                state.focused_panel =
+                                    crate::state::types::FocusedPanel::Terminal;
+                                ui.focused_id = Some(Id::from_u64(
+                                    999999800 + state.active_terminal_idx as u64 * 1000,
+                                ));
+                            }
+                            ui.request_redraw();
+                        }
+                        if ui.menu_item("Run Selected Text in Active Terminal").show().clicked {
+                            if state.run_selected_text_in_terminal() {
+                                state.focused_panel =
+                                    crate::state::types::FocusedPanel::Terminal;
+                                ui.focused_id = Some(Id::from_u64(
+                                    999999800 + state.active_terminal_idx as u64 * 1000,
+                                ));
+                            }
+                            ui.request_redraw();
+                        }
+                        if ui.menu_item("Configure Tasks").show().clicked {
+                            state.configure_workspace_tasks();
+                            ui.request_redraw();
+                        }
+                        ui.menu("Configure Default Build Task").show(|ui| {
+                            let build_tasks: Vec<_> = state
+                                .get_workspace_tasks()
+                                .into_iter()
+                                .filter(|task| task.is_build_task)
+                                .collect();
+                            if build_tasks.is_empty() {
+                                if ui.menu_item("Configure Tasks first").show().clicked {
+                                    state.configure_workspace_tasks();
+                                    ui.request_redraw();
+                                }
+                            } else {
+                                for task in build_tasks {
+                                    let label = if task.is_default_build_task {
+                                        format!("● {}", task.label)
+                                    } else {
+                                        task.label.clone()
+                                    };
+                                    if ui.menu_item(&label).show().clicked {
+                                        state.set_default_build_task(&task.label);
+                                        ui.request_redraw();
+                                    }
+                                }
+                            }
+                        });
                     });
 
                     ui.menu("Help").show(|ui| {

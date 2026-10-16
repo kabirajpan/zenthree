@@ -674,6 +674,7 @@ pub struct PanelContextMenu {
     pub target: PanelContextMenuTarget,
     pub target_path: PathBuf,
     pub target_is_dir: bool,
+    pub terminal_index: Option<usize>,
     pub menu_x: f32,
     pub menu_y: f32,
 }
