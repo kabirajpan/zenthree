@@ -74,6 +74,32 @@ pub struct ActiveAgentTerminalTask {
     pub is_background: bool,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum BottomPanelTab {
+    Problems,
+    Output,
+    DebugConsole,
+    #[default]
+    Terminal,
+    Ports,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ListeningPort {
+    pub address: String,
+    pub port: u16,
+    pub process_id: Option<u32>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct TerminalTextSelection {
+    pub terminal_index: usize,
+    pub anchor_row: usize,
+    pub anchor_column: usize,
+    pub focus_row: usize,
+    pub focus_column: usize,
+}
+
 impl FileDiffReview {
     pub fn total_removed_lines(&self) -> usize {
         self.diff_lines.iter().filter(|(_, s)| *s == DiffLineState::Removed).count()
@@ -381,6 +407,7 @@ impl AiModel {
     }
 }
 
+
 impl Default for AiModel {
     fn default() -> Self {
         AiModel::Gemini35Flash
@@ -392,7 +419,6 @@ impl std::fmt::Display for AiModel {
         write!(f, "{}", self.display_name())
     }
 }
-
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum AgentMode {

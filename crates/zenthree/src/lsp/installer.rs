@@ -1,7 +1,7 @@
 use std::path::PathBuf;
 use std::process::Command;
-use std::thread;
 use log::{info, error};
+use std::thread;
 use zenthra_state::ArcSignal;
 
 #[derive(Debug, Clone)]

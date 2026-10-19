@@ -17,7 +17,6 @@ const YELLOW: &str = "\x1b[33m";
 const RED: &str = "\x1b[31m";
 const BLUE: &str = "\x1b[34m";
 
-
 struct CliConfig {
     provider: String,
     model: String,
@@ -29,9 +28,10 @@ struct CliConfig {
 
 impl Default for CliConfig {
     fn default() -> Self {
-        let has_antigravity_token = agent::external_provider::AntigravityAuthManager::with_default_config()
-            .load_token()
-            .is_some();
+        let has_antigravity_token =
+            agent::external_provider::AntigravityAuthManager::with_default_config()
+                .load_token()
+                .is_some();
 
         let default_prov = if agent::provider::get_key("GEMINI_API_KEY").is_some() {
             "gemini"
@@ -85,7 +85,9 @@ fn print_help() {
     println!("  ./run-normal.sh [OPTIONS] [PROMPT]\n");
     println!("{BOLD}OPTIONS:{RESET}");
     println!("  {GREEN}-v, --verbose{RESET}             Enable verbose diagnostic output (reflex latency, full tool args & outputs)");
-    println!("  {GREEN}-p, --provider <NAME>{RESET}     AI provider: 'antigravity', 'gemini', or 'groq'");
+    println!(
+        "  {GREEN}-p, --provider <NAME>{RESET}     AI provider: 'antigravity', 'gemini', or 'groq'"
+    );
     println!("  {GREEN}-m, --model <NAME>{RESET}        Model identifier (e.g. gemini-3.8-flash-high, gemini-3.5-flash-lite)");
     println!("  {GREEN}-w, --workspace <DIR>{RESET}     Target workspace directory (default: current directory)");
     println!("  {GREEN}--login{RESET}                   Log in with your Google Account / Google ID for Antigravity");
@@ -103,14 +105,18 @@ fn print_help() {
     println!("  {YELLOW}:clear{RESET}                    Reset conversation memory");
     println!("  {YELLOW}:quit / :exit{RESET}             Exit the interactive session\n");
     println!("{BOLD}SLASH COMMANDS:{RESET} (Autonomous directives & quick actions)");
-    println!("  {CYAN}/goal <prompt>{RESET}            Run long-running task until thoroughly achieved");
+    println!(
+        "  {CYAN}/goal <prompt>{RESET}            Run long-running task until thoroughly achieved"
+    );
     println!("  {CYAN}/plan <prompt>{RESET}            Formulate structured step-by-step milestones before execution");
     println!("  {CYAN}/fix <prompt>{RESET}             Targeted diagnostics and minimal repair");
     println!("  {CYAN}/grill-me <topic>{RESET}         Interactive interview to clarify ambiguous requirements");
     println!("  {CYAN}/compact{RESET}                  Compact prior context & tool outputs");
     println!("  {CYAN}/tasks{RESET}                    List background processes and daemons");
     println!("  {CYAN}/schedule <prompt>{RESET}        Schedule timers or recurring triggers");
-    println!("  {CYAN}/learn <rule>{RESET}             Persist learned knowledge/rules to workspace\n");
+    println!(
+        "  {CYAN}/learn <rule>{RESET}             Persist learned knowledge/rules to workspace\n"
+    );
 }
 
 fn print_models() {
@@ -120,7 +126,9 @@ fn print_models() {
         println!("  • {GREEN}{:<24}{RESET} {}", m.id, m.description);
     }
     println!("\n{BOLD}Gemini API Models (Via GEMINI_API_KEY):{RESET}");
-    println!("  • {GREEN}gemini-3.5-flash-lite{RESET}   Ultra-lightweight, high throughput (Default)");
+    println!(
+        "  • {GREEN}gemini-3.5-flash-lite{RESET}   Ultra-lightweight, high throughput (Default)"
+    );
     println!("  • {GREEN}gemini-3.5-flash{RESET}        Fast, full function-calling, generous daily quota\n");
     println!("{BOLD}Groq Models (Via GROQ_API_KEY):{RESET}");
     println!("  • {GREEN}openai/gpt-oss-120b{RESET}     High reasoning, full tool calling");
@@ -152,8 +160,14 @@ fn parse_args() -> Result<CliConfig, i32> {
                 let auth = agent::external_provider::AntigravityAuthManager::with_default_config();
                 match auth.login_interactive() {
                     Ok(()) => {
-                        println!("\n{BOLD}{GREEN}✓ Successfully authenticated via Antigravity!{RESET}");
-                        println!("  Session saved to: {DIM}{}{RESET}", agent::external_provider::antigravity_cli::auth::default_token_path().display());
+                        println!(
+                            "\n{BOLD}{GREEN}✓ Successfully authenticated via Antigravity!{RESET}"
+                        );
+                        println!(
+                            "  Session saved to: {DIM}{}{RESET}",
+                            agent::external_provider::antigravity_cli::auth::default_token_path()
+                                .display()
+                        );
                         println!("  You can now run: {BOLD}zene -p antigravity{RESET}\n");
                         return Err(0);
                     }
@@ -280,7 +294,11 @@ fn execute_turn(
             };
             if verbose {
                 let snippet = if res_str.len() > 600 {
-                    format!("{}...\n[truncated {} bytes]", &res_str[..600], res_str.len() - 600)
+                    format!(
+                        "{}...\n[truncated {} bytes]",
+                        &res_str[..600],
+                        res_str.len() - 600
+                    )
                 } else {
                     res_str
                 };
@@ -291,7 +309,10 @@ fn execute_turn(
                 println!();
             } else {
                 let lines = res_str.lines().count();
-                println!("  {GREEN}✓ {name}{RESET} {DIM}finished ({} lines output){RESET}", lines);
+                println!(
+                    "  {GREEN}✓ {name}{RESET} {DIM}finished ({} lines output){RESET}",
+                    lines
+                );
             }
         }
 
@@ -386,11 +407,31 @@ fn run_interactive(mut config: CliConfig) {
     println!("{BOLD}{CYAN}═══════════════════════════════════════════════════════════════{RESET}");
     println!("{BOLD}{CYAN}           ZENE Agent Interactive Developer CLI                {RESET}");
     println!("{BOLD}{CYAN}═══════════════════════════════════════════════════════════════{RESET}");
-    println!("  {BOLD}Provider:{RESET}   {GREEN}{}{RESET}", config.provider);
+    println!(
+        "  {BOLD}Provider:{RESET}   {GREEN}{}{RESET}",
+        config.provider
+    );
     println!("  {BOLD}Model:{RESET}      {GREEN}{}{RESET}", config.model);
-    println!("  {BOLD}Workspace:{RESET}  {BLUE}{}{RESET}", config.workspace.display());
-    println!("  {BOLD}Verbose:{RESET}    {}", if config.verbose { format!("{YELLOW}ON{RESET}") } else { format!("{DIM}OFF{RESET}") });
-    println!("  {BOLD}Approval:{RESET}   {}", if config.auto_approve { format!("{YELLOW}AUTO-APPROVE{RESET}") } else { format!("{GREEN}MANUAL (Prompt on destructive tools){RESET}") });
+    println!(
+        "  {BOLD}Workspace:{RESET}  {BLUE}{}{RESET}",
+        config.workspace.display()
+    );
+    println!(
+        "  {BOLD}Verbose:{RESET}    {}",
+        if config.verbose {
+            format!("{YELLOW}ON{RESET}")
+        } else {
+            format!("{DIM}OFF{RESET}")
+        }
+    );
+    println!(
+        "  {BOLD}Approval:{RESET}   {}",
+        if config.auto_approve {
+            format!("{YELLOW}AUTO-APPROVE{RESET}")
+        } else {
+            format!("{GREEN}MANUAL (Prompt on destructive tools){RESET}")
+        }
+    );
 
     let agent_opt = create_configured_agent(&config);
 
@@ -404,17 +445,21 @@ fn run_interactive(mut config: CliConfig) {
 
     let trust_display = match agent.trust_status() {
         agent::trust::TrustStatus::Trusted => format!("{GREEN}Trusted (Full Access){RESET}"),
-        agent::trust::TrustStatus::Untrusted => format!("{RED}Untrusted (Restricted Sandbox: Shell blocked, edits require approval){RESET}"),
+        agent::trust::TrustStatus::Untrusted => format!(
+            "{RED}Untrusted (Restricted Sandbox: Shell blocked, edits require approval){RESET}"
+        ),
         agent::trust::TrustStatus::Unknown => format!("{YELLOW}Unknown / Unverified{RESET}"),
     };
     println!("  {BOLD}Trust:{RESET}       {}", trust_display);
 
     let rules_count = agent.rules().len();
     if rules_count > 0 {
-        println!("  {BOLD}Rules:{RESET}       {GREEN}{} active project rule(s) loaded{RESET}", rules_count);
+        println!(
+            "  {BOLD}Rules:{RESET}       {GREEN}{} active project rule(s) loaded{RESET}",
+            rules_count
+        );
     }
     println!("{DIM}Type your instructions or ':help' for commands. ':quit' to exit.{RESET}\n");
-
 
     let stdin = io::stdin();
     let mut session_json: Option<String> = None;
@@ -445,7 +490,14 @@ fn run_interactive(mut config: CliConfig) {
                 }
                 ":approve" | ":auto-approve" => {
                     config.auto_approve = !config.auto_approve;
-                    println!("Auto-approve mode: {}", if config.auto_approve { format!("{YELLOW}ON (Destructive actions auto-run){RESET}") } else { format!("{GREEN}OFF (Prompting for review){RESET}") });
+                    println!(
+                        "Auto-approve mode: {}",
+                        if config.auto_approve {
+                            format!("{YELLOW}ON (Destructive actions auto-run){RESET}")
+                        } else {
+                            format!("{GREEN}OFF (Prompting for review){RESET}")
+                        }
+                    );
                     continue;
                 }
                 ":rules" => {
@@ -453,9 +505,17 @@ fn run_interactive(mut config: CliConfig) {
                     if rules.is_empty() {
                         println!("{DIM}No project rules found. Add 'AGENTS.md', 'GEMINI.md', or '.agents/rules/*.md' in your workspace.{RESET}");
                     } else {
-                        println!("{BOLD}{CYAN}Active Discovered Rules ({}):{RESET}", rules.len());
+                        println!(
+                            "{BOLD}{CYAN}Active Discovered Rules ({}):{RESET}",
+                            rules.len()
+                        );
                         for r in rules {
-                            println!("  • {GREEN}{}{RESET} ({:?}) -> {DIM}{}{RESET}", r.name, r.scope, r.path.display());
+                            println!(
+                                "  • {GREEN}{}{RESET} ({:?}) -> {DIM}{}{RESET}",
+                                r.name,
+                                r.scope,
+                                r.path.display()
+                            );
                         }
                     }
                     continue;
@@ -464,14 +524,18 @@ fn run_interactive(mut config: CliConfig) {
                     let sub = cmd.strip_prefix(":trust").unwrap_or("").trim();
                     let mgr = agent::trust::WorkspaceTrustManager::default();
                     if sub == "on" || sub == "trust" || sub == "yes" || sub == "true" {
-                        if let Err(e) = mgr.set_trust(&config.workspace, agent::trust::TrustStatus::Trusted) {
+                        if let Err(e) =
+                            mgr.set_trust(&config.workspace, agent::trust::TrustStatus::Trusted)
+                        {
                             eprintln!("{RED}Failed to update trust: {e}{RESET}");
                         } else {
                             agent.set_trust_status(agent::trust::TrustStatus::Trusted);
                             println!("{GREEN}✓ Workspace marked as TRUSTED. Full shell and tool execution permitted.{RESET}");
                         }
                     } else if sub == "off" || sub == "untrust" || sub == "no" || sub == "false" {
-                        if let Err(e) = mgr.set_trust(&config.workspace, agent::trust::TrustStatus::Untrusted) {
+                        if let Err(e) =
+                            mgr.set_trust(&config.workspace, agent::trust::TrustStatus::Untrusted)
+                        {
                             eprintln!("{RED}Failed to update trust: {e}{RESET}");
                         } else {
                             agent.set_trust_status(agent::trust::TrustStatus::Untrusted);
@@ -480,12 +544,18 @@ fn run_interactive(mut config: CliConfig) {
                     } else if sub.is_empty() {
                         let status_str = match agent.trust_status() {
                             agent::trust::TrustStatus::Trusted => format!("{GREEN}Trusted{RESET}"),
-                            agent::trust::TrustStatus::Untrusted => format!("{RED}Untrusted (Restricted Sandbox){RESET}"),
-                            agent::trust::TrustStatus::Unknown => format!("{YELLOW}Unknown / Unverified{RESET}"),
+                            agent::trust::TrustStatus::Untrusted => {
+                                format!("{RED}Untrusted (Restricted Sandbox){RESET}")
+                            }
+                            agent::trust::TrustStatus::Unknown => {
+                                format!("{YELLOW}Unknown / Unverified{RESET}")
+                            }
                         };
                         println!("Workspace: {}", config.workspace.display());
                         println!("Trust status: {}", status_str);
-                        println!("{DIM}Use ':trust on' or ':trust off' to change trust status.{RESET}");
+                        println!(
+                            "{DIM}Use ':trust on' or ':trust off' to change trust status.{RESET}"
+                        );
                     } else {
                         println!("Usage: :trust [on|off]");
                     }
@@ -493,7 +563,8 @@ fn run_interactive(mut config: CliConfig) {
                 }
                 ":login" => {
                     println!("{BOLD}{CYAN}Initiating Google Antigravity OAuth Login...{RESET}");
-                    let auth = agent::external_provider::AntigravityAuthManager::with_default_config();
+                    let auth =
+                        agent::external_provider::AntigravityAuthManager::with_default_config();
                     match auth.login_interactive() {
                         Ok(_) => {
                             println!("{GREEN}✓ Successfully authenticated with Google Antigravity!{RESET}");
@@ -516,7 +587,14 @@ fn run_interactive(mut config: CliConfig) {
                 }
                 ":verbose" => {
                     config.verbose = !config.verbose;
-                    println!("Verbose mode: {}", if config.verbose { format!("{YELLOW}ON{RESET}") } else { format!("{DIM}OFF{RESET}") });
+                    println!(
+                        "Verbose mode: {}",
+                        if config.verbose {
+                            format!("{YELLOW}ON{RESET}")
+                        } else {
+                            format!("{DIM}OFF{RESET}")
+                        }
+                    );
                     continue;
                 }
                 ":clear" => {
@@ -560,12 +638,18 @@ fn run_interactive(mut config: CliConfig) {
                         &config.workspace,
                     ) {
                         agent = fresh;
-                        println!("{GREEN}Switched workspace to: {}{RESET}", config.workspace.display());
+                        println!(
+                            "{GREEN}Switched workspace to: {}{RESET}",
+                            config.workspace.display()
+                        );
                     }
                     continue;
                 }
                 _ => {
-                    println!("{RED}Unknown command: {}{RESET}. Type ':help' for available commands.", trimmed);
+                    println!(
+                        "{RED}Unknown command: {}{RESET}. Type ':help' for available commands.",
+                        trimmed
+                    );
                     continue;
                 }
             }
@@ -576,14 +660,18 @@ fn run_interactive(mut config: CliConfig) {
                 match slash_cmd {
                     agent::orchestrator::SlashCommand::Help => {
                         println!("{BOLD}{CYAN}Available Slash Commands:{RESET}");
-                        println!("  {CYAN}/goal <prompt>{RESET}     Run long-running autonomous task");
+                        println!(
+                            "  {CYAN}/goal <prompt>{RESET}     Run long-running autonomous task"
+                        );
                         println!("  {CYAN}/plan <prompt>{RESET}     Formulate structured plan before editing");
                         println!("  {CYAN}/fix <prompt>{RESET}      Targeted error diagnostics and minimal repair");
                         println!("  {CYAN}/grill-me <topic>{RESET}  Interactive interview to resolve ambiguity");
                         println!("  {CYAN}/compact{RESET}           Compact prior tool results in memory");
                         println!("  {CYAN}/tasks{RESET}             List background processes and daemons");
                         println!("  {CYAN}/schedule <spec>{RESET}   Schedule timer or recurring cron check");
-                        println!("  {CYAN}/learn <rule>{RESET}      Persist learned rule to workspace");
+                        println!(
+                            "  {CYAN}/learn <rule>{RESET}      Persist learned rule to workspace"
+                        );
                         continue;
                     }
                     agent::orchestrator::SlashCommand::Compact => {
@@ -622,7 +710,12 @@ fn run_interactive(mut config: CliConfig) {
                         }
                         let enriched = cmd.enriched_prompt();
                         println!("{BOLD}{CYAN}⚡ Executing Slash Directive:{RESET} {DIM}{trimmed}{RESET}");
-                        let res = execute_turn(&mut agent, &enriched, config.verbose, config.auto_approve);
+                        let res = execute_turn(
+                            &mut agent,
+                            &enriched,
+                            config.verbose,
+                            config.auto_approve,
+                        );
                         match res {
                             Ok(_) => {
                                 session_json = agent.export_session_json().ok();
@@ -673,8 +766,12 @@ pub fn main() {
 
         if config.verbose {
             println!("{BOLD}{CYAN}ZENE Agent One-Shot Runner{RESET}");
-            println!("Provider: {GREEN}{}{RESET} | Model: {GREEN}{}{RESET} | Workspace: {BLUE}{}{RESET}",
-                config.provider, config.model, config.workspace.display());
+            println!(
+                "Provider: {GREEN}{}{RESET} | Model: {GREEN}{}{RESET} | Workspace: {BLUE}{}{RESET}",
+                config.provider,
+                config.model,
+                config.workspace.display()
+            );
             println!("Prompt: {BOLD}\"{}\"{RESET}\n", prompt);
         }
 

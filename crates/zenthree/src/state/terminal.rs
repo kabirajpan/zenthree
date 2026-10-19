@@ -108,6 +108,7 @@ impl ZenthreeState {
             if self.terminal_session.is_some() {
                 self.active_terminal_idx = 0;
                 self.terminal_visible = true;
+                self.bottom_panel_tab = BottomPanelTab::Terminal;
                 return true;
             }
             return false;
@@ -118,6 +119,7 @@ impl ZenthreeState {
                 self.additional_terminal_sessions.push(session);
                 self.active_terminal_idx = self.terminal_session_count() - 1;
                 self.terminal_visible = true;
+                self.bottom_panel_tab = BottomPanelTab::Terminal;
                 self.terminal_spawn_failed = false;
                 true
             }
@@ -130,6 +132,7 @@ impl ZenthreeState {
 
     pub fn show_terminal(&mut self) {
         self.terminal_visible = true;
+        self.bottom_panel_tab = BottomPanelTab::Terminal;
         self.ensure_terminal_session();
     }
 
@@ -147,6 +150,24 @@ impl ZenthreeState {
     pub fn close_terminal_session(&mut self, index: usize) {
         if index >= self.terminal_session_count() {
             return;
+        }
+
+        if let Some(selection) = self.terminal_text_selection {
+            if selection.terminal_index == index {
+                self.terminal_text_selection = None;
+            } else if selection.terminal_index > index {
+                self.terminal_text_selection = Some(TerminalTextSelection {
+                    terminal_index: selection.terminal_index - 1,
+                    ..selection
+                });
+            }
+        }
+        if let Some(drag_index) = self.terminal_selection_drag {
+            if drag_index == index {
+                self.terminal_selection_drag = None;
+            } else if drag_index > index {
+                self.terminal_selection_drag = Some(drag_index - 1);
+            }
         }
 
         if index > 0 {

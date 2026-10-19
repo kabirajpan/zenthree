@@ -3,31 +3,30 @@ use crate::state::{
     AiThinkingBudget, SelectedAgent, ZenthreeState,
 };
 use crate::theme::ThemeColors;
-use zenthra::{use_context, Align, Color, CursorIcon, FontWeight, Id, Placement, PopoverAlign, Style, Ui};
+use zenthra::{
+    use_context, Align, Color, CursorIcon, FontWeight, Id, Placement, PopoverAlign, Style, Ui,
+};
 
 const AG_SETTINGS_MODEL_BTN_ID: Id = Id::from_u64(999999815);
 
 static ANTIGRAVITY_LOGIN_RUNNING: std::sync::atomic::AtomicBool =
     std::sync::atomic::AtomicBool::new(false);
-static ANTIGRAVITY_LOGIN_ERROR: std::sync::Mutex<Option<String>> =
-    std::sync::Mutex::new(None);
-static ANTIGRAVITY_LOGIN_STATUS: std::sync::Mutex<Option<String>> =
-    std::sync::Mutex::new(None);
+static ANTIGRAVITY_LOGIN_ERROR: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+static ANTIGRAVITY_LOGIN_STATUS: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
 static ANTIGRAVITY_INSTALL_RUNNING: std::sync::atomic::AtomicBool =
     std::sync::atomic::AtomicBool::new(false);
-static ANTIGRAVITY_INSTALL_ERROR: std::sync::Mutex<Option<String>> =
-    std::sync::Mutex::new(None);
-static ANTIGRAVITY_INSTALL_STATUS: std::sync::Mutex<Option<String>> =
-    std::sync::Mutex::new(None);
-static ANTIGRAVITY_INSTALL_PROGRESS: std::sync::Mutex<f32> =
-    std::sync::Mutex::new(0.0);
+static ANTIGRAVITY_INSTALL_ERROR: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+static ANTIGRAVITY_INSTALL_STATUS: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
+static ANTIGRAVITY_INSTALL_PROGRESS: std::sync::Mutex<f32> = std::sync::Mutex::new(0.0);
 
 pub fn draw_ai_settings_dialog(ui: &mut Ui, state: &mut ZenthreeState) {
     if !state.ai_settings.open {
         return;
     }
 
-    let colors = use_context::<ThemeColors>().map(|c| *c).unwrap_or_else(|| state.colors());
+    let colors = use_context::<ThemeColors>()
+        .map(|c| *c)
+        .unwrap_or_else(|| state.colors());
     let is_light = colors.bg_base.r > 0.5;
 
     // Generous, premium floating window dimensions
@@ -40,15 +39,17 @@ pub fn draw_ai_settings_dialog(ui: &mut Ui, state: &mut ZenthreeState) {
     let center_y = viewport.origin.y + (viewport.size.height - win_h) / 2.0;
 
     // 1. Semi-transparent backdrop to dim screen in the overlays pass (pure draw command, NO occluding container)
-    ui.overlays.push(zenthra_widgets::ui::DrawCommand::Rect(zenthra_widgets::ui::RectDraw {
-        instance: zenthra_render::RectInstance {
-            pos: [viewport.origin.x, viewport.origin.y],
-            size: [viewport.size.width, viewport.size.height],
-            color: [0.0, 0.0, 0.0, 0.50],
-            radius: [0.0; 4],
-            ..Default::default()
+    ui.overlays.push(zenthra_widgets::ui::DrawCommand::Rect(
+        zenthra_widgets::ui::RectDraw {
+            instance: zenthra_render::RectInstance {
+                pos: [viewport.origin.x, viewport.origin.y],
+                size: [viewport.size.width, viewport.size.height],
+                color: [0.0, 0.0, 0.0, 0.50],
+                radius: [0.0; 4],
+                ..Default::default()
+            },
         },
-    }));
+    ));
 
     // Escape key handling to close dialog
     let mut close_on_esc = false;
@@ -68,7 +69,10 @@ pub fn draw_ai_settings_dialog(ui: &mut Ui, state: &mut ZenthreeState) {
     ui.modal_window_id = Some(modal_id);
     let prev_win_id = ui.current_window_id;
     ui.current_window_id = Some(modal_id);
-    ui.record_layout(modal_id, zenthra_core::Rect::new(center_x, center_y, win_w, win_h));
+    ui.record_layout(
+        modal_id,
+        zenthra_core::Rect::new(center_x, center_y, win_w, win_h),
+    );
 
     if close_on_esc {
         if state.ai_settings.antigravity_model_dropdown_open {
@@ -106,12 +110,15 @@ pub fn draw_ai_settings_dialog(ui: &mut Ui, state: &mut ZenthreeState) {
 
     // 2. Centered Floating Dialog Card
     let card_bg = if state.glassmorphism {
-        colors.bg_sidebar.with_alpha((state.glass_opacity * 1.2).clamp(0.40, 0.95))
+        colors
+            .bg_sidebar
+            .with_alpha((state.glass_opacity * 1.2).clamp(0.40, 0.95))
     } else {
         colors.bg_sidebar
     };
 
-    let mut card = ui.container()
+    let mut card = ui
+        .container()
         .id(Id::from_u64(999999711))
         .pos(center_x, center_y)
         .overlay()
@@ -126,173 +133,193 @@ pub fn draw_ai_settings_dialog(ui: &mut Ui, state: &mut ZenthreeState) {
         card = card.backdrop_blur(state.blur_strength.max(4.0));
     }
 
-    card.column()
-        .clip(true)
-        .show(|ui| {
-            // Header bar
+    card.column().clip(true).show(|ui| {
+        // Header bar
+        ui.container()
+            .fill_x()
+            .height(44.0)
+            .padding(0.0, 18.0, 0.0, 18.0)
+            .row()
+            .valign(Align::Center)
+            .halign(Align::SpaceBetween)
+            .bg(colors.bg_base.with_alpha(0.55))
+            .radius_top(win_radius)
+            .show(|ui| {
+                ui.container()
+                    .row()
+                    .valign(Align::Center)
+                    .gap(10.0)
+                    .show(|ui| {
+                        ui.text("\u{f005}") // star/sparkle
+                            .size(14.0)
+                            .color(colors.accent)
+                            .show();
+                        ui.text("AI & Agent Settings")
+                            .size(13.5)
+                            .font_weight(FontWeight::Bold)
+                            .color(colors.text_primary)
+                            .show();
+                    });
+
+                let close_btn = ui
+                    .container()
+                    .interactive(true)
+                    .padding(5.0, 9.0, 5.0, 9.0)
+                    .radius_all(5.0)
+                    .hover(Style::bg(colors.highlight))
+                    .show(|ui| {
+                        ui.text("\u{f00d}") // fa-times
+                            .size(12.0)
+                            .color(colors.text_muted)
+                            .show();
+                    });
+
+                if close_btn.hovered {
+                    ui.cursor_icon = CursorIcon::Pointer;
+                }
+                if close_btn.clicked {
+                    state.ai_settings.open = false;
+                    state.ai_settings.antigravity_model_dropdown_open = false;
+                    state.save_persistent_state();
+                    ui.needs_redraw = true;
+                }
+            });
+
+        // Header bottom border
+        ui.container()
+            .fill_x()
+            .height(1.0)
+            .bg(colors.border.with_alpha(0.25))
+            .show(|_| {});
+
+        // Body: Left Sidebar + Right Content Area
+        let body_h = win_h - 45.0;
+        let sidebar_w = 180.0;
+        let content_w = win_w - sidebar_w - 1.0;
+
+        ui.container().fill_x().height(body_h).row().show(|ui| {
+            // Left navigation tabs sidebar
             ui.container()
-                .fill_x()
-                .height(44.0)
-                .padding(0.0, 18.0, 0.0, 18.0)
-                .row()
-                .valign(Align::Center)
-                .halign(Align::SpaceBetween)
-                .bg(colors.bg_base.with_alpha(0.55))
-                .radius_top(win_radius)
+                .width(sidebar_w)
+                .height(body_h)
+                .bg(colors.bg_base.with_alpha(0.35))
+                .radius_bottom_left(win_radius)
+                .padding(12.0, 8.0, 12.0, 8.0)
+                .column()
+                .gap(3.0)
                 .show(|ui| {
-                    ui.container()
-                        .row()
-                        .valign(Align::Center)
-                        .gap(10.0)
-                        .show(|ui| {
-                            ui.text("\u{f005}") // star/sparkle
-                                .size(14.0)
-                                .color(colors.accent)
-                                .show();
-                            ui.text("AI & Agent Settings")
-                                .size(13.5)
-                                .font_weight(FontWeight::Bold)
-                                .color(colors.text_primary)
-                                .show();
-                        });
+                    for tab in &AiSettingsTab::ALL {
+                        let is_active = state.ai_settings.active_tab == *tab;
+                        let tab_btn = ui
+                            .container()
+                            .fill_x()
+                            .interactive(true)
+                            .padding(5.5, 10.0, 5.5, 10.0)
+                            .radius_all(5.0)
+                            .bg(if is_active {
+                                colors.highlight.with_alpha(0.06)
+                            } else {
+                                Color::TRANSPARENT
+                            })
+                            .hover(Style::bg(colors.highlight))
+                            .row()
+                            .valign(Align::Center)
+                            .gap(8.0)
+                            .show(|ui| {
+                                ui.text(tab.icon())
+                                    .size(12.0)
+                                    .color(if is_active {
+                                        colors.accent
+                                    } else {
+                                        colors.text_muted
+                                    })
+                                    .show();
+                                ui.text(tab.display_name())
+                                    .size(12.0)
+                                    .font_weight(if is_active {
+                                        FontWeight::SemiBold
+                                    } else {
+                                        FontWeight::Regular
+                                    })
+                                    .color(if is_active {
+                                        colors.text_primary
+                                    } else {
+                                        colors.text_muted
+                                    })
+                                    .show();
+                            });
 
-                    let close_btn = ui.container()
-                        .interactive(true)
-                        .padding(5.0, 9.0, 5.0, 9.0)
-                        .radius_all(5.0)
-                        .hover(Style::bg(colors.highlight))
-                        .show(|ui| {
-                            ui.text("\u{f00d}") // fa-times
-                                .size(12.0)
-                                .color(colors.text_muted)
-                                .show();
-                        });
-
-                    if close_btn.hovered {
-                        ui.cursor_icon = CursorIcon::Pointer;
-                    }
-                    if close_btn.clicked {
-                        state.ai_settings.open = false;
-                        state.ai_settings.antigravity_model_dropdown_open = false;
-                        state.save_persistent_state();
-                        ui.needs_redraw = true;
+                        if tab_btn.hovered {
+                            ui.cursor_icon = CursorIcon::Pointer;
+                        }
+                        if tab_btn.clicked {
+                            state.ai_settings.active_tab = *tab;
+                            state.ai_settings.antigravity_model_dropdown_open = false;
+                            ui.needs_redraw = true;
+                        }
                     }
                 });
 
-            // Header bottom border
+            // Vertical divider
             ui.container()
-                .fill_x()
-                .height(1.0)
+                .width(1.0)
+                .height(body_h)
                 .bg(colors.border.with_alpha(0.25))
                 .show(|_| {});
 
-            // Body: Left Sidebar + Right Content Area
-            let body_h = win_h - 45.0;
-            let sidebar_w = 180.0;
-            let content_w = win_w - sidebar_w - 1.0;
-
+            // Right Content Area
+            let scroll_id = Id::from_u64(999999715);
+            let prev_scroll_y = ui
+                .scroll_state
+                .get(&scroll_id)
+                .map(|(_, y)| *y)
+                .unwrap_or(0.0);
             ui.container()
-                .fill_x()
+                .id(scroll_id)
+                .width(content_w)
                 .height(body_h)
-                .row()
-                .show(|ui| {
-                    // Left navigation tabs sidebar
-                    ui.container()
-                        .width(sidebar_w)
-                        .height(body_h)
-                        .bg(colors.bg_base.with_alpha(0.35))
-                        .radius_bottom_left(win_radius)
-                        .padding(12.0, 8.0, 12.0, 8.0)
-                        .column()
-                        .gap(3.0)
-                        .show(|ui| {
-                            for tab in &AiSettingsTab::ALL {
-                                let is_active = state.ai_settings.active_tab == *tab;
-                                let tab_btn = ui.container()
-                                    .fill_x()
-                                    .interactive(true)
-                                    .padding(5.5, 10.0, 5.5, 10.0)
-                                    .radius_all(5.0)
-                                    .bg(if is_active { colors.highlight.with_alpha(0.06) } else { Color::TRANSPARENT })
-                                    .hover(Style::bg(colors.highlight))
-                                    .row()
-                                    .valign(Align::Center)
-                                    .gap(8.0)
-                                    .show(|ui| {
-                                        ui.text(tab.icon())
-                                            .size(12.0)
-                                            .color(if is_active { colors.accent } else { colors.text_muted })
-                                            .show();
-                                        ui.text(tab.display_name())
-                                            .size(12.0)
-                                            .font_weight(if is_active { FontWeight::SemiBold } else { FontWeight::Regular })
-                                            .color(if is_active { colors.text_primary } else { colors.text_muted })
-                                            .show();
-                                    });
-
-                                if tab_btn.hovered {
-                                    ui.cursor_icon = CursorIcon::Pointer;
-                                }
-                                if tab_btn.clicked {
-                                    state.ai_settings.active_tab = *tab;
-                                    state.ai_settings.antigravity_model_dropdown_open = false;
-                                    ui.needs_redraw = true;
-                                }
-                            }
-                        });
-
-                    // Vertical divider
-                    ui.container()
-                        .width(1.0)
-                        .height(body_h)
-                        .bg(colors.border.with_alpha(0.25))
-                        .show(|_| {});
-
-                    // Right Content Area
-                    let scroll_id = Id::from_u64(999999715);
-                    let prev_scroll_y = ui.scroll_state.get(&scroll_id).map(|(_, y)| *y).unwrap_or(0.0);
-                    ui.container()
-                        .id(scroll_id)
-                        .width(content_w)
-                        .height(body_h)
-                        .clip(true)
-                        .radius_bottom_right(win_radius)
-                        .padding(16.0, 22.0, 16.0, 22.0)
-                        .scroll_y(true)
-                        .column()
-                        .gap(12.0)
-                        .show(|ui| {
-                            match state.ai_settings.active_tab {
-                                AiSettingsTab::Appearance => {
-                                    draw_appearance_tab(ui, state, &colors, is_light);
-                                }
-                                AiSettingsTab::General => {
-                                    draw_general_tab(ui, state, &colors);
-                                }
-                                AiSettingsTab::ApiKeys => {
-                                    draw_api_keys_tab(ui, state, &colors);
-                                }
-                                AiSettingsTab::ExternalAgents => {
-                                    draw_external_agents_tab(ui, state, &colors);
-                                }
-                                AiSettingsTab::Mcp => {
-                                    draw_mcp_tab(ui, state, &colors);
-                                }
-                                AiSettingsTab::Model => {
-                                    draw_model_tab(ui, state, &colors);
-                                }
-                                AiSettingsTab::Customization => {
-                                    draw_customization_tab(ui, state, &colors);
-                                }
-                            }
-                        });
-                    let new_scroll_y = ui.scroll_state.get(&scroll_id).map(|(_, y)| *y).unwrap_or(0.0);
-                    if (new_scroll_y - prev_scroll_y).abs() > 0.5 && state.ai_settings.antigravity_model_dropdown_open {
-                        state.ai_settings.antigravity_model_dropdown_open = false;
-                        ui.needs_redraw = true;
+                .clip(true)
+                .radius_bottom_right(win_radius)
+                .padding(16.0, 22.0, 16.0, 22.0)
+                .scroll_y(true)
+                .column()
+                .gap(12.0)
+                .show(|ui| match state.ai_settings.active_tab {
+                    AiSettingsTab::Appearance => {
+                        draw_appearance_tab(ui, state, &colors, is_light);
+                    }
+                    AiSettingsTab::General => {
+                        draw_general_tab(ui, state, &colors);
+                    }
+                    AiSettingsTab::ApiKeys => {
+                        draw_api_keys_tab(ui, state, &colors);
+                    }
+                    AiSettingsTab::ExternalAgents => {
+                        draw_external_agents_tab(ui, state, &colors);
+                    }
+                    AiSettingsTab::Mcp => {
+                        draw_mcp_tab(ui, state, &colors);
+                    }
+                    AiSettingsTab::Model => {
+                        draw_model_tab(ui, state, &colors);
+                    }
+                    AiSettingsTab::Customization => {
+                        draw_customization_tab(ui, state, &colors);
                     }
                 });
+            let new_scroll_y = ui
+                .scroll_state
+                .get(&scroll_id)
+                .map(|(_, y)| *y)
+                .unwrap_or(0.0);
+            if (new_scroll_y - prev_scroll_y).abs() > 0.5
+                && state.ai_settings.antigravity_model_dropdown_open
+            {
+                state.ai_settings.antigravity_model_dropdown_open = false;
+                ui.needs_redraw = true;
+            }
         });
+    });
 
     // NOTE: The Antigravity model popover is rendered from main.rs at the top level
     // (after all dialog content) so it correctly draws on top of the dialog card.
@@ -304,23 +331,24 @@ pub fn draw_ai_settings_dialog(ui: &mut Ui, state: &mut ZenthreeState) {
 // 1. Appearance Tab (REAL, WORKING SETTINGS)
 // ─────────────────────────────────────────────────────────────────────────────
 
-fn draw_appearance_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColors, _is_light: bool) {
+fn draw_appearance_tab(
+    ui: &mut Ui,
+    state: &mut ZenthreeState,
+    colors: &ThemeColors,
+    _is_light: bool,
+) {
     // Section Title & Description
-    ui.container()
-        .fill_x()
-        .column()
-        .gap(3.0)
-        .show(|ui| {
-            ui.text("Appearance & Styling")
-                .size(14.0)
-                .font_weight(FontWeight::Bold)
-                .color(colors.text_primary)
-                .show();
-            ui.text("Customize contrast, outlines, and drop shadows of the AI assistant panel.")
-                .size(11.0)
-                .color(colors.text_muted)
-                .show();
-        });
+    ui.container().fill_x().column().gap(3.0).show(|ui| {
+        ui.text("Appearance & Styling")
+            .size(14.0)
+            .font_weight(FontWeight::Bold)
+            .color(colors.text_primary)
+            .show();
+        ui.text("Customize contrast, outlines, and drop shadows of the AI assistant panel.")
+            .size(11.0)
+            .color(colors.text_muted)
+            .show();
+    });
 
     ui.spacing(2.0);
 
@@ -333,25 +361,25 @@ fn draw_appearance_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeCol
         .valign(Align::Center)
         .halign(Align::SpaceBetween)
         .show(|ui| {
-            ui.container()
-                .width(330.0)
-                .column()
-                .gap(3.0)
-                .show(|ui| {
-                    ui.text("Theme Preset Mode")
-                        .size(12.0)
-                        .font_weight(FontWeight::Medium)
-                        .color(colors.text_primary)
-                        .show();
-                    ui.text(if is_sys_default {
-                        "System default active (options below are grayed out)"
-                    } else {
-                        "Custom mode active (options below are unlocked)"
-                    })
-                    .size(10.5)
-                    .color(if is_sys_default { colors.accent } else { colors.text_muted })
+            ui.container().width(330.0).column().gap(3.0).show(|ui| {
+                ui.text("Theme Preset Mode")
+                    .size(12.0)
+                    .font_weight(FontWeight::Medium)
+                    .color(colors.text_primary)
                     .show();
-                });
+                ui.text(if is_sys_default {
+                    "System default active (options below are grayed out)"
+                } else {
+                    "Custom mode active (options below are unlocked)"
+                })
+                .size(10.5)
+                .color(if is_sys_default {
+                    colors.accent
+                } else {
+                    colors.text_muted
+                })
+                .show();
+            });
 
             // Segmented pills with generous padding so edges never get cut off
             ui.container()
@@ -367,17 +395,34 @@ fn draw_appearance_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeCol
                     ];
                     for (mode, label) in modes {
                         let is_active = state.ai_settings.preset_mode == mode;
-                        let btn = ui.container()
+                        let btn = ui
+                            .container()
                             .interactive(true)
                             .padding(5.0, 12.0, 5.0, 12.0)
                             .radius_all(4.0)
-                            .bg(if is_active { colors.accent } else { Color::TRANSPARENT })
-                            .hover(Style::bg(if is_active { colors.accent } else { colors.highlight }))
+                            .bg(if is_active {
+                                colors.accent
+                            } else {
+                                Color::TRANSPARENT
+                            })
+                            .hover(Style::bg(if is_active {
+                                colors.accent
+                            } else {
+                                colors.highlight
+                            }))
                             .show(|ui| {
                                 ui.text(label)
                                     .size(10.5)
-                                    .font_weight(if is_active { FontWeight::SemiBold } else { FontWeight::Regular })
-                                    .color(if is_active { Color::WHITE } else { colors.text_muted })
+                                    .font_weight(if is_active {
+                                        FontWeight::SemiBold
+                                    } else {
+                                        FontWeight::Regular
+                                    })
+                                    .color(if is_active {
+                                        Color::WHITE
+                                    } else {
+                                        colors.text_muted
+                                    })
                                     .show();
                             });
                         if btn.hovered {
@@ -400,7 +445,11 @@ fn draw_appearance_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeCol
 
     // ── Row 2: Input Box Outline (Official Toggle Widget) ──
     let mut locked_outline = state.ai_settings.effective_input_outline();
-    let outline_ref = if is_locked { &mut locked_outline } else { &mut state.ai_settings.input_outline };
+    let outline_ref = if is_locked {
+        &mut locked_outline
+    } else {
+        &mut state.ai_settings.input_outline
+    };
     if draw_toggle_row_inline(
         ui,
         999999721,
@@ -419,7 +468,11 @@ fn draw_appearance_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeCol
 
     // ── Row 3: Drop Shadow (Official Toggle Widget) ──
     let mut locked_shadow = state.ai_settings.effective_input_shadow();
-    let shadow_ref = if is_locked { &mut locked_shadow } else { &mut state.ai_settings.input_shadow };
+    let shadow_ref = if is_locked {
+        &mut locked_shadow
+    } else {
+        &mut state.ai_settings.input_shadow
+    };
     if draw_toggle_row_inline(
         ui,
         999999722,
@@ -443,21 +496,17 @@ fn draw_appearance_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeCol
         .valign(Align::Center)
         .halign(Align::SpaceBetween)
         .show(|ui| {
-            ui.container()
-                .width(330.0)
-                .column()
-                .gap(3.0)
-                .show(|ui| {
-                    ui.text("Input Box Tone")
-                        .size(12.0)
-                        .font_weight(FontWeight::Medium)
-                        .color(colors.text_primary.with_alpha(label_alpha))
-                        .show();
-                    ui.text("Fill contrast tone: Dark (#141416), Charcoal (#202126), Bright (#2c2d34)")
-                        .size(10.5)
-                        .color(colors.text_muted.with_alpha(sub_alpha))
-                        .show();
-                });
+            ui.container().width(330.0).column().gap(3.0).show(|ui| {
+                ui.text("Input Box Tone")
+                    .size(12.0)
+                    .font_weight(FontWeight::Medium)
+                    .color(colors.text_primary.with_alpha(label_alpha))
+                    .show();
+                ui.text("Fill contrast tone: Dark (#141416), Charcoal (#202126), Bright (#2c2d34)")
+                    .size(10.5)
+                    .color(colors.text_muted.with_alpha(sub_alpha))
+                    .show();
+            });
 
             ui.container()
                 .row()
@@ -479,11 +528,16 @@ fn draw_appearance_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeCol
                         } else {
                             colors.accent
                         };
-                        let btn = ui.container()
+                        let btn = ui
+                            .container()
                             .interactive(!is_locked)
                             .padding(5.0, 12.0, 5.0, 12.0)
                             .radius_all(4.0)
-                            .bg(if is_active { active_bg } else { Color::TRANSPARENT })
+                            .bg(if is_active {
+                                active_bg
+                            } else {
+                                Color::TRANSPARENT
+                            })
                             .hover(Style::bg(if is_locked {
                                 Color::TRANSPARENT
                             } else if is_active {
@@ -494,7 +548,11 @@ fn draw_appearance_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeCol
                             .show(|ui| {
                                 ui.text(label)
                                     .size(10.5)
-                                    .font_weight(if is_active { FontWeight::SemiBold } else { FontWeight::Regular })
+                                    .font_weight(if is_active {
+                                        FontWeight::SemiBold
+                                    } else {
+                                        FontWeight::Regular
+                                    })
                                     .color(if is_active {
                                         Color::WHITE.with_alpha(if is_locked { 0.6 } else { 1.0 })
                                     } else {
@@ -523,21 +581,17 @@ fn draw_appearance_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeCol
         .valign(Align::Center)
         .halign(Align::SpaceBetween)
         .show(|ui| {
-            ui.container()
-                .width(330.0)
-                .column()
-                .gap(3.0)
-                .show(|ui| {
-                    ui.text("Message Area Background")
-                        .size(12.0)
-                        .font_weight(FontWeight::Medium)
-                        .color(colors.text_primary.with_alpha(label_alpha))
-                        .show();
-                    ui.text("Deep dark backdrop (#121212) vs sidebar match (#181818)")
-                        .size(10.5)
-                        .color(colors.text_muted.with_alpha(sub_alpha))
-                        .show();
-                });
+            ui.container().width(330.0).column().gap(3.0).show(|ui| {
+                ui.text("Message Area Background")
+                    .size(12.0)
+                    .font_weight(FontWeight::Medium)
+                    .color(colors.text_primary.with_alpha(label_alpha))
+                    .show();
+                ui.text("Deep dark backdrop (#121212) vs sidebar match (#181818)")
+                    .size(10.5)
+                    .color(colors.text_muted.with_alpha(sub_alpha))
+                    .show();
+            });
 
             ui.container()
                 .row()
@@ -558,11 +612,16 @@ fn draw_appearance_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeCol
                         } else {
                             colors.accent
                         };
-                        let btn = ui.container()
+                        let btn = ui
+                            .container()
                             .interactive(!is_locked)
                             .padding(5.0, 12.0, 5.0, 12.0)
                             .radius_all(4.0)
-                            .bg(if is_active { active_bg } else { Color::TRANSPARENT })
+                            .bg(if is_active {
+                                active_bg
+                            } else {
+                                Color::TRANSPARENT
+                            })
                             .hover(Style::bg(if is_locked {
                                 Color::TRANSPARENT
                             } else if is_active {
@@ -573,7 +632,11 @@ fn draw_appearance_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeCol
                             .show(|ui| {
                                 ui.text(label)
                                     .size(10.5)
-                                    .font_weight(if is_active { FontWeight::SemiBold } else { FontWeight::Regular })
+                                    .font_weight(if is_active {
+                                        FontWeight::SemiBold
+                                    } else {
+                                        FontWeight::Regular
+                                    })
                                     .color(if is_active {
                                         Color::WHITE.with_alpha(if is_locked { 0.6 } else { 1.0 })
                                     } else {
@@ -602,21 +665,17 @@ fn draw_appearance_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeCol
         .valign(Align::Center)
         .halign(Align::SpaceBetween)
         .show(|ui| {
-            ui.container()
-                .width(330.0)
-                .column()
-                .gap(3.0)
-                .show(|ui| {
-                    ui.text("Prompt Font Size")
-                        .size(12.0)
-                        .font_weight(FontWeight::Medium)
-                        .color(colors.text_primary.with_alpha(label_alpha))
-                        .show();
-                    ui.text("Text sizing in the input prompt textarea")
-                        .size(10.5)
-                        .color(colors.text_muted.with_alpha(sub_alpha))
-                        .show();
-                });
+            ui.container().width(330.0).column().gap(3.0).show(|ui| {
+                ui.text("Prompt Font Size")
+                    .size(12.0)
+                    .font_weight(FontWeight::Medium)
+                    .color(colors.text_primary.with_alpha(label_alpha))
+                    .show();
+                ui.text("Text sizing in the input prompt textarea")
+                    .size(10.5)
+                    .color(colors.text_muted.with_alpha(sub_alpha))
+                    .show();
+            });
 
             ui.container()
                 .row()
@@ -638,11 +697,16 @@ fn draw_appearance_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeCol
                         } else {
                             colors.accent
                         };
-                        let btn = ui.container()
+                        let btn = ui
+                            .container()
                             .interactive(!is_locked)
                             .padding(5.0, 11.0, 5.0, 11.0)
                             .radius_all(4.0)
-                            .bg(if is_active { active_bg } else { Color::TRANSPARENT })
+                            .bg(if is_active {
+                                active_bg
+                            } else {
+                                Color::TRANSPARENT
+                            })
                             .hover(Style::bg(if is_locked {
                                 Color::TRANSPARENT
                             } else if is_active {
@@ -653,7 +717,11 @@ fn draw_appearance_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeCol
                             .show(|ui| {
                                 ui.text(label)
                                     .size(10.5)
-                                    .font_weight(if is_active { FontWeight::SemiBold } else { FontWeight::Regular })
+                                    .font_weight(if is_active {
+                                        FontWeight::SemiBold
+                                    } else {
+                                        FontWeight::Regular
+                                    })
                                     .color(if is_active {
                                         Color::WHITE.with_alpha(if is_locked { 0.6 } else { 1.0 })
                                     } else {
@@ -679,21 +747,17 @@ fn draw_appearance_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeCol
 // ─────────────────────────────────────────────────────────────────────────────
 
 fn draw_general_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColors) {
-    ui.container()
-        .fill_x()
-        .column()
-        .gap(3.0)
-        .show(|ui| {
-            ui.text("General Preferences")
-                .size(14.0)
-                .font_weight(FontWeight::Bold)
-                .color(colors.text_primary)
-                .show();
-            ui.text("Agent interaction behavior and notification parameters")
-                .size(11.0)
-                .color(colors.text_muted)
-                .show();
-        });
+    ui.container().fill_x().column().gap(3.0).show(|ui| {
+        ui.text("General Preferences")
+            .size(14.0)
+            .font_weight(FontWeight::Bold)
+            .color(colors.text_primary)
+            .show();
+        ui.text("Agent interaction behavior and notification parameters")
+            .size(11.0)
+            .color(colors.text_muted)
+            .show();
+    });
 
     ui.spacing(2.0);
 
@@ -757,21 +821,17 @@ fn draw_general_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColors
 // ─────────────────────────────────────────────────────────────────────────────
 
 fn draw_model_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColors) {
-    ui.container()
-        .fill_x()
-        .column()
-        .gap(3.0)
-        .show(|ui| {
-            ui.text("Model Configuration")
-                .size(14.0)
-                .font_weight(FontWeight::Bold)
-                .color(colors.text_primary)
-                .show();
-            ui.text("Default model engine, temperature, and reasoning budget")
-                .size(11.0)
-                .color(colors.text_muted)
-                .show();
-        });
+    ui.container().fill_x().column().gap(3.0).show(|ui| {
+        ui.text("Model Configuration")
+            .size(14.0)
+            .font_weight(FontWeight::Bold)
+            .color(colors.text_primary)
+            .show();
+        ui.text("Default model engine, temperature, and reasoning budget")
+            .size(11.0)
+            .color(colors.text_muted)
+            .show();
+    });
 
     ui.spacing(2.0);
 
@@ -782,23 +842,20 @@ fn draw_model_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColors) 
         .valign(Align::Center)
         .halign(Align::SpaceBetween)
         .show(|ui| {
-            ui.container()
-                .width(330.0)
-                .column()
-                .gap(3.0)
-                .show(|ui| {
-                    ui.text("Default AI Model")
-                        .size(12.0)
-                        .font_weight(FontWeight::Medium)
-                        .color(colors.text_primary)
-                        .show();
-                    ui.text("Active intelligence provider for workspace sessions")
-                        .size(10.5)
-                        .color(colors.text_muted)
-                        .show();
-                });
+            ui.container().width(330.0).column().gap(3.0).show(|ui| {
+                ui.text("Default AI Model")
+                    .size(12.0)
+                    .font_weight(FontWeight::Medium)
+                    .color(colors.text_primary)
+                    .show();
+                ui.text("Active intelligence provider for workspace sessions")
+                    .size(10.5)
+                    .color(colors.text_muted)
+                    .show();
+            });
 
-            let model_pill = ui.container()
+            let model_pill = ui
+                .container()
                 .interactive(true)
                 .padding(5.0, 12.0, 5.0, 12.0)
                 .radius_all(6.0)
@@ -824,7 +881,10 @@ fn draw_model_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColors) 
             }
             if model_pill.clicked {
                 let all = AiModel::ALL;
-                let idx = all.iter().position(|m| *m == state.selected_ai_model).unwrap_or(0);
+                let idx = all
+                    .iter()
+                    .position(|m| *m == state.selected_ai_model)
+                    .unwrap_or(0);
                 state.selected_ai_model = all[(idx + 1) % all.len()];
                 ui.needs_redraw = true;
             }
@@ -839,28 +899,25 @@ fn draw_model_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColors) 
         .valign(Align::Center)
         .halign(Align::SpaceBetween)
         .show(|ui| {
-            ui.container()
-                .width(330.0)
-                .column()
-                .gap(3.0)
-                .show(|ui| {
-                    ui.text("Temperature")
-                        .size(12.0)
-                        .font_weight(FontWeight::Medium)
-                        .color(colors.text_primary)
-                        .show();
-                    ui.text("Controls response randomness vs deterministic accuracy")
-                        .size(10.5)
-                        .color(colors.text_muted)
-                        .show();
-                });
+            ui.container().width(330.0).column().gap(3.0).show(|ui| {
+                ui.text("Temperature")
+                    .size(12.0)
+                    .font_weight(FontWeight::Medium)
+                    .color(colors.text_primary)
+                    .show();
+                ui.text("Controls response randomness vs deterministic accuracy")
+                    .size(10.5)
+                    .color(colors.text_muted)
+                    .show();
+            });
 
             ui.container()
                 .row()
                 .valign(Align::Center)
                 .gap(5.0)
                 .show(|ui| {
-                    let minus_btn = ui.container()
+                    let minus_btn = ui
+                        .container()
                         .interactive(true)
                         .width(22.0)
                         .height(22.0)
@@ -876,15 +933,19 @@ fn draw_model_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColors) 
                                 .color(colors.text_primary)
                                 .show();
                         });
-                    if minus_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
+                    if minus_btn.hovered {
+                        ui.cursor_icon = CursorIcon::Pointer;
+                    }
                     if minus_btn.clicked {
-                        state.ai_settings.temperature = ((state.ai_settings.temperature - 0.05) * 100.0).round() / 100.0;
+                        state.ai_settings.temperature =
+                            ((state.ai_settings.temperature - 0.05) * 100.0).round() / 100.0;
                         state.ai_settings.temperature = state.ai_settings.temperature.max(0.0);
                         ui.needs_redraw = true;
                     }
 
                     let mut temp_val = state.ai_settings.temperature;
-                    let slider_resp = ui.slider(&mut temp_val, "ai_temperature_slider")
+                    let slider_resp = ui
+                        .slider(&mut temp_val, "ai_temperature_slider")
                         .range(0.0, 1.0)
                         .step(0.05)
                         .track_size(110.0, 4.0)
@@ -895,12 +956,16 @@ fn draw_model_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColors) 
                         .thumb_color(colors.accent)
                         .show();
 
-                    if (temp_val - state.ai_settings.temperature).abs() > 0.001 || slider_resp.clicked || slider_resp.pressed {
+                    if (temp_val - state.ai_settings.temperature).abs() > 0.001
+                        || slider_resp.clicked
+                        || slider_resp.pressed
+                    {
                         state.ai_settings.temperature = temp_val;
                         ui.needs_redraw = true;
                     }
 
-                    let plus_btn = ui.container()
+                    let plus_btn = ui
+                        .container()
                         .interactive(true)
                         .width(22.0)
                         .height(22.0)
@@ -916,23 +981,23 @@ fn draw_model_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColors) 
                                 .color(colors.text_primary)
                                 .show();
                         });
-                    if plus_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
+                    if plus_btn.hovered {
+                        ui.cursor_icon = CursorIcon::Pointer;
+                    }
                     if plus_btn.clicked {
-                        state.ai_settings.temperature = ((state.ai_settings.temperature + 0.05) * 100.0).round() / 100.0;
+                        state.ai_settings.temperature =
+                            ((state.ai_settings.temperature + 0.05) * 100.0).round() / 100.0;
                         state.ai_settings.temperature = state.ai_settings.temperature.min(1.0);
                         ui.needs_redraw = true;
                     }
 
-                    ui.container()
-                        .width(36.0)
-                        .halign(Align::Right)
-                        .show(|ui| {
-                            ui.text(&format!("{:.2}", state.ai_settings.temperature))
-                                .size(11.5)
-                                .font_weight(FontWeight::Bold)
-                                .color(colors.accent)
-                                .show();
-                        });
+                    ui.container().width(36.0).halign(Align::Right).show(|ui| {
+                        ui.text(&format!("{:.2}", state.ai_settings.temperature))
+                            .size(11.5)
+                            .font_weight(FontWeight::Bold)
+                            .color(colors.accent)
+                            .show();
+                    });
                 });
         });
 
@@ -945,21 +1010,17 @@ fn draw_model_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColors) 
         .valign(Align::Center)
         .halign(Align::SpaceBetween)
         .show(|ui| {
-            ui.container()
-                .width(330.0)
-                .column()
-                .gap(3.0)
-                .show(|ui| {
-                    ui.text("Thinking Token Budget")
-                        .size(12.0)
-                        .font_weight(FontWeight::Medium)
-                        .color(colors.text_primary)
-                        .show();
-                    ui.text("Max tokens allowed for step-by-step reasoning")
-                        .size(10.5)
-                        .color(colors.text_muted)
-                        .show();
-                });
+            ui.container().width(330.0).column().gap(3.0).show(|ui| {
+                ui.text("Thinking Token Budget")
+                    .size(12.0)
+                    .font_weight(FontWeight::Medium)
+                    .color(colors.text_primary)
+                    .show();
+                ui.text("Max tokens allowed for step-by-step reasoning")
+                    .size(10.5)
+                    .color(colors.text_muted)
+                    .show();
+            });
 
             ui.container()
                 .row()
@@ -970,17 +1031,34 @@ fn draw_model_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColors) 
                 .show(|ui| {
                     for b in &AiThinkingBudget::ALL {
                         let is_active = state.ai_settings.thinking_budget == *b;
-                        let btn = ui.container()
+                        let btn = ui
+                            .container()
                             .interactive(true)
                             .padding(4.0, 10.0, 4.0, 10.0)
                             .radius_all(4.0)
-                            .bg(if is_active { colors.accent } else { Color::TRANSPARENT })
-                            .hover(Style::bg(if is_active { colors.accent } else { colors.highlight }))
+                            .bg(if is_active {
+                                colors.accent
+                            } else {
+                                Color::TRANSPARENT
+                            })
+                            .hover(Style::bg(if is_active {
+                                colors.accent
+                            } else {
+                                colors.highlight
+                            }))
                             .show(|ui| {
                                 ui.text(b.display_name())
                                     .size(10.5)
-                                    .font_weight(if is_active { FontWeight::SemiBold } else { FontWeight::Regular })
-                                    .color(if is_active { Color::WHITE } else { colors.text_muted })
+                                    .font_weight(if is_active {
+                                        FontWeight::SemiBold
+                                    } else {
+                                        FontWeight::Regular
+                                    })
+                                    .color(if is_active {
+                                        Color::WHITE
+                                    } else {
+                                        colors.text_muted
+                                    })
                                     .show();
                             });
                         if btn.clicked {
@@ -1038,7 +1116,9 @@ fn copy_api_key_to_clipboard(
 }
 
 fn api_key_copy_succeeded_recently(state: &ZenthreeState, provider_id: &str) -> bool {
-    state.ai_settings.copied_api_key
+    state
+        .ai_settings
+        .copied_api_key
         .as_ref()
         .map(|(copied_id, copied_at)| {
             copied_id == provider_id && copied_at.elapsed().as_secs_f32() < 2.0
@@ -1073,13 +1153,18 @@ fn draw_api_keys_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColor
                     .show();
             });
 
-            let edit_btn = ui.container()
+            let edit_btn = ui
+                .container()
                 .raw_id(Id::from_u64(999999886))
                 .interactive(true)
                 .padding(4.5, 10.0, 4.5, 10.0)
                 .radius_all(5.0)
                 .bg(colors.highlight)
-                .hover(Style::bg(colors.accent.with_alpha(if is_light { 0.12 } else { 0.2 })))
+                .hover(Style::bg(colors.accent.with_alpha(if is_light {
+                    0.12
+                } else {
+                    0.2
+                })))
                 .border((colors.border.with_alpha(0.4), 0.75))
                 .row()
                 .valign(Align::Center)
@@ -1089,12 +1174,11 @@ fn draw_api_keys_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColor
                         .size(10.0)
                         .color(colors.text_primary)
                         .show();
-                    ui.text("\u{f08e}")
-                        .size(10.0)
-                        .color(colors.accent)
-                        .show();
+                    ui.text("\u{f08e}").size(10.0).color(colors.accent).show();
                 });
-            if edit_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
+            if edit_btn.hovered {
+                ui.cursor_icon = CursorIcon::Pointer;
+            }
             if edit_btn.clicked {
                 if let Ok(path_str) = config_path.to_str().ok_or("") {
                     let _ = opener::open(path_str);
@@ -1107,7 +1191,11 @@ fn draw_api_keys_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColor
     // ── Status message ──
     if let Some(msg) = &state.ai_settings.api_key_save_msg.clone() {
         let is_err = msg.starts_with("Error");
-        let accent = if is_err { Color::rgb(0.9, 0.3, 0.3) } else { colors.accent };
+        let accent = if is_err {
+            Color::rgb(0.9, 0.3, 0.3)
+        } else {
+            colors.accent
+        };
         ui.container()
             .fill_x()
             .padding(6.0, 10.0, 6.0, 10.0)
@@ -1115,13 +1203,18 @@ fn draw_api_keys_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColor
             .bg(accent.with_alpha(0.12))
             .border((accent.with_alpha(0.4), 0.75))
             .show(|ui| {
-                ui.text(msg).size(10.5).color(accent).font_weight(FontWeight::Medium).show();
+                ui.text(msg)
+                    .size(10.5)
+                    .color(accent)
+                    .font_weight(FontWeight::Medium)
+                    .show();
             });
         ui.spacing(2.0);
     }
 
     // ── Known providers (dynamic) ──
-    let known_provider_names: Vec<String> = KNOWN_PROVIDERS.iter().map(|p| p.name.to_string()).collect();
+    let known_provider_names: Vec<String> =
+        KNOWN_PROVIDERS.iter().map(|p| p.name.to_string()).collect();
     let provider_label_width = 152.0;
     let provider_copy_width = 24.0;
     let provider_actions_width = 130.0;
@@ -1165,14 +1258,17 @@ fn draw_api_keys_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColor
                     });
 
                 let copy_value = current_key.clone().unwrap_or_else(|| {
-                    state.ai_settings.api_key_inputs
-                    .get(kp.name)
-                    .cloned()
-                    .unwrap_or_default()
+                    state
+                        .ai_settings
+                        .api_key_inputs
+                        .get(kp.name)
+                        .cloned()
+                        .unwrap_or_default()
                 });
                 let can_copy = !copy_value.is_empty();
                 let copied_recently = api_key_copy_succeeded_recently(state, kp.name);
-                let copy_btn = ui.container()
+                let copy_btn = ui
+                    .container()
                     .interactive(can_copy)
                     .width(provider_copy_width)
                     .height(28.0)
@@ -1190,15 +1286,20 @@ fn draw_api_keys_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColor
                             })
                             .show();
                     });
-                if copy_btn.hovered && can_copy { ui.cursor_icon = CursorIcon::Pointer; }
+                if copy_btn.hovered && can_copy {
+                    ui.cursor_icon = CursorIcon::Pointer;
+                }
                 if copy_btn.clicked && can_copy {
                     copy_api_key_to_clipboard(state, copy_value, kp.display_name, kp.name);
                     ui.needs_redraw = true;
                 }
 
                 if let Some(ref key) = current_key {
-                    let input_width =
-                    (ui.available_width - provider_label_width - provider_copy_width - provider_actions_width - 24.0)
+                    let input_width = (ui.available_width
+                        - provider_label_width
+                        - provider_copy_width
+                        - provider_actions_width
+                        - 24.0)
                         .max(120.0);
                     let is_revealed = state.ai_settings.revealed_api_keys.contains(kp.name);
                     let value = if is_revealed {
@@ -1220,7 +1321,11 @@ fn draw_api_keys_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColor
                         .show(|ui| {
                             ui.text(&value)
                                 .size(10.5)
-                                .color(if is_revealed { colors.text_primary } else { colors.text_muted })
+                                .color(if is_revealed {
+                                    colors.text_primary
+                                } else {
+                                    colors.text_muted
+                                })
                                 .show();
                         });
 
@@ -1232,27 +1337,57 @@ fn draw_api_keys_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColor
                         .halign(Align::Right)
                         .gap(6.0)
                         .show(|ui| {
-                            let reveal_btn = ui.button(if is_revealed { "Hide" } else { "Reveal" })
+                            let reveal_btn = ui
+                                .button(if is_revealed { "Hide" } else { "Reveal" })
                                 .id(Id::from_u64(999999840 + (i as u64) * 2))
                                 .padding(4.0, 10.0, 4.0, 10.0)
                                 .radius_all(4.0)
-                                .bg(if is_revealed { colors.accent.with_alpha(0.18) } else if is_light { Color::rgb(0.92, 0.92, 0.94) } else { colors.bg_base })
-                                .hover(Style::bg(if is_revealed { colors.accent.with_alpha(0.28) } else if is_light { Color::rgb(0.85, 0.85, 0.88) } else { colors.border.with_alpha(0.5) }))
-                                .border((if is_revealed { colors.accent.with_alpha(0.6) } else { colors.border.with_alpha(0.5) }, 0.75))
-                                .color(if is_revealed { colors.accent } else { colors.text_primary })
+                                .bg(if is_revealed {
+                                    colors.accent.with_alpha(0.18)
+                                } else if is_light {
+                                    Color::rgb(0.92, 0.92, 0.94)
+                                } else {
+                                    colors.bg_base
+                                })
+                                .hover(Style::bg(if is_revealed {
+                                    colors.accent.with_alpha(0.28)
+                                } else if is_light {
+                                    Color::rgb(0.85, 0.85, 0.88)
+                                } else {
+                                    colors.border.with_alpha(0.5)
+                                }))
+                                .border((
+                                    if is_revealed {
+                                        colors.accent.with_alpha(0.6)
+                                    } else {
+                                        colors.border.with_alpha(0.5)
+                                    },
+                                    0.75,
+                                ))
+                                .color(if is_revealed {
+                                    colors.accent
+                                } else {
+                                    colors.text_primary
+                                })
                                 .size(10.0)
                                 .show();
-                            if reveal_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
+                            if reveal_btn.hovered {
+                                ui.cursor_icon = CursorIcon::Pointer;
+                            }
                             if reveal_btn.clicked {
                                 if is_revealed {
                                     state.ai_settings.revealed_api_keys.remove(kp.name);
                                 } else {
-                                    state.ai_settings.revealed_api_keys.insert(kp.name.to_string());
+                                    state
+                                        .ai_settings
+                                        .revealed_api_keys
+                                        .insert(kp.name.to_string());
                                 }
                                 ui.needs_redraw = true;
                             }
 
-                            let rm_btn = ui.button("Remove")
+                            let rm_btn = ui
+                                .button("Remove")
                                 .id(Id::from_u64(999999841 + (i as u64) * 2))
                                 .padding(4.0, 10.0, 4.0, 10.0)
                                 .radius_all(4.0)
@@ -1262,24 +1397,34 @@ fn draw_api_keys_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColor
                                 .color(remove_btn_fg)
                                 .size(10.0)
                                 .show();
-                            if rm_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
+                            if rm_btn.hovered {
+                                ui.cursor_icon = CursorIcon::Pointer;
+                            }
                             if rm_btn.clicked {
                                 let _ = agent::provider::remove_key(kp.name);
                                 state.ai_settings.revealed_api_keys.remove(kp.name);
-                                state.ai_settings.api_key_save_msg =
-                                    Some(format!("{} key removed from config.json", kp.display_name));
+                                state.ai_settings.api_key_save_msg = Some(format!(
+                                    "{} key removed from config.json",
+                                    kp.display_name
+                                ));
                                 ui.needs_redraw = true;
                             }
                         });
                 } else {
-                    let input_text = state.ai_settings.api_key_inputs
+                    let input_text = state
+                        .ai_settings
+                        .api_key_inputs
                         .entry(kp.name.to_string())
                         .or_insert_with(String::new);
-                    let input_width =
-                        (ui.available_width - provider_label_width - provider_copy_width - provider_actions_width - 24.0)
-                            .max(120.0);
+                    let input_width = (ui.available_width
+                        - provider_label_width
+                        - provider_copy_width
+                        - provider_actions_width
+                        - 24.0)
+                        .max(120.0);
 
-                    ui.text_area(input_text).id(&input_id)
+                    ui.text_area(input_text)
+                        .id(&input_id)
                         .width(input_width)
                         .height(28.0)
                         .size(10.5)
@@ -1293,7 +1438,9 @@ fn draw_api_keys_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColor
                         .placeholder_color(colors.text_muted.with_alpha(0.45))
                         .show();
 
-                    let key_val = state.ai_settings.api_key_inputs
+                    let key_val = state
+                        .ai_settings
+                        .api_key_inputs
                         .get(kp.name)
                         .map(|s| s.trim().to_string())
                         .unwrap_or_default();
@@ -1306,17 +1453,39 @@ fn draw_api_keys_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColor
                         .valign(Align::Center)
                         .halign(Align::Right)
                         .show(|ui| {
-                            let save_btn = ui.button("Save")
+                            let save_btn = ui
+                                .button("Save")
                                 .id(Id::from_u64(999999860 + (i as u64)))
                                 .padding(4.5, 14.0, 4.5, 14.0)
                                 .radius_all(4.0)
-                                .bg(if can_save { colors.accent } else { colors.highlight })
-                                .hover(Style::bg(if can_save { colors.accent.with_alpha(0.85) } else { colors.highlight }))
-                                .border((if can_save { colors.accent.with_alpha(0.8) } else { colors.border.with_alpha(0.4) }, 0.75))
-                                .color(if can_save { Color::WHITE } else { colors.text_muted })
+                                .bg(if can_save {
+                                    colors.accent
+                                } else {
+                                    colors.highlight
+                                })
+                                .hover(Style::bg(if can_save {
+                                    colors.accent.with_alpha(0.85)
+                                } else {
+                                    colors.highlight
+                                }))
+                                .border((
+                                    if can_save {
+                                        colors.accent.with_alpha(0.8)
+                                    } else {
+                                        colors.border.with_alpha(0.4)
+                                    },
+                                    0.75,
+                                ))
+                                .color(if can_save {
+                                    Color::WHITE
+                                } else {
+                                    colors.text_muted
+                                })
                                 .size(10.0)
                                 .show();
-                            if save_btn.hovered && can_save { ui.cursor_icon = CursorIcon::Pointer; }
+                            if save_btn.hovered && can_save {
+                                ui.cursor_icon = CursorIcon::Pointer;
+                            }
                             if save_btn.clicked && can_save {
                                 let _ = agent::provider::set_key(kp.name, &key_val);
                                 state.ai_settings.api_key_inputs.remove(kp.name);
@@ -1330,10 +1499,10 @@ fn draw_api_keys_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColor
     }
 
     // ── Custom providers from config ──
-    let custom_providers: Vec<(String, String)> = cfg.providers.iter()
-        .filter(|(name, entry)| {
-            !known_provider_names.contains(name) && !entry.key.is_empty()
-        })
+    let custom_providers: Vec<(String, String)> = cfg
+        .providers
+        .iter()
+        .filter(|(name, entry)| !known_provider_names.contains(name) && !entry.key.is_empty())
         .map(|(name, entry)| (name.clone(), entry.key.clone()))
         .collect();
 
@@ -1357,15 +1526,16 @@ fn draw_api_keys_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColor
                         .height(28.0)
                         .valign(Align::Center)
                         .show(|ui| {
-                        ui.text(name)
-                            .size(12.0)
-                            .font_weight(FontWeight::Medium)
-                            .color(colors.text_primary)
-                            .show();
-                    });
+                            ui.text(name)
+                                .size(12.0)
+                                .font_weight(FontWeight::Medium)
+                                .color(colors.text_primary)
+                                .show();
+                        });
 
                     let copied_recently = api_key_copy_succeeded_recently(state, name);
-                    let copy_btn = ui.container()
+                    let copy_btn = ui
+                        .container()
                         .interactive(true)
                         .width(provider_copy_width)
                         .height(28.0)
@@ -1379,15 +1549,20 @@ fn draw_api_keys_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColor
                                 .color(colors.accent)
                                 .show();
                         });
-                    if copy_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
+                    if copy_btn.hovered {
+                        ui.cursor_icon = CursorIcon::Pointer;
+                    }
                     if copy_btn.clicked {
                         copy_api_key_to_clipboard(state, masked.clone(), name, name);
                         ui.needs_redraw = true;
                     }
 
-                    let input_width =
-                        (ui.available_width - provider_label_width - provider_copy_width - provider_actions_width - 24.0)
-                            .max(120.0);
+                    let input_width = (ui.available_width
+                        - provider_label_width
+                        - provider_copy_width
+                        - provider_actions_width
+                        - 24.0)
+                        .max(120.0);
                     let is_revealed = state.ai_settings.revealed_api_keys.contains(name);
                     let value = if is_revealed {
                         masked.clone()
@@ -1407,7 +1582,11 @@ fn draw_api_keys_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColor
                         .show(|ui| {
                             ui.text(&value)
                                 .size(10.5)
-                                .color(if is_revealed { colors.text_primary } else { colors.text_muted })
+                                .color(if is_revealed {
+                                    colors.text_primary
+                                } else {
+                                    colors.text_muted
+                                })
                                 .show();
                         });
 
@@ -1419,17 +1598,43 @@ fn draw_api_keys_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColor
                         .halign(Align::Right)
                         .gap(6.0)
                         .show(|ui| {
-                            let reveal_btn = ui.button(if is_revealed { "Hide" } else { "Reveal" })
+                            let reveal_btn = ui
+                                .button(if is_revealed { "Hide" } else { "Reveal" })
                                 .id(Id::from_u64(999999870 + (idx as u64) * 2))
                                 .padding(4.0, 10.0, 4.0, 10.0)
                                 .radius_all(4.0)
-                                .bg(if is_revealed { colors.accent.with_alpha(0.18) } else if is_light { Color::rgb(0.92, 0.92, 0.94) } else { colors.bg_base })
-                                .hover(Style::bg(if is_revealed { colors.accent.with_alpha(0.28) } else if is_light { Color::rgb(0.85, 0.85, 0.88) } else { colors.border.with_alpha(0.5) }))
-                                .border((if is_revealed { colors.accent.with_alpha(0.6) } else { colors.border.with_alpha(0.5) }, 0.75))
-                                .color(if is_revealed { colors.accent } else { colors.text_primary })
+                                .bg(if is_revealed {
+                                    colors.accent.with_alpha(0.18)
+                                } else if is_light {
+                                    Color::rgb(0.92, 0.92, 0.94)
+                                } else {
+                                    colors.bg_base
+                                })
+                                .hover(Style::bg(if is_revealed {
+                                    colors.accent.with_alpha(0.28)
+                                } else if is_light {
+                                    Color::rgb(0.85, 0.85, 0.88)
+                                } else {
+                                    colors.border.with_alpha(0.5)
+                                }))
+                                .border((
+                                    if is_revealed {
+                                        colors.accent.with_alpha(0.6)
+                                    } else {
+                                        colors.border.with_alpha(0.5)
+                                    },
+                                    0.75,
+                                ))
+                                .color(if is_revealed {
+                                    colors.accent
+                                } else {
+                                    colors.text_primary
+                                })
                                 .size(10.0)
                                 .show();
-                            if reveal_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
+                            if reveal_btn.hovered {
+                                ui.cursor_icon = CursorIcon::Pointer;
+                            }
                             if reveal_btn.clicked {
                                 if is_revealed {
                                     state.ai_settings.revealed_api_keys.remove(name);
@@ -1439,7 +1644,8 @@ fn draw_api_keys_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColor
                                 ui.needs_redraw = true;
                             }
 
-                            let rm_btn = ui.button("Remove")
+                            let rm_btn = ui
+                                .button("Remove")
                                 .id(Id::from_u64(999999871 + (idx as u64) * 2))
                                 .padding(4.0, 10.0, 4.0, 10.0)
                                 .radius_all(4.0)
@@ -1449,7 +1655,9 @@ fn draw_api_keys_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColor
                                 .color(remove_btn_fg)
                                 .size(10.0)
                                 .show();
-                            if rm_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
+                            if rm_btn.hovered {
+                                ui.cursor_icon = CursorIcon::Pointer;
+                            }
                             if rm_btn.clicked {
                                 let _ = agent::provider::remove_key(name);
                                 state.ai_settings.revealed_api_keys.remove(name);
@@ -1473,17 +1681,28 @@ fn draw_api_keys_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColor
 
     // ── + Add Custom Provider ──
     if !state.ai_settings.custom_provider_form_open {
-        let add_btn = ui.button("+ Add Custom Provider")
+        let add_btn = ui
+            .button("+ Add Custom Provider")
             .id(Id::from_u64(999999885))
             .padding(5.0, 12.0, 5.0, 12.0)
             .radius_all(5.0)
-            .bg(if is_light { Color::rgb(0.92, 0.92, 0.94) } else { colors.bg_base })
-            .hover(Style::bg(if is_light { Color::rgb(0.85, 0.85, 0.88) } else { colors.border.with_alpha(0.5) }))
+            .bg(if is_light {
+                Color::rgb(0.92, 0.92, 0.94)
+            } else {
+                colors.bg_base
+            })
+            .hover(Style::bg(if is_light {
+                Color::rgb(0.85, 0.85, 0.88)
+            } else {
+                colors.border.with_alpha(0.5)
+            }))
             .border((colors.border.with_alpha(0.4), 0.75))
             .color(colors.text_primary)
             .size(10.5)
             .show();
-        if add_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
+        if add_btn.hovered {
+            ui.cursor_icon = CursorIcon::Pointer;
+        }
         if add_btn.clicked {
             state.ai_settings.custom_provider_form_open = true;
             state.ai_settings.custom_provider_name.clear();
@@ -1497,7 +1716,11 @@ fn draw_api_keys_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColor
             .fill_x()
             .padding(12.0, 14.0, 12.0, 14.0)
             .radius_all(7.0)
-            .bg(if is_light { Color::rgb(0.96, 0.96, 0.98) } else { colors.bg_base })
+            .bg(if is_light {
+                Color::rgb(0.96, 0.96, 0.98)
+            } else {
+                colors.bg_base
+            })
             .border((colors.accent.with_alpha(0.4), 1.0))
             .column()
             .gap(8.0)
@@ -1509,137 +1732,227 @@ fn draw_api_keys_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColor
                     .show();
 
                 // Name field
-                ui.container().fill_x().row().valign(Align::Center).gap(8.0).show(|ui| {
-                    ui.text("Name").size(10.0).color(colors.text_muted).max_width(60.0).show();
-                    ui.text_area(&mut state.ai_settings.custom_provider_name).id("custom_prov_name")
-                        .width(340.0)
-                        .height(26.0)
-                        .size(10.5)
-                        .color(colors.text_primary)
-                        .bg(if is_light { Color::WHITE } else { colors.bg_base.with_alpha(0.6) })
-                        .border((colors.border.with_alpha(0.5), 0.75))
-                        .focus_border((colors.accent.with_alpha(0.8), 1.0))
-                        .radius(4.0, 4.0, 4.0, 4.0)
-                        .padding(4.0, 6.0, 4.0, 6.0)
-                        .placeholder("e.g. openai")
-                        .placeholder_color(colors.text_muted.with_alpha(0.5))
-                        .show();
-                });
+                ui.container()
+                    .fill_x()
+                    .row()
+                    .valign(Align::Center)
+                    .gap(8.0)
+                    .show(|ui| {
+                        ui.text("Name")
+                            .size(10.0)
+                            .color(colors.text_muted)
+                            .max_width(60.0)
+                            .show();
+                        ui.text_area(&mut state.ai_settings.custom_provider_name)
+                            .id("custom_prov_name")
+                            .width(340.0)
+                            .height(26.0)
+                            .size(10.5)
+                            .color(colors.text_primary)
+                            .bg(if is_light {
+                                Color::WHITE
+                            } else {
+                                colors.bg_base.with_alpha(0.6)
+                            })
+                            .border((colors.border.with_alpha(0.5), 0.75))
+                            .focus_border((colors.accent.with_alpha(0.8), 1.0))
+                            .radius(4.0, 4.0, 4.0, 4.0)
+                            .padding(4.0, 6.0, 4.0, 6.0)
+                            .placeholder("e.g. openai")
+                            .placeholder_color(colors.text_muted.with_alpha(0.5))
+                            .show();
+                    });
 
                 // API Key field
-                ui.container().fill_x().row().valign(Align::Center).gap(8.0).show(|ui| {
-                    ui.text("API Key").size(10.0).color(colors.text_muted).max_width(60.0).show();
-                    let can_copy_key = !state.ai_settings.custom_provider_key.is_empty();
-                    let copied_recently =
-                        api_key_copy_succeeded_recently(state, "__custom_provider_form_api_key");
-                    let copy_btn = ui.container()
-                        .interactive(can_copy_key)
-                        .width(24.0)
-                        .height(26.0)
-                        .radius_all(4.0)
-                        .hover(Style::bg(colors.highlight))
-                        .halign(Align::Center)
-                        .valign(Align::Center)
-                        .show(|ui| {
-                            ui.text(if copied_recently { "✓" } else { "\u{f018f}" })
-                                .size(11.5)
-                                .color(if copied_recently || can_copy_key {
-                                    colors.accent
-                                } else {
-                                    colors.text_muted.with_alpha(0.45)
-                                })
-                                .show();
-                        });
-                    if copy_btn.hovered && can_copy_key { ui.cursor_icon = CursorIcon::Pointer; }
-                    if copy_btn.clicked && can_copy_key {
-                        copy_api_key_to_clipboard(
+                ui.container()
+                    .fill_x()
+                    .row()
+                    .valign(Align::Center)
+                    .gap(8.0)
+                    .show(|ui| {
+                        ui.text("API Key")
+                            .size(10.0)
+                            .color(colors.text_muted)
+                            .max_width(60.0)
+                            .show();
+                        let can_copy_key = !state.ai_settings.custom_provider_key.is_empty();
+                        let copied_recently = api_key_copy_succeeded_recently(
                             state,
-                            state.ai_settings.custom_provider_key.clone(),
-                            "Custom provider",
                             "__custom_provider_form_api_key",
                         );
-                        ui.needs_redraw = true;
-                    }
-                    ui.text_area(&mut state.ai_settings.custom_provider_key).id("custom_prov_key")
-                        .width(340.0)
-                        .height(26.0)
-                        .size(10.5)
-                        .color(colors.text_primary)
-                        .bg(if is_light { Color::WHITE } else { colors.bg_base.with_alpha(0.6) })
-                        .border((colors.border.with_alpha(0.5), 0.75))
-                        .focus_border((colors.accent.with_alpha(0.8), 1.0))
-                        .radius(4.0, 4.0, 4.0, 4.0)
-                        .padding(4.0, 6.0, 4.0, 6.0)
-                        .placeholder("sk-...")
-                        .placeholder_color(colors.text_muted.with_alpha(0.5))
-                        .show();
-                });
+                        let copy_btn = ui
+                            .container()
+                            .interactive(can_copy_key)
+                            .width(24.0)
+                            .height(26.0)
+                            .radius_all(4.0)
+                            .hover(Style::bg(colors.highlight))
+                            .halign(Align::Center)
+                            .valign(Align::Center)
+                            .show(|ui| {
+                                ui.text(if copied_recently { "✓" } else { "\u{f018f}" })
+                                    .size(11.5)
+                                    .color(if copied_recently || can_copy_key {
+                                        colors.accent
+                                    } else {
+                                        colors.text_muted.with_alpha(0.45)
+                                    })
+                                    .show();
+                            });
+                        if copy_btn.hovered && can_copy_key {
+                            ui.cursor_icon = CursorIcon::Pointer;
+                        }
+                        if copy_btn.clicked && can_copy_key {
+                            copy_api_key_to_clipboard(
+                                state,
+                                state.ai_settings.custom_provider_key.clone(),
+                                "Custom provider",
+                                "__custom_provider_form_api_key",
+                            );
+                            ui.needs_redraw = true;
+                        }
+                        ui.text_area(&mut state.ai_settings.custom_provider_key)
+                            .id("custom_prov_key")
+                            .width(340.0)
+                            .height(26.0)
+                            .size(10.5)
+                            .color(colors.text_primary)
+                            .bg(if is_light {
+                                Color::WHITE
+                            } else {
+                                colors.bg_base.with_alpha(0.6)
+                            })
+                            .border((colors.border.with_alpha(0.5), 0.75))
+                            .focus_border((colors.accent.with_alpha(0.8), 1.0))
+                            .radius(4.0, 4.0, 4.0, 4.0)
+                            .padding(4.0, 6.0, 4.0, 6.0)
+                            .placeholder("sk-...")
+                            .placeholder_color(colors.text_muted.with_alpha(0.5))
+                            .show();
+                    });
 
                 // Base URL field
-                ui.container().fill_x().row().valign(Align::Center).gap(8.0).show(|ui| {
-                    ui.text("Base URL").size(10.0).color(colors.text_muted).max_width(60.0).show();
-                    ui.text_area(&mut state.ai_settings.custom_provider_url).id("custom_prov_url")
-                        .width(340.0)
-                        .height(26.0)
-                        .size(10.5)
-                        .color(colors.text_primary)
-                        .bg(if is_light { Color::WHITE } else { colors.bg_base.with_alpha(0.6) })
-                        .border((colors.border.with_alpha(0.5), 0.75))
-                        .focus_border((colors.accent.with_alpha(0.8), 1.0))
-                        .radius(4.0, 4.0, 4.0, 4.0)
-                        .padding(4.0, 6.0, 4.0, 6.0)
-                        .placeholder("https://api.openai.com/v1")
-                        .placeholder_color(colors.text_muted.with_alpha(0.5))
-                        .show();
-                });
+                ui.container()
+                    .fill_x()
+                    .row()
+                    .valign(Align::Center)
+                    .gap(8.0)
+                    .show(|ui| {
+                        ui.text("Base URL")
+                            .size(10.0)
+                            .color(colors.text_muted)
+                            .max_width(60.0)
+                            .show();
+                        ui.text_area(&mut state.ai_settings.custom_provider_url)
+                            .id("custom_prov_url")
+                            .width(340.0)
+                            .height(26.0)
+                            .size(10.5)
+                            .color(colors.text_primary)
+                            .bg(if is_light {
+                                Color::WHITE
+                            } else {
+                                colors.bg_base.with_alpha(0.6)
+                            })
+                            .border((colors.border.with_alpha(0.5), 0.75))
+                            .focus_border((colors.accent.with_alpha(0.8), 1.0))
+                            .radius(4.0, 4.0, 4.0, 4.0)
+                            .padding(4.0, 6.0, 4.0, 6.0)
+                            .placeholder("https://api.openai.com/v1")
+                            .placeholder_color(colors.text_muted.with_alpha(0.5))
+                            .show();
+                    });
 
                 // Buttons
-                ui.container().fill_x().row().valign(Align::Center).halign(Align::Right).gap(8.0).show(|ui| {
-                    let cancel_btn = ui.button("Cancel")
-                        .id(Id::from_u64(999999887))
-                        .padding(4.5, 12.0, 4.5, 12.0)
-                        .radius_all(5.0)
-                        .bg(if is_light { Color::rgb(0.92, 0.92, 0.94) } else { colors.bg_base })
-                        .hover(Style::bg(if is_light { Color::rgb(0.85, 0.85, 0.88) } else { colors.border.with_alpha(0.5) }))
-                        .border((colors.border.with_alpha(0.4), 0.75))
-                        .color(colors.text_muted)
-                        .size(10.0)
-                        .show();
-                    if cancel_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
-                    if cancel_btn.clicked {
-                        state.ai_settings.custom_provider_form_open = false;
-                        ui.needs_redraw = true;
-                    }
+                ui.container()
+                    .fill_x()
+                    .row()
+                    .valign(Align::Center)
+                    .halign(Align::Right)
+                    .gap(8.0)
+                    .show(|ui| {
+                        let cancel_btn = ui
+                            .button("Cancel")
+                            .id(Id::from_u64(999999887))
+                            .padding(4.5, 12.0, 4.5, 12.0)
+                            .radius_all(5.0)
+                            .bg(if is_light {
+                                Color::rgb(0.92, 0.92, 0.94)
+                            } else {
+                                colors.bg_base
+                            })
+                            .hover(Style::bg(if is_light {
+                                Color::rgb(0.85, 0.85, 0.88)
+                            } else {
+                                colors.border.with_alpha(0.5)
+                            }))
+                            .border((colors.border.with_alpha(0.4), 0.75))
+                            .color(colors.text_muted)
+                            .size(10.0)
+                            .show();
+                        if cancel_btn.hovered {
+                            ui.cursor_icon = CursorIcon::Pointer;
+                        }
+                        if cancel_btn.clicked {
+                            state.ai_settings.custom_provider_form_open = false;
+                            ui.needs_redraw = true;
+                        }
 
-                    let name_ok = !state.ai_settings.custom_provider_name.trim().is_empty();
-                    let key_ok = !state.ai_settings.custom_provider_key.trim().is_empty();
-                    let url_ok = !state.ai_settings.custom_provider_url.trim().is_empty();
-                    let can_add = name_ok && key_ok && url_ok;
+                        let name_ok = !state.ai_settings.custom_provider_name.trim().is_empty();
+                        let key_ok = !state.ai_settings.custom_provider_key.trim().is_empty();
+                        let url_ok = !state.ai_settings.custom_provider_url.trim().is_empty();
+                        let can_add = name_ok && key_ok && url_ok;
 
-                    let add_btn = ui.button("Add Provider")
-                        .id(Id::from_u64(999999888))
-                        .padding(4.5, 14.0, 4.5, 14.0)
-                        .radius_all(5.0)
-                        .bg(if can_add { colors.accent } else if is_light { Color::rgb(0.90, 0.90, 0.92) } else { colors.bg_base })
-                        .hover(Style::bg(if can_add { colors.accent.with_alpha(0.85) } else if is_light { Color::rgb(0.90, 0.90, 0.92) } else { colors.bg_base }))
-                        .border((if can_add { colors.accent.with_alpha(0.8) } else { colors.border.with_alpha(0.4) }, 0.75))
-                        .color(if can_add { Color::WHITE } else { colors.text_muted })
-                        .size(10.0)
-                        .show();
-                    if add_btn.hovered && can_add { ui.cursor_icon = CursorIcon::Pointer; }
-                    if add_btn.clicked && can_add {
-                        let name = state.ai_settings.custom_provider_name.trim().to_lowercase();
-                        let key = state.ai_settings.custom_provider_key.trim().to_string();
-                        let url = state.ai_settings.custom_provider_url.trim().to_string();
-                        let mut c = ZenthreeConfig::load();
-                        c.add_custom_provider(&name, &key, &url, vec![]);
-                        let _ = c.save();
-                        state.ai_settings.api_key_save_msg =
-                            Some(format!("'{}' added to config.json", name));
-                        state.ai_settings.custom_provider_form_open = false;
-                        ui.needs_redraw = true;
-                    }
-                });
+                        let add_btn = ui
+                            .button("Add Provider")
+                            .id(Id::from_u64(999999888))
+                            .padding(4.5, 14.0, 4.5, 14.0)
+                            .radius_all(5.0)
+                            .bg(if can_add {
+                                colors.accent
+                            } else if is_light {
+                                Color::rgb(0.90, 0.90, 0.92)
+                            } else {
+                                colors.bg_base
+                            })
+                            .hover(Style::bg(if can_add {
+                                colors.accent.with_alpha(0.85)
+                            } else if is_light {
+                                Color::rgb(0.90, 0.90, 0.92)
+                            } else {
+                                colors.bg_base
+                            }))
+                            .border((
+                                if can_add {
+                                    colors.accent.with_alpha(0.8)
+                                } else {
+                                    colors.border.with_alpha(0.4)
+                                },
+                                0.75,
+                            ))
+                            .color(if can_add {
+                                Color::WHITE
+                            } else {
+                                colors.text_muted
+                            })
+                            .size(10.0)
+                            .show();
+                        if add_btn.hovered && can_add {
+                            ui.cursor_icon = CursorIcon::Pointer;
+                        }
+                        if add_btn.clicked && can_add {
+                            let name = state.ai_settings.custom_provider_name.trim().to_lowercase();
+                            let key = state.ai_settings.custom_provider_key.trim().to_string();
+                            let url = state.ai_settings.custom_provider_url.trim().to_string();
+                            let mut c = ZenthreeConfig::load();
+                            c.add_custom_provider(&name, &key, &url, vec![]);
+                            let _ = c.save();
+                            state.ai_settings.api_key_save_msg =
+                                Some(format!("'{}' added to config.json", name));
+                            state.ai_settings.custom_provider_form_open = false;
+                            ui.needs_redraw = true;
+                        }
+                    });
             });
     }
 }
@@ -2169,21 +2482,17 @@ fn draw_external_agents_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &The
     draw_settings_divider(ui, colors);
 
     // ── Extensible Registry: Other Agents (Future Ready) ──
-    ui.container()
-        .fill_x()
-        .column()
-        .gap(3.0)
-        .show(|ui| {
-            ui.text("Additional External Agents")
-                .size(12.0)
-                .font_weight(FontWeight::SemiBold)
-                .color(colors.text_primary)
-                .show();
-            ui.text("Add more autonomous agents via the open Agent Client Protocol")
-                .size(10.0)
-                .color(colors.text_muted)
-                .show();
-        });
+    ui.container().fill_x().column().gap(3.0).show(|ui| {
+        ui.text("Additional External Agents")
+            .size(12.0)
+            .font_weight(FontWeight::SemiBold)
+            .color(colors.text_primary)
+            .show();
+        ui.text("Add more autonomous agents via the open Agent Client Protocol")
+            .size(10.0)
+            .color(colors.text_muted)
+            .show();
+    });
 
     ui.spacing(2.0);
 
@@ -2198,32 +2507,33 @@ fn draw_external_agents_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &The
         .valign(Align::Center)
         .halign(Align::SpaceBetween)
         .show(|ui| {
-            ui.container().row().valign(Align::Center).gap(10.0).show(|ui| {
-                ui.container()
-                    .width(30.0)
-                    .height(30.0)
-                    .radius_all(6.0)
-                    .bg(colors.highlight)
-                    .valign(Align::Center)
-                    .halign(Align::Center)
-                    .show(|ui| {
-                        ui.text("\u{ec1e}")
-                            .size(14.0)
-                            .color(colors.accent)
+            ui.container()
+                .row()
+                .valign(Align::Center)
+                .gap(10.0)
+                .show(|ui| {
+                    ui.container()
+                        .width(30.0)
+                        .height(30.0)
+                        .radius_all(6.0)
+                        .bg(colors.highlight)
+                        .valign(Align::Center)
+                        .halign(Align::Center)
+                        .show(|ui| {
+                            ui.text("\u{ec1e}").size(14.0).color(colors.accent).show();
+                        });
+                    ui.container().column().gap(2.0).show(|ui| {
+                        ui.text("GitHub Copilot")
+                            .size(12.0)
+                            .font_weight(FontWeight::SemiBold)
+                            .color(colors.text_primary)
+                            .show();
+                        ui.text("GitHub Language Server & Workspace Agent (ACP)")
+                            .size(9.5)
+                            .color(colors.text_muted)
                             .show();
                     });
-                ui.container().column().gap(2.0).show(|ui| {
-                    ui.text("GitHub Copilot")
-                        .size(12.0)
-                        .font_weight(FontWeight::SemiBold)
-                        .color(colors.text_primary)
-                        .show();
-                    ui.text("GitHub Language Server & Workspace Agent (ACP)")
-                        .size(9.5)
-                        .color(colors.text_muted)
-                        .show();
                 });
-            });
 
             ui.container()
                 .padding(3.0, 8.0, 3.0, 8.0)
@@ -2250,33 +2560,37 @@ fn draw_external_agents_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &The
         .valign(Align::Center)
         .halign(Align::SpaceBetween)
         .show(|ui| {
-            ui.container().row().valign(Align::Center).gap(10.0).show(|ui| {
-                ui.container()
-                    .width(30.0)
-                    .height(30.0)
-                    .radius_all(6.0)
-                    .bg(colors.highlight)
-                    .valign(Align::Center)
-                    .halign(Align::Center)
-                    .show(|ui| {
-                        ui.text("\u{EC82}")
-                            .size(20.0)
-                            .font_family("Symbols Nerd Font")
-                            .color(colors.accent)
+            ui.container()
+                .row()
+                .valign(Align::Center)
+                .gap(10.0)
+                .show(|ui| {
+                    ui.container()
+                        .width(30.0)
+                        .height(30.0)
+                        .radius_all(6.0)
+                        .bg(colors.highlight)
+                        .valign(Align::Center)
+                        .halign(Align::Center)
+                        .show(|ui| {
+                            ui.text("\u{EC82}")
+                                .size(20.0)
+                                .font_family("Symbols Nerd Font")
+                                .color(colors.accent)
+                                .show();
+                        });
+                    ui.container().column().gap(2.0).show(|ui| {
+                        ui.text("Claude Code")
+                            .size(12.0)
+                            .font_weight(FontWeight::SemiBold)
+                            .color(colors.text_primary)
+                            .show();
+                        ui.text("Anthropic Claude Code autonomous agent via local ACP daemon")
+                            .size(9.5)
+                            .color(colors.text_muted)
                             .show();
                     });
-                ui.container().column().gap(2.0).show(|ui| {
-                    ui.text("Claude Code")
-                        .size(12.0)
-                        .font_weight(FontWeight::SemiBold)
-                        .color(colors.text_primary)
-                        .show();
-                    ui.text("Anthropic Claude Code autonomous agent via local ACP daemon")
-                        .size(9.5)
-                        .color(colors.text_muted)
-                        .show();
                 });
-            });
 
             ui.container()
                 .padding(3.0, 8.0, 3.0, 8.0)
@@ -2303,32 +2617,35 @@ fn draw_external_agents_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &The
         .valign(Align::Center)
         .halign(Align::SpaceBetween)
         .show(|ui| {
-            ui.container().row().valign(Align::Center).gap(10.0).show(|ui| {
-                ui.container()
-                    .width(30.0)
-                    .height(30.0)
-                    .radius_all(6.0)
-                    .bg(colors.highlight)
-                    .valign(Align::Center)
-                    .halign(Align::Center)
-                    .show(|ui| {
-                        ui.text("\u{f013}")
-                            .size(14.0)
-                            .color(colors.accent)
+            ui.container()
+                .row()
+                .valign(Align::Center)
+                .gap(10.0)
+                .show(|ui| {
+                    ui.container()
+                        .width(30.0)
+                        .height(30.0)
+                        .radius_all(6.0)
+                        .bg(colors.highlight)
+                        .valign(Align::Center)
+                        .halign(Align::Center)
+                        .show(|ui| {
+                            ui.text("\u{f013}").size(14.0).color(colors.accent).show();
+                        });
+                    ui.container().column().gap(2.0).show(|ui| {
+                        ui.text("Custom ACP Binary")
+                            .size(12.0)
+                            .font_weight(FontWeight::SemiBold)
+                            .color(colors.text_primary)
                             .show();
-                    });
-                ui.container().column().gap(2.0).show(|ui| {
-                    ui.text("Custom ACP Binary")
-                        .size(12.0)
-                        .font_weight(FontWeight::SemiBold)
-                        .color(colors.text_primary)
-                        .show();
-                    ui.text("Launch any local executable supporting stdio Agent Client Protocol")
+                        ui.text(
+                            "Launch any local executable supporting stdio Agent Client Protocol",
+                        )
                         .size(9.5)
                         .color(colors.text_muted)
                         .show();
+                    });
                 });
-            });
 
             ui.container()
                 .interactive(true)
@@ -2410,7 +2727,8 @@ fn draw_antigravity_settings_model_button(
         colors.border.with_alpha(0.4)
     };
 
-    let model_btn = ui.container()
+    let model_btn = ui
+        .container()
         .raw_id(AG_SETTINGS_MODEL_BTN_ID)
         .interactive(true)
         .width(200.0)
@@ -2440,20 +2758,20 @@ fn draw_antigravity_settings_model_button(
     }
     if model_btn.clicked {
         ui.clicked = false;
-        state.ai_settings.antigravity_model_dropdown_open = !state.ai_settings.antigravity_model_dropdown_open;
+        state.ai_settings.antigravity_model_dropdown_open =
+            !state.ai_settings.antigravity_model_dropdown_open;
         ui.needs_redraw = true;
     }
 }
 
-pub fn draw_antigravity_settings_model_popover(
-    ui: &mut Ui,
-    state: &mut ZenthreeState,
-) {
+pub fn draw_antigravity_settings_model_popover(ui: &mut Ui, state: &mut ZenthreeState) {
     if !state.ai_settings.antigravity_model_dropdown_open {
         return;
     }
 
-    let colors = use_context::<ThemeColors>().map(|c| *c).unwrap_or_else(|| state.colors());
+    let colors = use_context::<ThemeColors>()
+        .map(|c| *c)
+        .unwrap_or_else(|| state.colors());
     let models = agent::external_provider::available_models();
 
     let menu_w = 210.0;
@@ -2485,8 +2803,11 @@ pub fn draw_antigravity_settings_model_popover(
         Color::rgba(0.0, 0.0, 0.0, 0.65)
     };
 
-    if let Some(anchor) = ui.next_screen_layout_cache.get(&AG_SETTINGS_MODEL_BTN_ID)
-        .or_else(|| ui.screen_layout_cache.get(&AG_SETTINGS_MODEL_BTN_ID)).copied()
+    if let Some(anchor) = ui
+        .next_screen_layout_cache
+        .get(&AG_SETTINGS_MODEL_BTN_ID)
+        .or_else(|| ui.screen_layout_cache.get(&AG_SETTINGS_MODEL_BTN_ID))
+        .copied()
     {
         let (mx, my) = zenthra_widgets::compute_placement_pos(
             anchor,
@@ -2500,7 +2821,12 @@ pub fn draw_antigravity_settings_model_popover(
             ui.height,
         );
         let mouse_in_menu = ui.mouse_in_rect(mx, my, menu_w, menu_h);
-        let mouse_in_trigger = ui.mouse_in_rect(anchor.origin.x, anchor.origin.y, anchor.size.width, anchor.size.height);
+        let mouse_in_trigger = ui.mouse_in_rect(
+            anchor.origin.x,
+            anchor.origin.y,
+            anchor.size.width,
+            anchor.size.height,
+        );
         if ui.clicked && !mouse_in_menu && !mouse_in_trigger {
             state.ai_settings.antigravity_model_dropdown_open = false;
             ui.needs_redraw = true;
@@ -2509,7 +2835,8 @@ pub fn draw_antigravity_settings_model_popover(
     }
 
     let mut select_model_id: Option<String> = None;
-    let mut popover_builder = ui.popover(AG_SETTINGS_MODEL_BTN_ID)
+    let mut popover_builder = ui
+        .popover(AG_SETTINGS_MODEL_BTN_ID)
         .placement(Placement::Bottom)
         .align(PopoverAlign::Start)
         .gap(4.0)
@@ -2549,31 +2876,49 @@ pub fn draw_antigravity_settings_model_popover(
                     return;
                 }
 
-                let current_selected = state.ai_settings.selected_antigravity_model_id.as_deref()
+                let current_selected = state
+                    .ai_settings
+                    .selected_antigravity_model_id
+                    .as_deref()
                     .unwrap_or(models[0].id.as_str());
 
                 for model in &models {
                     let is_selected = model.id == current_selected;
                     let row_id = ui.id_from(&format!("pop_ag_dynamic_model_{}", model.id));
-                    let row = ui.container()
+                    let row = ui
+                        .container()
                         .id(row_id)
                         .fill_x()
                         .height(26.0)
                         .padding(2.0, 8.0, 2.0, 8.0)
                         .radius_all(4.0)
-                        .bg(if is_selected { colors.accent.with_alpha(0.12) } else { Color::TRANSPARENT })
+                        .bg(if is_selected {
+                            colors.accent.with_alpha(0.12)
+                        } else {
+                            Color::TRANSPARENT
+                        })
                         .hover(Style::bg(colors.highlight))
                         .row()
                         .valign(Align::Center)
                         .show(|ui| {
                             ui.text(&model.display_name)
                                 .size(10.0)
-                                .font_weight(if is_selected { FontWeight::Medium } else { FontWeight::Regular })
-                                .color(if is_selected { colors.accent } else { colors.text_primary })
+                                .font_weight(if is_selected {
+                                    FontWeight::Medium
+                                } else {
+                                    FontWeight::Regular
+                                })
+                                .color(if is_selected {
+                                    colors.accent
+                                } else {
+                                    colors.text_primary
+                                })
                                 .show();
                         });
 
-                    if row.hovered { ui.cursor_icon = CursorIcon::Pointer; }
+                    if row.hovered {
+                        ui.cursor_icon = CursorIcon::Pointer;
+                    }
                     if row.clicked {
                         ui.clicked = false;
                         select_model_id = Some(model.id.clone());
@@ -2646,35 +2991,40 @@ fn draw_mcp_tab(ui: &mut Ui, _state: &mut ZenthreeState, colors: &ThemeColors) {
                 .valign(Align::Center)
                 .halign(Align::SpaceBetween)
                 .show(|ui| {
-                    ui.container().row().valign(Align::Center).gap(8.0).show(|ui| {
-                        ui.text("\u{e8b0}")
-                            .size(12.0)
-                            .color(colors.accent)
-                            .show();
-                        ui.text("sqlite-memory")
-                            .size(12.5)
-                            .font_weight(FontWeight::SemiBold)
-                            .color(colors.text_primary)
-                            .show();
-                        ui.container()
-                            .padding(2.0, 6.0, 2.0, 6.0)
-                            .radius_all(4.0)
-                            .bg(Color::rgb(0.15, 0.55, 0.25).with_alpha(0.2))
-                            .show(|ui| {
-                                ui.text("Active • 3 tools")
-                                    .size(9.0)
-                                    .color(Color::rgb(0.2, 0.9, 0.4))
-                                    .font_weight(FontWeight::Medium)
-                                    .show();
-                            });
-                    });
+                    ui.container()
+                        .row()
+                        .valign(Align::Center)
+                        .gap(8.0)
+                        .show(|ui| {
+                            ui.text("\u{e8b0}").size(12.0).color(colors.accent).show();
+                            ui.text("sqlite-memory")
+                                .size(12.5)
+                                .font_weight(FontWeight::SemiBold)
+                                .color(colors.text_primary)
+                                .show();
+                            ui.container()
+                                .padding(2.0, 6.0, 2.0, 6.0)
+                                .radius_all(4.0)
+                                .bg(Color::rgb(0.15, 0.55, 0.25).with_alpha(0.2))
+                                .show(|ui| {
+                                    ui.text("Active • 3 tools")
+                                        .size(9.0)
+                                        .color(Color::rgb(0.2, 0.9, 0.4))
+                                        .font_weight(FontWeight::Medium)
+                                        .show();
+                                });
+                        });
 
                     ui.container()
                         .padding(2.5, 8.0, 2.5, 8.0)
                         .radius_all(10.0)
                         .bg(colors.accent.with_alpha(0.2))
                         .show(|ui| {
-                            ui.text("ON").size(9.5).font_weight(FontWeight::Bold).color(colors.accent).show();
+                            ui.text("ON")
+                                .size(9.5)
+                                .font_weight(FontWeight::Bold)
+                                .color(colors.accent)
+                                .show();
                         });
                 });
 
@@ -2683,20 +3033,21 @@ fn draw_mcp_tab(ui: &mut Ui, _state: &mut ZenthreeState, colors: &ThemeColors) {
                 .color(colors.text_muted)
                 .show();
 
-            ui.container().row().valign(Align::Center).gap(6.0).show(|ui| {
-                for tool in &["read_query", "write_query", "list_tables"] {
-                    ui.container()
-                        .padding(2.0, 6.0, 2.0, 6.0)
-                        .radius_all(3.0)
-                        .bg(colors.highlight)
-                        .show(|ui| {
-                            ui.text(tool)
-                                .size(9.0)
-                                .color(colors.text_muted)
-                                .show();
-                        });
-                }
-            });
+            ui.container()
+                .row()
+                .valign(Align::Center)
+                .gap(6.0)
+                .show(|ui| {
+                    for tool in &["read_query", "write_query", "list_tables"] {
+                        ui.container()
+                            .padding(2.0, 6.0, 2.0, 6.0)
+                            .radius_all(3.0)
+                            .bg(colors.highlight)
+                            .show(|ui| {
+                                ui.text(tool).size(9.0).color(colors.text_muted).show();
+                            });
+                    }
+                });
         });
 
     ui.spacing(2.0);
@@ -2717,35 +3068,40 @@ fn draw_mcp_tab(ui: &mut Ui, _state: &mut ZenthreeState, colors: &ThemeColors) {
                 .valign(Align::Center)
                 .halign(Align::SpaceBetween)
                 .show(|ui| {
-                    ui.container().row().valign(Align::Center).gap(8.0).show(|ui| {
-                        ui.text("\u{e5fd}")
-                            .size(12.0)
-                            .color(colors.accent)
-                            .show();
-                        ui.text("github-context")
-                            .size(12.5)
-                            .font_weight(FontWeight::SemiBold)
-                            .color(colors.text_primary)
-                            .show();
-                        ui.container()
-                            .padding(2.0, 6.0, 2.0, 6.0)
-                            .radius_all(4.0)
-                            .bg(Color::rgb(0.15, 0.55, 0.25).with_alpha(0.2))
-                            .show(|ui| {
-                                ui.text("Active • 5 tools")
-                                    .size(9.0)
-                                    .color(Color::rgb(0.2, 0.9, 0.4))
-                                    .font_weight(FontWeight::Medium)
-                                    .show();
-                            });
-                    });
+                    ui.container()
+                        .row()
+                        .valign(Align::Center)
+                        .gap(8.0)
+                        .show(|ui| {
+                            ui.text("\u{e5fd}").size(12.0).color(colors.accent).show();
+                            ui.text("github-context")
+                                .size(12.5)
+                                .font_weight(FontWeight::SemiBold)
+                                .color(colors.text_primary)
+                                .show();
+                            ui.container()
+                                .padding(2.0, 6.0, 2.0, 6.0)
+                                .radius_all(4.0)
+                                .bg(Color::rgb(0.15, 0.55, 0.25).with_alpha(0.2))
+                                .show(|ui| {
+                                    ui.text("Active • 5 tools")
+                                        .size(9.0)
+                                        .color(Color::rgb(0.2, 0.9, 0.4))
+                                        .font_weight(FontWeight::Medium)
+                                        .show();
+                                });
+                        });
 
                     ui.container()
                         .padding(2.5, 8.0, 2.5, 8.0)
                         .radius_all(10.0)
                         .bg(colors.accent.with_alpha(0.2))
                         .show(|ui| {
-                            ui.text("ON").size(9.5).font_weight(FontWeight::Bold).color(colors.accent).show();
+                            ui.text("ON")
+                                .size(9.5)
+                                .font_weight(FontWeight::Bold)
+                                .color(colors.accent)
+                                .show();
                         });
                 });
 
@@ -2754,20 +3110,21 @@ fn draw_mcp_tab(ui: &mut Ui, _state: &mut ZenthreeState, colors: &ThemeColors) {
                 .color(colors.text_muted)
                 .show();
 
-            ui.container().row().valign(Align::Center).gap(6.0).show(|ui| {
-                for tool in &["get_issue", "list_prs", "search_code", "+2 more"] {
-                    ui.container()
-                        .padding(2.0, 6.0, 2.0, 6.0)
-                        .radius_all(3.0)
-                        .bg(colors.highlight)
-                        .show(|ui| {
-                            ui.text(tool)
-                                .size(9.0)
-                                .color(colors.text_muted)
-                                .show();
-                        });
-                }
-            });
+            ui.container()
+                .row()
+                .valign(Align::Center)
+                .gap(6.0)
+                .show(|ui| {
+                    for tool in &["get_issue", "list_prs", "search_code", "+2 more"] {
+                        ui.container()
+                            .padding(2.0, 6.0, 2.0, 6.0)
+                            .radius_all(3.0)
+                            .bg(colors.highlight)
+                            .show(|ui| {
+                                ui.text(tool).size(9.0).color(colors.text_muted).show();
+                            });
+                    }
+                });
         });
 
     ui.spacing(4.0);
@@ -2800,10 +3157,7 @@ fn draw_mcp_tab(ui: &mut Ui, _state: &mut ZenthreeState, colors: &ThemeColors) {
                         .font_weight(FontWeight::Medium)
                         .color(colors.text_primary)
                         .show();
-                    ui.text(desc)
-                        .size(9.0)
-                        .color(colors.text_muted)
-                        .show();
+                    ui.text(desc).size(9.0).color(colors.text_muted).show();
                 });
         }
     });
@@ -2814,21 +3168,17 @@ fn draw_mcp_tab(ui: &mut Ui, _state: &mut ZenthreeState, colors: &ThemeColors) {
 // ─────────────────────────────────────────────────────────────────────────────
 
 fn draw_customization_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColors) {
-    ui.container()
-        .fill_x()
-        .column()
-        .gap(3.0)
-        .show(|ui| {
-            ui.text("Agent Customization")
-                .size(14.0)
-                .font_weight(FontWeight::Bold)
-                .color(colors.text_primary)
-                .show();
-            ui.text("Configure persona roles and global system instructions")
-                .size(11.0)
-                .color(colors.text_muted)
-                .show();
-        });
+    ui.container().fill_x().column().gap(3.0).show(|ui| {
+        ui.text("Agent Customization")
+            .size(14.0)
+            .font_weight(FontWeight::Bold)
+            .color(colors.text_primary)
+            .show();
+        ui.text("Configure persona roles and global system instructions")
+            .size(11.0)
+            .color(colors.text_muted)
+            .show();
+    });
 
     ui.spacing(2.0);
 
@@ -2839,21 +3189,17 @@ fn draw_customization_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &Theme
         .valign(Align::Center)
         .halign(Align::SpaceBetween)
         .show(|ui| {
-            ui.container()
-                .width(300.0)
-                .column()
-                .gap(3.0)
-                .show(|ui| {
-                    ui.text("Agent Persona")
-                        .size(12.0)
-                        .font_weight(FontWeight::Medium)
-                        .color(colors.text_primary)
-                        .show();
-                    ui.text("Specialization mode for autonomous coding assistance")
-                        .size(10.5)
-                        .color(colors.text_muted)
-                        .show();
-                });
+            ui.container().width(300.0).column().gap(3.0).show(|ui| {
+                ui.text("Agent Persona")
+                    .size(12.0)
+                    .font_weight(FontWeight::Medium)
+                    .color(colors.text_primary)
+                    .show();
+                ui.text("Specialization mode for autonomous coding assistance")
+                    .size(10.5)
+                    .color(colors.text_muted)
+                    .show();
+            });
 
             ui.container()
                 .row()
@@ -2864,17 +3210,34 @@ fn draw_customization_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &Theme
                 .show(|ui| {
                     for mode in AgentMode::ALL {
                         let is_active = state.agent_mode == mode;
-                        let btn = ui.container()
+                        let btn = ui
+                            .container()
                             .interactive(true)
                             .padding(5.0, 11.0, 5.0, 11.0)
                             .radius_all(4.0)
-                            .bg(if is_active { colors.accent } else { Color::TRANSPARENT })
-                            .hover(Style::bg(if is_active { colors.accent } else { colors.highlight }))
+                            .bg(if is_active {
+                                colors.accent
+                            } else {
+                                Color::TRANSPARENT
+                            })
+                            .hover(Style::bg(if is_active {
+                                colors.accent
+                            } else {
+                                colors.highlight
+                            }))
                             .show(|ui| {
                                 ui.text(mode.display_name())
                                     .size(10.5)
-                                    .font_weight(if is_active { FontWeight::SemiBold } else { FontWeight::Regular })
-                                    .color(if is_active { Color::WHITE } else { colors.text_muted })
+                                    .font_weight(if is_active {
+                                        FontWeight::SemiBold
+                                    } else {
+                                        FontWeight::Regular
+                                    })
+                                    .color(if is_active {
+                                        Color::WHITE
+                                    } else {
+                                        colors.text_muted
+                                    })
                                     .show();
                             });
                         if btn.hovered {
@@ -2891,39 +3254,38 @@ fn draw_customization_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &Theme
     draw_settings_divider(ui, colors);
 
     // Row 2: Custom Instructions Header
-    ui.container()
-        .fill_x()
-        .column()
-        .gap(6.0)
-        .show(|ui| {
-            ui.text("Custom System Instructions")
-                .size(12.0)
-                .font_weight(FontWeight::Medium)
-                .color(colors.text_primary)
-                .show();
-            ui.text("Injected into the system prompt at the beginning of each session")
-                .size(10.5)
-                .color(colors.text_muted)
-                .show();
+    ui.container().fill_x().column().gap(6.0).show(|ui| {
+        ui.text("Custom System Instructions")
+            .size(12.0)
+            .font_weight(FontWeight::Medium)
+            .color(colors.text_primary)
+            .show();
+        ui.text("Injected into the system prompt at the beginning of each session")
+            .size(10.5)
+            .color(colors.text_muted)
+            .show();
 
-            ui.spacing(2.0);
+        ui.spacing(2.0);
 
-            ui.text_area(&mut state.ai_settings.custom_instructions).id("ai_custom_instructions_textarea")
-                .width(490.0)
-                .height(110.0)
-                .scrollable(true)
-                .size(11.0)
-                .color(colors.text_primary)
-                .bg(colors.bg_base)
-                .border((colors.border.with_alpha(0.5), 0.75))
-                .focus_border((colors.accent.with_alpha(0.8), 1.0))
-                .radius(6.0, 6.0, 6.0, 6.0)
-                .padding(8.0, 10.0, 8.0, 10.0)
-                .placeholder("e.g. Adhere to strict idiomatic Rust, never use unwrap() in production code.")
-                .placeholder_color(colors.text_muted.with_alpha(0.5))
-                .wrap(zenthra_text::prelude::TextWrap::Word)
-                .show();
-        });
+        ui.text_area(&mut state.ai_settings.custom_instructions)
+            .id("ai_custom_instructions_textarea")
+            .width(490.0)
+            .height(110.0)
+            .scrollable(true)
+            .size(11.0)
+            .color(colors.text_primary)
+            .bg(colors.bg_base)
+            .border((colors.border.with_alpha(0.5), 0.75))
+            .focus_border((colors.accent.with_alpha(0.8), 1.0))
+            .radius(6.0, 6.0, 6.0, 6.0)
+            .padding(8.0, 10.0, 8.0, 10.0)
+            .placeholder(
+                "e.g. Adhere to strict idiomatic Rust, never use unwrap() in production code.",
+            )
+            .placeholder_color(colors.text_muted.with_alpha(0.5))
+            .wrap(zenthra_text::prelude::TextWrap::Word)
+            .show();
+    });
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -2948,30 +3310,28 @@ fn draw_toggle_row_inline(
         .valign(Align::Center)
         .halign(Align::SpaceBetween)
         .show(|ui| {
-            ui.container()
-                .width(330.0)
-                .column()
-                .gap(3.0)
-                .show(|ui| {
-                    ui.text(title)
-                        .size(12.0)
-                        .font_weight(FontWeight::Medium)
-                        .color(colors.text_primary.with_alpha(label_alpha))
-                        .show();
-                    ui.text(description)
-                        .size(10.5)
-                        .color(colors.text_muted.with_alpha(sub_alpha))
-                        .show();
-                });
+            ui.container().width(330.0).column().gap(3.0).show(|ui| {
+                ui.text(title)
+                    .size(12.0)
+                    .font_weight(FontWeight::Medium)
+                    .color(colors.text_primary.with_alpha(label_alpha))
+                    .show();
+                ui.text(description)
+                    .size(10.5)
+                    .color(colors.text_muted.with_alpha(sub_alpha))
+                    .show();
+            });
 
             ui.container()
                 .padding(2.0, 4.0, 2.0, 4.0)
                 .row()
                 .valign(Align::Center)
                 .show(|ui| {
-                    let resp = ui.toggle(val, None)
+                    let resp = ui
+                        .toggle(val, None)
                         .id(Id::from_u64(id_seed))
-                        .width(38.0).height(20.0)
+                        .width(38.0)
+                        .height(20.0)
                         .pill()
                         .colors(colors.accent, colors.border.with_alpha(0.6), Color::WHITE)
                         .disabled(is_locked)

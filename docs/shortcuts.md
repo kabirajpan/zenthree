@@ -132,7 +132,7 @@ When typing `cd ` or `cd <path>` (e.g. `cd ~/` or `cd `):
 |---|---|
 | `Ctrl+←` / `Ctrl+→` | Move backward / forward by word |
 | `Ctrl+Shift+←` / `Ctrl+Shift+→` | Move/select word left / right |
-| `Ctrl+↑` / `Ctrl+↓` | Multi-line jump up / down |
+| `Ctrl+↑` / `Ctrl+↓` | Previous / next shell command history |
 | `Ctrl+Shift+↑` / `Ctrl+Shift+↓` | Extended jump up / down |
 | `Ctrl+Home` / `Ctrl+End` | Jump to buffer start / end |
 | `Ctrl+Shift+Home` / `Ctrl+Shift+End` | Extended buffer start / end |
@@ -162,15 +162,17 @@ When typing `cd ` or `cd <path>` (e.g. `cd ~/` or `cd `):
 
 | Shortcut | Action |
 |---|---|
-| `Ctrl+Shift+C` | Copy terminal output to clipboard |
+| Mouse drag | Select terminal text |
+| `Ctrl+C` | Copy selected terminal text; send SIGINT when nothing is selected |
+| `Ctrl+Insert` | Copy selected terminal text |
+| `Ctrl+Shift+C` | Copy selected terminal text, or terminal output when nothing is selected |
 | `Ctrl+Shift+V` / `Ctrl+V` / `Shift+Insert` | Paste clipboard into terminal |
 | `Ctrl+Shift+K` | Clear terminal scrollback & buffer |
-| `Ctrl+C` | Interrupt / SIGINT |
 | `Ctrl+D` | EOF / Exit session |
 | `Ctrl+Z` | Suspend / SIGTSTP |
 | `Ctrl+L` | Clear screen |
 | `Ctrl+R` | Reverse search history |
-| `Ctrl+P` / `Ctrl+N` | Previous / next command history |
+| `Ctrl+P` / `Ctrl+N` | Previous / next command history (shell-dependent) |
 
 ---
 
@@ -185,4 +187,3 @@ When typing `cd ` or `cd <path>` (e.g. `cd ~/` or `cd `):
 | Editor | 28 |
 | Terminal | 24 |
 | **Total** | **72** |
-

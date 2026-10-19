@@ -1,5 +1,6 @@
 pub mod ai;
 pub mod ai_settings;
+pub mod bottom_panel;
 pub mod editor;
 pub mod git;
 pub mod notes;
@@ -105,6 +106,12 @@ pub struct ZenthreeState {
     pub additional_terminal_sessions: Vec<crate::native_terminal::NativeTerminalSession>,
     pub active_terminal_idx: usize,
     pub terminal_split: bool,
+    pub terminal_text_selection: Option<TerminalTextSelection>,
+    pub terminal_selection_drag: Option<usize>,
+    pub bottom_panel_tab: BottomPanelTab,
+    pub output_lines: Vec<String>,
+    pub listening_ports: Vec<ListeningPort>,
+    pub ports_error: Option<String>,
     pub terminal_spawn_failed: bool,
     pub terminal_scroll_accum: f32,
     pub terminal_last_scroll_time: std::time::Instant,
@@ -447,6 +454,12 @@ impl ZenthreeState {
             additional_terminal_sessions: Vec::new(),
             active_terminal_idx: 0,
             terminal_split: false,
+            terminal_text_selection: None,
+            terminal_selection_drag: None,
+            bottom_panel_tab: BottomPanelTab::Terminal,
+            output_lines: vec!["Zenthree output".to_string()],
+            listening_ports: Vec::new(),
+            ports_error: None,
             terminal_spawn_failed: false,
             terminal_scroll_accum: 0.0,
             terminal_last_scroll_time: std::time::Instant::now(),
@@ -610,6 +623,10 @@ impl ZenthreeState {
         self.status_message = text.clone();
         self.status_set_at = Some(std::time::Instant::now());
         self.status_signal.set(text);
+        self.output_lines.push(self.status_message.clone());
+        if self.output_lines.len() > 250 {
+            self.output_lines.remove(0);
+        }
     }
 
     /// Called once per frame. Clears the status message if it has been shown for >= 3 seconds.
@@ -790,6 +807,7 @@ impl ZenthreeState {
         }
     }
 
+
     #[allow(dead_code)]
     pub fn restore_accepted_review(&mut self, path: &std::path::Path) -> bool {
         if let Some(pos) = self.accepted_reviews.iter().rposition(|r| path_matches(&r.path, path)) {
@@ -850,7 +868,6 @@ impl ZenthreeState {
             }
         }
     }
-
 
     #[allow(dead_code)]
     pub fn next_review_file(&mut self) {
@@ -2554,4 +2571,3 @@ mod tests {
         assert!(state.show_modified_files_popup);
     }
 }
-

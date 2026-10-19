@@ -1,4 +1,4 @@
-use zenthra::{Color, ImageSource, Id, Ui};
+use zenthra::{Color, Id, ImageSource, Ui};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum ThemeMode {
@@ -91,7 +91,13 @@ impl ThemeColors {
             },
         }
     }
-    pub fn with_glassmorphism(mut self, enabled: bool, mode: ThemeMode, opacity: f32, blur_strength: f32) -> Self {
+    pub fn with_glassmorphism(
+        mut self,
+        enabled: bool,
+        mode: ThemeMode,
+        opacity: f32,
+        blur_strength: f32,
+    ) -> Self {
         if enabled {
             let op = opacity.clamp(0.15, 0.95);
             // Normalized blur factor from 4.0 (subtle/crystalline) to 64.0 (heavy frosted diffusion)
@@ -105,27 +111,50 @@ impl ThemeColors {
                     let border_alpha = (0.08 + blur_norm * 0.10).clamp(0.06, 0.20);
                     let tab_alpha = (0.08 + blur_norm * 0.10).clamp(0.06, 0.20);
 
-                    self.bg_base = Color::rgba(12.0 / 255.0, 14.0 / 255.0, 20.0 / 255.0, eff_op * 0.72);
-                    self.bg_sidebar = Color::rgba(18.0 / 255.0, 20.0 / 255.0, 28.0 / 255.0, eff_op * 0.82);
-                    self.bg_editor = Color::rgba(16.0 / 255.0, 18.0 / 255.0, 24.0 / 255.0, eff_op * 0.85);
-                    self.bg_gutter = Color::rgba(16.0 / 255.0, 18.0 / 255.0, 24.0 / 255.0, eff_op * 0.85);
-                    self.bg_active_tab = Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, tab_alpha);
-                    self.bg_inactive_tab = Color::rgba(18.0 / 255.0, 20.0 / 255.0, 28.0 / 255.0, (eff_op * 0.75).clamp(0.15, 0.85));
-                    self.border = Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, border_alpha);
-                    self.highlight = Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, frost_sheen);
+                    self.bg_base =
+                        Color::rgba(12.0 / 255.0, 14.0 / 255.0, 20.0 / 255.0, eff_op * 0.72);
+                    self.bg_sidebar =
+                        Color::rgba(18.0 / 255.0, 20.0 / 255.0, 28.0 / 255.0, eff_op * 0.82);
+                    self.bg_editor =
+                        Color::rgba(16.0 / 255.0, 18.0 / 255.0, 24.0 / 255.0, eff_op * 0.85);
+                    self.bg_gutter =
+                        Color::rgba(16.0 / 255.0, 18.0 / 255.0, 24.0 / 255.0, eff_op * 0.85);
+                    self.bg_active_tab =
+                        Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, tab_alpha);
+                    self.bg_inactive_tab = Color::rgba(
+                        18.0 / 255.0,
+                        20.0 / 255.0,
+                        28.0 / 255.0,
+                        (eff_op * 0.75).clamp(0.15, 0.85),
+                    );
+                    self.border =
+                        Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, border_alpha);
+                    self.highlight =
+                        Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, frost_sheen);
                 }
                 ThemeMode::Light => {
                     let frost_sheen = (0.02 + blur_norm * 0.06).clamp(0.02, 0.08);
                     let border_alpha = (0.18 + blur_norm * 0.14).clamp(0.15, 0.35);
                     let tab_alpha = (0.65 + blur_norm * 0.18).clamp(0.55, 0.88);
 
-                    self.bg_base = Color::rgba(240.0 / 255.0, 242.0 / 255.0, 248.0 / 255.0, eff_op * 0.72);
-                    self.bg_sidebar = Color::rgba(235.0 / 255.0, 238.0 / 255.0, 245.0 / 255.0, eff_op * 0.85);
-                    self.bg_editor = Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, eff_op * 0.85);
-                    self.bg_gutter = Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, eff_op * 0.85);
-                    self.bg_active_tab = Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, tab_alpha);
-                    self.bg_inactive_tab = Color::rgba(235.0 / 255.0, 238.0 / 255.0, 245.0 / 255.0, (eff_op * 0.75).clamp(0.20, 0.85));
-                    self.border = Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, border_alpha);
+                    self.bg_base =
+                        Color::rgba(240.0 / 255.0, 242.0 / 255.0, 248.0 / 255.0, eff_op * 0.72);
+                    self.bg_sidebar =
+                        Color::rgba(235.0 / 255.0, 238.0 / 255.0, 245.0 / 255.0, eff_op * 0.85);
+                    self.bg_editor =
+                        Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, eff_op * 0.85);
+                    self.bg_gutter =
+                        Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, eff_op * 0.85);
+                    self.bg_active_tab =
+                        Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, tab_alpha);
+                    self.bg_inactive_tab = Color::rgba(
+                        235.0 / 255.0,
+                        238.0 / 255.0,
+                        245.0 / 255.0,
+                        (eff_op * 0.75).clamp(0.20, 0.85),
+                    );
+                    self.border =
+                        Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, border_alpha);
                     self.highlight = Color::rgba(0.0, 0.0, 0.0, frost_sheen);
                 }
             }
@@ -136,13 +165,22 @@ impl ThemeColors {
 
 /// Syncs full ThemeColors into `ui.interaction_state` so all framework widgets (including menus, dropdowns, and submenus)
 /// reflect the active theme, background panels, borders, and accent highlights without defaulting to black or yellow.
-pub fn sync_theme_to_ui(ui: &mut Ui, mode: ThemeMode, colors: &ThemeColors, is_glassmorphism: bool) {
+pub fn sync_theme_to_ui(
+    ui: &mut Ui,
+    mode: ThemeMode,
+    colors: &ThemeColors,
+    is_glassmorphism: bool,
+) {
     let is_light = mode == ThemeMode::Light;
 
     // Theme mode flag (1.0 = Light, 0.0 = Dark) for zenthra-widgets
-    ui.interaction_state.insert(Id::from_u64(999999999), if is_light { 1.0 } else { 0.0 });
+    ui.interaction_state
+        .insert(Id::from_u64(999999999), if is_light { 1.0 } else { 0.0 });
     // Glassmorphism flag (1.0 = glassmorphic menu dropdown panels, 0.0 = solid)
-    ui.interaction_state.insert(Id::from_u64(999999998), if is_glassmorphism { 1.0 } else { 0.0 });
+    ui.interaction_state.insert(
+        Id::from_u64(999999998),
+        if is_glassmorphism { 1.0 } else { 0.0 },
+    );
 
     let mut set_color = |base_id: u64, color: Color| {
         let [r, g, b, a] = color.to_array();
@@ -161,7 +199,14 @@ pub fn sync_theme_to_ui(ui: &mut Ui, mode: ThemeMode, colors: &ThemeColors, is_g
     // 999999950: theme_text_muted (shortcuts, secondary text)
     set_color(999999950, colors.text_muted);
     // 999999940: theme_bg_panel (dropdown popup panel background)
-    set_color(999999940, if is_light { Color::WHITE } else { colors.bg_sidebar });
+    set_color(
+        999999940,
+        if is_light {
+            Color::WHITE
+        } else {
+            colors.bg_sidebar
+        },
+    );
     // 999999930: theme_border (dropdown popup panel border)
     set_color(999999930, colors.border);
 }
@@ -176,10 +221,7 @@ pub const ICON_THEME_OPTIONS: &[(&str, &str)] = &[
 
 #[derive(Clone)]
 pub enum FileIcon {
-    Glyph {
-        glyph: &'static str,
-        color: Color,
-    },
+    Glyph { glyph: &'static str, color: Color },
     Image(ImageSource),
 }
 
@@ -190,21 +232,16 @@ impl FileIcon {
             .width(box_w)
             .valign(zenthra::Align::Center)
             .halign(zenthra::Align::Center)
-            .show(|ui| {
-                match self {
-                    FileIcon::Glyph { glyph, color } => {
-                        ui.text(glyph)
-                            .size(size)
-                            .color(*color)
-                            .show();
-                    }
-                    FileIcon::Image(source) => {
-                        ui.image(source.clone())
-                            .width(size + 2.0)
-                            .height(size + 2.0)
-                            .fit(zenthra::ObjectFit::Contain)
-                            .show();
-                    }
+            .show(|ui| match self {
+                FileIcon::Glyph { glyph, color } => {
+                    ui.text(glyph).size(size).color(*color).show();
+                }
+                FileIcon::Image(source) => {
+                    ui.image(source.clone())
+                        .width(size + 2.0)
+                        .height(size + 2.0)
+                        .fit(zenthra::ObjectFit::Contain)
+                        .show();
                 }
             });
     }
@@ -311,7 +348,9 @@ impl ParsedThemeData {
     }
 
     fn resolve_icon_path(&self, icon_id: &str) -> String {
-        let file_name = self.icon_definitions.get(icon_id)
+        let file_name = self
+            .icon_definitions
+            .get(icon_id)
             .map(|s| s.as_str())
             .unwrap_or(icon_id);
         let mut fname = file_name.to_string();
@@ -322,11 +361,13 @@ impl ParsedThemeData {
     }
 }
 
-static THEME_CACHE: std::sync::OnceLock<std::sync::RwLock<std::collections::HashMap<String, std::sync::Arc<ParsedThemeData>>>> =
-    std::sync::OnceLock::new();
+static THEME_CACHE: std::sync::OnceLock<
+    std::sync::RwLock<std::collections::HashMap<String, std::sync::Arc<ParsedThemeData>>>,
+> = std::sync::OnceLock::new();
 
 fn get_or_load_theme_data(theme_name: &str) -> Option<std::sync::Arc<ParsedThemeData>> {
-    let cache = THEME_CACHE.get_or_init(|| std::sync::RwLock::new(std::collections::HashMap::new()));
+    let cache =
+        THEME_CACHE.get_or_init(|| std::sync::RwLock::new(std::collections::HashMap::new()));
 
     if let Ok(read_guard) = cache.read() {
         if let Some(data) = read_guard.get(theme_name) {
@@ -351,7 +392,9 @@ fn get_or_load_theme_data(theme_name: &str) -> Option<std::sync::Arc<ParsedTheme
 
     let default_file = parsed.file.unwrap_or_else(|| "file".to_string());
     let default_folder = parsed.folder.unwrap_or_else(|| "folder".to_string());
-    let default_folder_expanded = parsed.folder_expanded.unwrap_or_else(|| "folder-open".to_string());
+    let default_folder_expanded = parsed
+        .folder_expanded
+        .unwrap_or_else(|| "folder-open".to_string());
 
     let theme_data = std::sync::Arc::new(ParsedThemeData {
         theme_name: theme_name.to_string(),
@@ -382,9 +425,8 @@ fn get_gruvbox_file_icon(file_name: &str, ext: &str) -> &'static str {
         "pom.xml" => "text-x-maven+xml.svg",
         "build.gradle" | "settings.gradle" => "text-x-groovy.svg",
         "package.json" => "text-javascript.svg",
-        "package-lock.json" | "yarn.lock" | "pnpm-lock.yaml" | "pnpm-lock.yml" | "bun.lock" | "bun.lockb" => {
-            "package-x-generic.svg"
-        }
+        "package-lock.json" | "yarn.lock" | "pnpm-lock.yaml" | "pnpm-lock.yml" | "bun.lock"
+        | "bun.lockb" => "package-x-generic.svg",
         "tsconfig.json" => "text-typescript.svg",
         "dockerfile" | "dockerfile.dev" | "dockerfile.prod" => "text-dockerfile.svg",
         "docker-compose.yml" | "docker-compose.yaml" => "text-dockerfile.svg",
@@ -392,7 +434,9 @@ fn get_gruvbox_file_icon(file_name: &str, ext: &str) -> &'static str {
         "readme.md" | "readme" | "readme.txt" => "text-x-readme.svg",
         "license" | "licence" | "copying" => "text-x-copying.svg",
         ".gitignore" | ".gitattributes" | ".gitmodules" => "text-x-diff.svg",
-        ".env" | ".env.local" | ".env.development" | ".env.production" => "application-x-config.svg",
+        ".env" | ".env.local" | ".env.development" | ".env.production" => {
+            "application-x-config.svg"
+        }
         _ => match ext_lower.as_str() {
             "rs" => "text-x-rust.svg",
             "py" | "pyw" | "pyi" => "text-x-python.svg",
@@ -461,7 +505,9 @@ impl IconTheme {
         if self.name == "gruvbox" {
             let path = "themes/gruvbox/folders/gray.png";
             if let Some(file) = crate::assets::Assets::get(path) {
-                return FileIcon::Image(ImageSource::Bytes(std::sync::Arc::from(file.data.into_owned())));
+                return FileIcon::Image(ImageSource::Bytes(std::sync::Arc::from(
+                    file.data.into_owned(),
+                )));
             }
             return FileIcon::Image(ImageSource::Bytes(std::sync::Arc::from(&[][..])));
         }
@@ -469,17 +515,27 @@ impl IconTheme {
         if let Some(ref data) = self.data {
             let path = data.get_folder_icon_path(folder_name, is_expanded);
             if let Some(file) = crate::assets::Assets::get(&path) {
-                return FileIcon::Image(ImageSource::Bytes(std::sync::Arc::from(file.data.into_owned())));
+                return FileIcon::Image(ImageSource::Bytes(std::sync::Arc::from(
+                    file.data.into_owned(),
+                )));
             }
             // Fallback to default theme folder icon
-            let fallback_name = if is_expanded { "folder-open.svg" } else { "folder.svg" };
+            let fallback_name = if is_expanded {
+                "folder-open.svg"
+            } else {
+                "folder.svg"
+            };
             let fallback_path = format!("themes/{}/icons/{}", self.name, fallback_name);
             if let Some(file) = crate::assets::Assets::get(&fallback_path) {
-                return FileIcon::Image(ImageSource::Bytes(std::sync::Arc::from(file.data.into_owned())));
+                return FileIcon::Image(ImageSource::Bytes(std::sync::Arc::from(
+                    file.data.into_owned(),
+                )));
             }
             let generic_folder = format!("themes/{}/icons/folder.svg", self.name);
             if let Some(file) = crate::assets::Assets::get(&generic_folder) {
-                return FileIcon::Image(ImageSource::Bytes(std::sync::Arc::from(file.data.into_owned())));
+                return FileIcon::Image(ImageSource::Bytes(std::sync::Arc::from(
+                    file.data.into_owned(),
+                )));
             }
         }
 
@@ -495,9 +551,7 @@ impl IconTheme {
                 .and_then(|p| p.extension())
                 .and_then(|e| e.to_str())
                 .map(|e| e.to_lowercase())
-                .unwrap_or_else(|| {
-                    name_lower.rsplit('.').next().unwrap_or("").to_string()
-                });
+                .unwrap_or_else(|| name_lower.rsplit('.').next().unwrap_or("").to_string());
             let (glyph, color) = crate::mini_icons::get_mini_file_icon(&name_lower, &ext_lower);
             return FileIcon::Glyph { glyph, color };
         }
@@ -508,9 +562,7 @@ impl IconTheme {
                 .and_then(|p| p.extension())
                 .and_then(|e| e.to_str())
                 .map(|e| e.to_lowercase())
-                .unwrap_or_else(|| {
-                    name_lower.rsplit('.').next().unwrap_or("").to_string()
-                });
+                .unwrap_or_else(|| name_lower.rsplit('.').next().unwrap_or("").to_string());
             let (glyph, color) = crate::neovim_icons::get_neovim_file_icon(&name_lower, &ext_lower);
             return FileIcon::Glyph { glyph, color };
         }
@@ -522,9 +574,14 @@ impl IconTheme {
                 .unwrap_or("")
                 .to_lowercase();
             let icon_file = get_gruvbox_file_icon(file_name, &ext);
-            let full_path = format!("themes/gruvbox/Gruvbox-Plus-Dark/mimetypes/scalable/{}", icon_file);
+            let full_path = format!(
+                "themes/gruvbox/Gruvbox-Plus-Dark/mimetypes/scalable/{}",
+                icon_file
+            );
             if let Some(file) = crate::assets::Assets::get(&full_path) {
-                return FileIcon::Image(ImageSource::Bytes(std::sync::Arc::from(file.data.into_owned())));
+                return FileIcon::Image(ImageSource::Bytes(std::sync::Arc::from(
+                    file.data.into_owned(),
+                )));
             }
             return FileIcon::Image(ImageSource::Bytes(std::sync::Arc::from(&[][..])));
         }
@@ -532,18 +589,26 @@ impl IconTheme {
         if let Some(ref data) = self.data {
             let icon_path = data.get_file_icon_path(file_name, path);
             if let Some(file) = crate::assets::Assets::get(&icon_path) {
-                return FileIcon::Image(ImageSource::Bytes(std::sync::Arc::from(file.data.into_owned())));
+                return FileIcon::Image(ImageSource::Bytes(std::sync::Arc::from(
+                    file.data.into_owned(),
+                )));
             }
             // Fallback to theme's default file icon
             let fallback_path = format!("themes/{}/icons/file.svg", self.name);
             if let Some(file) = crate::assets::Assets::get(&fallback_path) {
-                return FileIcon::Image(ImageSource::Bytes(std::sync::Arc::from(file.data.into_owned())));
+                return FileIcon::Image(ImageSource::Bytes(std::sync::Arc::from(
+                    file.data.into_owned(),
+                )));
             }
         }
 
         // Final fallback: Gruvbox unknown icon
-        if let Some(file) = crate::assets::Assets::get("themes/gruvbox/Gruvbox-Plus-Dark/mimetypes/scalable/unknown.svg") {
-            FileIcon::Image(ImageSource::Bytes(std::sync::Arc::from(file.data.into_owned())))
+        if let Some(file) = crate::assets::Assets::get(
+            "themes/gruvbox/Gruvbox-Plus-Dark/mimetypes/scalable/unknown.svg",
+        ) {
+            FileIcon::Image(ImageSource::Bytes(std::sync::Arc::from(
+                file.data.into_owned(),
+            )))
         } else {
             FileIcon::Image(ImageSource::Bytes(std::sync::Arc::from(&[][..])))
         }
@@ -580,7 +645,8 @@ mod tests {
         let rust_icon = theme.get_icon_for_file("main.rs", Some(std::path::Path::new("main.rs")));
         assert!(matches!(rust_icon, FileIcon::Glyph { glyph, .. } if !glyph.is_empty()));
 
-        let cargo_icon = theme.get_icon_for_file("Cargo.toml", Some(std::path::Path::new("Cargo.toml")));
+        let cargo_icon =
+            theme.get_icon_for_file("Cargo.toml", Some(std::path::Path::new("Cargo.toml")));
         assert!(matches!(cargo_icon, FileIcon::Glyph { glyph, .. } if !glyph.is_empty()));
 
         let folder_icon = theme.get_icon_for_folder("src", false);
@@ -593,7 +659,8 @@ mod tests {
         let rust_icon = theme.get_icon_for_file("main.rs", Some(std::path::Path::new("main.rs")));
         assert!(matches!(rust_icon, FileIcon::Glyph { glyph, .. } if !glyph.is_empty()));
 
-        let cargo_icon = theme.get_icon_for_file("Cargo.toml", Some(std::path::Path::new("Cargo.toml")));
+        let cargo_icon =
+            theme.get_icon_for_file("Cargo.toml", Some(std::path::Path::new("Cargo.toml")));
         assert!(matches!(cargo_icon, FileIcon::Glyph { glyph, .. } if !glyph.is_empty()));
 
         let folder_icon = theme.get_icon_for_folder("src", false);
@@ -608,10 +675,12 @@ mod tests {
         let rust_icon = theme.get_icon_for_file("main.rs", Some(std::path::Path::new("main.rs")));
         assert!(matches!(rust_icon, FileIcon::Image(ImageSource::Bytes(b)) if !b.is_empty()));
 
-        let cargo_icon = theme.get_icon_for_file("Cargo.toml", Some(std::path::Path::new("Cargo.toml")));
+        let cargo_icon =
+            theme.get_icon_for_file("Cargo.toml", Some(std::path::Path::new("Cargo.toml")));
         assert!(matches!(cargo_icon, FileIcon::Image(ImageSource::Bytes(b)) if !b.is_empty()));
 
-        let git_icon = theme.get_icon_for_file(".gitignore", Some(std::path::Path::new(".gitignore")));
+        let git_icon =
+            theme.get_icon_for_file(".gitignore", Some(std::path::Path::new(".gitignore")));
         assert!(matches!(git_icon, FileIcon::Image(ImageSource::Bytes(b)) if !b.is_empty()));
 
         let src_folder = theme.get_icon_for_folder("src", false);

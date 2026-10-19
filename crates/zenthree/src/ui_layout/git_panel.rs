@@ -1,23 +1,37 @@
-use crate::state::{ZenthreeState, GitFileStatusCode};
+use crate::state::{GitFileStatusCode, ZenthreeState};
 use crate::theme::ThemeColors;
-use zenthra::use_context;
-use zenthra::{Color, Ui, Align, FontWeight, Id, CursorIcon};
 use std::path::PathBuf;
+use zenthra::use_context;
+use zenthra::{Align, Color, CursorIcon, FontWeight, Id, Ui};
 
 #[inline]
-fn color_modified() -> Color { Color::from_hex(0xe5a030) }
+fn color_modified() -> Color {
+    Color::from_hex(0xe5a030)
+}
 #[inline]
-fn color_added() -> Color { Color::from_hex(0x4eba6f) }
+fn color_added() -> Color {
+    Color::from_hex(0x4eba6f)
+}
 #[inline]
-fn color_deleted() -> Color { Color::from_hex(0xe65050) }
+fn color_deleted() -> Color {
+    Color::from_hex(0xe65050)
+}
 #[inline]
-fn color_renamed() -> Color { Color::from_hex(0x46bedc) }
+fn color_renamed() -> Color {
+    Color::from_hex(0x46bedc)
+}
 #[inline]
-fn color_untracked() -> Color { Color::from_hex(0x4eba6f) }
+fn color_untracked() -> Color {
+    Color::from_hex(0x4eba6f)
+}
 #[inline]
-fn color_conflicted() -> Color { Color::from_hex(0xeb4646) }
+fn color_conflicted() -> Color {
+    Color::from_hex(0xeb4646)
+}
 #[inline]
-fn color_error() -> Color { Color::from_hex(0xdc3c3c) }
+fn color_error() -> Color {
+    Color::from_hex(0xdc3c3c)
+}
 
 #[inline]
 fn get_graph_color(lane: usize) -> Color {
@@ -37,7 +51,9 @@ pub fn draw_git_panel(ui: &mut Ui, state: &mut ZenthreeState, panel_w: f32) {
 }
 
 pub fn draw_source_control_panel(ui: &mut Ui, state: &mut ZenthreeState, panel_w: f32) {
-    let colors = use_context::<ThemeColors>().map(|c| *c).unwrap_or_else(|| state.colors());
+    let colors = use_context::<ThemeColors>()
+        .map(|c| *c)
+        .unwrap_or_else(|| state.colors());
 
     ui.container()
         .width(panel_w)
@@ -76,10 +92,7 @@ pub fn draw_source_control_panel(ui: &mut Ui, state: &mut ZenthreeState, panel_w
                                     .gap(3.5)
                                     .show(|ui| {
                                         // Dev git branch icon (\u{e725})
-                                        ui.text("\u{e725}")
-                                            .size(10.0)
-                                            .color(colors.accent)
-                                            .show();
+                                        ui.text("\u{e725}").size(10.0).color(colors.accent).show();
 
                                         let branch_name = if state.git_state.branch.len() > 14 {
                                             format!("{}...", &state.git_state.branch[..12])
@@ -103,7 +116,8 @@ pub fn draw_source_control_panel(ui: &mut Ui, state: &mut ZenthreeState, panel_w
                             .gap(4.0)
                             .show(|ui| {
                                 // Refresh button (\u{f01e})
-                                let ref_btn = ui.button("\u{f01e}")
+                                let ref_btn = ui
+                                    .button("\u{f01e}")
                                     .id(Id::from_u64(999998310))
                                     .height(20.0)
                                     .bg(Color::TRANSPARENT)
@@ -120,7 +134,8 @@ pub fn draw_source_control_panel(ui: &mut Ui, state: &mut ZenthreeState, panel_w
 
                                 // Stage all button (\u{f067})
                                 if !state.git_state.unstaged.is_empty() {
-                                    let stage_all_btn = ui.button("\u{f067}")
+                                    let stage_all_btn = ui
+                                        .button("\u{f067}")
                                         .id(Id::from_u64(999998311))
                                         .height(20.0)
                                         .bg(Color::TRANSPARENT)
@@ -164,12 +179,14 @@ pub fn draw_source_control_panel(ui: &mut Ui, state: &mut ZenthreeState, panel_w
                     let commit_input_id = Id::from_u64(999998300);
                     let is_input_focused = ui.focused_id == Some(commit_input_id);
 
-                    let _commit_input = ui.text_area(&mut state.git_state.commit_message).id(commit_input_id)
+                    let _commit_input = ui
+                        .text_area(&mut state.git_state.commit_message)
+                        .id(commit_input_id)
                         .width(text_area_w)
                         .height(34.0)
                         .max_height(80.0)
                         .size(11.0)
-                                                .color(colors.text_primary)
+                        .color(colors.text_primary)
                         .bg(colors.bg_base)
                         .border((Color::TRANSPARENT, 0.0))
                         .focus_border((Color::TRANSPARENT, 0.0))
@@ -182,7 +199,8 @@ pub fn draw_source_control_panel(ui: &mut Ui, state: &mut ZenthreeState, panel_w
                         .show();
 
                     // Commit button
-                    let has_changes = !state.git_state.staged.is_empty() || !state.git_state.unstaged.is_empty();
+                    let has_changes =
+                        !state.git_state.staged.is_empty() || !state.git_state.unstaged.is_empty();
                     let has_msg = !state.git_state.commit_message.trim().is_empty();
                     let can_commit = has_changes && has_msg;
 
@@ -190,7 +208,11 @@ pub fn draw_source_control_panel(ui: &mut Ui, state: &mut ZenthreeState, panel_w
                     if is_input_focused && state.ctrl_pressed {
                         for event in &ui.input_events {
                             if let zenthra_platform::event::PlatformEvent::KeyDown { key } = event {
-                                if matches!(key, winit::keyboard::KeyCode::Enter | winit::keyboard::KeyCode::NumpadEnter) {
+                                if matches!(
+                                    key,
+                                    winit::keyboard::KeyCode::Enter
+                                        | winit::keyboard::KeyCode::NumpadEnter
+                                ) {
                                     do_commit = true;
                                     break;
                                 }
@@ -198,12 +220,17 @@ pub fn draw_source_control_panel(ui: &mut Ui, state: &mut ZenthreeState, panel_w
                         }
                     }
 
-                    let commit_btn = ui.container()
+                    let commit_btn = ui
+                        .container()
                         .interactive(can_commit)
                         .fill_x()
                         .height(26.0)
                         .radius_all(4.0)
-                        .bg(if can_commit { colors.accent } else { colors.highlight })
+                        .bg(if can_commit {
+                            colors.accent
+                        } else {
+                            colors.highlight
+                        })
                         .halign(Align::Center)
                         .valign(Align::Center)
                         .row()
@@ -211,13 +238,21 @@ pub fn draw_source_control_panel(ui: &mut Ui, state: &mut ZenthreeState, panel_w
                         .show(|ui| {
                             ui.text("\u{f00c}") // check icon
                                 .size(11.0)
-                                .color(if can_commit { Color::WHITE } else { colors.text_dim })
+                                .color(if can_commit {
+                                    Color::WHITE
+                                } else {
+                                    colors.text_dim
+                                })
                                 .show();
 
                             ui.text("Commit")
                                 .size(11.0)
                                 .font_weight(FontWeight::Medium)
-                                .color(if can_commit { Color::WHITE } else { colors.text_dim })
+                                .color(if can_commit {
+                                    Color::WHITE
+                                } else {
+                                    colors.text_dim
+                                })
                                 .show();
                         });
 
@@ -235,10 +270,7 @@ pub fn draw_source_control_panel(ui: &mut Ui, state: &mut ZenthreeState, panel_w
                             .border((color_error().with_alpha(0.3), 1.0))
                             .padding(4.0, 6.0, 4.0, 6.0)
                             .show(|ui| {
-                                ui.text(err)
-                                    .size(10.0)
-                                    .color(color_error())
-                                    .show();
+                                ui.text(err).size(10.0).color(color_error()).show();
                             });
                     }
                 });
@@ -249,7 +281,11 @@ pub fn draw_source_control_panel(ui: &mut Ui, state: &mut ZenthreeState, panel_w
             let mut file_to_discard: Option<(PathBuf, bool)> = None;
 
             let graph_expanded = state.git_state.graph_expanded;
-            let total_graph_h = if graph_expanded { 24.0 + 4.0 + state.git_state.graph_height } else { 24.0 };
+            let total_graph_h = if graph_expanded {
+                24.0 + 4.0 + state.git_state.graph_height
+            } else {
+                24.0
+            };
             let avail_h = (ui.max_y - ui.cursor_y).max(100.0);
             let changes_h = (avail_h - total_graph_h).max(60.0);
 
@@ -273,7 +309,12 @@ pub fn draw_source_control_panel(ui: &mut Ui, state: &mut ZenthreeState, panel_w
                         let mut do_unstage_all = false;
 
                         let staged_hdr_key = Id::from_u64(999998311);
-                        let staged_hdr_hov = ui.interaction_state.get(&staged_hdr_key).copied().unwrap_or(0.0) > 0.5;
+                        let staged_hdr_hov = ui
+                            .interaction_state
+                            .get(&staged_hdr_key)
+                            .copied()
+                            .unwrap_or(0.0)
+                            > 0.5;
 
                         // Accordion header: sleek dark bar matching sidebar, highlights on hover
                         ui.container()
@@ -281,27 +322,44 @@ pub fn draw_source_control_panel(ui: &mut Ui, state: &mut ZenthreeState, panel_w
                             .height(24.0)
                             .padding_left(8.0)
                             .padding_right(8.0)
-                            .bg(if staged_hdr_hov { colors.highlight } else { Color::TRANSPARENT })
+                            .bg(if staged_hdr_hov {
+                                colors.highlight
+                            } else {
+                                Color::TRANSPARENT
+                            })
                             .row()
                             .valign(Align::Center)
                             .halign(Align::SpaceBetween)
-                                                        .show(|ui| {
-                                let hdr_btn = ui.container()
+                            .show(|ui| {
+                                let hdr_btn = ui
+                                    .container()
                                     .raw_id(staged_hdr_key)
                                     .interactive(true)
                                     .row()
                                     .valign(Align::Center)
-                                                                        .gap(5.0)
+                                    .gap(5.0)
                                     .show(|ui| {
-                                        ui.text(if staged_expanded { "\u{f078}" } else { "\u{f054}" })
-                                            .size(9.0)
-                                            .color(if staged_hdr_hov { colors.text_primary } else { colors.text_muted })
-                                            .show();
+                                        ui.text(if staged_expanded {
+                                            "\u{f078}"
+                                        } else {
+                                            "\u{f054}"
+                                        })
+                                        .size(9.0)
+                                        .color(if staged_hdr_hov {
+                                            colors.text_primary
+                                        } else {
+                                            colors.text_muted
+                                        })
+                                        .show();
 
                                         ui.text("STAGED CHANGES")
                                             .size(10.5)
                                             .font_weight(FontWeight::Bold)
-                                            .color(if staged_hdr_hov { colors.text_primary } else { colors.text_muted })
+                                            .color(if staged_hdr_hov {
+                                                colors.text_primary
+                                            } else {
+                                                colors.text_muted
+                                            })
                                             .show();
 
                                         // Badge count
@@ -322,19 +380,28 @@ pub fn draw_source_control_panel(ui: &mut Ui, state: &mut ZenthreeState, panel_w
                                     });
 
                                 let h = hdr_btn.hovered;
-                                let prev = ui.interaction_state.insert(staged_hdr_key, if h { 1.0 } else { 0.0 });
-                                if prev != Some(if h { 1.0 } else { 0.0 }) { ui.needs_redraw = true; }
+                                let prev = ui
+                                    .interaction_state
+                                    .insert(staged_hdr_key, if h { 1.0 } else { 0.0 });
+                                if prev != Some(if h { 1.0 } else { 0.0 }) {
+                                    ui.needs_redraw = true;
+                                }
 
                                 if hdr_btn.clicked {
                                     toggle_staged = true;
                                 }
 
                                 // Unstage All button (-)
-                                let unstage_all_btn = ui.button("\u{f068}")
+                                let unstage_all_btn = ui
+                                    .button("\u{f068}")
                                     .id(Id::from_u64(999998312))
                                     .height(18.0)
                                     .bg(Color::TRANSPARENT)
-                                    .color(if staged_hdr_hov { colors.text_primary } else { colors.text_muted })
+                                    .color(if staged_hdr_hov {
+                                        colors.text_primary
+                                    } else {
+                                        colors.text_muted
+                                    })
                                     .size(9.5)
                                     .radius_all(3.0)
                                     .padding_left(4.0)
@@ -358,9 +425,12 @@ pub fn draw_source_control_panel(ui: &mut Ui, state: &mut ZenthreeState, panel_w
                         if staged_expanded {
                             for (idx, item) in state.git_state.staged.iter().enumerate() {
                                 let item_key = Id::from_u64(999998400 + idx as u64);
-                                let item_hov = ui.interaction_state.get(&item_key).copied().unwrap_or(0.0) > 0.5;
+                                let item_hov =
+                                    ui.interaction_state.get(&item_key).copied().unwrap_or(0.0)
+                                        > 0.5;
 
-                                let icon = icon_theme.get_icon_for_file(&item.filename, Some(&item.path));
+                                let icon =
+                                    icon_theme.get_icon_for_file(&item.filename, Some(&item.path));
                                 let (badge_char, badge_color) = match item.status {
                                     GitFileStatusCode::Modified => ("M", color_modified()),
                                     GitFileStatusCode::Added => ("A", color_added()),
@@ -373,24 +443,29 @@ pub fn draw_source_control_panel(ui: &mut Ui, state: &mut ZenthreeState, panel_w
                                 let right_reserved = if item_hov { 58.0 } else { 24.0 };
                                 let left_max_w = (panel_w - right_reserved - 20.0).max(25.0);
 
-                                let row = ui.container()
+                                let row = ui
+                                    .container()
                                     .interactive(true)
                                     .fill_x()
                                     .height(22.0)
                                     .padding_left(12.0)
                                     .padding_right(8.0)
-                                    .bg(if item_hov { colors.highlight } else { Color::TRANSPARENT })
+                                    .bg(if item_hov {
+                                        colors.highlight
+                                    } else {
+                                        Color::TRANSPARENT
+                                    })
                                     .row()
                                     .valign(Align::Center)
                                     .halign(Align::SpaceBetween)
-                                                                        .show(|ui| {
+                                    .show(|ui| {
                                         // Left: icon + filename + dynamic dir path (only truncates when shrinking close)
                                         ui.container()
                                             .max_width(left_max_w)
                                             .clip(true)
                                             .row()
                                             .valign(Align::Center)
-                                                                                        .gap(5.0)
+                                            .gap(5.0)
                                             .show(|ui| {
                                                 icon.show(ui, 13.0);
 
@@ -400,17 +475,24 @@ pub fn draw_source_control_panel(ui: &mut Ui, state: &mut ZenthreeState, panel_w
                                                     .show();
 
                                                 if !item.dir_path.is_empty() {
-                                                    let filename_w = item.filename.len() as f32 * 6.5 + 23.0;
+                                                    let filename_w =
+                                                        item.filename.len() as f32 * 6.5 + 23.0;
                                                     let avail_dir_w = left_max_w - filename_w;
                                                     if avail_dir_w > 20.0 {
-                                                        let max_chars = (avail_dir_w / 5.2) as usize;
-                                                        let display_dir = if item.dir_path.len() <= max_chars {
-                                                            item.dir_path.clone()
-                                                        } else if max_chars >= 5 {
-                                                            format!("{}…", &item.dir_path[..max_chars.saturating_sub(1)])
-                                                        } else {
-                                                            String::new()
-                                                        };
+                                                        let max_chars =
+                                                            (avail_dir_w / 5.2) as usize;
+                                                        let display_dir =
+                                                            if item.dir_path.len() <= max_chars {
+                                                                item.dir_path.clone()
+                                                            } else if max_chars >= 5 {
+                                                                format!(
+                                                                    "{}…",
+                                                                    &item.dir_path[..max_chars
+                                                                        .saturating_sub(1)]
+                                                                )
+                                                            } else {
+                                                                String::new()
+                                                            };
 
                                                         if !display_dir.is_empty() {
                                                             ui.text(&display_dir)
@@ -423,13 +505,11 @@ pub fn draw_source_control_panel(ui: &mut Ui, state: &mut ZenthreeState, panel_w
                                             });
 
                                         // Right: status badge or unstage button on hover (always pinned on right)
-                                        ui.container()
-                                            .row()
-                                            .valign(Align::Center)
-                                                                                        .gap(4.0)
-                                            .show(|ui| {
+                                        ui.container().row().valign(Align::Center).gap(4.0).show(
+                                            |ui| {
                                                 if item_hov {
-                                                    let unstage_btn = ui.button("\u{f068}") // minus icon
+                                                    let unstage_btn = ui
+                                                        .button("\u{f068}") // minus icon
                                                         .id(Id::from_u64(999998500 + idx as u64))
                                                         .height(18.0)
                                                         .bg(Color::TRANSPARENT)
@@ -449,12 +529,17 @@ pub fn draw_source_control_panel(ui: &mut Ui, state: &mut ZenthreeState, panel_w
                                                     .font_weight(FontWeight::Bold)
                                                     .color(badge_color)
                                                     .show();
-                                            });
+                                            },
+                                        );
                                     });
 
                                 let h = row.hovered;
-                                let prev = ui.interaction_state.insert(item_key, if h { 1.0 } else { 0.0 });
-                                if prev != Some(if h { 1.0 } else { 0.0 }) { ui.needs_redraw = true; }
+                                let prev = ui
+                                    .interaction_state
+                                    .insert(item_key, if h { 1.0 } else { 0.0 });
+                                if prev != Some(if h { 1.0 } else { 0.0 }) {
+                                    ui.needs_redraw = true;
+                                }
 
                                 if row.clicked {
                                     file_to_open = Some(item.path.clone());
@@ -470,7 +555,12 @@ pub fn draw_source_control_panel(ui: &mut Ui, state: &mut ZenthreeState, panel_w
                         let mut do_stage_all = false;
 
                         let changes_hdr_key = Id::from_u64(999998310);
-                        let changes_hdr_hov = ui.interaction_state.get(&changes_hdr_key).copied().unwrap_or(0.0) > 0.5;
+                        let changes_hdr_hov = ui
+                            .interaction_state
+                            .get(&changes_hdr_key)
+                            .copied()
+                            .unwrap_or(0.0)
+                            > 0.5;
 
                         // Accordion header: sleek dark bar matching sidebar, highlights on hover
                         ui.container()
@@ -478,60 +568,86 @@ pub fn draw_source_control_panel(ui: &mut Ui, state: &mut ZenthreeState, panel_w
                             .height(24.0)
                             .padding_left(8.0)
                             .padding_right(8.0)
-                            .bg(if changes_hdr_hov { colors.highlight } else { Color::TRANSPARENT })
+                            .bg(if changes_hdr_hov {
+                                colors.highlight
+                            } else {
+                                Color::TRANSPARENT
+                            })
                             .row()
                             .valign(Align::Center)
                             .halign(Align::SpaceBetween)
-                                                        .show(|ui| {
-                                let hdr_btn = ui.container()
+                            .show(|ui| {
+                                let hdr_btn = ui
+                                    .container()
                                     .raw_id(changes_hdr_key)
                                     .interactive(true)
                                     .row()
                                     .valign(Align::Center)
-                                                                        .gap(5.0)
+                                    .gap(5.0)
                                     .show(|ui| {
-                                        ui.text(if changes_expanded { "\u{f078}" } else { "\u{f054}" })
-                                            .size(9.0)
-                                            .color(if changes_hdr_hov { colors.text_primary } else { colors.text_muted })
-                                            .show();
+                                        ui.text(if changes_expanded {
+                                            "\u{f078}"
+                                        } else {
+                                            "\u{f054}"
+                                        })
+                                        .size(9.0)
+                                        .color(if changes_hdr_hov {
+                                            colors.text_primary
+                                        } else {
+                                            colors.text_muted
+                                        })
+                                        .show();
 
                                         ui.text("CHANGES")
-                                             .size(10.5)
-                                             .font_weight(FontWeight::Bold)
-                                             .color(if changes_hdr_hov { colors.text_primary } else { colors.text_muted })
-                                             .show();
+                                            .size(10.5)
+                                            .font_weight(FontWeight::Bold)
+                                            .color(if changes_hdr_hov {
+                                                colors.text_primary
+                                            } else {
+                                                colors.text_muted
+                                            })
+                                            .show();
 
                                         // Badge count
                                         ui.container()
-                                             .height(15.0)
-                                             .padding(0.0, 5.0, 0.0, 5.0)
-                                             .radius_all(7.5)
-                                             .bg(colors.accent.with_alpha(0.18))
-                                             .halign(Align::Center)
-                                             .valign(Align::Center)
-                                             .show(|ui| {
-                                                 ui.text(&format!("{}", unstaged_len))
-                                                     .size(9.0)
-                                                     .font_weight(FontWeight::Bold)
-                                                     .color(colors.accent)
-                                                     .show();
-                                             });
+                                            .height(15.0)
+                                            .padding(0.0, 5.0, 0.0, 5.0)
+                                            .radius_all(7.5)
+                                            .bg(colors.accent.with_alpha(0.18))
+                                            .halign(Align::Center)
+                                            .valign(Align::Center)
+                                            .show(|ui| {
+                                                ui.text(&format!("{}", unstaged_len))
+                                                    .size(9.0)
+                                                    .font_weight(FontWeight::Bold)
+                                                    .color(colors.accent)
+                                                    .show();
+                                            });
                                     });
 
                                 let h = hdr_btn.hovered;
-                                let prev = ui.interaction_state.insert(changes_hdr_key, if h { 1.0 } else { 0.0 });
-                                if prev != Some(if h { 1.0 } else { 0.0 }) { ui.needs_redraw = true; }
+                                let prev = ui
+                                    .interaction_state
+                                    .insert(changes_hdr_key, if h { 1.0 } else { 0.0 });
+                                if prev != Some(if h { 1.0 } else { 0.0 }) {
+                                    ui.needs_redraw = true;
+                                }
 
                                 if hdr_btn.clicked {
                                     toggle_changes = true;
                                 }
 
                                 // Stage All button (+)
-                                let stage_all_btn = ui.button("\u{f067}")
+                                let stage_all_btn = ui
+                                    .button("\u{f067}")
                                     .id(Id::from_u64(999998313))
                                     .height(18.0)
                                     .bg(Color::TRANSPARENT)
-                                    .color(if changes_hdr_hov { colors.text_primary } else { colors.text_muted })
+                                    .color(if changes_hdr_hov {
+                                        colors.text_primary
+                                    } else {
+                                        colors.text_muted
+                                    })
                                     .size(9.5)
                                     .radius_all(3.0)
                                     .padding_left(4.0)
@@ -555,9 +671,12 @@ pub fn draw_source_control_panel(ui: &mut Ui, state: &mut ZenthreeState, panel_w
                         if changes_expanded {
                             for (idx, item) in state.git_state.unstaged.iter().enumerate() {
                                 let item_key = Id::from_u64(999998600 + idx as u64);
-                                let item_hov = ui.interaction_state.get(&item_key).copied().unwrap_or(0.0) > 0.5;
+                                let item_hov =
+                                    ui.interaction_state.get(&item_key).copied().unwrap_or(0.0)
+                                        > 0.5;
 
-                                let icon = icon_theme.get_icon_for_file(&item.filename, Some(&item.path));
+                                let icon =
+                                    icon_theme.get_icon_for_file(&item.filename, Some(&item.path));
                                 let (badge_char, badge_color) = match item.status {
                                     GitFileStatusCode::Modified => ("M", color_modified()),
                                     GitFileStatusCode::Added => ("A", color_added()),
@@ -572,24 +691,29 @@ pub fn draw_source_control_panel(ui: &mut Ui, state: &mut ZenthreeState, panel_w
                                 let right_reserved = if item_hov { 60.0 } else { 24.0 };
                                 let left_max_w = (panel_w - right_reserved - 20.0).max(25.0);
 
-                                let row = ui.container()
+                                let row = ui
+                                    .container()
                                     .interactive(true)
                                     .fill_x()
                                     .height(22.0)
                                     .padding_left(12.0)
                                     .padding_right(8.0)
-                                    .bg(if item_hov { colors.highlight } else { Color::TRANSPARENT })
+                                    .bg(if item_hov {
+                                        colors.highlight
+                                    } else {
+                                        Color::TRANSPARENT
+                                    })
                                     .row()
                                     .valign(Align::Center)
                                     .halign(Align::SpaceBetween)
-                                                                        .show(|ui| {
+                                    .show(|ui| {
                                         // Left: icon + filename + dynamic dir path (only truncates when shrinking close)
                                         ui.container()
                                             .max_width(left_max_w)
                                             .clip(true)
                                             .row()
                                             .valign(Align::Center)
-                                                                                        .gap(5.0)
+                                            .gap(5.0)
                                             .show(|ui| {
                                                 icon.show(ui, 13.0);
 
@@ -599,17 +723,24 @@ pub fn draw_source_control_panel(ui: &mut Ui, state: &mut ZenthreeState, panel_w
                                                     .show();
 
                                                 if !item.dir_path.is_empty() {
-                                                    let filename_w = item.filename.len() as f32 * 6.5 + 23.0;
+                                                    let filename_w =
+                                                        item.filename.len() as f32 * 6.5 + 23.0;
                                                     let avail_dir_w = left_max_w - filename_w;
                                                     if avail_dir_w > 20.0 {
-                                                        let max_chars = (avail_dir_w / 5.2) as usize;
-                                                        let display_dir = if item.dir_path.len() <= max_chars {
-                                                            item.dir_path.clone()
-                                                        } else if max_chars >= 5 {
-                                                            format!("{}…", &item.dir_path[..max_chars.saturating_sub(1)])
-                                                        } else {
-                                                             String::new()
-                                                        };
+                                                        let max_chars =
+                                                            (avail_dir_w / 5.2) as usize;
+                                                        let display_dir =
+                                                            if item.dir_path.len() <= max_chars {
+                                                                item.dir_path.clone()
+                                                            } else if max_chars >= 5 {
+                                                                format!(
+                                                                    "{}…",
+                                                                    &item.dir_path[..max_chars
+                                                                        .saturating_sub(1)]
+                                                                )
+                                                            } else {
+                                                                String::new()
+                                                            };
 
                                                         if !display_dir.is_empty() {
                                                             ui.text(&display_dir)
@@ -622,14 +753,12 @@ pub fn draw_source_control_panel(ui: &mut Ui, state: &mut ZenthreeState, panel_w
                                             });
 
                                         // Right: status badge or hover action buttons (Discard + Stage)
-                                        ui.container()
-                                            .row()
-                                            .valign(Align::Center)
-                                                                                        .gap(4.0)
-                                            .show(|ui| {
+                                        ui.container().row().valign(Align::Center).gap(4.0).show(
+                                            |ui| {
                                                 if item_hov {
                                                     // Discard button (\u{f0e2} undo icon)
-                                                    let discard_btn = ui.button("\u{f0e2}")
+                                                    let discard_btn = ui
+                                                        .button("\u{f0e2}")
                                                         .id(Id::from_u64(999998700 + idx as u64))
                                                         .height(18.0)
                                                         .bg(Color::TRANSPARENT)
@@ -640,11 +769,13 @@ pub fn draw_source_control_panel(ui: &mut Ui, state: &mut ZenthreeState, panel_w
                                                         .padding_right(3.0)
                                                         .show();
                                                     if discard_btn.clicked {
-                                                        file_to_discard = Some((item.path.clone(), is_untracked));
+                                                        file_to_discard =
+                                                            Some((item.path.clone(), is_untracked));
                                                     }
 
                                                     // Stage button (\u{f067} plus icon)
-                                                    let stage_btn = ui.button("\u{f067}")
+                                                    let stage_btn = ui
+                                                        .button("\u{f067}")
                                                         .id(Id::from_u64(999998800 + idx as u64))
                                                         .height(18.0)
                                                         .bg(Color::TRANSPARENT)
@@ -664,12 +795,17 @@ pub fn draw_source_control_panel(ui: &mut Ui, state: &mut ZenthreeState, panel_w
                                                     .font_weight(FontWeight::Bold)
                                                     .color(badge_color)
                                                     .show();
-                                            });
+                                            },
+                                        );
                                     });
 
                                 let h = row.hovered;
-                                let prev = ui.interaction_state.insert(item_key, if h { 1.0 } else { 0.0 });
-                                if prev != Some(if h { 1.0 } else { 0.0 }) { ui.needs_redraw = true; }
+                                let prev = ui
+                                    .interaction_state
+                                    .insert(item_key, if h { 1.0 } else { 0.0 });
+                                if prev != Some(if h { 1.0 } else { 0.0 }) {
+                                    ui.needs_redraw = true;
+                                }
 
                                 if row.clicked {
                                     file_to_open = Some(item.path.clone());
@@ -713,13 +849,16 @@ pub fn draw_source_control_panel(ui: &mut Ui, state: &mut ZenthreeState, panel_w
                 let splitter_y = ui.cursor_y;
                 let splitter_w = panel_w;
                 let splitter_id = Id::from_u64(999997422);
-                let is_blocked = ui.modal_active || state.is_modal_or_dialog_open() || ui.is_occluded(splitter_id, ui.mouse_x, ui.mouse_y);
-                let is_splitter_hovered = !is_blocked && ui.mouse_in_rect(
-                    splitter_x,
-                    splitter_y - splitter_h / 2.0,
-                    splitter_w,
-                    splitter_h,
-                );
+                let is_blocked = ui.modal_active
+                    || state.is_modal_or_dialog_open()
+                    || ui.is_occluded(splitter_id, ui.mouse_x, ui.mouse_y);
+                let is_splitter_hovered = !is_blocked
+                    && ui.mouse_in_rect(
+                        splitter_x,
+                        splitter_y - splitter_h / 2.0,
+                        splitter_w,
+                        splitter_h,
+                    );
 
                 if is_blocked {
                     state.git_state.active_resize_graph = false;
@@ -742,7 +881,8 @@ pub fn draw_source_control_panel(ui: &mut Ui, state: &mut ZenthreeState, panel_w
                         let status_bar_h = if state.status_bar_visible { 24.0 } else { 0.0 };
                         let bottom_y = ui.height - status_bar_h;
                         let target_h = bottom_y - ui.mouse_y - 24.0;
-                        state.git_state.graph_height = target_h.clamp(80.0, (ui.height * 0.7).max(120.0));
+                        state.git_state.graph_height =
+                            target_h.clamp(80.0, (ui.height * 0.7).max(120.0));
                         ui.request_redraw();
                     }
                 }
@@ -755,38 +895,50 @@ pub fn draw_source_control_panel(ui: &mut Ui, state: &mut ZenthreeState, panel_w
                     colors.border
                 };
 
-                let edge_thickness = if state.git_state.active_resize_graph || is_splitter_hovered { 2.0 } else { 1.0 };
+                let edge_thickness = if state.git_state.active_resize_graph || is_splitter_hovered {
+                    2.0
+                } else {
+                    1.0
+                };
                 let edge_draw_y = splitter_y - edge_thickness / 2.0;
 
-                ui.draws.push(zenthra_widgets::ui::DrawCommand::Rect(zenthra_widgets::ui::RectDraw {
-                    instance: zenthra_render::RectInstance {
-                        pos: [splitter_x, edge_draw_y],
-                        size: [splitter_w, edge_thickness],
-                        color: edge_color.to_array(),
-                        radius: [0.0; 4],
-                        border_width: 0.0,
-                        border_color: [0.0; 4],
-                        shadow_color: [0.0; 4],
-                        shadow_offset: [0.0, 0.0],
-                        shadow_blur: 0.0,
-                        clip_rect: [-100000.0, -100000.0, 2000000.0, 2000000.0],
-                        grayscale: 0.0,
-                        brightness: 1.0,
-                        opacity: 1.0,
-                        border_alignment: 0.0,
-                        ..Default::default()
-                    }
-                }));
+                ui.draws.push(zenthra_widgets::ui::DrawCommand::Rect(
+                    zenthra_widgets::ui::RectDraw {
+                        instance: zenthra_render::RectInstance {
+                            pos: [splitter_x, edge_draw_y],
+                            size: [splitter_w, edge_thickness],
+                            color: edge_color.to_array(),
+                            radius: [0.0; 4],
+                            border_width: 0.0,
+                            border_color: [0.0; 4],
+                            shadow_color: [0.0; 4],
+                            shadow_offset: [0.0, 0.0],
+                            shadow_blur: 0.0,
+                            clip_rect: [-100000.0, -100000.0, 2000000.0, 2000000.0],
+                            grayscale: 0.0,
+                            brightness: 1.0,
+                            opacity: 1.0,
+                            border_alignment: 0.0,
+                            ..Default::default()
+                        },
+                    },
+                ));
             }
 
             let mut toggle_graph = false;
-            let repo_display_name = state.current_dir
+            let repo_display_name = state
+                .current_dir
                 .file_name()
                 .map(|n| n.to_string_lossy().to_string())
                 .unwrap_or_else(|| "repo".to_string());
 
             let graph_hdr_key = Id::from_u64(999998398);
-            let graph_hdr_hov = ui.interaction_state.get(&graph_hdr_key).copied().unwrap_or(0.0) > 0.5;
+            let graph_hdr_hov = ui
+                .interaction_state
+                .get(&graph_hdr_key)
+                .copied()
+                .unwrap_or(0.0)
+                > 0.5;
 
             // Accordion header: "v Graph   repo" (sleek dark bar, highlights on hover)
             ui.container()
@@ -794,27 +946,44 @@ pub fn draw_source_control_panel(ui: &mut Ui, state: &mut ZenthreeState, panel_w
                 .height(24.0)
                 .padding_left(8.0)
                 .padding_right(8.0)
-                .bg(if graph_hdr_hov { colors.highlight } else { Color::TRANSPARENT })
+                .bg(if graph_hdr_hov {
+                    colors.highlight
+                } else {
+                    Color::TRANSPARENT
+                })
                 .row()
                 .valign(Align::Center)
                 .halign(Align::SpaceBetween)
-                                .show(|ui| {
-                    let hdr_btn = ui.container()
+                .show(|ui| {
+                    let hdr_btn = ui
+                        .container()
                         .raw_id(graph_hdr_key)
                         .interactive(true)
                         .row()
                         .valign(Align::Center)
-                                                .gap(6.0)
+                        .gap(6.0)
                         .show(|ui| {
-                            ui.text(if graph_expanded { "\u{f078}" } else { "\u{f054}" })
-                                .size(9.0)
-                                .color(if graph_hdr_hov { colors.text_primary } else { colors.text_muted })
-                                .show();
+                            ui.text(if graph_expanded {
+                                "\u{f078}"
+                            } else {
+                                "\u{f054}"
+                            })
+                            .size(9.0)
+                            .color(if graph_hdr_hov {
+                                colors.text_primary
+                            } else {
+                                colors.text_muted
+                            })
+                            .show();
 
                             ui.text("Graph")
                                 .size(11.0)
                                 .font_weight(FontWeight::Bold)
-                                .color(if graph_hdr_hov { colors.text_primary } else { colors.text_muted })
+                                .color(if graph_hdr_hov {
+                                    colors.text_primary
+                                } else {
+                                    colors.text_muted
+                                })
                                 .show();
 
                             // Folder / repo badge
@@ -825,30 +994,47 @@ pub fn draw_source_control_panel(ui: &mut Ui, state: &mut ZenthreeState, panel_w
                                 .show(|ui| {
                                     ui.text(zenthra::icons::NF_FA_FOLDER)
                                         .size(10.0)
-                                        .color(if graph_hdr_hov { colors.text_muted } else { colors.text_dim })
+                                        .color(if graph_hdr_hov {
+                                            colors.text_muted
+                                        } else {
+                                            colors.text_dim
+                                        })
                                         .show();
 
                                     ui.text(&repo_display_name)
                                         .size(10.0)
-                                        .color(if graph_hdr_hov { colors.text_muted } else { colors.text_dim })
+                                        .color(if graph_hdr_hov {
+                                            colors.text_muted
+                                        } else {
+                                            colors.text_dim
+                                        })
                                         .show();
                                 });
                         });
 
                     let h = hdr_btn.hovered;
-                    let prev = ui.interaction_state.insert(graph_hdr_key, if h { 1.0 } else { 0.0 });
-                    if prev != Some(if h { 1.0 } else { 0.0 }) { ui.needs_redraw = true; }
+                    let prev = ui
+                        .interaction_state
+                        .insert(graph_hdr_key, if h { 1.0 } else { 0.0 });
+                    if prev != Some(if h { 1.0 } else { 0.0 }) {
+                        ui.needs_redraw = true;
+                    }
 
                     if hdr_btn.clicked {
                         toggle_graph = true;
                     }
 
                     // Refresh button on graph header
-                    let ref_graph_btn = ui.button("\u{f01e}")
+                    let ref_graph_btn = ui
+                        .button("\u{f01e}")
                         .id(Id::from_u64(999998399))
                         .height(18.0)
                         .bg(Color::TRANSPARENT)
-                        .color(if graph_hdr_hov { colors.text_primary } else { colors.text_muted })
+                        .color(if graph_hdr_hov {
+                            colors.text_primary
+                        } else {
+                            colors.text_muted
+                        })
                         .size(9.5)
                         .radius_all(3.0)
                         .padding_left(3.0)
@@ -874,10 +1060,16 @@ pub fn draw_source_control_panel(ui: &mut Ui, state: &mut ZenthreeState, panel_w
                     .column()
                     .show(|ui| {
                         let history_len = state.git_state.commit_history.len();
-                        let mut clicked_commit_info: Option<(String, String, String, String)> = None;
+                        let mut clicked_commit_info: Option<(String, String, String, String)> =
+                            None;
                         for (idx, commit) in state.git_state.commit_history.iter().enumerate() {
                             let commit_key = Id::from_u64(999999200 + idx as u64);
-                            let commit_hov = ui.interaction_state.get(&commit_key).copied().unwrap_or(0.0) > 0.5;
+                            let commit_hov = ui
+                                .interaction_state
+                                .get(&commit_key)
+                                .copied()
+                                .unwrap_or(0.0)
+                                > 0.5;
 
                             let lane = commit.lane;
                             let lane_color = get_graph_color(lane);
@@ -885,17 +1077,22 @@ pub fn draw_source_control_panel(ui: &mut Ui, state: &mut ZenthreeState, panel_w
                             let is_first = idx == 0;
                             let is_last = idx == history_len.saturating_sub(1);
 
-                            let commit_row = ui.container()
+                            let commit_row = ui
+                                .container()
                                 .interactive(true)
                                 .fill_x()
                                 .height(22.0)
                                 .padding_left(6.0)
                                 .padding_right(6.0)
-                                .bg(if commit_hov { colors.highlight } else { Color::TRANSPARENT })
+                                .bg(if commit_hov {
+                                    colors.highlight
+                                } else {
+                                    Color::TRANSPARENT
+                                })
                                 .row()
                                 .valign(Align::Center)
                                 .halign(Align::SpaceBetween)
-                                                                .show(|ui| {
+                                .show(|ui| {
                                     // Left: Connected Graph Tracks + Node + Hash + Commit Message
                                     let content_max_w = (panel_w - 20.0).max(40.0);
                                     ui.container()
@@ -903,7 +1100,7 @@ pub fn draw_source_control_panel(ui: &mut Ui, state: &mut ZenthreeState, panel_w
                                         .clip(true)
                                         .row()
                                         .valign(Align::Center)
-                                                                                .gap(6.0)
+                                        .gap(6.0)
                                         .show(|ui| {
                                             // Graph column with vertical connector rails
                                             let graph_col_w = (lane as f32 + 1.0) * 14.0 + 2.0;
@@ -942,7 +1139,11 @@ pub fn draw_source_control_panel(ui: &mut Ui, state: &mut ZenthreeState, panel_w
                                                             ui.container()
                                                                 .width(1.5)
                                                                 .height(5.0)
-                                                                .bg(if is_first { Color::TRANSPARENT } else { lane_color.with_alpha(0.7) })
+                                                                .bg(if is_first {
+                                                                    Color::TRANSPARENT
+                                                                } else {
+                                                                    lane_color.with_alpha(0.7)
+                                                                })
                                                                 .show(|_| {});
 
                                                             // Node glyph (ring for HEAD, circle for commit)
@@ -952,17 +1153,33 @@ pub fn draw_source_control_panel(ui: &mut Ui, state: &mut ZenthreeState, panel_w
                                                                 .halign(Align::Center)
                                                                 .valign(Align::Center)
                                                                 .show(|ui| {
-                                                                    ui.text(if is_head { "\u{25ce}" } else { "\u{25cf}" })
-                                                                        .size(if is_head { 11.5 } else { 9.0 })
-                                                                        .color(if is_head { lane_color } else { lane_color.with_alpha(0.95) })
-                                                                        .show();
+                                                                    ui.text(if is_head {
+                                                                        "\u{25ce}"
+                                                                    } else {
+                                                                        "\u{25cf}"
+                                                                    })
+                                                                    .size(if is_head {
+                                                                        11.5
+                                                                    } else {
+                                                                        9.0
+                                                                    })
+                                                                    .color(if is_head {
+                                                                        lane_color
+                                                                    } else {
+                                                                        lane_color.with_alpha(0.95)
+                                                                    })
+                                                                    .show();
                                                                 });
 
                                                             // Bottom connecting rail
                                                             ui.container()
                                                                 .width(1.5)
                                                                 .height(5.0)
-                                                                .bg(if is_last { Color::TRANSPARENT } else { lane_color.with_alpha(0.7) })
+                                                                .bg(if is_last {
+                                                                    Color::TRANSPARENT
+                                                                } else {
+                                                                    lane_color.with_alpha(0.7)
+                                                                })
                                                                 .show(|_| {});
                                                         });
                                                 });
@@ -1008,7 +1225,9 @@ pub fn draw_source_control_panel(ui: &mut Ui, state: &mut ZenthreeState, panel_w
                                                             .color(lane_color)
                                                             .show();
                                                     });
-                                            } else if let Some(ref_name) = commit.branch_refs.first() {
+                                            } else if let Some(ref_name) =
+                                                commit.branch_refs.first()
+                                            {
                                                 let clean_ref = if ref_name.len() > 12 {
                                                     format!("{}...", &ref_name[..10])
                                                 } else {
@@ -1030,16 +1249,26 @@ pub fn draw_source_control_panel(ui: &mut Ui, state: &mut ZenthreeState, panel_w
                                 });
 
                             let h = commit_row.hovered;
-                            let prev = ui.interaction_state.insert(commit_key, if h { 1.0 } else { 0.0 });
-                            if prev != Some(if h { 1.0 } else { 0.0 }) { ui.needs_redraw = true; }
+                            let prev = ui
+                                .interaction_state
+                                .insert(commit_key, if h { 1.0 } else { 0.0 });
+                            if prev != Some(if h { 1.0 } else { 0.0 }) {
+                                ui.needs_redraw = true;
+                            }
 
                             if commit_row.clicked {
-                                clicked_commit_info = Some((commit.short_hash.clone(), commit.message.clone(), commit.time_ago.clone(), commit.hash.clone()));
+                                clicked_commit_info = Some((
+                                    commit.short_hash.clone(),
+                                    commit.message.clone(),
+                                    commit.time_ago.clone(),
+                                    commit.hash.clone(),
+                                ));
                             }
                         }
 
                         if let Some((short_h, msg, time, full_hash)) = clicked_commit_info {
-                            state.status_message = format!("Commit {}: {} ({})", short_h, msg, time);
+                            state.status_message =
+                                format!("Commit {}: {} ({})", short_h, msg, time);
                             state.set_clipboard(full_hash);
                             ui.request_redraw();
                         }
@@ -1067,7 +1296,9 @@ pub fn draw_source_control_panel(ui: &mut Ui, state: &mut ZenthreeState, panel_w
 }
 
 fn draw_empty_no_workspace(ui: &mut Ui, state: &mut ZenthreeState, panel_w: f32) {
-    let colors = use_context::<ThemeColors>().map(|c| *c).unwrap_or_else(|| state.colors());
+    let colors = use_context::<ThemeColors>()
+        .map(|c| *c)
+        .unwrap_or_else(|| state.colors());
     let text_width = (panel_w - 32.0).max(1.0);
 
     ui.container()
@@ -1097,7 +1328,8 @@ fn draw_empty_no_workspace(ui: &mut Ui, state: &mut ZenthreeState, panel_w: f32)
                 .wrap(true)
                 .show();
 
-            let open_btn = ui.button("Open Folder")
+            let open_btn = ui
+                .button("Open Folder")
                 .id(Id::from_u64(999998350))
                 .height(28.0)
                 .bg(colors.accent)
@@ -1117,7 +1349,9 @@ fn draw_empty_no_workspace(ui: &mut Ui, state: &mut ZenthreeState, panel_w: f32)
 }
 
 fn draw_empty_not_a_repo(ui: &mut Ui, state: &mut ZenthreeState, panel_w: f32) {
-    let colors = use_context::<ThemeColors>().map(|c| *c).unwrap_or_else(|| state.colors());
+    let colors = use_context::<ThemeColors>()
+        .map(|c| *c)
+        .unwrap_or_else(|| state.colors());
     let text_width = (panel_w - 32.0).max(1.0);
 
     ui.container()
@@ -1129,10 +1363,7 @@ fn draw_empty_not_a_repo(ui: &mut Ui, state: &mut ZenthreeState, panel_w: f32) {
         .gap(10.0)
         .show(|ui| {
             // Source control icon (\u{ea68})
-            ui.text("\u{ea68}")
-                .size(32.0)
-                .color(colors.text_dim)
-                .show();
+            ui.text("\u{ea68}").size(32.0).color(colors.text_dim).show();
 
             ui.text("No Git Repository")
                 .size(13.0)
@@ -1148,7 +1379,8 @@ fn draw_empty_not_a_repo(ui: &mut Ui, state: &mut ZenthreeState, panel_w: f32) {
                 .wrap(true)
                 .show();
 
-            let init_btn = ui.button("Initialize Repository")
+            let init_btn = ui
+                .button("Initialize Repository")
                 .id(Id::from_u64(999998351))
                 .height(28.0)
                 .bg(colors.accent)

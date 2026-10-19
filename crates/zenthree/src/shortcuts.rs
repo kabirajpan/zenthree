@@ -275,12 +275,14 @@ pub fn handle_shortcuts(ui: &mut Ui, state: &mut ZenthreeState) {
                             ui.focused_id = state.active_tab.map(|idx| zenthra::Id::from_u64(999996000 + idx as u64));
                         } else if state.terminal_visible {
                             // Visible but not focused → focus it
+                            state.bottom_panel_tab = crate::state::BottomPanelTab::Terminal;
                             state.focused_panel = FocusedPanel::Terminal;
                             state.last_cursor_activity = std::time::Instant::now();
                             ui.focused_id = Some(zenthra::Id::from_u64(999999800));
                         } else {
                             // Hidden → show + focus
                             state.terminal_visible = true;
+                            state.bottom_panel_tab = crate::state::BottomPanelTab::Terminal;
                             state.focused_panel = FocusedPanel::Terminal;
                             state.last_cursor_activity = std::time::Instant::now();
                             ui.focused_id = Some(zenthra::Id::from_u64(999999800));
@@ -318,7 +320,9 @@ pub fn handle_shortcuts(ui: &mut Ui, state: &mut ZenthreeState) {
                         if state.focused_panel == FocusedPanel::Ai {
                             state.ai_panel_visible = false;
                             state.focused_panel = FocusedPanel::Editor;
-                            ui.focused_id = state.active_tab.map(|idx| zenthra::Id::from_u64(999996000 + idx as u64));
+                            ui.focused_id = state
+                                .active_tab
+                                .map(|idx| zenthra::Id::from_u64(999996000 + idx as u64));
                         } else if state.ai_panel_visible {
                             state.focused_panel = FocusedPanel::Ai;
                             ui.focused_id = None;

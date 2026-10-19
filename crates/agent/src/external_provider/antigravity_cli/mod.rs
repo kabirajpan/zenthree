@@ -6,8 +6,8 @@ use std::sync::Arc;
 
 pub use auth::{AntigravityAuthManager, OAuthToken};
 pub use models::{available_models, get_model_info, ModelInfo, DEFAULT_MODEL_ID};
-pub use provider::AntigravityCliProvider;
 pub use super::acp::AcpClient as AntigravityClient;
+pub use provider::AntigravityCliProvider;
 
 /// Factory function to construct an `AntigravityCliProvider` ready for execution.
 /// If `model_id` is None, defaults to `gemini-3.8-flash-high`.

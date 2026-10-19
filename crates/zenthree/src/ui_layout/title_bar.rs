@@ -480,6 +480,8 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                             if state.terminal_split {
                                 state.active_terminal_idx = state.terminal_session_count() - 1;
                                 state.terminal_visible = true;
+                                state.bottom_panel_tab =
+                                    crate::state::BottomPanelTab::Terminal;
                                 state.focused_panel =
                                     crate::state::types::FocusedPanel::Terminal;
                                 ui.focused_id = Some(Id::from_u64(
@@ -502,6 +504,8 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                                     if ui.menu_item(&label).show().clicked {
                                         state.select_terminal_session(index);
                                         state.terminal_visible = true;
+                                        state.bottom_panel_tab =
+                                            crate::state::BottomPanelTab::Terminal;
                                         ui.focused_id = Some(Id::from_u64(
                                             999999800 + index as u64 * 1000,
                                         ));

@@ -169,7 +169,7 @@ fn main() {
                                         ui_layout::draw_main_buffer(ui, &mut state, center_w, editor_h);
 
                                         if state.terminal_visible {
-                                            ui_layout::draw_terminal_panel(ui, &mut state, center_w, term_h);
+                                            ui_layout::draw_bottom_panel(ui, &mut state, center_w, term_h);
                                         }
                                     });
 

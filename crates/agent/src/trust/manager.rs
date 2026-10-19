@@ -1,7 +1,7 @@
 use std::collections::HashSet;
 use std::fs;
-use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
+use std::path::{Path, PathBuf};
 
 use super::status::TrustStatus;
 
