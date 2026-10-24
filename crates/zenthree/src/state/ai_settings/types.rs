@@ -6,6 +6,7 @@ pub enum AiSettingsTab {
     #[default]
     Appearance,
     ApiKeys,
+    LocalModels,
     ExternalAgents,
     Mcp,
     Model,
@@ -13,10 +14,11 @@ pub enum AiSettingsTab {
 }
 
 impl AiSettingsTab {
-    pub const ALL: [AiSettingsTab; 7] = [
+    pub const ALL: [AiSettingsTab; 8] = [
         AiSettingsTab::General,
         AiSettingsTab::Appearance,
         AiSettingsTab::ApiKeys,
+        AiSettingsTab::LocalModels,
         AiSettingsTab::ExternalAgents,
         AiSettingsTab::Mcp,
         AiSettingsTab::Model,
@@ -28,6 +30,7 @@ impl AiSettingsTab {
             AiSettingsTab::General => "General",
             AiSettingsTab::Appearance => "Appearance",
             AiSettingsTab::ApiKeys => "API Keys",
+            AiSettingsTab::LocalModels => "Local Models",
             AiSettingsTab::ExternalAgents => "External Agents",
             AiSettingsTab::Mcp => "MCP Servers",
             AiSettingsTab::Model => "Model & Tuning",
@@ -40,6 +43,7 @@ impl AiSettingsTab {
             AiSettingsTab::General => "\u{f013}",        // fa-gear / cog
             AiSettingsTab::Appearance => "\u{f53f}",     // fa-palette
             AiSettingsTab::ApiKeys => "\u{f084}",        // fa-key
+            AiSettingsTab::LocalModels => "\u{f0ed}",    // fa-cloud-download / download
             AiSettingsTab::ExternalAgents => "\u{f121}", // fa-code / agent
             AiSettingsTab::Mcp => "\u{f1e6}",            // fa-plug
             AiSettingsTab::Model => "\u{f1b2}",          // fa-cube

@@ -19,9 +19,28 @@ static ANTIGRAVITY_INSTALL_ERROR: std::sync::Mutex<Option<String>> = std::sync::
 static ANTIGRAVITY_INSTALL_STATUS: std::sync::Mutex<Option<String>> = std::sync::Mutex::new(None);
 static ANTIGRAVITY_INSTALL_PROGRESS: std::sync::Mutex<f32> = std::sync::Mutex::new(0.0);
 
+static LOCAL_DOWNLOAD_RUNNING: std::sync::atomic::AtomicBool =
+    std::sync::atomic::AtomicBool::new(false);
+static LOCAL_DOWNLOAD_CANCEL: std::sync::Mutex<Option<std::sync::Arc<std::sync::atomic::AtomicBool>>> =
+    std::sync::Mutex::new(None);
+static LOCAL_DOWNLOAD_MODEL_ID: std::sync::Mutex<Option<String>> =
+    std::sync::Mutex::new(None);
+static LOCAL_DOWNLOAD_PROGRESS: std::sync::Mutex<f32> =
+    std::sync::Mutex::new(0.0);
+static LOCAL_DOWNLOAD_STATUS: std::sync::Mutex<Option<String>> =
+    std::sync::Mutex::new(None);
+static LOCAL_DOWNLOAD_ERROR: std::sync::Mutex<Option<String>> =
+    std::sync::Mutex::new(None);
+static LOCAL_DOWNLOAD_SUCCESS: std::sync::Mutex<Option<String>> =
+    std::sync::Mutex::new(None);
+
 pub fn draw_ai_settings_dialog(ui: &mut Ui, state: &mut ZenthreeState) {
     if !state.ai_settings.open {
         return;
+    }
+
+    if LOCAL_DOWNLOAD_RUNNING.load(std::sync::atomic::Ordering::Relaxed) {
+        ui.needs_redraw = true;
     }
 
     let colors = use_context::<ThemeColors>()
@@ -293,6 +312,9 @@ pub fn draw_ai_settings_dialog(ui: &mut Ui, state: &mut ZenthreeState) {
                     }
                     AiSettingsTab::ApiKeys => {
                         draw_api_keys_tab(ui, state, &colors);
+                    }
+                    AiSettingsTab::LocalModels => {
+                        draw_local_models_tab(ui, state, &colors);
                     }
                     AiSettingsTab::ExternalAgents => {
                         draw_external_agents_tab(ui, state, &colors);
@@ -1067,6 +1089,62 @@ fn draw_model_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColors) 
                         }
                     }
                 });
+        });
+
+    draw_settings_divider(ui, colors);
+
+    // Callout banner for Local Models
+    ui.container()
+        .fill_x()
+        .padding(10.0, 14.0, 10.0, 14.0)
+        .radius_all(6.0)
+        .bg(colors.highlight.with_alpha(0.08))
+        .border((colors.border.with_alpha(0.4), 0.75))
+        .row()
+        .valign(Align::Center)
+        .halign(Align::SpaceBetween)
+        .show(|ui| {
+            ui.container().row().valign(Align::Center).gap(8.0).show(|ui| {
+                ui.text("\u{f0ed}") // fa-download
+                    .size(13.0)
+                    .color(colors.accent)
+                    .show();
+                ui.container().column().gap(2.0).show(|ui| {
+                    ui.text("Offline & Local Models (GGUF)")
+                        .size(11.5)
+                        .font_weight(FontWeight::SemiBold)
+                        .color(colors.text_primary)
+                        .show();
+                    ui.text("Download and manage local models for private, zero-latency code completion.")
+                        .size(10.0)
+                        .color(colors.text_muted)
+                        .show();
+                });
+            });
+
+            let manage_btn = ui
+                .container()
+                .interactive(true)
+                .padding(4.5, 10.0, 4.5, 10.0)
+                .radius_all(5.0)
+                .bg(colors.accent.with_alpha(0.15))
+                .border((colors.accent.with_alpha(0.4), 0.75))
+                .hover(Style::bg(colors.accent.with_alpha(0.3)))
+                .show(|ui| {
+                    ui.text("Manage Local Models")
+                        .size(10.5)
+                        .font_weight(FontWeight::Medium)
+                        .color(colors.accent)
+                        .show();
+                });
+
+            if manage_btn.hovered {
+                ui.cursor_icon = CursorIcon::Pointer;
+            }
+            if manage_btn.clicked {
+                state.ai_settings.active_tab = AiSettingsTab::LocalModels;
+                ui.needs_redraw = true;
+            }
         });
 }
 
@@ -1955,6 +2033,720 @@ fn draw_api_keys_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColor
                     });
             });
     }
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+// 3a. Local Models Tab (Download & Selection)
+// ─────────────────────────────────────────────────────────────────────────────
+
+fn draw_local_models_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColors) {
+    ui.container()
+        .fill_x()
+        .column()
+        .gap(3.0)
+        .show(|ui| {
+            ui.text("Local Models (Offline & Private)")
+                .size(14.0)
+                .font_weight(FontWeight::Bold)
+                .color(colors.text_primary)
+                .show();
+            ui.text("Download open-weights GGUF models directly to disk or connect to local inference engines (Ollama, llama.cpp, LM Studio).")
+                .size(11.0)
+                .color(colors.text_muted)
+                .show();
+        });
+
+    ui.spacing(4.0);
+
+    let models_dir = agent::local_model::LocalModelManager::models_dir();
+    let installed_models = agent::local_model::LocalModelManager::list_installed();
+    let is_downloading = LOCAL_DOWNLOAD_RUNNING.load(std::sync::atomic::Ordering::Relaxed);
+    let downloading_model_id = LOCAL_DOWNLOAD_MODEL_ID.lock().unwrap().clone();
+    let download_progress = *LOCAL_DOWNLOAD_PROGRESS.lock().unwrap();
+    let download_status = LOCAL_DOWNLOAD_STATUS.lock().unwrap().clone();
+    let download_error = LOCAL_DOWNLOAD_ERROR.lock().unwrap().clone();
+    let download_success = LOCAL_DOWNLOAD_SUCCESS.lock().unwrap().clone();
+
+    // ── Top Bar: Directory Path & Open Folder Action ──
+    ui.container()
+        .fill_x()
+        .padding(8.0, 12.0, 8.0, 12.0)
+        .radius_all(6.0)
+        .bg(colors.bg_base)
+        .border((colors.border.with_alpha(0.4), 0.75))
+        .row()
+        .valign(Align::Center)
+        .halign(Align::SpaceBetween)
+        .show(|ui| {
+            ui.container().row().valign(Align::Center).gap(8.0).show(|ui| {
+                ui.text("\u{f07b}") // fa-folder
+                    .size(12.0)
+                    .color(colors.accent)
+                    .show();
+                ui.text(&format!("Storage: {}", models_dir.display()))
+                    .size(10.5)
+                    .font_weight(FontWeight::Medium)
+                    .color(colors.text_muted)
+                    .show();
+                ui.container()
+                    .padding(1.5, 6.0, 1.5, 6.0)
+                    .radius_all(4.0)
+                    .bg(colors.highlight.with_alpha(0.2))
+                    .show(|ui| {
+                        ui.text(&format!("{} Installed", installed_models.len()))
+                            .size(9.0)
+                            .font_weight(FontWeight::SemiBold)
+                            .color(colors.text_primary)
+                            .show();
+                    });
+            });
+
+            let open_btn = ui
+                .container()
+                .interactive(true)
+                .padding(4.0, 10.0, 4.0, 10.0)
+                .radius_all(4.0)
+                .bg(colors.highlight.with_alpha(0.12))
+                .hover(Style::bg(colors.highlight))
+                .row()
+                .valign(Align::Center)
+                .gap(5.0)
+                .show(|ui| {
+                    ui.text("\u{f07c}") // fa-folder-open
+                        .size(10.0)
+                        .color(colors.text_primary)
+                        .show();
+                    ui.text("Open Models Folder")
+                        .size(10.0)
+                        .font_weight(FontWeight::Medium)
+                        .color(colors.text_primary)
+                        .show();
+                });
+
+            if open_btn.hovered {
+                ui.cursor_icon = CursorIcon::Pointer;
+            }
+            if open_btn.clicked {
+                let _ = agent::local_model::LocalModelManager::ensure_dir();
+                let _ = opener::open(&agent::local_model::LocalModelManager::models_dir());
+                ui.consume_click();
+            }
+        });
+
+    // ── Local Inference Server Control Bar ──
+    let active_endpoint = agent::local_model::LocalServerManager::probe_active_endpoint();
+    let is_server_running = active_endpoint.is_some();
+    let runner_installed = agent::local_model::LocalServerManager::is_runner_installed();
+
+    ui.container()
+        .fill_x()
+        .padding(8.0, 12.0, 8.0, 12.0)
+        .radius_all(6.0)
+        .bg(colors.bg_base)
+        .border((if is_server_running { Color::rgba(34.0 / 255.0, 197.0 / 255.0, 94.0 / 255.0, 0.4) } else { colors.border.with_alpha(0.4) }, 0.75))
+        .row()
+        .valign(Align::Center)
+        .halign(Align::SpaceBetween)
+        .show(|ui| {
+            ui.container().row().valign(Align::Center).gap(8.0).show(|ui| {
+                ui.text("\u{f233}") // Server icon
+                    .size(12.0)
+                    .color(if is_server_running { Color::rgb(74.0 / 255.0, 222.0 / 255.0, 128.0 / 255.0) } else { colors.text_muted })
+                    .show();
+                ui.container().column().gap(1.5).show(|ui| {
+                    ui.container().row().valign(Align::Center).gap(6.0).show(|ui| {
+                        ui.text("Inference Engine:")
+                            .size(10.5)
+                            .font_weight(FontWeight::Medium)
+                            .color(colors.text_primary)
+                            .show();
+                        if let Some(ref ep) = active_endpoint {
+                            ui.container()
+                                .padding(1.0, 5.0, 1.0, 5.0)
+                                .radius_all(3.0)
+                                .bg(Color::rgba(34.0 / 255.0, 197.0 / 255.0, 94.0 / 255.0, 0.15))
+                                .show(|ui| {
+                                    ui.text(&format!("● Running ({})", ep))
+                                        .size(9.0)
+                                        .font_weight(FontWeight::SemiBold)
+                                        .color(Color::rgb(74.0 / 255.0, 222.0 / 255.0, 128.0 / 255.0))
+                                        .show();
+                                });
+                        } else {
+                            ui.container()
+                                .padding(1.0, 5.0, 1.0, 5.0)
+                                .radius_all(3.0)
+                                .bg(colors.highlight.with_alpha(0.15))
+                                .show(|ui| {
+                                    ui.text("○ Ready (Auto-starts when chatting)")
+                                        .size(9.0)
+                                        .font_weight(FontWeight::Medium)
+                                        .color(colors.text_muted)
+                                        .show();
+                                });
+                        }
+                    });
+                });
+            });
+
+            // Action button: Start / Stop
+            if is_server_running {
+                let stop_btn = ui
+                    .container()
+                    .interactive(true)
+                    .padding(3.5, 9.0, 3.5, 9.0)
+                    .radius_all(4.0)
+                    .bg(Color::rgba(239.0 / 255.0, 68.0 / 255.0, 68.0 / 255.0, 0.12))
+                    .hover(Style::bg(Color::rgba(239.0 / 255.0, 68.0 / 255.0, 68.0 / 255.0, 0.25)))
+                    .show(|ui| {
+                        ui.text("Stop Server")
+                            .size(9.5)
+                            .font_weight(FontWeight::Medium)
+                            .color(Color::rgb(248.0 / 255.0, 113.0 / 255.0, 113.0 / 255.0))
+                            .show();
+                    });
+                if stop_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
+                if stop_btn.clicked {
+                    agent::local_model::LocalServerManager::stop_server();
+                    ui.needs_redraw = true;
+                }
+            } else if !installed_models.is_empty() && runner_installed {
+                let start_btn = ui
+                    .container()
+                    .interactive(true)
+                    .padding(3.5, 9.0, 3.5, 9.0)
+                    .radius_all(4.0)
+                    .bg(colors.accent.with_alpha(0.15))
+                    .border((colors.accent.with_alpha(0.4), 0.75))
+                    .hover(Style::bg(colors.accent.with_alpha(0.3)))
+                    .show(|ui| {
+                        ui.text("Start Server")
+                            .size(9.5)
+                            .font_weight(FontWeight::SemiBold)
+                            .color(colors.accent)
+                            .show();
+                    });
+                if start_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
+                if start_btn.clicked {
+                    let model_to_boot = state.selected_ai_model.model_id().to_string();
+                    std::thread::spawn(move || {
+                        let _ = agent::local_model::LocalServerManager::start_server_for_model(&model_to_boot);
+                    });
+                    ui.needs_redraw = true;
+                }
+            }
+        });
+
+    // ── Success / Error Notifications ──
+    if let Some(msg) = download_success {
+        ui.container()
+            .fill_x()
+            .padding(8.0, 12.0, 8.0, 12.0)
+            .radius_all(6.0)
+            .bg(Color::rgba(34.0 / 255.0, 197.0 / 255.0, 94.0 / 255.0, 0.12))
+            .border((Color::rgba(34.0 / 255.0, 197.0 / 255.0, 94.0 / 255.0, 0.35), 1.0))
+            .row()
+            .valign(Align::Center)
+            .halign(Align::SpaceBetween)
+            .show(|ui| {
+                ui.container().row().valign(Align::Center).gap(8.0).show(|ui| {
+                    ui.text("\u{f00c}") // Checkmark
+                        .size(11.0)
+                        .color(Color::rgb(74.0 / 255.0, 222.0 / 255.0, 128.0 / 255.0))
+                        .show();
+                    ui.text(&msg)
+                        .size(11.0)
+                        .font_weight(FontWeight::Medium)
+                        .color(Color::rgb(74.0 / 255.0, 222.0 / 255.0, 128.0 / 255.0))
+                        .show();
+                });
+
+                let dismiss = ui
+                    .container()
+                    .interactive(true)
+                    .padding(2.0, 6.0, 2.0, 6.0)
+                    .show(|ui| {
+                        ui.text("\u{f00d}")
+                            .size(10.0)
+                            .color(colors.text_muted)
+                            .show();
+                    });
+                if dismiss.clicked {
+                    *LOCAL_DOWNLOAD_SUCCESS.lock().unwrap() = None;
+                    ui.needs_redraw = true;
+                }
+            });
+    }
+
+    if let Some(err) = download_error {
+        ui.container()
+            .fill_x()
+            .padding(8.0, 12.0, 8.0, 12.0)
+            .radius_all(6.0)
+            .bg(Color::rgba(239.0 / 255.0, 68.0 / 255.0, 68.0 / 255.0, 0.12))
+            .border((Color::rgba(239.0 / 255.0, 68.0 / 255.0, 68.0 / 255.0, 0.35), 1.0))
+            .row()
+            .valign(Align::Center)
+            .halign(Align::SpaceBetween)
+            .show(|ui| {
+                ui.container().row().valign(Align::Center).gap(8.0).show(|ui| {
+                    ui.text("\u{f06a}") // Exclamation
+                        .size(11.0)
+                        .color(Color::rgb(248.0 / 255.0, 113.0 / 255.0, 113.0 / 255.0))
+                        .show();
+                    ui.text(&err)
+                        .size(10.5)
+                        .font_weight(FontWeight::Medium)
+                        .color(Color::rgb(248.0 / 255.0, 113.0 / 255.0, 113.0 / 255.0))
+                        .show();
+                });
+
+                let dismiss = ui
+                    .container()
+                    .interactive(true)
+                    .padding(2.0, 6.0, 2.0, 6.0)
+                    .show(|ui| {
+                        ui.text("\u{f00d}")
+                            .size(10.0)
+                            .color(colors.text_muted)
+                            .show();
+                    });
+                if dismiss.clicked {
+                    *LOCAL_DOWNLOAD_ERROR.lock().unwrap() = None;
+                    ui.needs_redraw = true;
+                }
+            });
+    }
+
+    // ── Active Download Banner ──
+    if is_downloading {
+        let dl_name = downloading_model_id.as_deref().unwrap_or("Model");
+        ui.container()
+            .fill_x()
+            .padding(12.0, 14.0, 12.0, 14.0)
+            .radius_all(8.0)
+            .bg(colors.bg_base)
+            .border((colors.accent.with_alpha(0.7), 1.0))
+            .column()
+            .gap(8.0)
+            .show(|ui| {
+                ui.container()
+                    .fill_x()
+                    .row()
+                    .valign(Align::Center)
+                    .halign(Align::SpaceBetween)
+                    .show(|ui| {
+                        ui.container().row().valign(Align::Center).gap(8.0).show(|ui| {
+                            ui.text("\u{f0ed}") // Download icon
+                                .size(13.0)
+                                .color(colors.accent)
+                                .show();
+                            ui.text(&format!("Downloading: {}", dl_name))
+                                .size(12.0)
+                                .font_weight(FontWeight::SemiBold)
+                                .color(colors.text_primary)
+                                .show();
+                        });
+
+                        let cancel_btn = ui
+                            .container()
+                            .interactive(true)
+                            .padding(3.0, 8.0, 3.0, 8.0)
+                            .radius_all(4.0)
+                            .bg(Color::rgba(239.0 / 255.0, 68.0 / 255.0, 68.0 / 255.0, 0.15))
+                            .hover(Style::bg(Color::rgba(239.0 / 255.0, 68.0 / 255.0, 68.0 / 255.0, 0.3)))
+                            .show(|ui| {
+                                ui.text("Cancel")
+                                    .size(10.0)
+                                    .font_weight(FontWeight::Medium)
+                                    .color(Color::rgb(248.0 / 255.0, 113.0 / 255.0, 113.0 / 255.0))
+                                    .show();
+                            });
+
+                        if cancel_btn.hovered {
+                            ui.cursor_icon = CursorIcon::Pointer;
+                        }
+                        if cancel_btn.clicked {
+                            if let Some(ref cancel) = *LOCAL_DOWNLOAD_CANCEL.lock().unwrap() {
+                                cancel.store(true, std::sync::atomic::Ordering::Relaxed);
+                            }
+                            LOCAL_DOWNLOAD_RUNNING.store(false, std::sync::atomic::Ordering::Relaxed);
+                            *LOCAL_DOWNLOAD_STATUS.lock().unwrap() = Some("Download cancelled".to_string());
+                            ui.needs_redraw = true;
+                        }
+                    });
+
+                // Progress Bar
+                let total_bar_w = 480.0;
+                let pct = (download_progress / 100.0).clamp(0.0, 1.0);
+                let filled_w = (pct * total_bar_w).max(4.0);
+
+                ui.container()
+                    .width(total_bar_w)
+                    .height(6.0)
+                    .radius_all(3.0)
+                    .bg(colors.border.with_alpha(0.25))
+                    .show(|ui| {
+                        ui.container()
+                            .width(filled_w)
+                            .height(6.0)
+                            .radius_all(3.0)
+                            .bg(colors.accent)
+                            .show(|_| {});
+                    });
+
+                if let Some(ref status_str) = download_status {
+                    ui.text(status_str)
+                        .size(10.0)
+                        .color(colors.text_muted)
+                        .show();
+                }
+            });
+    }
+
+    // ── Active Local Model Banner (if currently selected) ──
+    if state.selected_ai_model.is_local() {
+        ui.container()
+            .fill_x()
+            .padding(10.0, 14.0, 10.0, 14.0)
+            .radius_all(8.0)
+            .bg(colors.accent.with_alpha(0.08))
+            .border((colors.accent.with_alpha(0.35), 1.0))
+            .row()
+            .valign(Align::Center)
+            .halign(Align::SpaceBetween)
+            .show(|ui| {
+                ui.container().row().valign(Align::Center).gap(10.0).show(|ui| {
+                    ui.text("\u{f108}") // Desktop icon
+                        .size(14.0)
+                        .color(colors.accent)
+                        .show();
+                    ui.container().column().gap(2.0).show(|ui| {
+                        ui.text(&format!("Active Editor Model: {}", state.selected_ai_model.display_name()))
+                            .size(12.0)
+                            .font_weight(FontWeight::SemiBold)
+                            .color(colors.text_primary)
+                            .show();
+                        ui.text("All AI assistant completions and edits will use this local model")
+                            .size(10.0)
+                            .color(colors.text_muted)
+                            .show();
+                    });
+                });
+
+                ui.container()
+                    .padding(2.5, 8.0, 2.5, 8.0)
+                    .radius_all(4.0)
+                    .bg(colors.accent)
+                    .show(|ui| {
+                        ui.text("ACTIVE")
+                            .size(9.0)
+                            .font_weight(FontWeight::Bold)
+                            .color(Color::WHITE)
+                            .show();
+                    });
+            });
+    }
+
+    // ── Catalog Models Section ──
+    ui.container().column().gap(3.0).show(|ui| {
+        ui.text("Verified Coding Models")
+            .size(12.5)
+            .font_weight(FontWeight::Bold)
+            .color(colors.text_primary)
+            .show();
+        ui.text("Click 'Download' to fetch the GGUF model directly from Hugging Face into your local models storage.")
+            .size(10.5)
+            .color(colors.text_muted)
+            .show();
+    });
+
+    let mut model_to_download: Option<agent::local_model::CatalogModel> = None;
+    let mut model_to_select: Option<AiModel> = None;
+    let mut model_to_delete: Option<String> = None;
+
+    for cat in agent::local_model::MODEL_CATALOG {
+        let is_inst = agent::local_model::LocalModelManager::is_downloaded(cat.id);
+        let is_this_downloading = is_downloading && downloading_model_id.as_deref() == Some(cat.name);
+        let corresponding_ai_model = AiModel::from_catalog_id(cat.id);
+        let is_active = corresponding_ai_model.map(|am| state.selected_ai_model == am).unwrap_or(false);
+
+        let card_border = if is_active {
+            colors.accent.with_alpha(0.65)
+        } else if is_inst {
+            colors.border.with_alpha(0.6)
+        } else {
+            colors.border.with_alpha(0.3)
+        };
+
+        ui.container()
+            .fill_x()
+            .padding(10.0, 14.0, 10.0, 14.0)
+            .radius_all(7.0)
+            .bg(colors.bg_base)
+            .border((card_border, 1.0))
+            .row()
+            .valign(Align::Center)
+            .halign(Align::SpaceBetween)
+            .show(|ui| {
+                // Left info
+                ui.container().width(350.0).column().gap(4.0).show(|ui| {
+                    ui.container().row().valign(Align::Center).gap(6.0).show(|ui| {
+                        ui.text(cat.name)
+                            .size(12.0)
+                            .font_weight(FontWeight::SemiBold)
+                            .color(colors.text_primary)
+                            .show();
+
+                        // Badges
+                        ui.container()
+                            .padding(1.0, 5.0, 1.0, 5.0)
+                            .radius_all(3.0)
+                            .bg(colors.highlight.with_alpha(0.18))
+                            .show(|ui| {
+                                ui.text(cat.parameter_size)
+                                    .size(8.5)
+                                    .font_weight(FontWeight::Medium)
+                                    .color(colors.text_primary)
+                                    .show();
+                            });
+
+                        ui.container()
+                            .padding(1.0, 5.0, 1.0, 5.0)
+                            .radius_all(3.0)
+                            .bg(colors.highlight.with_alpha(0.18))
+                            .show(|ui| {
+                                ui.text(cat.quantization)
+                                    .size(8.5)
+                                    .font_weight(FontWeight::Medium)
+                                    .color(colors.text_muted)
+                                    .show();
+                            });
+
+                        if is_inst {
+                            ui.container()
+                                .padding(1.0, 5.0, 1.0, 5.0)
+                                .radius_all(3.0)
+                                .bg(Color::rgba(34.0 / 255.0, 197.0 / 255.0, 94.0 / 255.0, 0.15))
+                                .show(|ui| {
+                                    ui.text("✓ Installed")
+                                        .size(8.5)
+                                        .font_weight(FontWeight::SemiBold)
+                                        .color(Color::rgb(74.0 / 255.0, 222.0 / 255.0, 128.0 / 255.0))
+                                        .show();
+                                });
+                        }
+                    });
+
+                    ui.text(cat.description)
+                        .size(10.5)
+                        .color(colors.text_muted)
+                        .show();
+
+                    ui.container().row().valign(Align::Center).gap(8.0).show(|ui| {
+                        ui.text(&format!("Recommended: {}", cat.recommended_for))
+                            .size(9.5)
+                            .color(colors.text_muted.with_alpha(0.75))
+                            .show();
+                        ui.text(&format!("• Ollama: {}", cat.ollama_tag))
+                            .size(9.5)
+                            .color(colors.text_muted.with_alpha(0.6))
+                            .show();
+                    });
+                });
+
+                // Right actions
+                ui.container().row().valign(Align::Center).gap(6.0).show(|ui| {
+                    if is_this_downloading {
+                        ui.container()
+                            .padding(4.5, 12.0, 4.5, 12.0)
+                            .radius_all(5.0)
+                            .bg(colors.accent.with_alpha(0.18))
+                            .show(|ui| {
+                                ui.text("Downloading...")
+                                    .size(10.5)
+                                    .font_weight(FontWeight::Medium)
+                                    .color(colors.accent)
+                                    .show();
+                            });
+                    } else if is_inst {
+                        if is_active {
+                            ui.container()
+                                .padding(4.5, 12.0, 4.5, 12.0)
+                                .radius_all(5.0)
+                                .bg(colors.accent)
+                                .show(|ui| {
+                                    ui.text("✓ In Use")
+                                        .size(10.5)
+                                        .font_weight(FontWeight::Bold)
+                                        .color(Color::WHITE)
+                                        .show();
+                                });
+                        } else {
+                            let select_btn = ui
+                                .container()
+                                .interactive(true)
+                                .padding(4.5, 12.0, 4.5, 12.0)
+                                .radius_all(5.0)
+                                .bg(colors.accent.with_alpha(0.15))
+                                .border((colors.accent.with_alpha(0.4), 0.75))
+                                .hover(Style::bg(colors.accent.with_alpha(0.3)))
+                                .show(|ui| {
+                                    ui.text("Select to Use")
+                                        .size(10.5)
+                                        .font_weight(FontWeight::SemiBold)
+                                        .color(colors.accent)
+                                        .show();
+                                });
+
+                            if select_btn.hovered {
+                                ui.cursor_icon = CursorIcon::Pointer;
+                            }
+                            if select_btn.clicked {
+                                if let Some(am) = corresponding_ai_model {
+                                    model_to_select = Some(am);
+                                }
+                            }
+                        }
+
+                        // Delete button
+                        let del_btn = ui
+                            .container()
+                            .interactive(true)
+                            .padding(4.5, 8.0, 4.5, 8.0)
+                            .radius_all(5.0)
+                            .bg(colors.highlight.with_alpha(0.1))
+                            .hover(Style::bg(Color::rgba(239.0 / 255.0, 68.0 / 255.0, 68.0 / 255.0, 0.2)))
+                            .show(|ui| {
+                                ui.text("\u{f1f8}") // Trash
+                                    .size(11.0)
+                                    .color(colors.text_muted)
+                                    .show();
+                            });
+
+                        if del_btn.hovered {
+                            ui.cursor_icon = CursorIcon::Pointer;
+                        }
+                        if del_btn.clicked {
+                            model_to_delete = Some(cat.id.to_string());
+                        }
+                    } else {
+                        // Download button
+                        let dl_btn = ui
+                            .container()
+                            .interactive(true)
+                            .padding(5.0, 14.0, 5.0, 14.0)
+                            .radius_all(5.0)
+                            .bg(colors.accent)
+                            .hover(Style::bg(colors.accent.with_alpha(0.85)))
+                            .row()
+                            .valign(Align::Center)
+                            .gap(5.0)
+                            .show(|ui| {
+                                ui.text("\u{f0ed}") // Download icon
+                                    .size(11.0)
+                                    .color(Color::WHITE)
+                                    .show();
+                                ui.text(&format!("Download ({})", cat.size_display))
+                                    .size(10.5)
+                                    .font_weight(FontWeight::SemiBold)
+                                    .color(Color::WHITE)
+                                    .show();
+                            });
+
+                        if dl_btn.hovered {
+                            ui.cursor_icon = CursorIcon::Pointer;
+                        }
+                        if dl_btn.clicked && !is_downloading {
+                            model_to_download = Some(cat.clone());
+                        }
+                    }
+                });
+            });
+    }
+
+    // ── Execute Actions (Outside loop to avoid borrow conflicts) ──
+    if let Some(cat) = model_to_download {
+        let cat_copy = cat.clone();
+        LOCAL_DOWNLOAD_RUNNING.store(true, std::sync::atomic::Ordering::Relaxed);
+        *LOCAL_DOWNLOAD_MODEL_ID.lock().unwrap() = Some(cat.name.to_string());
+        *LOCAL_DOWNLOAD_PROGRESS.lock().unwrap() = 0.0;
+        *LOCAL_DOWNLOAD_STATUS.lock().unwrap() = Some("Connecting to Hugging Face...".to_string());
+        *LOCAL_DOWNLOAD_ERROR.lock().unwrap() = None;
+        *LOCAL_DOWNLOAD_SUCCESS.lock().unwrap() = None;
+
+        let (cancel_token, _handle) = agent::local_model::ModelDownloader::download_in_background(
+            cat_copy,
+            move |p| {
+                *LOCAL_DOWNLOAD_PROGRESS.lock().unwrap() = p.percentage;
+                let speed_mb = p.speed_bytes_per_sec as f64 / (1024.0 * 1024.0);
+                let dl_mb = p.downloaded_bytes as f64 / (1024.0 * 1024.0);
+                let tot_mb = p.total_bytes as f64 / (1024.0 * 1024.0);
+                let eta = p.eta_seconds.map(|s| format!("{}s", s)).unwrap_or_else(|| "--".to_string());
+                *LOCAL_DOWNLOAD_STATUS.lock().unwrap() = Some(format!(
+                    "{:.1}% • {:.1} MB / {:.1} MB ({:.2} MB/s, ETA: {})",
+                    p.percentage, dl_mb, tot_mb, speed_mb, eta
+                ));
+                if p.is_finished {
+                    LOCAL_DOWNLOAD_RUNNING.store(false, std::sync::atomic::Ordering::Relaxed);
+                    *LOCAL_DOWNLOAD_SUCCESS.lock().unwrap() = Some(format!("Model {} downloaded successfully!", p.model_name));
+                }
+                if let Some(err) = p.error {
+                    LOCAL_DOWNLOAD_RUNNING.store(false, std::sync::atomic::Ordering::Relaxed);
+                    *LOCAL_DOWNLOAD_ERROR.lock().unwrap() = Some(err);
+                }
+            },
+        );
+        *LOCAL_DOWNLOAD_CANCEL.lock().unwrap() = Some(cancel_token);
+        ui.needs_redraw = true;
+    }
+
+    if let Some(am) = model_to_select {
+        state.selected_ai_model = am;
+        state.selected_agent = SelectedAgent::Zene;
+        state.save_persistent_state();
+        ui.needs_redraw = true;
+    }
+
+    if let Some(id_to_del) = model_to_delete {
+        let _ = agent::local_model::LocalModelManager::delete_model(&id_to_del);
+        if state.selected_ai_model.model_id() == id_to_del {
+            state.selected_ai_model = AiModel::Gemini35Flash;
+            state.save_persistent_state();
+        }
+        ui.needs_redraw = true;
+    }
+
+    // ── Local Runners Documentation Footer ──
+    draw_settings_divider(ui, colors);
+
+    ui.container()
+        .fill_x()
+        .padding(10.0, 14.0, 10.0, 14.0)
+        .radius_all(6.0)
+        .bg(colors.bg_base)
+        .border((colors.border.with_alpha(0.35), 0.75))
+        .column()
+        .gap(4.0)
+        .show(|ui| {
+            ui.text("How Local Execution Works:")
+                .size(11.0)
+                .font_weight(FontWeight::SemiBold)
+                .color(colors.text_primary)
+                .show();
+            ui.text("• Zenthree connects automatically to your running Ollama (port 11434), llama-server (port 8080), or LM Studio (port 1234).")
+                .size(10.0)
+                .color(colors.text_muted)
+                .show();
+            ui.text("• When using Ollama, run 'ollama run <tag>' (e.g. 'ollama run qwen2.5-coder:1.5b') or 'ollama serve'.")
+                .size(10.0)
+                .color(colors.text_muted)
+                .show();
+            ui.text("• With llama.cpp, launch 'llama-server -m ~/.zenthree/models/<model>.gguf --port 8080'.")
+                .size(10.0)
+                .color(colors.text_muted)
+                .show();
+        });
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

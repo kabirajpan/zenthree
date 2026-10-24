@@ -1018,7 +1018,17 @@ fn draw_ai_model_popover(
         return;
     }
 
-    let models_to_show: Vec<AiModel> = vec![
+    let mut models_to_show: Vec<AiModel> = Vec::new();
+
+    // Local Models (Offline / GGUF) - only show models currently downloaded on disk
+    for lm in &AiModel::LOCAL_MODELS {
+        if agent::local_model::LocalModelManager::is_downloaded(lm.model_id()) {
+            models_to_show.push(*lm);
+        }
+    }
+
+    // Cloud & External providers
+    models_to_show.extend_from_slice(&[
         // Groq
         AiModel::GroqGptOss120b,
         AiModel::GroqGptOss20b,
@@ -1033,7 +1043,7 @@ fn draw_ai_model_popover(
         AiModel::AntigravityGemini38FlashMedium,
         AiModel::AntigravityGemini37FlashHigh,
         AiModel::AntigravityGeminiProAgent,
-    ];
+    ]);
 
     // Menu width & height
     let menu_w = 236.0;
@@ -1084,6 +1094,7 @@ fn draw_ai_model_popover(
                     for model in models_to_show {
                         if last_provider != Some(model.provider()) {
                             let label = match model.provider() {
+                                AiProvider::Local => "LOCAL MODELS (OFFLINE / PRIVATE)",
                                 AiProvider::Antigravity => "GOOGLE ANTIGRAVITY (EXTERNAL AGENT)",
                                 AiProvider::Groq => "GROQ",
                                 AiProvider::Gemini => "GEMINI",

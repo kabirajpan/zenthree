@@ -231,10 +231,18 @@ pub enum AiProvider {
     Antigravity,
     Groq,
     Gemini,
+    Local,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
 pub enum AiModel {
+    // ── Local Offline Models (GGUF / Ollama) ─────────────────────────────────
+    LocalQwen25Coder15b,
+    LocalQwen25Coder7b,
+    LocalDeepSeekR1_15b,
+    LocalDeepSeekR1_7b,
+    LocalLlama32_3b,
+    LocalSmolLM2_17b,
     // ── Google Antigravity (External Agent / OAuth) ───────────────────────────
     AntigravityGemini38FlashHigh,
     AntigravityGemini38FlashMedium,
@@ -262,7 +270,14 @@ pub enum AiModel {
 }
 
 impl AiModel {
-    pub const ALL: [AiModel; 19] = [
+    pub const ALL: [AiModel; 25] = [
+        // Local Models
+        AiModel::LocalQwen25Coder15b,
+        AiModel::LocalQwen25Coder7b,
+        AiModel::LocalDeepSeekR1_15b,
+        AiModel::LocalDeepSeekR1_7b,
+        AiModel::LocalLlama32_3b,
+        AiModel::LocalSmolLM2_17b,
         // Google Antigravity
         AiModel::AntigravityGemini38FlashHigh,
         AiModel::AntigravityGemini38FlashMedium,
@@ -290,6 +305,16 @@ impl AiModel {
     ];
 
     #[allow(dead_code)]
+    pub const LOCAL_MODELS: [AiModel; 6] = [
+        AiModel::LocalQwen25Coder15b,
+        AiModel::LocalQwen25Coder7b,
+        AiModel::LocalDeepSeekR1_15b,
+        AiModel::LocalDeepSeekR1_7b,
+        AiModel::LocalLlama32_3b,
+        AiModel::LocalSmolLM2_17b,
+    ];
+
+    #[allow(dead_code)]
     pub const ANTIGRAVITY_MODELS: [AiModel; 6] = [
         AiModel::AntigravityGemini38FlashHigh,
         AiModel::AntigravityGemini38FlashMedium,
@@ -300,7 +325,13 @@ impl AiModel {
     ];
 
     #[allow(dead_code)]
-    pub const ZENE_MODELS: [AiModel; 13] = [
+    pub const ZENE_MODELS: [AiModel; 19] = [
+        AiModel::LocalQwen25Coder15b,
+        AiModel::LocalQwen25Coder7b,
+        AiModel::LocalDeepSeekR1_15b,
+        AiModel::LocalDeepSeekR1_7b,
+        AiModel::LocalLlama32_3b,
+        AiModel::LocalSmolLM2_17b,
         AiModel::GroqGptOss120b,
         AiModel::GroqGptOss20b,
         AiModel::GroqQwen3_8_27b,
@@ -320,8 +351,18 @@ impl AiModel {
         self.provider() == AiProvider::Antigravity
     }
 
+    pub fn is_local(&self) -> bool {
+        self.provider() == AiProvider::Local
+    }
+
     pub fn provider(&self) -> AiProvider {
         match self {
+            AiModel::LocalQwen25Coder15b
+            | AiModel::LocalQwen25Coder7b
+            | AiModel::LocalDeepSeekR1_15b
+            | AiModel::LocalDeepSeekR1_7b
+            | AiModel::LocalLlama32_3b
+            | AiModel::LocalSmolLM2_17b => AiProvider::Local,
             AiModel::AntigravityGemini38FlashHigh
             | AiModel::AntigravityGemini38FlashMedium
             | AiModel::AntigravityGemini38FlashLow
@@ -337,6 +378,13 @@ impl AiModel {
 
     pub fn model_id(&self) -> &'static str {
         match self {
+            // Local Offline Models
+            AiModel::LocalQwen25Coder15b    => "qwen2.5-coder-1.5b-q4",
+            AiModel::LocalQwen25Coder7b     => "qwen2.5-coder-7b-q4",
+            AiModel::LocalDeepSeekR1_15b    => "deepseek-r1-distill-qwen-1.5b-q4",
+            AiModel::LocalDeepSeekR1_7b     => "deepseek-r1-distill-qwen-7b-q4",
+            AiModel::LocalLlama32_3b        => "llama-3.2-3b-q4",
+            AiModel::LocalSmolLM2_17b       => "smollm2-1.7b-q4",
             // Google Antigravity
             AiModel::AntigravityGemini38FlashHigh   => "gemini-3.8-flash-high",
             AiModel::AntigravityGemini38FlashMedium => "gemini-3.8-flash-medium",
@@ -366,6 +414,13 @@ impl AiModel {
 
     pub fn display_name(&self) -> &'static str {
         match self {
+            // Local Offline Models
+            AiModel::LocalQwen25Coder15b    => "Qwen 2.5 Coder 1.5B (Local)",
+            AiModel::LocalQwen25Coder7b     => "Qwen 2.5 Coder 7B (Local)",
+            AiModel::LocalDeepSeekR1_15b    => "DeepSeek R1 1.5B (Local)",
+            AiModel::LocalDeepSeekR1_7b     => "DeepSeek R1 7B (Local)",
+            AiModel::LocalLlama32_3b        => "Llama 3.2 3B (Local)",
+            AiModel::LocalSmolLM2_17b       => "SmolLM2 1.7B (Local)",
             // Google Antigravity
             AiModel::AntigravityGemini38FlashHigh   => "Gemini 3.8 Flash (High)",
             AiModel::AntigravityGemini38FlashMedium => "Gemini 3.8 Flash (Medium)",
@@ -396,6 +451,12 @@ impl AiModel {
     #[allow(dead_code)]
     pub fn short_name(&self) -> &'static str {
         match self {
+            AiModel::LocalQwen25Coder15b    => "Qwen 2.5 Coder 1.5B",
+            AiModel::LocalQwen25Coder7b     => "Qwen 2.5 Coder 7B",
+            AiModel::LocalDeepSeekR1_15b    => "DeepSeek R1 1.5B",
+            AiModel::LocalDeepSeekR1_7b     => "DeepSeek R1 7B",
+            AiModel::LocalLlama32_3b        => "Llama 3.2 3B",
+            AiModel::LocalSmolLM2_17b       => "SmolLM2 1.7B",
             AiModel::AntigravityGemini38FlashHigh   => "Gemini 3.8 Flash",
             AiModel::AntigravityGemini38FlashMedium => "Gemini 3.8 Flash",
             AiModel::AntigravityGemini38FlashLow    => "Gemini 3.8 Flash",
@@ -403,6 +464,18 @@ impl AiModel {
             AiModel::AntigravityGeminiProAgent      => "Gemini 3.1 Pro",
             AiModel::AntigravityGemini31ProLow      => "Gemini 3.1 Pro",
             other => other.display_name(),
+        }
+    }
+
+    pub fn from_catalog_id(id: &str) -> Option<AiModel> {
+        match id {
+            "qwen2.5-coder-1.5b-q4" => Some(AiModel::LocalQwen25Coder15b),
+            "qwen2.5-coder-7b-q4" => Some(AiModel::LocalQwen25Coder7b),
+            "deepseek-r1-distill-qwen-1.5b-q4" => Some(AiModel::LocalDeepSeekR1_15b),
+            "deepseek-r1-distill-qwen-7b-q4" => Some(AiModel::LocalDeepSeekR1_7b),
+            "llama-3.2-3b-q4" => Some(AiModel::LocalLlama32_3b),
+            "smollm2-1.7b-q4" => Some(AiModel::LocalSmolLM2_17b),
+            _ => None,
         }
     }
 }

@@ -65,13 +65,17 @@ fn print_version() {
 
 fn print_missing_keys_error() {
     eprintln!("\n{RED}{BOLD}✗ Error: No AI provider credentials found.{RESET}");
-    eprintln!("\nZENE can operate via API keys or your Google Account:\n");
-    eprintln!("  1. {CYAN}{BOLD}Google Antigravity{RESET} (Use your own Google ID via OAuth):");
+    eprintln!("\nZENE can operate via Cloud APIs, Google Account, or 100% Offline Local Models:\n");
+    eprintln!("  1. {CYAN}{BOLD}Local Offline Models{RESET} (Zero API Keys, Private, On-Device):");
+    eprintln!("     View catalog:  {GREEN}zene --local-models{RESET}");
+    eprintln!("     Download:      {GREEN}zene --download-model qwen2.5-coder-1.5b-q4{RESET}");
+    eprintln!("     Run directly:  {GREEN}zene -p local -m qwen2.5-coder-1.5b-q4{RESET}\n");
+    eprintln!("  2. {CYAN}{BOLD}Google Antigravity{RESET} (Use your own Google ID via OAuth):");
     eprintln!("     Login directly: {GREEN}zene --login{RESET} or run with {GREEN}zene -p antigravity{RESET}\n");
-    eprintln!("  2. {CYAN}{BOLD}Google Gemini{RESET} (API Key):");
+    eprintln!("  3. {CYAN}{BOLD}Google Gemini{RESET} (API Key):");
     eprintln!("     Get key: {DIM}https://aistudio.google.com/app/apikey{RESET}");
     eprintln!("     Set it:  {GREEN}export GEMINI_API_KEY=\"your-key-here\"{RESET}\n");
-    eprintln!("  3. {CYAN}{BOLD}Groq{RESET} (Ultra-low latency inference):");
+    eprintln!("  4. {CYAN}{BOLD}Groq{RESET} (Ultra-low latency inference):");
     eprintln!("     Get key: {DIM}https://console.groq.com/keys{RESET}");
     eprintln!("     Set it:  {GREEN}export GROQ_API_KEY=\"your-key-here\"{RESET}\n");
 }
@@ -86,16 +90,21 @@ fn print_help() {
     println!("{BOLD}OPTIONS:{RESET}");
     println!("  {GREEN}-v, --verbose{RESET}             Enable verbose diagnostic output (reflex latency, full tool args & outputs)");
     println!(
-        "  {GREEN}-p, --provider <NAME>{RESET}     AI provider: 'antigravity', 'gemini', or 'groq'"
+        "  {GREEN}-p, --provider <NAME>{RESET}     AI provider: 'local', 'antigravity', 'gemini', or 'groq'"
     );
-    println!("  {GREEN}-m, --model <NAME>{RESET}        Model identifier (e.g. gemini-3.8-flash-high, gemini-3.5-flash-lite)");
+    println!("  {GREEN}-m, --model <NAME>{RESET}        Model identifier (e.g. qwen2.5-coder-1.5b-q4, gemini-3.8-flash-high)");
     println!("  {GREEN}-w, --workspace <DIR>{RESET}     Target workspace directory (default: current directory)");
     println!("  {GREEN}--login{RESET}                   Log in with your Google Account / Google ID for Antigravity");
     println!("  {GREEN}--list-models{RESET}             List recommended models for each provider");
+    println!("  {GREEN}--local-models{RESET}            List installed & downloadable local GGUF models");
+    println!("  {GREEN}--download-model <ID>{RESET}     Download a local model with interactive progress");
     println!("  {GREEN}-V, --version{RESET}             Print version information");
     println!("  {GREEN}-h, --help{RESET}                Display this help message\n");
     println!("{BOLD}INTERACTIVE COMMANDS:{RESET} (when launched without [PROMPT])");
     println!("  {YELLOW}:help{RESET}                     Show command list");
+    println!("  {YELLOW}:models{RESET}                   List all models (cloud & local)");
+    println!("  {YELLOW}:local-models{RESET}             List local models and download status");
+    println!("  {YELLOW}:download <ID>{RESET}            Download and register a local model");
     println!("  {YELLOW}:rules{RESET}                    Show active project rules (AGENTS.md, .agents/rules)");
     println!("  {YELLOW}:trust [on|off]{RESET}           View or set workspace trust status");
     println!("  {YELLOW}:approve{RESET}                  Toggle manual/auto-approve mode on/off");
@@ -119,20 +128,125 @@ fn print_help() {
     );
 }
 
+fn print_local_models() {
+    let installed = agent::local_model::LocalModelManager::list_installed();
+    let models_dir = agent::local_model::LocalModelManager::models_dir();
+
+    println!("{BOLD}{CYAN}═══════════════════════════════════════════════════════════════{RESET}");
+    println!("{BOLD}{CYAN}                 ZENE Local Model Management                   {RESET}");
+    println!("{BOLD}{CYAN}═══════════════════════════════════════════════════════════════{RESET}");
+    println!("  {BOLD}Storage Path:{RESET} {DIM}{}{RESET}\n", models_dir.display());
+
+    println!("{BOLD}Installed Local Models ({}):{RESET}", installed.len());
+    if installed.is_empty() {
+        println!("  {DIM}No local models downloaded yet.{RESET}");
+    } else {
+        for m in &installed {
+            println!(
+                "  • {GREEN}{BOLD}{:<32}{RESET} [{YELLOW}{}{RESET}] {DIM}{}{RESET}",
+                m.id, m.file_size_display, m.filename
+            );
+        }
+    }
+
+    println!("\n{BOLD}Available Catalog Models for Download:{RESET}");
+    for m in agent::local_model::MODEL_CATALOG {
+        let is_inst = agent::local_model::LocalModelManager::is_downloaded(&m.id);
+        let status = if is_inst {
+            format!("{GREEN}✓ INSTALLED{RESET}")
+        } else {
+            format!("{CYAN}[DOWNLOADABLE]{RESET}")
+        };
+        println!(
+            "  • {BOLD}{:<32}{RESET} {} ({}) - {}",
+            m.id, status, m.size_display, m.name
+        );
+        println!("    {DIM}Purpose: {} | Ollama: {}{RESET}", m.recommended_for, m.ollama_tag);
+    }
+
+    println!("\n{BOLD}Quick Commands:{RESET}");
+    println!("  • Download: {GREEN}zene --download-model <id>{RESET} (e.g. {CYAN}zene --download-model qwen2.5-coder-1.5b-q4{RESET})");
+    println!("  • Run agent: {GREEN}zene -p local -m <id>{RESET} (e.g. {CYAN}zene -p local -m qwen2.5-coder-1.5b-q4{RESET})\n");
+}
+
+fn download_model_cli(id_or_tag: &str) -> Result<(), i32> {
+    let cat = match agent::local_model::find_catalog_model(id_or_tag) {
+        Some(c) => c,
+        None => {
+            eprintln!("{RED}Model '{}' not found in catalog.{RESET}", id_or_tag);
+            eprintln!("Run {GREEN}zene --local-models{RESET} to view all available models.");
+            return Err(1);
+        }
+    };
+
+    println!("{BOLD}{CYAN}Starting Download:{RESET} {GREEN}{}{RESET} ({})", cat.name, cat.size_display);
+    println!("  URL: {DIM}{}{RESET}", cat.download_url);
+    println!("  Target: {DIM}{}{RESET}\n", agent::local_model::LocalModelManager::models_dir().join(&cat.filename).display());
+
+    let mut last_pct = -1;
+    let res = agent::local_model::ModelDownloader::download(cat, None, |p| {
+        let pct_int = p.percentage as i32;
+        if pct_int != last_pct || p.is_finished {
+            last_pct = pct_int;
+            let bar_len: usize = 30;
+            let filled = ((p.percentage / 100.0) * bar_len as f32) as usize;
+            let empty = bar_len.saturating_sub(filled);
+            let bar = format!("{}{}", "=".repeat(filled), " ".repeat(empty));
+            let speed_mb = p.speed_bytes_per_sec as f64 / (1024.0 * 1024.0);
+            let downloaded_mb = p.downloaded_bytes as f64 / (1024.0 * 1024.0);
+            let total_mb = p.total_bytes as f64 / (1024.0 * 1024.0);
+            let eta = p.eta_seconds.map(|s| format!("{}s", s)).unwrap_or_else(|| "--".to_string());
+
+            print!("\r  [{CYAN}{bar}{RESET}] {BOLD}{:5.1}%{RESET} ({:.1}MB / {:.1}MB) {YELLOW}{:.2} MB/s{RESET} ETA: {eta}   ",
+                p.percentage, downloaded_mb, total_mb, speed_mb);
+            let _ = std::io::stdout().flush();
+        }
+    });
+
+    println!();
+    match res {
+        Ok(path) => {
+            println!("\n{BOLD}{GREEN}✓ Successfully downloaded and installed model!{RESET}");
+            println!("  Path: {DIM}{}{RESET}", path.display());
+            println!("  Run with: {BOLD}zene -p local -m {}{RESET}\n", cat.id);
+            Ok(())
+        }
+        Err(e) => {
+            eprintln!("\n{BOLD}{RED}✗ Download failed:{RESET} {e}");
+            Err(1)
+        }
+    }
+}
+
 fn print_models() {
     println!("{BOLD}{CYAN}Available & Tested Models:{RESET}\n");
-    println!("{BOLD}Google Antigravity Models (Authenticate with your Google ID):{RESET}");
+    println!("{BOLD}Local Offline Models (Zero API Keys, Private, On-Device):{RESET}");
+    let installed = agent::local_model::LocalModelManager::list_installed();
+    if installed.is_empty() {
+        println!("  {DIM}(No local models downloaded yet. Run 'zene --local-models' or 'zene --download-model <id>'){RESET}");
+    } else {
+        for m in &installed {
+            println!("  • {GREEN}{:<28}{RESET} [{}] (Local file)", m.id, m.file_size_display);
+        }
+    }
+    for m in agent::local_model::MODEL_CATALOG {
+        if !agent::local_model::LocalModelManager::is_downloaded(&m.id) {
+            println!("  • {DIM}{:<28} [{}] (Download via: zene --download-model {}){RESET}", m.id, m.size_display, m.id);
+        }
+    }
+
+    println!("\n{BOLD}Google Antigravity Models (Authenticate with your Google ID):{RESET}");
     for m in agent::external_provider::available_models() {
-        println!("  • {GREEN}{:<24}{RESET} {}", m.id, m.description);
+        println!("  • {GREEN}{:<28}{RESET} {}", m.id, m.description);
     }
     println!("\n{BOLD}Gemini API Models (Via GEMINI_API_KEY):{RESET}");
     println!(
-        "  • {GREEN}gemini-3.5-flash-lite{RESET}   Ultra-lightweight, high throughput (Default)"
+        "  • {GREEN}gemini-3.5-flash-lite{RESET}       Ultra-lightweight, high throughput (Default)"
     );
-    println!("  • {GREEN}gemini-3.5-flash{RESET}        Fast, full function-calling, generous daily quota\n");
+    println!("  • {GREEN}gemini-3.5-flash{RESET}            Fast, full function-calling, generous daily quota\n");
     println!("{BOLD}Groq Models (Via GROQ_API_KEY):{RESET}");
-    println!("  • {GREEN}openai/gpt-oss-120b{RESET}     High reasoning, full tool calling");
-    println!("  • {GREEN}openai/gpt-oss-20b{RESET}      Fast lightweight reasoning\n");
+    println!("  • {GREEN}openai/gpt-oss-120b{RESET}         High reasoning, full tool calling");
+    println!("  • {GREEN}openai/gpt-oss-20b{RESET}          Fast lightweight reasoning\n");
 }
 
 fn parse_args() -> Result<CliConfig, i32> {
@@ -154,6 +268,20 @@ fn parse_args() -> Result<CliConfig, i32> {
             "--list-models" => {
                 print_models();
                 return Err(0);
+            }
+            "--local-models" | "--list-local-models" => {
+                print_local_models();
+                return Err(0);
+            }
+            "--download-model" | "--download" => {
+                if i + 1 < args.len() {
+                    let model_to_download = args[i + 1].clone();
+                    download_model_cli(&model_to_download)?;
+                    return Err(0);
+                } else {
+                    eprintln!("{RED}Error: --download-model requires a model identifier (e.g. qwen2.5-coder-1.5b-q4){RESET}");
+                    return Err(1);
+                }
             }
             "--login" | "login" => {
                 println!("{BOLD}{CYAN}Initiating Google Antigravity OAuth Login...{RESET}");
@@ -188,6 +316,13 @@ fn parse_args() -> Result<CliConfig, i32> {
                     config.provider = args[i + 1].to_lowercase();
                     if config.provider == "antigravity" && config.model == "gemini-3.5-flash-lite" {
                         config.model = "gemini-3.8-flash-high".to_string();
+                    } else if config.provider == "local" && (config.model.starts_with("gemini") || config.model.starts_with("openai")) {
+                        let installed = agent::local_model::LocalModelManager::list_installed();
+                        if let Some(first) = installed.first() {
+                            config.model = first.id.clone();
+                        } else {
+                            config.model = "qwen2.5-coder-1.5b-q4".to_string();
+                        }
                     }
                     i += 1;
                 }
@@ -195,6 +330,13 @@ fn parse_args() -> Result<CliConfig, i32> {
             "-m" | "--model" => {
                 if i + 1 < args.len() {
                     config.model = args[i + 1].clone();
+                    if config.provider != "antigravity" && config.provider != "gemini" && config.provider != "groq" {
+                        if agent::local_model::LocalModelManager::is_downloaded(&config.model)
+                            || agent::local_model::find_catalog_model(&config.model).is_some()
+                        {
+                            config.provider = "local".to_string();
+                        }
+                    }
                     i += 1;
                 }
             }
@@ -597,6 +739,23 @@ fn run_interactive(mut config: CliConfig) {
                     );
                     continue;
                 }
+                ":models" => {
+                    print_models();
+                    continue;
+                }
+                ":local-models" => {
+                    print_local_models();
+                    continue;
+                }
+                cmd if cmd.starts_with(":download ") => {
+                    let id_to_download = cmd.strip_prefix(":download ").unwrap().trim();
+                    if !id_to_download.is_empty() {
+                        let _ = download_model_cli(id_to_download);
+                    } else {
+                        println!("{RED}Usage: :download <model-id> (e.g. :download qwen2.5-coder-1.5b-q4){RESET}");
+                    }
+                    continue;
+                }
                 ":clear" => {
                     session_json = None;
                     if let Some(fresh) = agent::create_agent_for_model_and_workspace(
@@ -613,6 +772,11 @@ fn run_interactive(mut config: CliConfig) {
                     let new_model = cmd.strip_prefix(":model ").unwrap().trim();
                     if !new_model.is_empty() {
                         config.model = new_model.to_string();
+                        if agent::local_model::LocalModelManager::is_downloaded(&config.model)
+                            || agent::local_model::find_catalog_model(&config.model).is_some()
+                        {
+                            config.provider = "local".to_string();
+                        }
                         if let Some(mut fresh) = agent::create_agent_for_model_and_workspace(
                             &config.provider,
                             &config.model,
@@ -622,7 +786,7 @@ fn run_interactive(mut config: CliConfig) {
                                 let _ = fresh.import_session_json(json);
                             }
                             agent = fresh;
-                            println!("{GREEN}Switched model to: {}{RESET}", config.model);
+                            println!("{GREEN}Switched model to: {} (provider: {}){RESET}", config.model, config.provider);
                         } else {
                             println!("{RED}Failed to switch to model: {}{RESET}", config.model);
                         }

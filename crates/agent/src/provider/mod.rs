@@ -1,6 +1,7 @@
 pub mod config;
 pub mod gemini;
 pub mod groq;
+pub mod local;
 
 pub use config::{ZenthreeConfig, KNOWN_PROVIDERS};
 
@@ -10,6 +11,7 @@ use crate::traits::provider::Provider;
 
 pub use gemini::GeminiProvider;
 pub use groq::GroqProvider;
+pub use local::LocalProvider;
 
 /// Simple helper to get an API key.
 /// Priority:
@@ -116,6 +118,10 @@ pub fn available_models() -> Vec<(String, String)> {
             }
         }
     }
+    // Local models
+    for lm in crate::local_model::LocalModelManager::list_installed() {
+        result.push(("local".to_string(), lm.id));
+    }
     result
 }
 
@@ -181,11 +187,15 @@ pub fn create_default_provider() -> Option<Box<dyn Provider>> {
     if let Some(key) = get_key("GEMINI_API_KEY") {
         return Some(Box::new(GeminiProvider::new(key)));
     }
+    let installed = crate::local_model::LocalModelManager::list_installed();
+    if let Some(first) = installed.first() {
+        return Some(Box::new(LocalProvider::new(&first.id)));
+    }
     None
 }
 
 /// Instantiate a specific provider by name + model ID.
-/// `provider_name`: `"gemini"` or `"groq"` (case-insensitive).
+/// `provider_name`: `"gemini"`, `"groq"`, `"antigravity"`, or `"local"`.
 /// Falls back to `create_default_provider()` if the requested key is missing.
 pub fn create_provider_for(provider_name: &str, model_id: &str) -> Option<Box<dyn Provider>> {
     match provider_name.to_lowercase().as_str() {
@@ -200,6 +210,17 @@ pub fn create_provider_for(provider_name: &str, model_id: &str) -> Option<Box<dy
         "antigravity" | "antigravity_cli" | "google_antigravity" => {
             Some(Box::new(crate::external_provider::create_antigravity_provider(Some(model_id))))
         }
-        _ => create_default_provider(),
+        "local" | "ollama" | "llamacpp" | "local_model" | "offline" => {
+            Some(Box::new(LocalProvider::new(model_id)))
+        }
+        _ => {
+            if crate::local_model::LocalModelManager::is_downloaded(model_id)
+                || crate::local_model::find_catalog_model(model_id).is_some()
+            {
+                Some(Box::new(LocalProvider::new(model_id)))
+            } else {
+                create_default_provider()
+            }
+        }
     }
 }

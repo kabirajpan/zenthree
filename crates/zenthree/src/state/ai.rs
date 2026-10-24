@@ -362,6 +362,7 @@ impl ZenthreeState {
                 crate::state::AiProvider::Antigravity => "antigravity",
                 crate::state::AiProvider::Gemini => "gemini",
                 crate::state::AiProvider::Groq => "groq",
+                crate::state::AiProvider::Local => "local",
             };
 
             let maybe_agent = if has_workspace {
@@ -391,8 +392,29 @@ impl ZenthreeState {
                     let _ = agent.import_session_json(json);
                 }
 
-                // On the first turn inject a system message with workspace context, git context, ZENE skills, and Level 1 Tool Manifest
-                if is_fresh_session {
+                // On the first turn inject system message (tailored for local vs cloud models)
+                if selected_model.is_local() {
+                    let sys_msg = format!(
+                        "You are a helpful, fast, and concise local AI coding assistant.\n\
+                        Workspace: {}\n\
+                        Platform: {} ({})\n\
+                        Environment: Zenthree IDE (Local Model)\n\n\
+                        Guidelines:\n\
+                        - Answer questions accurately and concisely.\n\
+                        - When writing code, provide clean, idiomatic snippets.\n\
+                        - Keep explanations brief and helpful.",
+                        current_dir.display(),
+                        std::env::consts::OS,
+                        std::env::consts::ARCH,
+                    );
+                    if is_fresh_session {
+                        agent.push_system_message(sys_msg);
+                    } else if let Some(first) = agent.conversation_mut().first_mut() {
+                        if first.role == agent::types::Role::System {
+                            first.content = sys_msg;
+                        }
+                    }
+                } else if is_fresh_session {
                     if has_workspace {
                         let skills_summary = agent.skills().prompt_summary();
                         let tools_manifest = agent.tools().manifest();
