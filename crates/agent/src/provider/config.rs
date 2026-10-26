@@ -12,6 +12,16 @@ pub struct ProviderConfig {
     /// Available models — required for custom providers, auto-filled for known ones.
     #[serde(skip_serializing_if = "Option::is_none")]
     pub models: Option<Vec<String>>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub local_context_window: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub local_max_new_tokens: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub local_batch_size: Option<u32>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub local_gpu_acceleration: Option<bool>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub local_offload_layers: Option<u32>,
 }
 
 /// Top-level structure of ~/.zenthree/config.json.
@@ -161,5 +171,22 @@ impl ZenthreeConfig {
     pub fn get_key_by_env_var(&self, env_var: &str) -> Option<String> {
         let provider = KNOWN_PROVIDERS.iter().find(|p| p.env_var == env_var)?;
         self.get_provider_key(provider.name)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::ZenthreeConfig;
+
+    #[test]
+    fn older_provider_config_loads_without_local_runtime_options() {
+        let config: ZenthreeConfig = serde_json::from_str(
+            r#"{"providers":{"local":{"key":"","base_url":"http://127.0.0.1:8080/v1"}}}"#,
+        )
+        .expect("legacy provider config should remain valid");
+        let local = config.providers.get("local").expect("local provider");
+        assert_eq!(local.base_url.as_deref(), Some("http://127.0.0.1:8080/v1"));
+        assert!(local.local_context_window.is_none());
+        assert!(local.local_max_new_tokens.is_none());
     }
 }

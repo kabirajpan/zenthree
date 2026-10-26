@@ -69,6 +69,24 @@ pub struct AiSettingsState {
     pub antigravity_model_dropdown_open: bool,
     #[serde(default)]
     pub selected_antigravity_model_id: Option<String>,
+    #[serde(skip)]
+    pub local_models_search_query: String,
+    #[serde(skip)]
+    pub local_model_add_open: bool,
+    #[serde(skip)]
+    pub model_picker_open: bool,
+    #[serde(skip)]
+    pub local_runtime_settings_loaded: bool,
+    #[serde(skip)]
+    pub local_context_window: u32,
+    #[serde(skip)]
+    pub local_max_new_tokens: u32,
+    #[serde(skip)]
+    pub local_batch_size: u32,
+    #[serde(skip)]
+    pub local_gpu_acceleration: bool,
+    #[serde(skip)]
+    pub local_offload_layers: Option<u32>,
 }
 
 fn default_true() -> bool {
@@ -108,6 +126,15 @@ impl Default for AiSettingsState {
             custom_provider_url: String::new(),
             antigravity_model_dropdown_open: false,
             selected_antigravity_model_id: None,
+            local_models_search_query: String::new(),
+            local_model_add_open: false,
+            model_picker_open: false,
+            local_runtime_settings_loaded: false,
+            local_context_window: 4096,
+            local_max_new_tokens: 512,
+            local_batch_size: 32,
+            local_gpu_acceleration: true,
+            local_offload_layers: None,
         }
     }
 }

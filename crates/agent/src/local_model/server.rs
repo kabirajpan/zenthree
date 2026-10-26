@@ -3,9 +3,29 @@ use std::process::Child;
 use std::sync::Mutex;
 use std::time::{Duration, Instant};
 use crate::local_model::manager::LocalModelManager;
+use crate::provider::config::ZenthreeConfig;
 
 static MANAGED_SERVER_PROCESS: Mutex<Option<Child>> = Mutex::new(None);
 static MANAGED_MODEL_NAME: Mutex<Option<String>> = Mutex::new(None);
+
+#[derive(Debug, Clone, Copy)]
+pub struct LocalRuntimeOptions {
+    pub context_window: u32,
+    pub batch_size: u32,
+    pub gpu_acceleration: bool,
+    pub offload_layers: Option<u32>,
+}
+
+impl Default for LocalRuntimeOptions {
+    fn default() -> Self {
+        Self {
+            context_window: 4096,
+            batch_size: 32,
+            gpu_acceleration: true,
+            offload_layers: None,
+        }
+    }
+}
 
 pub struct LocalServerManager;
 
@@ -96,6 +116,29 @@ impl LocalServerManager {
 
     /// Start llama-server for a specific downloaded model
     pub fn start_server_for_model(model_id_or_file: &str) -> Result<String, String> {
+        let config = ZenthreeConfig::load();
+        let local = config.providers.get("local");
+        let options = LocalRuntimeOptions {
+            context_window: local
+                .and_then(|entry| entry.local_context_window)
+                .unwrap_or(4096)
+                .max(512),
+            batch_size: local
+                .and_then(|entry| entry.local_batch_size)
+                .unwrap_or(32)
+                .max(1),
+            gpu_acceleration: local
+                .and_then(|entry| entry.local_gpu_acceleration)
+                .unwrap_or(true),
+            offload_layers: local.and_then(|entry| entry.local_offload_layers),
+        };
+        Self::start_server_for_model_with_options(model_id_or_file, options)
+    }
+
+    pub fn start_server_for_model_with_options(
+        model_id_or_file: &str,
+        options: LocalRuntimeOptions,
+    ) -> Result<String, String> {
         // 1. If server is already running for this model, return active endpoint
         if let Some(ep) = Self::probe_active_endpoint() {
             let cur = Self::current_running_model();
@@ -139,7 +182,15 @@ impl LocalServerManager {
             .arg("--host")
             .arg("127.0.0.1")
             .arg("-c")
-            .arg("4096")
+            .arg(options.context_window.max(512).to_string())
+            .arg("-b")
+            .arg(options.batch_size.max(1).to_string())
+            .arg("-ngl")
+            .arg(if options.gpu_acceleration {
+                options.offload_layers.unwrap_or(999).to_string()
+            } else {
+                "0".to_string()
+            })
             .arg("-np")
             .arg("1")
             .arg("-t")

@@ -94,6 +94,13 @@ pub fn draw_ai_settings_dialog(ui: &mut Ui, state: &mut ZenthreeState) {
     );
 
     if close_on_esc {
+        if state.ai_settings.local_model_add_open {
+            state.ai_settings.local_model_add_open = false;
+            ui.interaction_state
+                .remove(&Id::from_u64((Id::from_u64(999997311).raw() << 8) | 5));
+            ui.needs_redraw = true;
+            return;
+        }
         if state.ai_settings.antigravity_model_dropdown_open {
             state.ai_settings.antigravity_model_dropdown_open = false;
             ui.needs_redraw = true;
@@ -109,7 +116,7 @@ pub fn draw_ai_settings_dialog(ui: &mut Ui, state: &mut ZenthreeState) {
     // Outside click detection: dismiss only if user clicked OUTSIDE the dialog card bounds
     if state.ai_settings.just_opened {
         state.ai_settings.just_opened = false;
-    } else {
+    } else if !state.ai_settings.local_model_add_open {
         let mouse_in_dialog = ui.mouse_in_rect(center_x, center_y, win_w, win_h);
         if ui.clicked && !mouse_in_dialog {
             if state.ai_settings.antigravity_model_dropdown_open {
@@ -346,7 +353,223 @@ pub fn draw_ai_settings_dialog(ui: &mut Ui, state: &mut ZenthreeState) {
     // NOTE: The Antigravity model popover is rendered from main.rs at the top level
     // (after all dialog content) so it correctly draws on top of the dialog card.
 
+    if state.ai_settings.local_model_add_open {
+        draw_local_model_add_modal(ui, state, &colors);
+    }
+
     ui.current_window_id = prev_win_id;
+}
+
+fn draw_local_model_add_modal(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColors) {
+    let viewport = ui.current_viewport;
+    let width = 480.0;
+    let height = 220.0;
+    let x = viewport.origin.x + (viewport.size.width - width) / 2.0;
+    let y = viewport.origin.y + (viewport.size.height - height) / 2.0;
+    ui.overlays.push(zenthra_widgets::ui::DrawCommand::Rect(
+        zenthra_widgets::ui::RectDraw {
+            instance: zenthra_render::RectInstance {
+                pos: [viewport.origin.x, viewport.origin.y],
+                size: [viewport.size.width, viewport.size.height],
+                color: [0.0, 0.0, 0.0, 0.45],
+                radius: [0.0; 4],
+                ..Default::default()
+            },
+        },
+    ));
+
+    let modal_id = Id::from_u64(999997311);
+    let modal_key = Id::from_u64((modal_id.raw() << 8) | 5);
+    ui.interaction_state.insert(modal_key, 1.0);
+    let previous_window = ui.current_window_id;
+    let previous_modal_window = ui.modal_window_id;
+    ui.current_window_id = Some(modal_id);
+    ui.modal_window_id = Some(modal_id);
+    ui.record_layout(
+        modal_id,
+        zenthra_core::Rect::new(x, y, width, height),
+    );
+
+    let mut close = false;
+    let mut choose_catalog = false;
+    let mut import_file = false;
+    let mut escape = false;
+    ui.input_events.retain(|event| {
+        if let zenthra_platform::event::PlatformEvent::KeyDown { key } = event {
+            if *key == winit::keyboard::KeyCode::Escape {
+                escape = true;
+                return false;
+            }
+        }
+        true
+    });
+    if escape {
+        close = true;
+    }
+    if ui.clicked && !ui.mouse_in_rect(x, y, width, height) {
+        close = true;
+        ui.consume_click();
+    }
+
+    ui.container()
+        .id(modal_id)
+        .pos(x, y)
+        .overlay()
+        .width(width)
+        .height(height)
+        .bg(colors.bg_sidebar)
+        .border((colors.border.with_alpha(0.55), 1.0))
+        .radius_all(8.0)
+        .shadow(Color::rgba(0.0, 0.0, 0.0, 0.4), 0.0, 10.0, 28.0)
+        .column()
+        .clip(true)
+        .show(|ui| {
+            ui.container()
+                .fill_x()
+                .height(42.0)
+                .padding(0.0, 14.0, 0.0, 14.0)
+                .bg(colors.bg_base.with_alpha(0.6))
+                .row()
+                .valign(Align::Center)
+                .halign(Align::SpaceBetween)
+                .show(|ui| {
+                    ui.text("Add Local Model")
+                        .size(12.5)
+                        .font_weight(FontWeight::Bold)
+                        .color(colors.text_primary)
+                        .show();
+                    let close_button = ui
+                        .container()
+                        .interactive(true)
+                        .padding(4.0, 7.0, 4.0, 7.0)
+                        .radius_all(4.0)
+                        .hover(Style::bg(colors.highlight))
+                        .show(|ui| {
+                            ui.text("\u{f00d}")
+                                .size(10.0)
+                                .color(colors.text_muted)
+                                .show();
+                        });
+                    if close_button.clicked {
+                        close = true;
+                    }
+                });
+            ui.container()
+                .fill_x()
+                .padding(14.0, 16.0, 14.0, 16.0)
+                .column()
+                .gap(6.0)
+                .show(|ui| {
+                    ui.text("Choose how you want to add a local model.")
+                        .size(10.5)
+                        .color(colors.text_muted)
+                        .show();
+                    ui.container()
+                        .fill_x()
+                        .row()
+                        .valign(Align::Center)
+                        .gap(10.0)
+                        .show(|ui| {
+                            for (label, description, is_import) in [
+                                ("Download from Hub", "Choose a verified GGUF model", false),
+                                ("Local File (GGUF)", "Import a supported model file", true),
+                            ] {
+                                let button = ui
+                                    .container()
+                                    .width(210.0)
+                                    .height(84.0)
+                                    .interactive(true)
+                                    .padding(10.0, 12.0, 10.0, 12.0)
+                                    .radius_all(6.0)
+                                    .bg(colors.bg_base)
+                                    .border((colors.border.with_alpha(0.4), 0.75))
+                                    .hover(Style::bg(colors.highlight))
+                                    .column()
+                                    .gap(5.0)
+                                    .show(|ui| {
+                                        ui.text(if is_import { "\u{f07c}" } else { "\u{f0ed}" })
+                                            .size(13.0)
+                                            .color(colors.accent)
+                                            .show();
+                                        ui.text(label)
+                                            .size(10.5)
+                                            .font_weight(FontWeight::SemiBold)
+                                            .color(colors.text_primary)
+                                            .show();
+                                        ui.text(description)
+                                            .size(9.0)
+                                            .color(colors.text_muted)
+                                            .show();
+                                    });
+                                if button.hovered {
+                                    ui.cursor_icon = CursorIcon::Pointer;
+                                }
+                                if button.clicked {
+                                    if is_import {
+                                        import_file = true;
+                                    } else {
+                                        choose_catalog = true;
+                                    }
+                                }
+                            }
+                        });
+                    ui.text("Additional sources and formats can be added in a future update.")
+                        .size(9.0)
+                        .color(colors.text_muted.with_alpha(0.75))
+                        .show();
+                });
+        });
+
+    ui.current_window_id = previous_window;
+    ui.modal_window_id = previous_modal_window;
+    if import_file {
+        if let Some(path) = rfd::FileDialog::new()
+            .add_filter("Supported GGUF models", &["gguf"])
+            .pick_file()
+        {
+            import_supported_local_model(state, &path);
+        }
+        close = true;
+    }
+    if choose_catalog {
+        state.ai_settings.local_models_search_query.clear();
+        state.set_status("Choose a model from the verified catalog below".to_string());
+        close = true;
+    }
+    if close {
+        state.ai_settings.local_model_add_open = false;
+        ui.interaction_state.remove(&modal_key);
+        ui.consume_click();
+        ui.needs_redraw = true;
+    }
+}
+
+fn import_supported_local_model(state: &mut ZenthreeState, source: &std::path::Path) {
+    let filename = source
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or_default();
+    let catalog_model = agent::local_model::MODEL_CATALOG
+        .iter()
+        .find(|model| model.filename.eq_ignore_ascii_case(filename));
+    match catalog_model {
+        Some(model) => match agent::local_model::LocalModelManager::ensure_dir() {
+            Ok(dir) => {
+                let destination = dir.join(model.filename);
+                if destination.exists() {
+                    state.set_status(format!("{} is already installed", model.name));
+                } else if let Err(error) = std::fs::copy(source, &destination) {
+                    state.set_status(format!("Could not import model: {error}"));
+                } else {
+                    state.set_status(format!("Imported {}", model.name));
+                }
+            }
+            Err(error) => state.set_status(format!("Could not open model storage: {error}")),
+        },
+        None => state.set_status(
+            "This GGUF filename is not in the supported local model catalog".to_string(),
+        ),
+    }
 }
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -902,15 +1125,74 @@ fn draw_model_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColors) 
                 ui.cursor_icon = CursorIcon::Pointer;
             }
             if model_pill.clicked {
-                let all = AiModel::ALL;
-                let idx = all
-                    .iter()
-                    .position(|m| *m == state.selected_ai_model)
-                    .unwrap_or(0);
-                state.selected_ai_model = all[(idx + 1) % all.len()];
+                state.ai_settings.model_picker_open = !state.ai_settings.model_picker_open;
                 ui.needs_redraw = true;
             }
         });
+
+    if state.ai_settings.model_picker_open {
+        ui.container()
+            .fill_x()
+            .padding(6.0, 8.0, 6.0, 8.0)
+            .radius_all(6.0)
+            .bg(colors.bg_base)
+            .border((colors.border.with_alpha(0.5), 0.75))
+            .column()
+            .gap(2.0)
+            .show(|ui| {
+                for model in AiModel::ALL {
+                    if model.is_local()
+                        && !agent::local_model::LocalModelManager::is_downloaded(model.model_id())
+                    {
+                        continue;
+                    }
+                    let selected = model == state.selected_ai_model;
+                    let option = ui
+                        .container()
+                        .fill_x()
+                        .interactive(true)
+                        .padding(5.0, 8.0, 5.0, 8.0)
+                        .radius_all(4.0)
+                        .bg(if selected {
+                            colors.accent.with_alpha(0.14)
+                        } else {
+                            Color::TRANSPARENT
+                        })
+                        .hover(Style::bg(colors.highlight))
+                        .row()
+                        .valign(Align::Center)
+                        .halign(Align::SpaceBetween)
+                        .show(|ui| {
+                            ui.text(model.display_name())
+                                .size(10.5)
+                                .color(if selected {
+                                    colors.accent
+                                } else {
+                                    colors.text_primary
+                                })
+                                .show();
+                            ui.text(if model.is_local() { "LOCAL" } else { "CLOUD" })
+                                .size(8.0)
+                                .color(colors.text_muted)
+                                .show();
+                        });
+                    if option.hovered {
+                        ui.cursor_icon = CursorIcon::Pointer;
+                    }
+                    if option.clicked {
+                        state.selected_ai_model = model;
+                        state.selected_agent = if model.is_antigravity() {
+                            SelectedAgent::Antigravity
+                        } else {
+                            SelectedAgent::Zene
+                        };
+                        state.ai_settings.model_picker_open = false;
+                        state.save_persistent_state();
+                        ui.needs_redraw = true;
+                    }
+                }
+            });
+    }
 
     draw_settings_divider(ui, colors);
 
@@ -2066,6 +2348,10 @@ fn draw_local_models_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeC
     let download_status = LOCAL_DOWNLOAD_STATUS.lock().unwrap().clone();
     let download_error = LOCAL_DOWNLOAD_ERROR.lock().unwrap().clone();
     let download_success = LOCAL_DOWNLOAD_SUCCESS.lock().unwrap().clone();
+    let search_query = state.ai_settings.local_models_search_query.to_lowercase();
+    let mut model_to_download: Option<agent::local_model::CatalogModel> = None;
+    let mut model_to_select: Option<AiModel> = None;
+    let mut model_to_delete: Option<String> = None;
 
     // ── Top Bar: Directory Path & Open Folder Action ──
     ui.container()
@@ -2236,6 +2522,279 @@ fn draw_local_models_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeC
                 }
             }
         });
+
+    // ── Installed Models ──
+    ui.container()
+        .fill_x()
+        .row()
+        .valign(Align::Center)
+        .halign(Align::SpaceBetween)
+        .show(|ui| {
+            ui.container().column().gap(2.0).show(|ui| {
+                ui.text("Local Models")
+                    .size(13.0)
+                    .font_weight(FontWeight::Bold)
+                    .color(colors.text_primary)
+                    .show();
+                ui.text("Manage downloaded models and choose the default for this workspace.")
+                    .size(10.5)
+                    .color(colors.text_muted)
+                    .show();
+            });
+
+            let add_btn = ui
+                .container()
+                .interactive(true)
+                .padding(5.0, 10.0, 5.0, 10.0)
+                .radius_all(5.0)
+                .bg(colors.accent.with_alpha(0.15))
+                .border((colors.accent.with_alpha(0.4), 0.75))
+                .hover(Style::bg(colors.accent.with_alpha(0.28)))
+                .row()
+                .valign(Align::Center)
+                .gap(5.0)
+                .show(|ui| {
+                    ui.text("\u{f067}")
+                        .size(10.0)
+                        .color(colors.accent)
+                        .show();
+                    ui.text("Add Local Model")
+                        .size(10.0)
+                        .font_weight(FontWeight::SemiBold)
+                        .color(colors.accent)
+                        .show();
+                });
+
+            if add_btn.hovered {
+                ui.cursor_icon = CursorIcon::Pointer;
+            }
+            if add_btn.clicked {
+                state.ai_settings.local_model_add_open = true;
+                ui.consume_click();
+                ui.needs_redraw = true;
+            }
+        });
+
+    ui.container()
+        .fill_x()
+        .height(28.0)
+        .bg(colors.bg_base)
+        .border((colors.border.with_alpha(0.5), 0.75))
+        .radius_all(5.0)
+        .padding_left(8.0)
+        .padding_right(8.0)
+        .row()
+        .valign(Align::Center)
+        .gap(7.0)
+        .show(|ui| {
+            ui.text("\u{f002}")
+                .size(10.0)
+                .color(colors.text_muted)
+                .show();
+            ui.input(&mut state.ai_settings.local_models_search_query)
+                .id(Id::from_u64(999997310))
+                .fill_x()
+                .bg(Color::TRANSPARENT)
+                .border(None)
+                .color(colors.text_primary)
+                .size(10.5)
+                .show();
+        });
+
+    let visible_installed: Vec<_> = installed_models
+        .iter()
+        .filter(|model| {
+            search_query.is_empty()
+                || model.name.to_lowercase().contains(&search_query)
+                || model.filename.to_lowercase().contains(&search_query)
+        })
+        .collect();
+    if !visible_installed.is_empty() {
+        ui.container()
+            .fill_x()
+            .padding(8.0, 10.0, 8.0, 10.0)
+            .radius_all(6.0)
+            .bg(colors.bg_base)
+            .border((colors.border.with_alpha(0.4), 0.75))
+            .column()
+            .gap(5.0)
+            .show(|ui| {
+                ui.container()
+                    .fill_x()
+                    .row()
+                    .valign(Align::Center)
+                    .show(|ui| {
+                        ui.container().width(230.0).show(|ui| {
+                            ui.text("MODEL NAME")
+                                .size(8.5)
+                                .font_weight(FontWeight::Bold)
+                                .color(colors.text_muted)
+                                .show();
+                        });
+                        ui.container().width(80.0).show(|ui| {
+                            ui.text("SIZE")
+                                .size(8.5)
+                                .font_weight(FontWeight::Bold)
+                                .color(colors.text_muted)
+                                .show();
+                        });
+                        ui.container().width(90.0).show(|ui| {
+                            ui.text("STATUS")
+                                .size(8.5)
+                                .font_weight(FontWeight::Bold)
+                                .color(colors.text_muted)
+                                .show();
+                        });
+                        ui.text("ACTIONS")
+                            .size(8.5)
+                            .font_weight(FontWeight::Bold)
+                            .color(colors.text_muted)
+                            .show();
+                    });
+
+                for model in &visible_installed {
+                    let catalog_model = model
+                        .catalog_id
+                        .as_deref()
+                        .and_then(AiModel::from_catalog_id);
+                    let is_selected = catalog_model
+                        .map(|ai_model| ai_model == state.selected_ai_model)
+                        .unwrap_or(false);
+                    let is_loading = is_downloading
+                        && downloading_model_id.as_deref() == Some(model.name.as_str());
+                    let status = if is_loading {
+                        ("↓ Downloading", colors.accent)
+                    } else if is_selected && is_server_running {
+                        ("● Ready", Color::rgb(74.0 / 255.0, 222.0 / 255.0, 128.0 / 255.0))
+                    } else if is_selected {
+                        ("○ Idle", colors.text_muted)
+                    } else {
+                        ("○ Installed", colors.text_muted)
+                    };
+
+                    ui.container()
+                        .fill_x()
+                        .padding(3.0, 0.0, 3.0, 0.0)
+                        .row()
+                        .valign(Align::Center)
+                        .show(|ui| {
+                            ui.container().width(230.0).show(|ui| {
+                                ui.text(&model.name)
+                                    .size(10.0)
+                                    .color(colors.text_primary)
+                                    .show();
+                            });
+                            ui.container().width(80.0).show(|ui| {
+                                ui.text(&model.file_size_display)
+                                    .size(9.5)
+                                    .color(colors.text_muted)
+                                    .show();
+                            });
+                            ui.container().width(90.0).show(|ui| {
+                                ui.text(status.0)
+                                    .size(9.0)
+                                    .color(status.1)
+                                    .show();
+                            });
+                            ui.container()
+                                .row()
+                                .valign(Align::Center)
+                                .gap(4.0)
+                                .show(|ui| {
+                                    if let Some(ai_model) = catalog_model {
+                                        let select = ui
+                                            .container()
+                                            .interactive(true)
+                                            .padding(3.0, 7.0, 3.0, 7.0)
+                                            .radius_all(4.0)
+                                            .bg(if is_selected {
+                                                colors.accent.with_alpha(0.2)
+                                            } else {
+                                                colors.highlight.with_alpha(0.12)
+                                            })
+                                            .hover(Style::bg(colors.highlight))
+                                            .show(|ui| {
+                                                ui.text(if is_selected { "Default" } else { "Use" })
+                                                    .size(9.0)
+                                                    .color(if is_selected {
+                                                        colors.accent
+                                                    } else {
+                                                        colors.text_primary
+                                                    })
+                                                    .show();
+                                            });
+                                        if select.hovered {
+                                            ui.cursor_icon = CursorIcon::Pointer;
+                                        }
+                                        if select.clicked && !is_selected {
+                                            model_to_select = Some(ai_model);
+                                        }
+
+                                        let configure = ui
+                                            .container()
+                                            .interactive(true)
+                                            .padding(3.0, 6.0, 3.0, 6.0)
+                                            .radius_all(4.0)
+                                            .hover(Style::bg(colors.highlight))
+                                            .show(|ui| {
+                                                ui.text("\u{f013}")
+                                                    .size(9.0)
+                                                    .color(colors.text_muted)
+                                                    .show();
+                                            });
+                                        if configure.hovered {
+                                            ui.cursor_icon = CursorIcon::Pointer;
+                                        }
+                                        if configure.clicked {
+                                            state.ai_settings.active_tab = AiSettingsTab::Model;
+                                            ui.needs_redraw = true;
+                                        }
+                                    }
+
+                                    let delete = ui
+                                        .container()
+                                        .interactive(true)
+                                        .padding(3.0, 6.0, 3.0, 6.0)
+                                        .radius_all(4.0)
+                                        .hover(Style::bg(Color::rgba(
+                                            239.0 / 255.0,
+                                            68.0 / 255.0,
+                                            68.0 / 255.0,
+                                            0.2,
+                                        )))
+                                        .show(|ui| {
+                                            ui.text("\u{f1f8}")
+                                                .size(9.0)
+                                                .color(colors.text_muted)
+                                                .show();
+                                        });
+                                    if delete.hovered {
+                                        ui.cursor_icon = CursorIcon::Pointer;
+                                    }
+                                    if delete.clicked {
+                                        model_to_delete = Some(model.id.clone());
+                                    }
+                                });
+                        });
+                }
+            });
+    } else if search_query.is_empty() {
+        ui.container()
+            .fill_x()
+            .padding(12.0, 10.0, 12.0, 10.0)
+            .radius_all(6.0)
+            .bg(colors.bg_base)
+            .border((colors.border.with_alpha(0.4), 0.75))
+            .halign(Align::Center)
+            .show(|ui| {
+                ui.text("No local models installed yet. Download one from the catalog below.")
+                    .size(10.0)
+                    .color(colors.text_muted)
+                    .show();
+            });
+    }
+
+    draw_local_runtime_settings(ui, state, colors);
 
     // ── Success / Error Notifications ──
     if let Some(msg) = download_success {
@@ -2461,11 +3020,15 @@ fn draw_local_models_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeC
             .show();
     });
 
-    let mut model_to_download: Option<agent::local_model::CatalogModel> = None;
-    let mut model_to_select: Option<AiModel> = None;
-    let mut model_to_delete: Option<String> = None;
-
     for cat in agent::local_model::MODEL_CATALOG {
+        let search_matches = search_query.is_empty()
+            || cat.name.to_lowercase().contains(&search_query)
+            || cat.description.to_lowercase().contains(&search_query)
+            || cat.ollama_tag.to_lowercase().contains(&search_query);
+        if !search_matches {
+            continue;
+        }
+
         let is_inst = agent::local_model::LocalModelManager::is_downloaded(cat.id);
         let is_this_downloading = is_downloading && downloading_model_id.as_deref() == Some(cat.name);
         let corresponding_ai_model = AiModel::from_catalog_id(cat.id);
@@ -2542,17 +3105,6 @@ fn draw_local_models_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeC
                         .size(10.5)
                         .color(colors.text_muted)
                         .show();
-
-                    ui.container().row().valign(Align::Center).gap(8.0).show(|ui| {
-                        ui.text(&format!("Recommended: {}", cat.recommended_for))
-                            .size(9.5)
-                            .color(colors.text_muted.with_alpha(0.75))
-                            .show();
-                        ui.text(&format!("• Ollama: {}", cat.ollama_tag))
-                            .size(9.5)
-                            .color(colors.text_muted.with_alpha(0.6))
-                            .show();
-                    });
                 });
 
                 // Right actions
@@ -2709,10 +3261,19 @@ fn draw_local_models_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeC
     }
 
     if let Some(id_to_del) = model_to_delete {
-        let _ = agent::local_model::LocalModelManager::delete_model(&id_to_del);
-        if state.selected_ai_model.model_id() == id_to_del {
-            state.selected_ai_model = AiModel::Gemini35Flash;
-            state.save_persistent_state();
+        match agent::local_model::LocalModelManager::delete_model(&id_to_del) {
+            Ok(()) => {
+                if state
+                    .selected_ai_model
+                    .model_id()
+                    .eq_ignore_ascii_case(&id_to_del)
+                {
+                    state.selected_ai_model = AiModel::Gemini35Flash;
+                    state.save_persistent_state();
+                }
+                state.set_status("Local model removed".to_string());
+            }
+            Err(error) => state.set_status(format!("Could not remove local model: {error}")),
         }
         ui.needs_redraw = true;
     }
@@ -2747,6 +3308,243 @@ fn draw_local_models_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeC
                 .color(colors.text_muted)
                 .show();
         });
+}
+
+fn draw_local_runtime_settings(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColors) {
+    use agent::provider::ZenthreeConfig;
+
+    if !state.ai_settings.local_runtime_settings_loaded {
+        let config = ZenthreeConfig::load();
+        let local = config.providers.get("local").cloned().unwrap_or_default();
+        state.ai_settings.local_context_window = local.local_context_window.unwrap_or(4096);
+        state.ai_settings.local_max_new_tokens = local.local_max_new_tokens.unwrap_or(512);
+        state.ai_settings.local_batch_size = local.local_batch_size.unwrap_or(32);
+        state.ai_settings.local_gpu_acceleration =
+            local.local_gpu_acceleration.unwrap_or(true);
+        state.ai_settings.local_offload_layers = local.local_offload_layers;
+        state.ai_settings.local_runtime_settings_loaded = true;
+    }
+
+    let mut context_window = state.ai_settings.local_context_window;
+    let mut max_new_tokens = state.ai_settings.local_max_new_tokens;
+    let mut batch_size = state.ai_settings.local_batch_size;
+    let mut gpu_acceleration = state.ai_settings.local_gpu_acceleration;
+    let mut offload_layers = state.ai_settings.local_offload_layers;
+    let mut changed = false;
+
+    draw_settings_divider(ui, colors);
+    ui.container().fill_x().column().gap(3.0).show(|ui| {
+        ui.text("Runtime Settings")
+            .size(12.5)
+            .font_weight(FontWeight::Bold)
+            .color(colors.text_primary)
+            .show();
+        ui.text("Applied when the built-in llama.cpp server starts; restart it after changing these values.")
+            .size(10.0)
+            .color(colors.text_muted)
+            .show();
+    });
+
+    changed |= draw_local_runtime_choice(
+        ui,
+        colors,
+        "Context Window",
+        "tokens",
+        &[2048, 4096, 8192, 16384, 32768],
+        &mut context_window,
+    );
+    changed |= draw_local_runtime_choice(
+        ui,
+        colors,
+        "Max New Tokens",
+        "tokens",
+        &[128, 256, 512, 1024, 2048],
+        &mut max_new_tokens,
+    );
+    changed |= draw_local_runtime_choice(
+        ui,
+        colors,
+        "Batch Size",
+        "",
+        &[8, 16, 32, 64, 128],
+        &mut batch_size,
+    );
+
+    ui.container()
+        .fill_x()
+        .row()
+        .valign(Align::Center)
+        .halign(Align::SpaceBetween)
+        .show(|ui| {
+            ui.container().column().gap(2.0).show(|ui| {
+                ui.text("GPU Acceleration")
+                    .size(10.5)
+                    .font_weight(FontWeight::Medium)
+                    .color(colors.text_primary)
+                    .show();
+                ui.text("Use available GPU layers with llama.cpp")
+                    .size(9.0)
+                    .color(colors.text_muted)
+                    .show();
+            });
+            let toggle = ui
+                .toggle(&mut gpu_acceleration, None)
+                .width(36.0)
+                .height(18.0)
+                .pill()
+                .colors(colors.accent, colors.highlight, Color::WHITE)
+                .show();
+            changed |= toggle.clicked;
+        });
+
+    ui.container()
+        .fill_x()
+        .row()
+        .valign(Align::Center)
+        .halign(Align::SpaceBetween)
+        .show(|ui| {
+            ui.container().column().gap(2.0).show(|ui| {
+                ui.text("Offload Layers")
+                    .size(10.5)
+                    .font_weight(FontWeight::Medium)
+                    .color(colors.text_primary)
+                    .show();
+                ui.text("Auto lets llama.cpp choose the GPU layer count")
+                    .size(9.0)
+                    .color(colors.text_muted)
+                    .show();
+            });
+
+            let choices = [None, Some(20), Some(40), Some(60)];
+            let current = choices
+                .iter()
+                .position(|choice| *choice == offload_layers)
+                .unwrap_or(0);
+            let next = (current + 1) % choices.len();
+            let button = ui
+                .container()
+                .interactive(true)
+                .padding(4.0, 10.0, 4.0, 10.0)
+                .radius_all(4.0)
+                .bg(colors.highlight.with_alpha(0.35))
+                .hover(Style::bg(colors.highlight))
+                .show(|ui| {
+                    ui.text(match choices[next] {
+                        None => "Auto (GPU)",
+                        Some(layers) => {
+                            if layers == 60 {
+                                "60 layers"
+                            } else if layers == 40 {
+                                "40 layers"
+                            } else {
+                                "20 layers"
+                            }
+                        }
+                    })
+                    .size(9.5)
+                    .color(colors.text_primary)
+                    .show();
+                });
+            if button.hovered {
+                ui.cursor_icon = CursorIcon::Pointer;
+            }
+            if button.clicked {
+                offload_layers = choices[next];
+                changed = true;
+            }
+        });
+
+    if changed {
+        let mut config = ZenthreeConfig::load();
+        let local = config.providers.entry("local".to_string()).or_default();
+        local.local_context_window = Some(context_window);
+        local.local_max_new_tokens = Some(max_new_tokens);
+        local.local_batch_size = Some(batch_size);
+        local.local_gpu_acceleration = Some(gpu_acceleration);
+        local.local_offload_layers = offload_layers;
+        state.ai_settings.local_context_window = context_window;
+        state.ai_settings.local_max_new_tokens = max_new_tokens;
+        state.ai_settings.local_batch_size = batch_size;
+        state.ai_settings.local_gpu_acceleration = gpu_acceleration;
+        state.ai_settings.local_offload_layers = offload_layers;
+        match config.save() {
+            Ok(()) => {
+                state.set_status("Local model runtime settings saved".to_string());
+                ui.needs_redraw = true;
+            }
+            Err(error) => {
+                state.set_status(format!("Could not save local model settings: {error}"));
+            }
+        }
+    }
+}
+
+fn draw_local_runtime_choice(
+    ui: &mut Ui,
+    colors: &ThemeColors,
+    label: &str,
+    suffix: &str,
+    choices: &[u32],
+    value: &mut u32,
+) -> bool {
+    let current = choices.iter().position(|choice| choice == value).unwrap_or(0);
+    let mut changed = false;
+    ui.container()
+        .fill_x()
+        .row()
+        .valign(Align::Center)
+        .halign(Align::SpaceBetween)
+        .show(|ui| {
+            ui.text(label)
+                .size(10.5)
+                .font_weight(FontWeight::Medium)
+                .color(colors.text_primary)
+                .show();
+            ui.container()
+                .row()
+                .valign(Align::Center)
+                .gap(6.0)
+                .show(|ui| {
+                    let previous = (current + choices.len() - 1) % choices.len();
+                    let next = (current + 1) % choices.len();
+                    for (glyph, next_index) in
+                        [("\u{f053}", previous), ("\u{f054}", next)]
+                    {
+                        let button = ui
+                            .container()
+                            .interactive(true)
+                            .padding(4.0, 7.0, 4.0, 7.0)
+                            .radius_all(4.0)
+                            .bg(colors.highlight.with_alpha(0.35))
+                            .hover(Style::bg(colors.highlight))
+                            .show(|ui| {
+                                ui.text(glyph)
+                                    .size(8.0)
+                                    .color(colors.text_primary)
+                                    .show();
+                            });
+                        if button.hovered {
+                            ui.cursor_icon = CursorIcon::Pointer;
+                        }
+                        if button.clicked {
+                            *value = choices[next_index];
+                            changed = true;
+                        }
+                    }
+                    ui.container().width(70.0).halign(Align::Center).show(|ui| {
+                        let value_text = if suffix.is_empty() {
+                            value.to_string()
+                        } else {
+                            format!("{value} {suffix}")
+                        };
+                        ui.text(&value_text)
+                            .size(9.5)
+                            .color(colors.text_primary)
+                            .show();
+                    });
+                });
+        });
+    changed
 }
 
 // ─────────────────────────────────────────────────────────────────────────────

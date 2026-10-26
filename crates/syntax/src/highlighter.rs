@@ -475,13 +475,16 @@ mod tests {
     }
 
     #[test]
-    fn test_fallback_highlighting() {
+    fn test_treesitter_typescript_highlighting() {
         let mut highlighter = SyntaxHighlighter::new(SyntaxTheme::dark());
         let code = "interface User {\n    id: number;\n    name: string;\n}";
         let rope = Rope::from_text(code);
         let path = Path::new("user.ts");
 
         let highlights = highlighter.highlight_viewport(&rope, 1, Some(path), 0, 4);
-        assert!(!highlights.is_empty(), "Expected fallback regex highlights for TypeScript file");
+        assert!(
+            !highlights.is_empty(),
+            "Expected Tree-sitter highlights for TypeScript file"
+        );
     }
 }
