@@ -483,7 +483,7 @@ fn draw_local_model_add_modal(ui: &mut Ui, state: &mut ZenthreeState, colors: &T
                                     .radius_all(6.0)
                                     .bg(colors.bg_base)
                                     .border((colors.border.with_alpha(0.4), 0.75))
-                                    .hover(Style::bg(colors.highlight))
+                                    .hover(Style::bg(colors.accent.with_alpha(0.12)))
                                     .column()
                                     .gap(5.0)
                                     .show(|ui| {
@@ -2392,20 +2392,21 @@ fn draw_local_models_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeC
                 .interactive(true)
                 .padding(4.0, 10.0, 4.0, 10.0)
                 .radius_all(4.0)
-                .bg(colors.highlight.with_alpha(0.12))
-                .hover(Style::bg(colors.highlight))
+                .bg(colors.accent.with_alpha(0.12))
+                .border((colors.accent.with_alpha(0.35), 0.75))
+                .hover(Style::bg(colors.accent.with_alpha(0.24)))
                 .row()
                 .valign(Align::Center)
                 .gap(5.0)
                 .show(|ui| {
                     ui.text("\u{f07c}") // fa-folder-open
                         .size(10.0)
-                        .color(colors.text_primary)
+                        .color(colors.accent)
                         .show();
                     ui.text("Open Models Folder")
                         .size(10.0)
                         .font_weight(FontWeight::Medium)
-                        .color(colors.text_primary)
+                        .color(colors.accent)
                         .show();
                 });
 
@@ -2502,14 +2503,14 @@ fn draw_local_models_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeC
                     .interactive(true)
                     .padding(3.5, 9.0, 3.5, 9.0)
                     .radius_all(4.0)
-                    .bg(colors.accent.with_alpha(0.15))
-                    .border((colors.accent.with_alpha(0.4), 0.75))
-                    .hover(Style::bg(colors.accent.with_alpha(0.3)))
+                    .bg(colors.accent)
+                    .border((colors.accent.with_alpha(0.8), 0.75))
+                    .hover(Style::bg(colors.accent.with_alpha(0.85)))
                     .show(|ui| {
                         ui.text("Start Server")
                             .size(9.5)
                             .font_weight(FontWeight::SemiBold)
-                            .color(colors.accent)
+                            .color(Color::WHITE)
                             .show();
                     });
                 if start_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
@@ -2547,21 +2548,21 @@ fn draw_local_models_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeC
                 .interactive(true)
                 .padding(5.0, 10.0, 5.0, 10.0)
                 .radius_all(5.0)
-                .bg(colors.accent.with_alpha(0.15))
-                .border((colors.accent.with_alpha(0.4), 0.75))
-                .hover(Style::bg(colors.accent.with_alpha(0.28)))
+                .bg(colors.accent)
+                .border((colors.accent.with_alpha(0.8), 0.75))
+                .hover(Style::bg(colors.accent.with_alpha(0.85)))
                 .row()
                 .valign(Align::Center)
                 .gap(5.0)
                 .show(|ui| {
                     ui.text("\u{f067}")
                         .size(10.0)
-                        .color(colors.accent)
+                        .color(Color::WHITE)
                         .show();
                     ui.text("Add Local Model")
                         .size(10.0)
                         .font_weight(FontWeight::SemiBold)
-                        .color(colors.accent)
+                        .color(Color::WHITE)
                         .show();
                 });
 
@@ -2708,18 +2709,19 @@ fn draw_local_models_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeC
                                             .padding(3.0, 7.0, 3.0, 7.0)
                                             .radius_all(4.0)
                                             .bg(if is_selected {
-                                                colors.accent.with_alpha(0.2)
+                                                colors.accent
                                             } else {
-                                                colors.highlight.with_alpha(0.12)
+                                                colors.accent.with_alpha(0.12)
                                             })
-                                            .hover(Style::bg(colors.highlight))
+                                            .border((colors.accent.with_alpha(0.4), 0.75))
+                                            .hover(Style::bg(colors.accent.with_alpha(0.28)))
                                             .show(|ui| {
                                                 ui.text(if is_selected { "Default" } else { "Use" })
                                                     .size(9.0)
                                                     .color(if is_selected {
-                                                        colors.accent
+                                                        Color::WHITE
                                                     } else {
-                                                        colors.text_primary
+                                                        colors.accent
                                                     })
                                                     .show();
                                             });
@@ -2733,13 +2735,19 @@ fn draw_local_models_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeC
                                         let configure = ui
                                             .container()
                                             .interactive(true)
-                                            .padding(3.0, 6.0, 3.0, 6.0)
+                                            .width(24.0)
+                                            .height(22.0)
                                             .radius_all(4.0)
-                                            .hover(Style::bg(colors.highlight))
+                                            .bg(colors.accent.with_alpha(0.08))
+                                            .border((colors.accent.with_alpha(0.25), 0.75))
+                                            .hover(Style::bg(colors.accent.with_alpha(0.2)))
+                                            .row()
+                                            .valign(Align::Center)
+                                            .halign(Align::Center)
                                             .show(|ui| {
                                                 ui.text("\u{f013}")
-                                                    .size(9.0)
-                                                    .color(colors.text_muted)
+                                                    .size(10.0)
+                                                    .color(colors.accent)
                                                     .show();
                                             });
                                         if configure.hovered {
@@ -2754,18 +2762,34 @@ fn draw_local_models_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeC
                                     let delete = ui
                                         .container()
                                         .interactive(true)
-                                        .padding(3.0, 6.0, 3.0, 6.0)
+                                        .width(24.0)
+                                        .height(22.0)
                                         .radius_all(4.0)
+                                        .bg(Color::rgba(
+                                            239.0 / 255.0,
+                                            68.0 / 255.0,
+                                            68.0 / 255.0,
+                                            0.08,
+                                        ))
+                                        .border((Color::rgba(
+                                            239.0 / 255.0,
+                                            68.0 / 255.0,
+                                            68.0 / 255.0,
+                                            0.25,
+                                        ), 0.75))
                                         .hover(Style::bg(Color::rgba(
                                             239.0 / 255.0,
                                             68.0 / 255.0,
                                             68.0 / 255.0,
                                             0.2,
                                         )))
+                                        .row()
+                                        .valign(Align::Center)
+                                        .halign(Align::Center)
                                         .show(|ui| {
                                             ui.text("\u{f1f8}")
-                                                .size(9.0)
-                                                .color(colors.text_muted)
+                                                .size(10.0)
+                                                .color(Color::rgb(248.0 / 255.0, 113.0 / 255.0, 113.0 / 255.0))
                                                 .show();
                                         });
                                     if delete.hovered {
@@ -3426,8 +3450,9 @@ fn draw_local_runtime_settings(ui: &mut Ui, state: &mut ZenthreeState, colors: &
                 .interactive(true)
                 .padding(4.0, 10.0, 4.0, 10.0)
                 .radius_all(4.0)
-                .bg(colors.highlight.with_alpha(0.35))
-                .hover(Style::bg(colors.highlight))
+                .bg(colors.accent.with_alpha(0.12))
+                .border((colors.accent.with_alpha(0.3), 0.75))
+                .hover(Style::bg(colors.accent.with_alpha(0.24)))
                 .show(|ui| {
                     ui.text(match choices[next] {
                         None => "Auto (GPU)",
@@ -3442,7 +3467,7 @@ fn draw_local_runtime_settings(ui: &mut Ui, state: &mut ZenthreeState, colors: &
                         }
                     })
                     .size(9.5)
-                    .color(colors.text_primary)
+                    .color(colors.accent)
                     .show();
                 });
             if button.hovered {
@@ -3515,12 +3540,13 @@ fn draw_local_runtime_choice(
                             .interactive(true)
                             .padding(4.0, 7.0, 4.0, 7.0)
                             .radius_all(4.0)
-                            .bg(colors.highlight.with_alpha(0.35))
-                            .hover(Style::bg(colors.highlight))
+                            .bg(colors.accent.with_alpha(0.12))
+                            .border((colors.accent.with_alpha(0.3), 0.75))
+                            .hover(Style::bg(colors.accent.with_alpha(0.24)))
                             .show(|ui| {
                                 ui.text(glyph)
                                     .size(8.0)
-                                    .color(colors.text_primary)
+                                    .color(colors.accent)
                                     .show();
                             });
                         if button.hovered {
