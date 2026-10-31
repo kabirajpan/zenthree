@@ -224,7 +224,11 @@ impl ZenthreeState {
                         return;
                     }
                 };
-                let _ = ok; // suppress unused warning
+                if ok {
+                    if let Some(ref path) = self.tabs[idx].path {
+                        self.git_blame_manager.invalidate(path);
+                    }
+                }
                 self.set_status(msg);
             }
         }

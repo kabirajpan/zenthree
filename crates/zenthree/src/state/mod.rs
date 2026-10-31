@@ -3,6 +3,7 @@ pub mod ai_settings;
 pub mod bottom_panel;
 pub mod editor;
 pub mod git;
+pub mod git_blame;
 pub mod notes;
 pub mod persistent;
 pub mod tasks;
@@ -10,6 +11,8 @@ pub mod terminal;
 pub mod types;
 pub mod workspace;
 
+#[allow(unused_imports)]
+pub use git_blame::{GitBlameLine, GitBlameManager};
 #[allow(unused_imports)]
 pub use notes::{NotesState, NotesVaultScope};
 use crate::theme::{ThemeColors, ThemeMode};
@@ -80,6 +83,8 @@ pub struct ZenthreeState {
     pub explorer_search_active: bool,
     pub explorer_git_status: bool,
     pub git_state: GitRepoState,
+    pub git_blame_inline: bool,
+    pub git_blame_manager: GitBlameManager,
     pub notes_state: NotesState,
     pub explorer_show_hidden: bool,
     pub terminal_visible: bool,
@@ -389,6 +394,8 @@ impl ZenthreeState {
             explorer_search_active: false,
             explorer_git_status: true,
             git_state: GitRepoState::default(),
+            git_blame_inline: true,
+            git_blame_manager: GitBlameManager::new(),
             notes_state: NotesState::new(),
             explorer_show_hidden: false,
             focus_mode: false,

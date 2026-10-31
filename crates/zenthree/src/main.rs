@@ -50,6 +50,11 @@ fn main() {
                 ui.request_redraw();
             }
 
+            // Poll background Git Blame updates
+            if state.git_blame_manager.poll() {
+                ui.request_redraw();
+            }
+
             // Drain background AI agent updates pushed via ArcSignal.
             // No timer needed: ArcSignal::with_mut() calls trigger_redraw_hook()
             // on every push, waking the event loop immediately.

@@ -32,6 +32,8 @@ pub struct PersistentState {
     #[serde(default)]
     pub line_numbers_visible: Option<bool>,
     #[serde(default)]
+    pub git_blame_inline: Option<bool>,
+    #[serde(default)]
     pub zoom_level: Option<f32>,
     #[serde(default)]
     pub cursor_style: Option<CursorStyle>,
@@ -153,6 +155,9 @@ impl ZenthreeState {
                 }
                 if let Some(ln_vis) = saved.line_numbers_visible {
                     self.line_numbers_visible = ln_vis;
+                }
+                if let Some(blame_vis) = saved.git_blame_inline {
+                    self.git_blame_inline = blame_vis;
                 }
                 if let Some(zoom) = saved.zoom_level {
                     self.zoom_level = zoom;
@@ -334,6 +339,7 @@ impl From<&ZenthreeState> for PersistentState {
             sidebar_width: Some(s.sidebar_width),
             status_bar_visible: Some(s.status_bar_visible),
             line_numbers_visible: Some(s.line_numbers_visible),
+            git_blame_inline: Some(s.git_blame_inline),
             zoom_level: Some(s.zoom_level),
             cursor_style: Some(s.cursor_style),
             cursor_color_mode: Some(s.cursor_color_mode.clone()),

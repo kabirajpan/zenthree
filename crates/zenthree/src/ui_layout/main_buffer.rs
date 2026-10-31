@@ -1135,6 +1135,17 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
 
                     let content_h = total_lines as f32 * line_height_pixels;
 
+                    let active_blame_annotation = if state.git_blame_inline {
+                        let cursor_row = state.tabs.get(active_tab_idx).map(|t| t.editor.cursor().row).unwrap_or(0);
+                        if let Some(tab_path) = state.tabs.get(active_tab_idx).and_then(|t| t.path.as_deref()) {
+                            state.git_blame_manager.get_line_blame(tab_path, &state.current_dir, cursor_row)
+                        } else {
+                            None
+                        }
+                    } else {
+                        None
+                    };
+
                     let tab_mut = &mut state.tabs[active_tab_idx];
                     let cursor_p = tab_mut.editor.cursor();
 
@@ -1600,6 +1611,27 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                                                     }
                                                 }
                                             }
+                                        }
+                                    }
+
+                                    // Draw inline git blame annotation on the active cursor line (Zed style)
+                                    if cursor_p.row == i {
+                                        if let Some(ref blame) = active_blame_annotation {
+                                            let line_end_byte = clean_text.len();
+                                            let line_end_x = find_x_for_byte(&shaped, clean_text, line_end_byte);
+                                            let blame_x = editor_x + gutter_w + line_end_x + 32.0;
+
+                                            let blame_str = format!("\u{ea68} {}, {}", blame.author, blame.time_ago);
+                                            let blame_opts = TextOptions::new()
+                                                .size((eff_font_size - 1.0).max(11.0))
+                                                .color(colors.text_muted.with_alpha(0.42));
+
+                                            ui.draws.push(DrawCommand::Text(TextDraw {
+                                                text: blame_str,
+                                                pos: [blame_x, line_y + 2.0],
+                                                options: blame_opts,
+                                                clip,
+                                            }));
                                         }
                                     }
                                 }

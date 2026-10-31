@@ -202,6 +202,8 @@ impl ZenthreeState {
                 self.git_state.commit_history = history;
             }
         }
+
+        self.git_blame_manager.invalidate_all();
     }
 
     pub fn git_stage_file(&mut self, path: &Path) {

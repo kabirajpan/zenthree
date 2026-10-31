@@ -1147,6 +1147,48 @@ fn draw_editor_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColors)
                     }
                 });
 
+            // Inline Git Blame Toggle
+            ui.container()
+                .fill_x()
+                .padding(10.0, 14.0, 10.0, 14.0)
+                .radius_all(6.0)
+                .bg(colors.bg_base.with_alpha(0.40))
+                .border((colors.border.with_alpha(0.20), 1.0))
+                .row()
+                .valign(Align::Center)
+                .halign(Align::SpaceBetween)
+                .show(|ui| {
+                    ui.container()
+                        .column()
+                        .gap(3.0)
+                        .show(|ui| {
+                            ui.text("Inline Git Blame")
+                                .size(13.0)
+                                .font_weight(FontWeight::SemiBold)
+                                .color(colors.text_primary)
+                                .show();
+                            ui.text("Show commit author and relative time annotation on the active line")
+                                .size(11.0)
+                                .color(colors.text_muted)
+                                .wrap(true)
+                                .show();
+                        });
+
+                    let mut blame = state.git_blame_inline;
+                    let toggle_resp = ui.toggle(&mut blame, None)
+                        .width(42.0)
+                        .height(22.0)
+                        .pill()
+                        .colors(colors.accent, colors.highlight, Color::WHITE)
+                        .show();
+
+                    if toggle_resp.clicked {
+                        state.git_blame_inline = blame;
+                        state.save_persistent_state();
+                        ui.needs_redraw = true;
+                    }
+                });
+
             // Cursor Style (Block, Line, Underline)
             ui.container()
                 .fill_x()

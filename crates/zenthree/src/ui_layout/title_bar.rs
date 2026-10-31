@@ -265,6 +265,12 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                                 state.save_persistent_state();
                                 ui.request_redraw();
                             }
+                            let blame_mark = if state.git_blame_inline { "● " } else { "  " };
+                            if ui.menu_item(&format!("{}Inline Git Blame", blame_mark)).show().clicked {
+                                state.git_blame_inline = !state.git_blame_inline;
+                                state.save_persistent_state();
+                                ui.request_redraw();
+                            }
                             let glass_mark = if state.glassmorphism { "● " } else { "  " };
                             if ui.menu_item(&format!("{}Native Window Blur", glass_mark)).show().clicked {
                                 state.glassmorphism = !state.glassmorphism;
