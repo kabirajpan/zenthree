@@ -20,7 +20,7 @@ pub const MODEL_CATALOG: &[CatalogModel] = &[
     CatalogModel {
         id: "qwen2.5-coder-1.5b-q4",
         name: "Qwen 2.5 Coder 1.5B (Q4_K_M)",
-        description: "Ultra-fast, lightweight code generation, inline edits, and code explanation.",
+        description: "Fast coding help for lightweight machines.",
         parameter_size: "1.5B",
         quantization: "Q4_K_M",
         size_bytes: 986_000_000,
@@ -34,7 +34,7 @@ pub const MODEL_CATALOG: &[CatalogModel] = &[
     CatalogModel {
         id: "qwen2.5-coder-7b-q4",
         name: "Qwen 2.5 Coder 7B (Q4_K_M)",
-        description: "State-of-the-art coding benchmark leader for 7B models. Multi-turn reasoning & tool calling.",
+        description: "Strong coding and reasoning for everyday development.",
         parameter_size: "7B",
         quantization: "Q4_K_M",
         size_bytes: 4_680_000_000,
@@ -48,7 +48,7 @@ pub const MODEL_CATALOG: &[CatalogModel] = &[
     CatalogModel {
         id: "deepseek-r1-distill-qwen-1.5b-q4",
         name: "DeepSeek R1 Distill Qwen 1.5B (Q4_K_M)",
-        description: "Reasoning and Chain-of-Thought distilled model in a compact 1.5B footprint.",
+        description: "Compact model for step-by-step reasoning.",
         parameter_size: "1.5B",
         quantization: "Q4_K_M",
         size_bytes: 1_120_000_000,
@@ -62,7 +62,7 @@ pub const MODEL_CATALOG: &[CatalogModel] = &[
     CatalogModel {
         id: "deepseek-r1-distill-qwen-7b-q4",
         name: "DeepSeek R1 Distill Qwen 7B (Q4_K_M)",
-        description: "Exceptional mathematical and code reasoning capabilities distilled from DeepSeek R1.",
+        description: "Advanced reasoning for complex coding tasks.",
         parameter_size: "7B",
         quantization: "Q4_K_M",
         size_bytes: 4_680_000_000,
@@ -76,7 +76,7 @@ pub const MODEL_CATALOG: &[CatalogModel] = &[
     CatalogModel {
         id: "llama-3.2-3b-q4",
         name: "Llama 3.2 3B Instruct (Q4_K_M)",
-        description: "Meta's highly capable edge model. Balanced speed and instruction following.",
+        description: "Balanced model for chat and coding.",
         parameter_size: "3B",
         quantization: "Q4_K_M",
         size_bytes: 2_020_000_000,
@@ -90,7 +90,7 @@ pub const MODEL_CATALOG: &[CatalogModel] = &[
     CatalogModel {
         id: "smollm2-1.7b-q4",
         name: "SmolLM2 1.7B Instruct (Q4_K_M)",
-        description: "Hugging Face's ultra-compact, high efficiency small language model.",
+        description: "Lightweight model for quick everyday tasks.",
         parameter_size: "1.7B",
         quantization: "Q4_K_M",
         size_bytes: 1_060_000_000,

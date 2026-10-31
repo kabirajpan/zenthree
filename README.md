@@ -9,7 +9,7 @@ Designed for speed, visual clarity, and responsiveness, Zenthree blends the aest
 ## ✨ Features
 
 ### ⚡ Editor Engine
-- **Tree-sitter Syntax Highlighting**: Accurate, semantic code highlighting across major programming languages.
+- **Tree-sitter Syntax Highlighting**: Grammar-based highlighting for Rust, JavaScript, TypeScript/TSX, Python, HTML, CSS, JSON, YAML, Go, C/C++, Java, Markdown, and Bash/Shell, with regex fallback for other supported file types.
 - **Optimized Buffer & Line Cache**: Zero-allocation line retrieval for fluid scrolling and editing.
 - **Full Text Editing Suite**: Undo/redo history, multi-tab editing, word-by-word cursor jumping and deletion (`Ctrl+Backspace`, `Ctrl+Delete`), clipboard operations (`Ctrl+A`, `Ctrl+C`, `Ctrl+X`, `Ctrl+V`).
 - **Interactive Breadcrumb Navigation**: Path trail with clickable directory popups for quick folder navigation.

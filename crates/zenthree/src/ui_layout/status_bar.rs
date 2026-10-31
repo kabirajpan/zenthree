@@ -275,6 +275,41 @@ pub fn draw_status_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                         ui.request_redraw();
                     }
 
+                    if state.selected_ai_model.is_local() && avail_w >= 850.0 {
+                        let local_model = ui
+                            .container()
+                            .interactive(true)
+                            .padding(3.0, 7.0, 3.0, 7.0)
+                            .radius_all(4.0)
+                            .bg(colors.accent.with_alpha(0.12))
+                            .hover(Style::bg(colors.accent.with_alpha(0.22)))
+                            .row()
+                            .valign(Align::Center)
+                            .gap(5.0)
+                            .show(|ui| {
+                                ui.text("\u{f108}")
+                                    .size(9.0)
+                                    .color(colors.accent)
+                                    .show();
+                                ui.text(&format!(
+                                    "Local: {}",
+                                    state.selected_ai_model.short_name()
+                                ))
+                                .size(9.5)
+                                .color(colors.text_primary)
+                                .show();
+                            });
+                        if local_model.hovered {
+                            ui.cursor_icon = zenthra::CursorIcon::Pointer;
+                        }
+                        if local_model.clicked {
+                            state.ai_settings.open = true;
+                            state.ai_settings.just_opened = true;
+                            state.ai_settings.active_tab = crate::state::AiSettingsTab::LocalModels;
+                            ui.request_redraw();
+                        }
+                    }
+
                     // Encoding visible if window >= 500px
                     if avail_w >= 500.0 {
                         ui.text("UTF-8")

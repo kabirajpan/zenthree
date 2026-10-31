@@ -19,7 +19,6 @@ const KNOWN_LOCAL_ENDPOINTS: &[&str] = &[
 ];
 
 
-
 /// Local model LLM backend implementing the unified `Provider` trait.
 pub struct LocalProvider {
     pub model: String,
@@ -239,6 +238,14 @@ impl Provider for LocalProvider {
             "max_tokens": 4096,
             "temperature": 0.2,
         });
+        let local_config = ZenthreeConfig::load();
+        let max_new_tokens = local_config
+            .providers
+            .get("local")
+            .and_then(|entry| entry.local_max_new_tokens)
+            .unwrap_or(512)
+            .max(1);
+        body["max_tokens"] = json!(max_new_tokens);
 
         if !tools.is_empty() {
             body["tools"] = Value::Array(tools.to_vec());
