@@ -207,6 +207,19 @@ pub struct GitRepoState {
     pub status_error: Option<String>,
 }
 
+#[derive(Debug, Clone)]
+pub struct BlameHoverCardState {
+    pub author: String,
+    pub time_ago: String,
+    pub summary: String,
+    pub commit_hash: String,
+    pub card_x: f32,
+    pub card_y: f32,
+    pub card_w: f32,
+    pub card_h: f32,
+    pub trigger_rect: [f32; 4],
+}
+
 impl Default for GitRepoState {
     fn default() -> Self {
         Self {

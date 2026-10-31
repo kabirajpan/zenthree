@@ -1146,6 +1146,9 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                         None
                     };
 
+                    let mut hovered_blame_trigger: Option<(crate::state::GitBlameLine, f32, f32, f32)> = None;
+                    let mut clicked_blame: Option<crate::state::GitBlameLine> = None;
+
                     let tab_mut = &mut state.tabs[active_tab_idx];
                     let cursor_p = tab_mut.editor.cursor();
 
@@ -1622,9 +1625,43 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                                             let blame_x = editor_x + gutter_w + line_end_x + 32.0;
 
                                             let blame_str = format!("\u{ea68} {}, {}", blame.author, blame.time_ago);
+                                            let pill_w = (blame_str.chars().count() as f32 * 7.2).max(45.0);
+
+                                            let is_blame_hov = ui.mouse_x >= blame_x - 6.0
+                                                && ui.mouse_x <= blame_x + pill_w + 6.0
+                                                && ui.mouse_y >= line_y
+                                                && ui.mouse_y <= line_y + line_height_pixels;
+
+                                            if is_blame_hov {
+                                                ui.cursor_icon = CursorIcon::Pointer;
+                                                hovered_blame_trigger = Some((blame.clone(), blame_x, line_y, pill_w));
+
+                                                // Draw subtle interactive pill highlight background
+                                                ui.draws.push(DrawCommand::Rect(RectDraw {
+                                                    instance: RectInstance {
+                                                        pos: [blame_x - 6.0, line_y + 1.0],
+                                                        size: [pill_w + 12.0, line_height_pixels - 2.0],
+                                                        color: colors.highlight.with_alpha(0.35).to_array(),
+                                                        radius: [4.0; 4],
+                                                        clip_rect: clip,
+                                                        ..Default::default()
+                                                    },
+                                                }));
+
+                                                if ui.clicked {
+                                                    clicked_blame = Some(blame.clone());
+                                                }
+                                            }
+
+                                            let text_color = if is_blame_hov {
+                                                colors.text_primary.with_alpha(0.90)
+                                            } else {
+                                                colors.text_muted.with_alpha(0.42)
+                                            };
+
                                             let blame_opts = TextOptions::new()
                                                 .size((eff_font_size - 1.0).max(11.0))
-                                                .color(colors.text_muted.with_alpha(0.42));
+                                                .color(text_color);
 
                                             ui.draws.push(DrawCommand::Text(TextDraw {
                                                 text: blame_str,
@@ -1737,7 +1774,54 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                         ui.request_redraw();
                     }
 
-                    if ui.clicked && is_hovered && !right_clicked_editor {
+                    // Handle clicking inline git blame pill
+                    if let Some(ref blame) = clicked_blame {
+                        ui.consume_click();
+                        if !blame.is_uncommitted {
+                            state.sidebar_visible = true;
+                            state.sidebar_view = crate::state::types::SidebarView::Git;
+                            state.set_clipboard(blame.commit_hash.clone());
+                            let short_h = if blame.commit_hash.len() >= 7 { &blame.commit_hash[..7] } else { &blame.commit_hash };
+                            state.set_status(format!("Commit {} • {} (copied hash)", short_h, blame.summary));
+                        } else {
+                            state.sidebar_visible = true;
+                            state.sidebar_view = crate::state::types::SidebarView::Git;
+                            state.set_status("Uncommitted changes in working tree".to_string());
+                        }
+                        ui.request_redraw();
+                    }
+
+                    // Update active blame hover card state
+                    if let Some((blame, bx, by, pw)) = hovered_blame_trigger {
+                        let card_w = 340.0;
+                        let card_h = 105.0;
+                        let card_x = bx.clamp(editor_x + 8.0, (editor_x + editor_w - card_w - 8.0).max(editor_x + 8.0));
+                        let card_y = if by - card_h - 6.0 >= editor_y {
+                            by - card_h - 6.0
+                        } else {
+                            by + line_height_pixels + 6.0
+                        };
+
+                        state.active_blame_hover_card = Some(crate::state::types::BlameHoverCardState {
+                            author: blame.author,
+                            time_ago: blame.time_ago,
+                            summary: blame.summary,
+                            commit_hash: blame.commit_hash,
+                            card_x,
+                            card_y,
+                            card_w,
+                            card_h,
+                            trigger_rect: [bx - 6.0, by, pw + 12.0, line_height_pixels],
+                        });
+                    } else if let Some(ref card) = state.active_blame_hover_card {
+                        let in_trigger = ui.mouse_in_rect(card.trigger_rect[0], card.trigger_rect[1], card.trigger_rect[2], card.trigger_rect[3]);
+                        let in_card = ui.mouse_in_rect(card.card_x - 4.0, card.card_y - 4.0, card.card_w + 8.0, card.card_h + 8.0);
+                        if !in_trigger && !in_card {
+                            state.active_blame_hover_card = None;
+                        }
+                    }
+
+                    if ui.clicked && is_hovered && !right_clicked_editor && clicked_blame.is_none() {
                         // Avoid positioning the cursor if clicking on the scrollbar or panel edges
                         let scrollbar_w = 6.0;
                         let scrollbar_x = editor_x + editor_w - scrollbar_w - 4.0;
@@ -2006,6 +2090,7 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
         });
 
     draw_editor_context_menu(ui, state, &colors);
+    draw_blame_hover_card(ui, state, &colors);
 }
 
 #[derive(Clone, Copy)]
@@ -2017,6 +2102,7 @@ enum EditorContextAction {
     Paste,
     SelectAll,
     Format,
+    ViewGit,
     File(crate::state::FileContextAction),
 }
 
@@ -2127,6 +2213,9 @@ fn draw_editor_context_menu(
                     if super::sidebar::draw_menu_item(ui, Id::from_u64(999997207), "\u{f0ad}", "Format Document", "Ctrl+Shift+F", true, false, colors) {
                         action = Some(EditorContextAction::Format);
                     }
+                    if super::sidebar::draw_menu_item(ui, Id::from_u64(999997230), "\u{ea68}", "View in Git Panel", "", true, false, colors) {
+                        action = Some(EditorContextAction::ViewGit);
+                    }
                     ui.container().fill_x().height(1.0).bg(colors.border).show(|_| {});
                 }
                 if super::sidebar::draw_menu_item(ui, Id::from_u64(999997210), "\u{f044}", "Rename File...", "F2", has_file_target, false, colors) {
@@ -2183,10 +2272,215 @@ fn draw_editor_context_menu(
                     }
                 }
                 EditorContextAction::Format => state.format_active_tab(),
+                EditorContextAction::ViewGit => {
+                    state.sidebar_visible = true;
+                    state.sidebar_view = crate::state::types::SidebarView::Git;
+                }
                 EditorContextAction::File(_) => unreachable!(),
                 }
             }
         }
+        ui.request_redraw();
+    }
+}
+
+fn draw_blame_hover_card(
+    ui: &mut Ui,
+    state: &mut ZenthreeState,
+    colors: &crate::theme::ThemeColors,
+) {
+    let Some(ref card) = state.active_blame_hover_card else {
+        return;
+    };
+
+    let card_x = card.card_x;
+    let card_y = card.card_y;
+    let card_w = card.card_w;
+    let card_h = card.card_h;
+    let author = card.author.clone();
+    let time_ago = card.time_ago.clone();
+    let summary = card.summary.clone();
+    let commit_hash = card.commit_hash.clone();
+    let short_hash = if commit_hash.len() >= 7 {
+        commit_hash[..7].to_string()
+    } else {
+        commit_hash.clone()
+    };
+
+    let mut open_git_panel = false;
+    let mut copy_hash = false;
+
+    let card_id = Id::from_u64(999997450);
+
+    ui.overlay(|ui| {
+        ui.container()
+            .raw_id(card_id)
+            .pos(card_x, card_y)
+            .overlay()
+            .width(card_w)
+            .height(card_h)
+            .bg(colors.bg_sidebar)
+            .border((colors.border.with_alpha(0.60), 1.0))
+            .radius_all(8.0)
+            .shadow(Color::rgba(0.0, 0.0, 0.0, 0.45), 0.0, 6.0, 18.0)
+            .padding(10.0, 12.0, 10.0, 12.0)
+            .column()
+            .gap(6.0)
+            .show(|ui| {
+                // 1. Header: Author, relative time, and short hash pill
+                ui.container()
+                    .fill_x()
+                    .row()
+                    .valign(Align::Center)
+                    .halign(Align::SpaceBetween)
+                    .show(|ui| {
+                        ui.container()
+                            .row()
+                            .valign(Align::Center)
+                            .gap(6.0)
+                            .show(|ui| {
+                                ui.text("\u{ea68}")
+                                    .size(13.0)
+                                    .color(colors.accent)
+                                    .show();
+                                ui.text(&author)
+                                    .size(12.5)
+                                    .font_weight(FontWeight::Bold)
+                                    .color(colors.text_primary)
+                                    .show();
+                                ui.text("•")
+                                    .size(11.0)
+                                    .color(colors.text_muted.with_alpha(0.6))
+                                    .show();
+                                ui.text(&time_ago)
+                                    .size(11.5)
+                                    .color(colors.text_muted)
+                                    .show();
+                            });
+
+                        // Hash Pill (interactive)
+                        let hash_btn_id = Id::from_u64(999997451);
+                        let hash_hov = ui.interaction_state.get(&hash_btn_id).copied().unwrap_or(0.0) > 0.5;
+                        let hash_btn = ui.container()
+                            .raw_id(hash_btn_id)
+                            .interactive(true)
+                            .padding(2.0, 6.0, 2.0, 6.0)
+                            .radius_all(4.0)
+                            .bg(if hash_hov { colors.highlight } else { colors.border.with_alpha(0.35) })
+                            .row()
+                            .valign(Align::Center)
+                            .gap(4.0)
+                            .show(|ui| {
+                                ui.text(&short_hash)
+                                    .size(11.0)
+                                    .font_weight(FontWeight::SemiBold)
+                                    .color(colors.accent)
+                                    .show();
+                                ui.text("\u{f0c5}")
+                                    .size(9.5)
+                                    .color(colors.text_muted)
+                                    .show();
+                            });
+                        if hash_btn.clicked {
+                            copy_hash = true;
+                        }
+                    });
+
+                // 2. Commit message / summary
+                if !summary.is_empty() {
+                    ui.container()
+                        .fill_x()
+                        .padding_top(2.0)
+                        .padding_bottom(2.0)
+                        .show(|ui| {
+                            ui.text(&summary)
+                                .size(12.0)
+                                .color(colors.text_primary)
+                                .wrap(true)
+                                .show();
+                        });
+                }
+
+                // Divider line
+                ui.container()
+                    .fill_x()
+                    .height(1.0)
+                    .bg(colors.border.with_alpha(0.30))
+                    .show(|_| {});
+
+                // 3. Actions Row
+                ui.container()
+                    .fill_x()
+                    .row()
+                    .valign(Align::Center)
+                    .halign(Align::SpaceBetween)
+                    .show(|ui| {
+                        // Open in Git Panel button
+                        let git_btn_id = Id::from_u64(999997452);
+                        let git_hov = ui.interaction_state.get(&git_btn_id).copied().unwrap_or(0.0) > 0.5;
+                        let git_btn = ui.container()
+                            .raw_id(git_btn_id)
+                            .interactive(true)
+                            .padding(3.0, 8.0, 3.0, 8.0)
+                            .radius_all(4.0)
+                            .bg(if git_hov { colors.accent.with_alpha(0.20) } else { colors.border.with_alpha(0.25) })
+                            .row()
+                            .valign(Align::Center)
+                            .gap(4.0)
+                            .show(|ui| {
+                                ui.text("\u{ea68}")
+                                    .size(11.5)
+                                    .color(colors.accent)
+                                    .show();
+                                ui.text("Open in Git Panel")
+                                    .size(11.0)
+                                    .font_weight(FontWeight::Medium)
+                                    .color(colors.text_primary)
+                                    .show();
+                            });
+                        if git_btn.clicked {
+                            open_git_panel = true;
+                        }
+
+                        // Copy Full Hash button
+                        let copy_btn_id = Id::from_u64(999997453);
+                        let copy_hov = ui.interaction_state.get(&copy_btn_id).copied().unwrap_or(0.0) > 0.5;
+                        let copy_btn = ui.container()
+                            .raw_id(copy_btn_id)
+                            .interactive(true)
+                            .padding(3.0, 8.0, 3.0, 8.0)
+                            .radius_all(4.0)
+                            .bg(if copy_hov { colors.highlight } else { Color::TRANSPARENT })
+                            .row()
+                            .valign(Align::Center)
+                            .gap(4.0)
+                            .show(|ui| {
+                                ui.text("\u{f0c5}")
+                                    .size(11.0)
+                                    .color(colors.text_muted)
+                                    .show();
+                                ui.text("Copy Full Hash")
+                                    .size(11.0)
+                                    .color(colors.text_muted)
+                                    .show();
+                            });
+                        if copy_btn.clicked {
+                            copy_hash = true;
+                        }
+                    });
+            });
+    });
+
+    if open_git_panel {
+        state.sidebar_visible = true;
+        state.sidebar_view = crate::state::types::SidebarView::Git;
+        state.active_blame_hover_card = None;
+        ui.request_redraw();
+    }
+    if copy_hash {
+        state.set_clipboard(commit_hash.clone());
+        state.set_status(format!("Copied hash {}", short_hash));
+        state.active_blame_hover_card = None;
         ui.request_redraw();
     }
 }
