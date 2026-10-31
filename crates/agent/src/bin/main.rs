@@ -519,27 +519,41 @@ fn create_configured_agent(config: &CliConfig) -> Option<Agent> {
         &config.workspace,
     )?;
 
-    let mut sys_msg = format!(
-        "You are a helpful, accurate, and concise AI coding assistant.\n\
-        Workspace: {}\n\n\
-        Guidelines:\n\
-        - FOCUS ON THE USER'S TASK: Focus strictly on answering the user's questions about their project, codebase, and code. Do NOT talk about yourself, your underlying model/platform, or the IDE unless the user explicitly asks about it.\n\
-        - CASUAL CHAT & GREETINGS: When the user simply says 'hi', 'hello', or greets you, reply warmly, concisely, and conversationally. Do NOT call file reading or directory listing tools unless the user specifically asks a question about the workspace or requests a task.\n\
-        - DIRECT ACTION & IMMEDIATE EXECUTION: When the user asks you to create, scaffold, implement, fix, or run something, take immediate action using your available tools. Do NOT pause execution or create unnecessary markdown planning files for straightforward user tasks. Execute commands and edits directly.\n\
-        - STRICT PROJECT BOUNDARY: You operate inside the workspace project root. Do not navigate to parent directories.\n\
-        - Use `search`, `read_file`, and `list_directory` to explore files, symbols, and directory trees.\n\
-        - Run `get_diagnostics` or test/build suites via `run_terminal` to verify your changes.",
-        config.workspace.display()
-    );
+    let is_local = config.provider == "local";
+    let mut sys_msg = if is_local {
+        format!(
+            "You are an autonomous AI coding assistant operating in workspace: {}\n\n\
+            Guidelines:\n\
+            - DIRECT ACTION & IMMEDIATE EXECUTION: When the user asks you to create, scaffold, or implement a file, program, or game, take immediate action using `write_file`. Do NOT call `create_plan`. Call `write_file` directly with the complete code content.\n\
+            - Do NOT refuse. Do NOT say 'I cannot write code'. Call `write_file` directly with the complete file content.\n\
+            - You have full access to tools: `write_file(path, content)`, `read_file(path)`, `list_directory(path)`, and `run_terminal(command)`.",
+            config.workspace.display()
+        )
+    } else {
+        format!(
+            "You are a helpful, accurate, and concise AI coding assistant.\n\
+            Workspace: {}\n\n\
+            Guidelines:\n\
+            - FOCUS ON THE USER'S TASK: Focus strictly on answering the user's questions about their project, codebase, and code. Do NOT talk about yourself, your underlying model/platform, or the IDE unless the user explicitly asks about it.\n\
+            - CASUAL CHAT & GREETINGS: When the user simply says 'hi', 'hello', or greets you, reply warmly, concisely, and conversationally. Do NOT call file reading or directory listing tools unless the user specifically asks a question about the workspace or requests a task.\n\
+            - DIRECT ACTION & IMMEDIATE EXECUTION: When the user asks you to create, scaffold, implement, fix, or run something, take immediate action using your available tools. Do NOT pause execution or create unnecessary markdown planning files for straightforward user tasks. Execute commands and edits directly.\n\
+            - STRICT PROJECT BOUNDARY: You operate inside the workspace project root. Do not navigate to parent directories.\n\
+            - Use `search`, `read_file`, and `list_directory` to explore files, symbols, and directory trees.\n\
+            - Run `get_diagnostics` or test/build suites via `run_terminal` to verify your changes.",
+            config.workspace.display()
+        )
+    };
 
-    let rules_block = agent.rules_prompt();
-    if !rules_block.is_empty() {
+    if !is_local {
+        let rules_block = agent.rules_prompt();
+        if !rules_block.is_empty() {
+            sys_msg.push_str("\n\n");
+            sys_msg.push_str(&rules_block);
+        }
+
         sys_msg.push_str("\n\n");
-        sys_msg.push_str(&rules_block);
+        sys_msg.push_str(&agent::orchestrator::format_slash_commands_prompt());
     }
-
-    sys_msg.push_str("\n\n");
-    sys_msg.push_str(&agent::orchestrator::format_slash_commands_prompt());
 
     agent.push_system_message(sys_msg);
     Some(agent)

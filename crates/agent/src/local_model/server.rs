@@ -16,26 +16,38 @@ impl LocalServerManager {
         home.join(".zenthree").join("bin")
     }
 
-    /// Check if a llama-server binary is installed
+    /// Check if a llama-server binary is installed (cross-platform: Linux, Windows, macOS)
     pub fn runner_bin_path() -> Option<PathBuf> {
-        // 1. ~/.zenthree/bin/llama/llama-server
-        let p1 = Self::runners_dir().join("llama").join("llama-server");
-        if p1.is_file() {
-            return Some(p1);
+        let bin_names = if cfg!(windows) {
+            ["llama-server.exe", "llama-server"]
+        } else {
+            ["llama-server", "llama-server.exe"]
+        };
+
+        // 1. ~/.zenthree/bin/llama/llama-server(.exe)
+        for name in &bin_names {
+            let p = Self::runners_dir().join("llama").join(name);
+            if p.is_file() {
+                return Some(p);
+            }
         }
 
-        // 2. ~/.zenthree/bin/llama-server
-        let p2 = Self::runners_dir().join("llama-server");
-        if p2.is_file() {
-            return Some(p2);
+        // 2. ~/.zenthree/bin/llama-server(.exe)
+        for name in &bin_names {
+            let p = Self::runners_dir().join(name);
+            if p.is_file() {
+                return Some(p);
+            }
         }
 
         // 3. System PATH
         if let Ok(path_var) = std::env::var("PATH") {
             for dir in std::env::split_paths(&path_var) {
-                let candidate = dir.join("llama-server");
-                if candidate.is_file() {
-                    return Some(candidate);
+                for name in &bin_names {
+                    let candidate = dir.join(name);
+                    if candidate.is_file() {
+                        return Some(candidate);
+                    }
                 }
             }
         }
@@ -139,7 +151,7 @@ impl LocalServerManager {
             .arg("--host")
             .arg("127.0.0.1")
             .arg("-c")
-            .arg("4096")
+            .arg("16384")
             .arg("-np")
             .arg("1")
             .arg("-t")
@@ -149,7 +161,14 @@ impl LocalServerManager {
 
         if let Some(ref dir) = bin_dir {
             cmd.current_dir(dir);
+            #[cfg(unix)]
             cmd.env("LD_LIBRARY_PATH", dir);
+            #[cfg(windows)]
+            {
+                if let Ok(old_path) = std::env::var("PATH") {
+                    cmd.env("PATH", format!("{};{}", dir.display(), old_path));
+                }
+            }
         }
 
         let child = cmd.spawn().map_err(|e| format!("Failed to spawn llama-server: {e}"))?;

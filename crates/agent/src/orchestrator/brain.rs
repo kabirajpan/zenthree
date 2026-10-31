@@ -46,7 +46,7 @@ impl CompiledPatterns {
             Regex::new(&format!("{flag}\\b(architect|refactoring plan|design doc|execution plan|milestones|outline)\\b")).unwrap(),
         ];
         let exec = vec![
-            Regex::new(&format!("{flag}\\b(implement|write|create|add|generate code|extract|refactor this|new endpoint|helper function)\\b")).unwrap(),
+            Regex::new(&format!("{flag}\\b(implement|write|create|add|generate code|build|make|code|develop|scaffold|extract|refactor this|new endpoint|helper function)\\b")).unwrap(),
             Regex::new(&format!("{flag}\\b(fix|error|fail|panick?ed?|mismatch|borrow checker|traceback|cannot borrow|lifetime|stack trace)\\b")).unwrap(),
             Regex::new(&format!("{flag}\\b(test|cargo test|pytest|cargo check|clippy|benchmark|verify tests?|run tests?|linter)\\b")).unwrap(),
         ];
@@ -249,6 +249,10 @@ impl FlyBrain {
         if is_compound || (has_project && (sensory[0] > 0.0 || text_lower_has_explain)) {
             sensory[0] = (sensory[0] * 0.15).min(0.2);
             sensory[1] = sensory[1].max(0.85);
+        }
+
+        if sensory[3] > 0.0 || sensory[2] > 0.0 {
+            sensory[0] = 0.0;
         }
 
         if sensory[4] > 0.1 {

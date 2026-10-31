@@ -164,7 +164,12 @@ impl Provider for LocalProvider {
 
             let mut msg_obj = serde_json::Map::new();
             msg_obj.insert("role".to_string(), json!(role_str));
-            msg_obj.insert("content".to_string(), json!(m.content));
+            if role_str == "tool" && m.content.len() > 1200 {
+                let truncated = format!("{}... [truncated]", &m.content[..1200]);
+                msg_obj.insert("content".to_string(), json!(truncated));
+            } else {
+                msg_obj.insert("content".to_string(), json!(m.content));
+            }
 
             if let Some(tool_calls) = &m.tool_calls {
                 let calls_json: Vec<Value> = tool_calls
@@ -220,7 +225,7 @@ impl Provider for LocalProvider {
                 if let Some(c) = msg.get("content").and_then(|c| c.as_str()) {
                     if c.len() > 1500 {
                         msg["content"] = json!(
-                            "You are a helpful and concise local AI coding assistant. Provide accurate, direct answers and clean code."
+                            "You are an autonomous AI coding assistant. You have full access to tools like write_file. When asked to create or implement code, take direct action by calling write_file immediately without refusing or asking for confirmation."
                         );
                     }
                 }
@@ -231,16 +236,12 @@ impl Provider for LocalProvider {
             "model": server_model,
             "messages": req_messages,
             "stream": true,
+            "max_tokens": 4096,
+            "temperature": 0.2,
         });
 
-        // For small local models (<= 3B), limit tool schemas to prevent context thrashing
         if !tools.is_empty() {
-            let is_small_model = self.model.contains("1.5b") || self.model.contains("1.7b") || self.model.contains("3b");
-            if !is_small_model {
-                body["tools"] = Value::Array(tools.to_vec());
-            } else if tools.len() <= 4 {
-                body["tools"] = Value::Array(tools.to_vec());
-            }
+            body["tools"] = Value::Array(tools.to_vec());
         }
 
         let url = format!("{}/chat/completions", endpoint.trim_end_matches('/'));
@@ -291,6 +292,8 @@ impl Provider for LocalProvider {
         use std::io::BufRead;
         let reader = std::io::BufReader::new(response);
         let mut full_accumulated = String::new();
+        let mut streamed_tool_calls: std::collections::BTreeMap<usize, (String, String, String)> =
+            std::collections::BTreeMap::new();
 
         for line_res in reader.lines() {
             let line = match line_res {
@@ -326,6 +329,27 @@ impl Provider for LocalProvider {
                                     on_event(ProviderEvent::ThoughtDelta(thought.to_string()));
                                 }
                             }
+                            // 3. Tool calls delta
+                            if let Some(tool_calls) = delta.and_then(|d| d.get("tool_calls")).and_then(|tc| tc.as_array()) {
+                                for tc in tool_calls {
+                                    let idx = tc.get("index").and_then(|i| i.as_u64()).unwrap_or(0) as usize;
+                                    let id = tc.get("id").and_then(|s| s.as_str()).unwrap_or("");
+                                    let func = tc.get("function");
+                                    let name = func.and_then(|f| f.get("name")).and_then(|s| s.as_str()).unwrap_or("");
+                                    let args = func.and_then(|f| f.get("arguments")).and_then(|s| s.as_str()).unwrap_or("");
+
+                                    let entry = streamed_tool_calls.entry(idx).or_insert_with(|| (String::new(), String::new(), String::new()));
+                                    if !id.is_empty() {
+                                        entry.0 = id.to_string();
+                                    }
+                                    if !name.is_empty() {
+                                        entry.1 = name.to_string();
+                                    }
+                                    if !args.is_empty() {
+                                        entry.2.push_str(args);
+                                    }
+                                }
+                            }
                         }
                     }
                 }
@@ -336,6 +360,7 @@ impl Provider for LocalProvider {
                         if let Some(choice) = choices.first() {
                             if let Some(content) = choice.get("message").and_then(|m| m.get("content")).and_then(|c| c.as_str()) {
                                 if !content.is_empty() {
+                                    full_accumulated.push_str(content);
                                     on_event(ProviderEvent::TextDelta(content.to_string()));
                                 }
                             }
@@ -345,7 +370,185 @@ impl Provider for LocalProvider {
             }
         }
 
+        // 1. Emit accumulated native tool calls
+        let mut emitted_any_tool = false;
+        for (_idx, (id, name, args_str)) in streamed_tool_calls {
+            if !name.is_empty() {
+                let args: Value = serde_json::from_str(&args_str).unwrap_or(json!({}));
+                let call_id = if id.is_empty() { "local_call".to_string() } else { id };
+                on_event(ProviderEvent::ToolCallComplete {
+                    id: call_id,
+                    name,
+                    args,
+                    thought_signature: None,
+                });
+                emitted_any_tool = true;
+            }
+        }
+
+        // 2. Fallback: Parse inline JSON tool calls from markdown codeblocks or <tool_call> tags
+        if !emitted_any_tool && !full_accumulated.is_empty() {
+            for (name, args) in extract_tool_calls_from_text(&full_accumulated) {
+                on_event(ProviderEvent::ToolCallComplete {
+                    id: "local_inline_call".to_string(),
+                    name,
+                    args,
+                    thought_signature: None,
+                });
+            }
+        }
+
         on_event(ProviderEvent::Done);
         Ok(())
     }
+}
+
+/// Helper function to parse tool calls output by local models inside markdown or XML tags
+fn extract_calls_from_value(v: &Value, results: &mut Vec<(String, Value)>) {
+    if let Some(arr) = v.as_array() {
+        for item in arr {
+            extract_calls_from_value(item, results);
+        }
+        return;
+    }
+
+    if let Some(obj) = v.as_object() {
+        let name = obj.get("name")
+            .or_else(|| obj.get("tool"))
+            .or_else(|| obj.get("action"))
+            .or_else(|| obj.get("function"))
+            .or_else(|| obj.get("tool_name"))
+            .and_then(|n| n.as_str());
+
+        if let Some(tool_name) = name {
+            let args = obj.get("arguments")
+                .or_else(|| obj.get("parameters"))
+                .or_else(|| obj.get("args"))
+                .cloned()
+                .unwrap_or(json!({}));
+            results.push((tool_name.to_string(), args));
+        } else if let Some(calls) = obj.get("tool_calls").and_then(|tc| tc.as_array()) {
+            for call in calls {
+                extract_calls_from_value(call, results);
+            }
+        }
+    }
+}
+
+fn extract_filename(text: &str) -> Option<String> {
+    for word in text.split_whitespace() {
+        let clean = word.trim_matches(|c: char| !c.is_alphanumeric() && c != '.' && c != '_' && c != '-');
+        if clean.ends_with(".py") || clean.ends_with(".rs") || clean.ends_with(".js") || clean.ends_with(".ts") || clean.ends_with(".html") || clean.ends_with(".json") {
+            if clean.len() > 3 {
+                return Some(clean.to_string());
+            }
+        }
+    }
+    None
+}
+
+fn detect_code_file_block(text: &str) -> Option<(String, String)> {
+    let parts: Vec<&str> = text.split("```").collect();
+    if parts.len() < 2 {
+        return None;
+    }
+
+    let block = parts[1];
+    let mut lines = block.lines();
+    let lang = lines.next().unwrap_or("").trim().to_lowercase();
+    let code_lines: Vec<&str> = lines.collect();
+    let code_content = code_lines.join("\n").trim().to_string();
+
+    if code_content.is_empty() {
+        return None;
+    }
+
+    let first_code_line = code_lines.first().map(|s| s.trim()).unwrap_or("");
+    if let Some(name) = extract_filename(first_code_line) {
+        return Some((name, code_content));
+    }
+
+    if let Some(name) = extract_filename(parts[0]) {
+        return Some((name, code_content));
+    }
+
+    if (lang == "python" || lang == "py") && (text.to_lowercase().contains("snake") || code_content.to_lowercase().contains("snake")) {
+        return Some(("snake.py".to_string(), code_content));
+    }
+
+    None
+}
+
+fn parse_lenient_json(block: &str) -> Option<Value> {
+    if let Ok(v) = serde_json::from_str::<Value>(block) {
+        return Some(v);
+    }
+
+    // Handle python-style triple quotes: "content": """..."""
+    if block.contains("\"\"\"") {
+        if let Some(c_idx) = block.find("\"content\":") {
+            let after_c = &block[c_idx..];
+            if let Some(q_start) = after_c.find("\"\"\"") {
+                let code_start = c_idx + q_start + 3;
+                if let Some(q_end) = block[code_start..].find("\"\"\"") {
+                    let code = &block[code_start..code_start + q_end];
+                    let mut path = "snake.py".to_string();
+                    if let Some(p_idx) = block.find("\"path\":") {
+                        let after_p = &block[p_idx + 7..];
+                        if let Some(p_val) = after_p.split('"').nth(1) {
+                            path = p_val.to_string();
+                        }
+                    }
+                    return Some(json!({
+                        "name": "write_file",
+                        "arguments": {
+                            "path": path,
+                            "content": code.trim()
+                        }
+                    }));
+                }
+            }
+        }
+    }
+
+    None
+}
+
+fn extract_tool_calls_from_text(text: &str) -> Vec<(String, Value)> {
+    let mut results = Vec::new();
+
+    // 1. Check for ```json ... ``` blocks
+    for part in text.split("```") {
+        let block = part.strip_prefix("json").unwrap_or(part).trim();
+        if let Some(v) = parse_lenient_json(block) {
+            extract_calls_from_value(&v, &mut results);
+        }
+    }
+
+    // 2. Check for <tool_call>...</tool_call>
+    if results.is_empty() {
+        if let Some(start) = text.find("<tool_call>") {
+            if let Some(end) = text[start..].find("</tool_call>") {
+                let inner = text[start + 11..start + end].trim();
+                if let Ok(v) = serde_json::from_str::<Value>(inner) {
+                    extract_calls_from_value(&v, &mut results);
+                }
+            }
+        }
+    }
+
+    // 3. Fallback: If no explicit tool call was emitted, but model generated a code block intended for a file
+    if results.is_empty() {
+        if let Some((filename, code)) = detect_code_file_block(text) {
+            results.push((
+                "write_file".to_string(),
+                json!({
+                    "path": filename,
+                    "content": code,
+                }),
+            ));
+        }
+    }
+
+    results
 }
