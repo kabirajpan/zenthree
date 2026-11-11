@@ -131,16 +131,16 @@ jobs:
             cp assets/logo/zenthree.png deb_pkg/usr/share/icons/hicolor/512x512/apps/zenthree.png
           fi
 
-          cat << 'EOF' > deb_pkg/DEBIAN/control
-Package: zenthree
-Version: 0.1.0
-Section: devel
-Priority: optional
-Architecture: amd64
-Maintainer: Kabir <kabirajpan2@gmail.com>
-Description: Zenthree Code Editor & IDE
- A fast, lightweight code editor built with Zenthra UI.
-EOF
+          printf '%s\n' \
+            "Package: zenthree" \
+            "Version: 0.1.0" \
+            "Section: devel" \
+            "Priority: optional" \
+            "Architecture: amd64" \
+            "Maintainer: Kabir <kabirajpan2@gmail.com>" \
+            "Description: Zenthree Code Editor & IDE" \
+            " A fast, lightweight code editor built with Zenthra UI." \
+            > deb_pkg/DEBIAN/control
 
           dpkg-deb --build deb_pkg "${{ github.workspace }}/zenthree-linux-amd64.deb"
 
