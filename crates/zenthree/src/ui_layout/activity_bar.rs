@@ -1,16 +1,19 @@
 use crate::state::{ZenthreeState, SidebarView};
-use zenthra::{Color, Ui, Align, Id};
+use zenthra::{Color, Ui, Align, Id, use_context};
+use crate::theme::ThemeColors;
 
 pub const ACTIVITY_BAR_WIDTH: f32 = 44.0;
 
 pub fn draw_activity_bar(ui: &mut Ui, state: &mut ZenthreeState, height: f32) {
-    let colors = state.colors();
+    let colors = use_context::<ThemeColors>().map(|c| *c).unwrap_or_else(|| state.colors());
+
+    let bar_x = ui.cursor_x;
+    let bar_y = ui.cursor_y;
 
     ui.container()
         .width(ACTIVITY_BAR_WIDTH)
         .height(height)
         .bg(colors.bg_base)
-        .border(colors.border, 1.0)
         .column()
         .halign(Align::Center)
         .valign(Align::SpaceBetween)
@@ -22,13 +25,13 @@ pub fn draw_activity_bar(ui: &mut Ui, state: &mut ZenthreeState, height: f32) {
                 .halign(Align::Center)
                 .gap(6.0)
                 .show(|ui| {
-                    // 1. Files / Explorer
+                    // 1. Files / Explorer (\u{f0645})
                     let is_explorer = state.sidebar_visible && state.sidebar_view == SidebarView::Explorer;
                     let exp_key = Id::from_u64(999997200);
                     let exp_hov = ui.interaction_state.get(&exp_key).copied().unwrap_or(0.0) > 0.5;
 
                     let exp_btn = ui.container()
-                        .clickable(true)
+                        .interactive(true)
                         .width(40.0)
                         .height(38.0)
                         .radius_all(4.0)
@@ -64,9 +67,8 @@ pub fn draw_activity_bar(ui: &mut Ui, state: &mut ZenthreeState, height: f32) {
                                     } else {
                                         colors.text_muted
                                     };
-                                    // NF_FA_FILES_O (\u{f0c5}) - iconic files/explorer icon
-                                    ui.text("\u{f0c5}")
-                                        .size(16.0)
+                                    ui.text("\u{ef81}")
+                                        .size(17.0)
                                         .color(icon_color)
                                         .show();
                                 });
@@ -81,23 +83,26 @@ pub fn draw_activity_bar(ui: &mut Ui, state: &mut ZenthreeState, height: f32) {
                             state.sidebar_visible = false;
                         } else {
                             state.sidebar_visible = true;
+                            let prev = state.sidebar_view;
                             state.sidebar_view = SidebarView::Explorer;
+                            if prev != SidebarView::Explorer {
+                                state.rebuild_tree();
+                            }
                         }
                         state.save_persistent_state();
                         ui.request_redraw();
                     }
 
-                    // 2. Git / Source Control
-                    let is_git = state.sidebar_visible && state.sidebar_view == SidebarView::SourceControl;
-                    let git_key = Id::from_u64(999997203);
+                    // 2. Git Panel (\u{ea68})
+                    let is_git = state.sidebar_visible && state.sidebar_view == SidebarView::Git;
+                    let git_key = Id::from_u64(999997204);
                     let git_hov = ui.interaction_state.get(&git_key).copied().unwrap_or(0.0) > 0.5;
                     let total_changes = state.git_state.staged.len() + state.git_state.unstaged.len();
-
-                    let git_btn_id = Id::from_u64(999997203);
+                    let git_btn_id = Id::from_u64(999997204);
 
                     let git_btn = ui.container()
                         .raw_id(git_btn_id)
-                        .clickable(true)
+                        .interactive(true)
                         .width(40.0)
                         .height(38.0)
                         .radius_all(4.0)
@@ -111,7 +116,6 @@ pub fn draw_activity_bar(ui: &mut Ui, state: &mut ZenthreeState, height: f32) {
                         .row()
                         .valign(Align::Center)
                         .show(|ui| {
-                            // Left active indicator strip (2.5px wide)
                             ui.container()
                                 .width(2.5)
                                 .height(22.0)
@@ -119,7 +123,6 @@ pub fn draw_activity_bar(ui: &mut Ui, state: &mut ZenthreeState, height: f32) {
                                 .bg(if is_git { colors.accent } else { Color::TRANSPARENT })
                                 .show(|_| {});
 
-                            // Centered icon container - perfectly centered, never shifts
                             ui.container()
                                 .width(37.5)
                                 .height(38.0)
@@ -133,7 +136,6 @@ pub fn draw_activity_bar(ui: &mut Ui, state: &mut ZenthreeState, height: f32) {
                                     } else {
                                         colors.text_muted
                                     };
-                                    // Codicon source control (\u{ea68})
                                     ui.text("\u{ea68}")
                                         .size(16.0)
                                         .color(icon_color)
@@ -141,7 +143,6 @@ pub fn draw_activity_bar(ui: &mut Ui, state: &mut ZenthreeState, height: f32) {
                                 });
                         });
 
-                    // Badge count for changed files pinned on bottom-right of tab icon (just like VS Code)
                     if total_changes > 0 {
                         let btn_rect = ui.screen_layout_cache.get(&git_btn_id)
                             .copied()
@@ -153,8 +154,8 @@ pub fn draw_activity_bar(ui: &mut Ui, state: &mut ZenthreeState, height: f32) {
                             let badge_y = rect.origin.y + rect.size.height - 14.0;
                             ui.overlay(|ui| {
                                 ui.container()
-                                    .raw_id(Id::from_u64(999997204))
-                                    .absolute(badge_x, badge_y)
+                                    .raw_id(Id::from_u64(999997205))
+                                    .pos(badge_x, badge_y)
                                     .overlay()
                                     .height(13.0)
                                     .padding(0.0, 3.5, 0.0, 3.5)
@@ -165,7 +166,7 @@ pub fn draw_activity_bar(ui: &mut Ui, state: &mut ZenthreeState, height: f32) {
                                     .show(|ui| {
                                         ui.text(&badge_text)
                                             .size(8.5)
-                                            .weight(zenthra::FontWeight::Bold)
+                                            .font_weight(zenthra::FontWeight::Bold)
                                             .color(Color::WHITE)
                                             .show();
                                     });
@@ -178,24 +179,92 @@ pub fn draw_activity_bar(ui: &mut Ui, state: &mut ZenthreeState, height: f32) {
                     if prev != Some(if h { 1.0 } else { 0.0 }) { ui.needs_redraw = true; }
 
                     if git_btn.clicked {
-                        if state.sidebar_visible && state.sidebar_view == SidebarView::SourceControl {
+                        if state.sidebar_visible && state.sidebar_view == SidebarView::Git {
                             state.sidebar_visible = false;
                         } else {
                             state.sidebar_visible = true;
-                            state.sidebar_view = SidebarView::SourceControl;
+                            state.sidebar_view = SidebarView::Git;
                             state.refresh_git_status();
                         }
                         state.save_persistent_state();
                         ui.request_redraw();
                     }
 
-                    // 3. Extensions / Language Tools
+                    // 3. Notes Panel (\u{f1782})
+                    let is_notes = state.sidebar_visible && state.sidebar_view == SidebarView::Notes;
+                    let notes_key = Id::from_u64(999997203);
+                    let notes_hov = ui.interaction_state.get(&notes_key).copied().unwrap_or(0.0) > 0.5;
+
+                    let notes_btn = ui.container()
+                        .interactive(true)
+                        .width(40.0)
+                        .height(38.0)
+                        .radius_all(4.0)
+                        .bg(if is_notes {
+                            colors.accent.with_alpha(0.16)
+                        } else if notes_hov {
+                            colors.highlight
+                        } else {
+                            Color::TRANSPARENT
+                        })
+                        .row()
+                        .valign(Align::Center)
+                        .show(|ui| {
+                            // Left active indicator strip (2.5px wide)
+                            ui.container()
+                                .width(2.5)
+                                .height(22.0)
+                                .radius_all(1.25)
+                                .bg(if is_notes { colors.accent } else { Color::TRANSPARENT })
+                                .show(|_| {});
+
+                            // Centered icon container
+                            ui.container()
+                                .width(37.5)
+                                .height(38.0)
+                                .halign(Align::Center)
+                                .valign(Align::Center)
+                                .show(|ui| {
+                                    let icon_color = if is_notes {
+                                        colors.accent
+                                    } else if notes_hov {
+                                        colors.text_primary
+                                    } else {
+                                        colors.text_muted
+                                    };
+                                    ui.text("\u{f1782}")
+                                        .size(16.0)
+                                        .color(icon_color)
+                                        .show();
+                                });
+                        });
+
+                    let h = notes_btn.hovered;
+                    let prev = ui.interaction_state.insert(notes_key, if h { 1.0 } else { 0.0 });
+                    if prev != Some(if h { 1.0 } else { 0.0 }) { ui.needs_redraw = true; }
+
+                    if notes_btn.clicked {
+                        if state.sidebar_visible && state.sidebar_view == SidebarView::Notes {
+                            state.sidebar_visible = false;
+                        } else {
+                            state.sidebar_visible = true;
+                            let prev = state.sidebar_view;
+                            state.sidebar_view = SidebarView::Notes;
+                            if prev != SidebarView::Notes {
+                                state.rebuild_tree();
+                            }
+                        }
+                        state.save_persistent_state();
+                        ui.request_redraw();
+                    }
+
+                    // 4. Extensions / Language Tools (\u{f0431})
                     let is_ext = state.sidebar_visible && state.sidebar_view == SidebarView::Extensions;
                     let ext_key = Id::from_u64(999997201);
                     let ext_hov = ui.interaction_state.get(&ext_key).copied().unwrap_or(0.0) > 0.5;
 
                     let ext_btn = ui.container()
-                        .clickable(true)
+                        .interactive(true)
                         .width(40.0)
                         .height(38.0)
                         .radius_all(4.0)
@@ -231,8 +300,7 @@ pub fn draw_activity_bar(ui: &mut Ui, state: &mut ZenthreeState, height: f32) {
                                     } else {
                                         colors.text_muted
                                     };
-                                    // NF_FA_PUZZLE_PIECE (\u{f12e}) - iconic puzzle piece extension icon
-                                    ui.text("\u{f12e}")
+                                    ui.text("\u{f0431}")
                                         .size(16.0)
                                         .color(icon_color)
                                         .show();
@@ -255,7 +323,7 @@ pub fn draw_activity_bar(ui: &mut Ui, state: &mut ZenthreeState, height: f32) {
                     }
                 });
 
-            // Bottom Section: Settings / About
+            // Bottom Section: Settings / About (\u{f013})
             ui.container()
                 .column()
                 .halign(Align::Center)
@@ -265,7 +333,7 @@ pub fn draw_activity_bar(ui: &mut Ui, state: &mut ZenthreeState, height: f32) {
                     let set_hov = ui.interaction_state.get(&set_key).copied().unwrap_or(0.0) > 0.5;
 
                     let set_btn = ui.container()
-                        .clickable(true)
+                        .interactive(true)
                         .width(40.0)
                         .height(38.0)
                         .radius_all(4.0)
@@ -286,8 +354,7 @@ pub fn draw_activity_bar(ui: &mut Ui, state: &mut ZenthreeState, height: f32) {
                             } else {
                                 colors.text_muted
                             };
-                            // NF_FA_SETTINGS (\u{f013}) gear icon
-                            ui.text(zenthra::icons::NF_FA_SETTINGS)
+                            ui.text("\u{f013}")
                                 .size(16.0)
                                 .color(icon_color)
                                 .show();
@@ -303,4 +370,18 @@ pub fn draw_activity_bar(ui: &mut Ui, state: &mut ZenthreeState, height: f32) {
                     }
                 });
         });
+
+    // Right 1px divider line separating activity bar from sidebar or workspace
+    ui.draws.push(zenthra_widgets::ui::DrawCommand::Rect(zenthra_widgets::ui::RectDraw {
+        instance: zenthra_render::RectInstance {
+            pos: [bar_x + ACTIVITY_BAR_WIDTH - 1.0, bar_y],
+            size: [1.0, height],
+            color: colors.border.to_array(),
+            radius: [0.0; 4],
+            border_width: 0.0,
+            border_color: [0.0; 4],
+            clip_rect: [-10000.0, -10000.0, 20000.0, 20000.0],
+            ..Default::default()
+        },
+    }));
 }

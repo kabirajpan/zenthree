@@ -1,0 +1,57 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1000 620" width="1000" height="620">
+  <rect width="1000" height="620" fill="#F7F6F3"/>
+  <text x="500" y="58" text-anchor="middle" font-family="monospace" font-size="22" fill="#666">Icon v2 — Optical Weight Compensation</text>
+  
+  <defs>
+    <clipPath id="c">
+      <rect x="60" y="110" width="400" height="400" rx="90"/>
+    </clipPath>
+  </defs>
+  
+  <!-- Blueprint Construction Box -->
+  <rect x="60" y="110" width="400" height="400" rx="90" fill="none" stroke="#9a9a9a" stroke-width="1"/>
+  
+  <g clip-path="url(#c)" stroke="#9a9a9a" stroke-width="1" fill="none">
+    <line x1="136.0" y1="110" x2="136.0" y2="510"/>
+    <line x1="210.4" y1="110" x2="210.4" y2="510"/>
+    <line x1="222.8" y1="110" x2="222.8" y2="510"/>
+    <line x1="297.2" y1="110" x2="297.2" y2="510"/>
+    <line x1="309.6" y1="110" x2="309.6" y2="510"/>
+    <line x1="384.0" y1="110" x2="384.0" y2="510"/>
+    <line x1="60" y1="186.0" x2="460" y2="186.0"/>
+    <line x1="60" y1="260.4" x2="460" y2="260.4"/>
+    <line x1="60" y1="272.8" x2="460" y2="272.8"/>
+    <line x1="60" y1="347.2" x2="460" y2="347.2"/>
+    <line x1="60" y1="359.6" x2="460" y2="359.6"/>
+    <line x1="60" y1="434.0" x2="460" y2="434.0"/>
+    <line x1="60" y1="110" x2="460" y2="510"/>
+    <line x1="460" y1="110" x2="60" y2="510"/>
+    <circle cx="260.0" cy="310.0" r="124.0"/>
+    <circle cx="260.0" cy="310.0" r="175.4"/>
+  </g>
+  
+  <!-- Large Blueprint Glyph (Light mode baseline r=18) -->
+  <g transform="translate(136.00 186.00) scale(2.0667)" fill="#141210">
+    <path d="M 18 0.00 H 60 A 18.00 18.00 0 0 1 60 36.00 H 18 A 18.00 18.00 0 0 1 18 0.00 Z"/>
+    <path d="M 84.00 18 V 21.00 A 21.00 21.00 0 0 1 63.00 42.00 H 60 A 18.00 18.00 0 0 0 42.00 60 V 63.00 A 21.00 21.00 0 0 1 21.00 84.00 H 18 A 18.00 18.00 0 1 0 36.00 102 V 99.00 A 21.00 21.00 0 0 1 57.00 78.00 H 60 A 18.00 18.00 0 0 0 78.00 60 V 57.00 A 21.00 21.00 0 0 1 99.00 36.00 H 102 A 18.00 18.00 0 1 0 84.00 18 Z"/>
+    <path d="M 60 84.00 H 102 A 18.00 18.00 0 0 1 102 120.00 H 60 A 18.00 18.00 0 0 1 60 84.00 Z"/>
+  </g>
+  
+  <!-- Right Side Dark Preview (Optically thinned r=16 for crisp contrast) -->
+  <rect x="520" y="210" width="200" height="200" rx="45" fill="#141210"/>
+  <g transform="translate(558.00 248.00) scale(1.0333)" fill="#F4F2EE">
+    <path d="M 18 2.00 H 60 A 16.00 16.00 0 0 1 60 34.00 H 18 A 16.00 16.00 0 0 1 18 2.00 Z"/>
+    <path d="M 86.00 18 V 21.00 A 23.00 23.00 0 0 1 63.00 44.00 H 60 A 16.00 16.00 0 0 0 44.00 60 V 63.00 A 23.00 23.00 0 0 1 21.00 86.00 H 18 A 16.00 16.00 0 1 0 34.00 102 V 99.00 A 23.00 23.00 0 0 1 57.00 76.00 H 60 A 16.00 16.00 0 0 0 76.00 60 V 57.00 A 23.00 23.00 0 0 1 99.00 34.00 H 102 A 16.00 16.00 0 1 0 86.00 18 Z"/>
+    <path d="M 60 86.00 H 102 A 16.00 16.00 0 0 1 102 118.00 H 60 A 16.00 16.00 0 0 1 60 86.00 Z"/>
+  </g>
+  <text x="620" y="440" text-anchor="middle" font-family="monospace" font-size="12" fill="#666">Dark (Thinned, r=16)</text>
+  
+  <!-- Right Side Light Preview (r=18) -->
+  <rect x="740" y="210" width="200" height="200" rx="45" fill="#FFFFFF" stroke="#E3E1DC" stroke-width="2"/>
+  <g transform="translate(778.00 248.00) scale(1.0333)" fill="#141210">
+    <path d="M 18 0.00 H 60 A 18.00 18.00 0 0 1 60 36.00 H 18 A 18.00 18.00 0 0 1 18 0.00 Z"/>
+    <path d="M 84.00 18 V 21.00 A 21.00 21.00 0 0 1 63.00 42.00 H 60 A 18.00 18.00 0 0 0 42.00 60 V 63.00 A 21.00 21.00 0 0 1 21.00 84.00 H 18 A 18.00 18.00 0 1 0 36.00 102 V 99.00 A 21.00 21.00 0 0 1 57.00 78.00 H 60 A 18.00 18.00 0 0 0 78.00 60 V 57.00 A 21.00 21.00 0 0 1 99.00 36.00 H 102 A 18.00 18.00 0 1 0 84.00 18 Z"/>
+    <path d="M 60 84.00 H 102 A 18.00 18.00 0 0 1 102 120.00 H 60 A 18.00 18.00 0 0 1 60 84.00 Z"/>
+  </g>
+  <text x="840" y="440" text-anchor="middle" font-family="monospace" font-size="12" fill="#666">Light (Standard, r=18)</text>
+</svg>

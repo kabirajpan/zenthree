@@ -107,9 +107,29 @@ impl Editor {
         self.normalize_selections();
     }
 
+    fn line_first_non_whitespace_column(&self, row: usize) -> usize {
+        if let Some(line) = self.buffer.line(row) {
+            line.chars()
+                .take_while(|c| *c != '\r' && *c != '\n')
+                .position(|c| !c.is_whitespace())
+                .unwrap_or(0)
+        } else {
+            0
+        }
+    }
+
     pub fn move_to_line_start(&mut self) {
+        self.history.break_group();
         for i in 0..self.selections.len() {
-            self.selections[i] = Selection::cursor(Point::new(self.selections[i].end.row, 0));
+            let row = self.selections[i].end.row;
+            let first_non_ws = self.line_first_non_whitespace_column(row);
+            let current_col = self.selections[i].end.column;
+            let target_col = if current_col == first_non_ws {
+                0
+            } else {
+                first_non_ws
+            };
+            self.selections[i] = Selection::cursor(Point::new(row, target_col));
         }
         self.normalize_selections();
     }
@@ -133,6 +153,48 @@ impl Editor {
         self.set_cursor(Point::new(last_row, col));
     }
 
+    pub fn move_word_left(&mut self) {
+        self.history.break_group();
+        for i in 0..self.selections.len() {
+            let new_end = self.move_point_word_left(self.selections[i].end);
+            self.selections[i] = Selection::cursor(new_end);
+        }
+        self.normalize_selections();
+    }
+
+    pub fn move_word_right(&mut self) {
+        self.history.break_group();
+        for i in 0..self.selections.len() {
+            let new_end = self.move_point_word_right(self.selections[i].end);
+            self.selections[i] = Selection::cursor(new_end);
+        }
+        self.normalize_selections();
+    }
+
+    pub fn move_up_by(&mut self, lines: usize) {
+        self.history.break_group();
+        for i in 0..self.selections.len() {
+            let mut p = self.selections[i].end;
+            for _ in 0..lines {
+                p = self.move_point_up(p);
+            }
+            self.selections[i] = Selection::cursor(p);
+        }
+        self.normalize_selections();
+    }
+
+    pub fn move_down_by(&mut self, lines: usize) {
+        self.history.break_group();
+        for i in 0..self.selections.len() {
+            let mut p = self.selections[i].end;
+            for _ in 0..lines {
+                p = self.move_point_down(p);
+            }
+            self.selections[i] = Selection::cursor(p);
+        }
+        self.normalize_selections();
+    }
+
     // -------------------------------------------------------------------------
     // Selection Extensions
     // -------------------------------------------------------------------------
@@ -148,6 +210,22 @@ impl Editor {
     pub fn extend_selection_right(&mut self) {
         for i in 0..self.selections.len() {
             let new_end = self.move_point_right(self.selections[i].end);
+            self.selections[i].end = new_end;
+        }
+        self.normalize_selections();
+    }
+
+    pub fn extend_selection_word_left(&mut self) {
+        for i in 0..self.selections.len() {
+            let new_end = self.move_point_word_left(self.selections[i].end);
+            self.selections[i].end = new_end;
+        }
+        self.normalize_selections();
+    }
+
+    pub fn extend_selection_word_right(&mut self) {
+        for i in 0..self.selections.len() {
+            let new_end = self.move_point_word_right(self.selections[i].end);
             self.selections[i].end = new_end;
         }
         self.normalize_selections();
@@ -169,9 +247,40 @@ impl Editor {
         self.normalize_selections();
     }
 
-    pub fn extend_selection_to_line_start(&mut self) {
+    pub fn extend_selection_up_by(&mut self, lines: usize) {
         for i in 0..self.selections.len() {
-            self.selections[i].end = Point::new(self.selections[i].end.row, 0);
+            let mut p = self.selections[i].end;
+            for _ in 0..lines {
+                p = self.move_point_up(p);
+            }
+            self.selections[i].end = p;
+        }
+        self.normalize_selections();
+    }
+
+    pub fn extend_selection_down_by(&mut self, lines: usize) {
+        for i in 0..self.selections.len() {
+            let mut p = self.selections[i].end;
+            for _ in 0..lines {
+                p = self.move_point_down(p);
+            }
+            self.selections[i].end = p;
+        }
+        self.normalize_selections();
+    }
+
+    pub fn extend_selection_to_line_start(&mut self) {
+        self.history.break_group();
+        for i in 0..self.selections.len() {
+            let row = self.selections[i].end.row;
+            let first_non_ws = self.line_first_non_whitespace_column(row);
+            let current_col = self.selections[i].end.column;
+            let target_col = if current_col == first_non_ws {
+                0
+            } else {
+                first_non_ws
+            };
+            self.selections[i].end = Point::new(row, target_col);
         }
         self.normalize_selections();
     }
@@ -181,6 +290,22 @@ impl Editor {
             let row = self.selections[i].end.row;
             let len = self.buffer.line(row).map(|l| l.chars().count()).unwrap_or(0);
             self.selections[i].end = Point::new(row, len);
+        }
+        self.normalize_selections();
+    }
+
+    pub fn extend_selection_to_top(&mut self) {
+        for i in 0..self.selections.len() {
+            self.selections[i].end = Point::zero();
+        }
+        self.normalize_selections();
+    }
+
+    pub fn extend_selection_to_bottom(&mut self) {
+        let last_row = self.buffer.line_count().saturating_sub(1);
+        let last_col = self.buffer.line(last_row).map(|l| l.chars().count()).unwrap_or(0);
+        for i in 0..self.selections.len() {
+            self.selections[i].end = Point::new(last_row, last_col);
         }
         self.normalize_selections();
     }
@@ -499,6 +624,128 @@ impl Editor {
         self.normalize_selections();
     }
 
+    pub fn delete_word_left(&mut self) {
+        self.history.record_edit(&self.buffer, &self.selections, crate::history::EditKind::Backspace);
+        for i in 0..self.selections.len() {
+            let selection = self.selections[i];
+            let (start, end) = selection.range();
+
+            if start != end {
+                let start_offset = self.buffer.point_to_offset(start);
+                let end_offset = self.buffer.point_to_offset(end);
+                self.buffer.delete(start_offset, end_offset);
+                self.selections[i] = Selection::cursor(start);
+            } else {
+                let target_point = self.move_point_word_left(start);
+                if target_point != start {
+                    let target_offset = self.buffer.point_to_offset(target_point);
+                    let current_offset = self.buffer.point_to_offset(start);
+                    self.buffer.delete(target_offset, current_offset);
+                    self.selections[i] = Selection::cursor(target_point);
+                }
+            }
+        }
+        self.normalize_selections();
+    }
+
+    pub fn delete_word_right(&mut self) {
+        self.history.record_edit(&self.buffer, &self.selections, crate::history::EditKind::Delete);
+        for i in 0..self.selections.len() {
+            let selection = self.selections[i];
+            let (start, end) = selection.range();
+
+            if start != end {
+                let start_offset = self.buffer.point_to_offset(start);
+                let end_offset = self.buffer.point_to_offset(end);
+                self.buffer.delete(start_offset, end_offset);
+                self.selections[i] = Selection::cursor(start);
+            } else {
+                let target_point = self.move_point_word_right(start);
+                if target_point != start {
+                    let current_offset = self.buffer.point_to_offset(start);
+                    let target_offset = self.buffer.point_to_offset(target_point);
+                    self.buffer.delete(current_offset, target_offset);
+                    self.selections[i] = Selection::cursor(start);
+                }
+            }
+        }
+        self.normalize_selections();
+    }
+
+    pub fn delete_line(&mut self) {
+        self.history.record_edit(&self.buffer, &self.selections, crate::history::EditKind::Delete);
+        let row = self.cursor().row;
+        let line_count = self.buffer.line_count();
+        if line_count == 0 {
+            return;
+        }
+
+        let start_point = Point::new(row, 0);
+        let (end_point, is_last) = if row + 1 < line_count {
+            (Point::new(row + 1, 0), false)
+        } else if row > 0 {
+            (Point::new(row, self.buffer.line(row).map(|l| l.chars().count()).unwrap_or(0)), true)
+        } else {
+            let len = self.buffer.line(0).map(|l| l.chars().count()).unwrap_or(0);
+            (Point::new(0, len), false)
+        };
+
+        if is_last {
+            let prev_len = self.buffer.line(row - 1).map(|l| l.chars().count()).unwrap_or(0);
+            let start = Point::new(row - 1, prev_len);
+            let start_offset = self.buffer.point_to_offset(start);
+            let end_offset = self.buffer.point_to_offset(end_point);
+            self.buffer.delete(start_offset, end_offset);
+            self.set_cursor(start);
+        } else {
+            let start_offset = self.buffer.point_to_offset(start_point);
+            let end_offset = self.buffer.point_to_offset(end_point);
+            self.buffer.delete(start_offset, end_offset);
+            let new_line_count = self.buffer.line_count();
+            let new_row = row.min(new_line_count.saturating_sub(1));
+            self.set_cursor(Point::new(new_row, 0));
+        }
+        self.normalize_selections();
+    }
+
+    pub fn duplicate_line_down(&mut self) {
+        self.history.record_edit(&self.buffer, &self.selections, crate::history::EditKind::Other);
+        let cur = self.cursor();
+        if let Some(line) = self.buffer.line(cur.row) {
+            let end_offset = self.buffer.point_to_offset(Point::new(cur.row, line.chars().count()));
+            let text_to_insert = format!("\n{}", line);
+            self.buffer.insert(end_offset, &text_to_insert);
+            self.set_cursor(Point::new(cur.row + 1, cur.column));
+            self.normalize_selections();
+        }
+    }
+
+    pub fn select_word_at_cursor(&mut self) {
+        let cur = self.cursor();
+        if let Some(line) = self.buffer.line(cur.row) {
+            let chars: Vec<char> = line.chars().collect();
+            if chars.is_empty() { return; }
+            let col = cur.column.min(chars.len());
+            let target_col = if col < chars.len() && (chars[col].is_alphanumeric() || chars[col] == '_') {
+                col
+            } else if col > 0 && (chars[col - 1].is_alphanumeric() || chars[col - 1] == '_') {
+                col - 1
+            } else {
+                return;
+            };
+
+            let mut start = target_col;
+            while start > 0 && (chars[start - 1].is_alphanumeric() || chars[start - 1] == '_') {
+                start -= 1;
+            }
+            let mut end = target_col;
+            while end < chars.len() && (chars[end].is_alphanumeric() || chars[end] == '_') {
+                end += 1;
+            }
+            self.set_selection(Selection::new(Point::new(cur.row, start), Point::new(cur.row, end)));
+        }
+    }
+
     // -------------------------------------------------------------------------
     // Helpers
     // -------------------------------------------------------------------------
@@ -546,6 +793,70 @@ impl Editor {
             Point::new(new_row, point.column.min(char_count))
         } else {
             point
+        }
+    }
+
+    fn char_class(c: char) -> u8 {
+        if c.is_alphanumeric() || c == '_' {
+            1
+        } else if c.is_whitespace() {
+            0
+        } else {
+            2
+        }
+    }
+
+    fn move_point_word_left(&self, point: Point) -> Point {
+        if point.column == 0 {
+            if point.row > 0 {
+                let prev_len = self.buffer.line(point.row - 1).map(|l| l.chars().count()).unwrap_or(0);
+                Point::new(point.row - 1, prev_len)
+            } else {
+                point
+            }
+        } else {
+            let line = self.buffer.line(point.row).unwrap_or_default();
+            let chars: Vec<char> = line.chars().collect();
+            let mut col = point.column.min(chars.len());
+            // 1. Skip whitespace immediately to the left
+            while col > 0 && chars[col - 1].is_whitespace() {
+                col -= 1;
+            }
+            // 2. Skip characters of the same class
+            if col > 0 {
+                let target_class = Self::char_class(chars[col - 1]);
+                while col > 0 && Self::char_class(chars[col - 1]) == target_class {
+                    col -= 1;
+                }
+            }
+            Point::new(point.row, col)
+        }
+    }
+
+    fn move_point_word_right(&self, point: Point) -> Point {
+        let line = self.buffer.line(point.row).unwrap_or_default();
+        let chars: Vec<char> = line.chars().collect();
+        let mut col = point.column.min(chars.len());
+
+        if col >= chars.len() {
+            if point.row + 1 < self.buffer.line_count() {
+                Point::new(point.row + 1, 0)
+            } else {
+                point
+            }
+        } else {
+            // 1. If currently on whitespace, skip whitespaces to the right
+            while col < chars.len() && chars[col].is_whitespace() {
+                col += 1;
+            }
+            // 2. Skip characters of the same class
+            if col < chars.len() {
+                let target_class = Self::char_class(chars[col]);
+                while col < chars.len() && Self::char_class(chars[col]) == target_class {
+                    col += 1;
+                }
+            }
+            Point::new(point.row, col)
         }
     }
 
@@ -664,6 +975,62 @@ mod tests {
         // Redo burst typing
         assert!(editor.redo());
         assert_eq!(editor.buffer.to_string(), "abc");
+    }
+
+    #[test]
+    fn test_word_navigation_and_editing() {
+        let mut editor = Editor::new(Buffer::from_text("let my_var = 123;"));
+        editor.set_cursor(Point::new(0, 0));
+
+        editor.move_word_right();
+        assert_eq!(editor.cursor().column, 3); // after "let"
+
+        editor.move_word_right();
+        assert_eq!(editor.cursor().column, 10); // after "my_var"
+
+        editor.move_word_left();
+        assert_eq!(editor.cursor().column, 4); // start of "my_var"
+
+        editor.extend_selection_word_right();
+        assert_eq!(editor.selected_text(), "my_var");
+        // Deleting when selection exists deletes the selection
+        editor.delete_word_left();
+        assert_eq!(editor.buffer.to_string(), "let  = 123;");
+
+        // Now test delete_word_left with cursor at start of " = 123;" (col 4)
+        editor.delete_word_left();
+        assert_eq!(editor.buffer.to_string(), " = 123;");
+    }
+
+    #[test]
+    fn test_line_deletion_and_duplication() {
+        let mut editor = Editor::new(Buffer::from_text("first line\nsecond line\nthird line"));
+        editor.set_cursor(Point::new(1, 2));
+
+        editor.duplicate_line_down();
+        assert_eq!(editor.buffer.to_string(), "first line\nsecond line\nsecond line\nthird line");
+
+        editor.delete_line();
+        assert_eq!(editor.buffer.to_string(), "first line\nsecond line\nthird line");
+    }
+
+    #[test]
+    fn test_smart_home_navigation() {
+        let mut editor = Editor::new(Buffer::from_text("    print(\"Hello world\");"));
+        // Cursor at end of line (col 26)
+        editor.set_cursor(Point::new(0, 26));
+
+        // First Home press: jump to start of code (col 4, right before 'print')
+        editor.move_to_line_start();
+        assert_eq!(editor.cursor().column, 4);
+
+        // Second Home press: toggle to column 0 (very start of line)
+        editor.move_to_line_start();
+        assert_eq!(editor.cursor().column, 0);
+
+        // Third Home press: jump back to start of code (col 4)
+        editor.move_to_line_start();
+        assert_eq!(editor.cursor().column, 4);
     }
 }
 

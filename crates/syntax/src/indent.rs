@@ -23,6 +23,20 @@ impl IndentCalculator {
             .unwrap_or("//")
     }
 
+    pub fn is_bracket_complete(text: &str) -> bool {
+        let trimmed = text.trim();
+        if trimmed.ends_with('{')
+            || trimmed.ends_with('[')
+            || trimmed.ends_with('(')
+            || trimmed.ends_with(':')
+        {
+            return false;
+        }
+
+        let t = trimmed.trim_end_matches(';').trim_end_matches(',').trim();
+        t.ends_with('}') || t.ends_with(']') || t.ends_with(')')
+    }
+
     /// Legacy string-based API (kept for compatibility)
     pub fn calculate_indent(
         &self,
@@ -31,6 +45,19 @@ impl IndentCalculator {
         cursor_column: usize,
         file_path: Option<&Path>,
     ) -> String {
+        let lines: Vec<&str> = text.lines().collect();
+        if cursor_line < lines.len() {
+            let line = lines[cursor_line];
+            let text_to_check = if cursor_column < line.len() {
+                &line[..cursor_column]
+            } else {
+                line
+            };
+            if Self::is_bracket_complete(text_to_check) {
+                return Self::get_line_indent(line);
+            }
+        }
+
         let Some(path) = file_path else {
             return self.fallback_indent(text, cursor_line, cursor_column);
         };
@@ -52,6 +79,17 @@ impl IndentCalculator {
         cursor_column: usize,
         file_path: Option<&Path>,
     ) -> String {
+        if let Some(line_text) = rope.line(cursor_line) {
+            let text_to_check = if cursor_column < line_text.len() {
+                &line_text[..cursor_column]
+            } else {
+                &line_text
+            };
+            if Self::is_bracket_complete(text_to_check) {
+                return Self::get_line_indent(&line_text);
+            }
+        }
+
         let Some(path) = file_path else {
             return self.fallback_indent_with_rope(rope, cursor_line, cursor_column);
         };
@@ -97,7 +135,17 @@ impl IndentCalculator {
         }
 
         let current_line = lines[cursor_line];
-        let _current_indent = Self::get_line_indent(current_line);
+        let current_indent = Self::get_line_indent(current_line);
+
+        let text_to_check = if cursor_column < current_line.len() {
+            &current_line[..cursor_column]
+        } else {
+            current_line
+        };
+
+        if Self::is_bracket_complete(text_to_check) {
+            return current_indent;
+        }
 
         // Build the query from the language's indents.scm
         let query = match Query::new(&config.language, config.indent_query) {
@@ -137,8 +185,8 @@ impl IndentCalculator {
                 let node_start = node.start_byte();
                 let node_end = node.end_byte();
 
-                // Only consider nodes that contain the cursor
-                if node_start > cursor_byte || cursor_byte > node_end {
+                // Only consider nodes that strictly contain the cursor
+                if node_start > cursor_byte || cursor_byte >= node_end {
                     continue;
                 }
 
@@ -196,7 +244,9 @@ impl IndentCalculator {
             };
             
             let trimmed = text_to_check.trim();
-            if trimmed.ends_with('{')
+            if Self::is_bracket_complete(trimmed) {
+                indent
+            } else if trimmed.ends_with('{')
                 || trimmed.ends_with('[')
                 || trimmed.ends_with('(')
                 || trimmed.ends_with(':')
@@ -225,7 +275,9 @@ impl IndentCalculator {
         };
         
         let trimmed = text_to_check.trim();
-        if trimmed.ends_with('{')
+        if Self::is_bracket_complete(trimmed) {
+            indent
+        } else if trimmed.ends_with('{')
             || trimmed.ends_with('[')
             || trimmed.ends_with('(')
             || trimmed.ends_with(':')
@@ -252,5 +304,44 @@ impl editor::editor::IndentProvider for IndentCalculator {
         file_path: Option<&std::path::Path>,
     ) -> String {
         self.calculate_indent_with_rope(rope, row, col, file_path)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use std::path::Path;
+
+    #[test]
+    fn test_indent_after_completed_bracket() {
+        let calc = IndentCalculator::new();
+        let code = "fn add(int a,int b){\n    int sum = a + b;\n}";
+        let path = Path::new("a.rs");
+
+        // Line 2 is `}` (0-indexed line 2, length 1)
+        // Cursor at col 1 (right after `}`)
+        let indent = calc.calculate_indent(code, 2, 1, Some(path));
+        assert_eq!(indent, "", "Line after closing brace should not be indented");
+
+        // Nested block
+        let nested_code = "fn outer() {\n    if true {\n        foo();\n    }\n}";
+        // Line 3 is `    }`
+        let nested_indent = calc.calculate_indent(nested_code, 3, 5, Some(path));
+        assert_eq!(nested_indent, "    ", "Line after nested closing brace should match outer block indent");
+
+        // Line 4 is `}`
+        let final_indent = calc.calculate_indent(nested_code, 4, 1, Some(path));
+        assert_eq!(final_indent, "", "Line after final closing brace should have 0 indent");
+    }
+
+    #[test]
+    fn test_indent_inside_open_bracket() {
+        let calc = IndentCalculator::new();
+        let code = "fn add(int a,int b){\n";
+        let path = Path::new("a.rs");
+
+        // Line 0 ends with `{`
+        let indent = calc.calculate_indent(code, 0, 20, Some(path));
+        assert_eq!(indent, "    ", "Line inside opening brace should be indented 4 spaces");
     }
 }

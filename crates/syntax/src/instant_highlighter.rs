@@ -293,19 +293,9 @@ impl InstantHighlighter {
         ranges
     }
 
-    /// Detect language from file extension, filename, or shebang
+    /// Detect language from file extension
     pub fn detect_language(file_path: Option<&std::path::Path>) -> &'static str {
         if let Some(path) = file_path {
-            if let Some(file_name) = path.file_name().and_then(|f| f.to_str()) {
-                match file_name.to_lowercase().as_str() {
-                    "dockerfile" => return "dockerfile",
-                    "makefile" | "gnumakefile" => return "makefile",
-                    "justfile" => return "shell",
-                    "gemfile" | "rakefile" => return "ruby",
-                    "cmakelists.txt" => return "cmake",
-                    _ => {}
-                }
-            }
             if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
                 return match ext.to_lowercase().as_str() {
                     "rs" => "rust",
@@ -319,39 +309,11 @@ impl InstantHighlighter {
                     "css" | "scss" | "less" => "css",
                     "json" | "jsonc" => "json",
                     "yaml" | "yml" => "yaml",
-                    "toml" => "toml",
                     "md" | "markdown" => "markdown",
                     "sh" | "bash" | "zsh" => "shell",
                     "lua" => "lua",
-                    "zig" => "zig",
-                    "java" => "java",
-                    "kt" | "kts" => "kotlin",
-                    "swift" => "swift",
-                    "php" => "php",
-                    "rb" => "ruby",
-                    "dart" => "dart",
-                    "ex" | "exs" => "elixir",
-                    "sql" => "sql",
-                    "xml" => "xml",
-                    "gleam" => "gleam",
-                    "odin" => "odin",
-                    "mojo" => "mojo",
-                    "nim" => "nim",
-                    "jl" => "julia",
-                    "hs" => "haskell",
                     _ => "unknown",
                 };
-            }
-            // Check shebang if extension is absent
-            if let Ok(content) = std::fs::read_to_string(path) {
-                if let Some(first_line) = content.lines().next() {
-                    if first_line.starts_with("#!") {
-                        if first_line.contains("python") { return "python"; }
-                        if first_line.contains("bash") || first_line.contains("sh") || first_line.contains("zsh") { return "shell"; }
-                        if first_line.contains("node") || first_line.contains("deno") || first_line.contains("bun") { return "javascript"; }
-                        if first_line.contains("ruby") { return "ruby"; }
-                    }
-                }
             }
         }
         "unknown"

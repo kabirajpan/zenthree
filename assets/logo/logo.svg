@@ -1,0 +1,34 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" width="512" height="512">
+  <style>
+    /* Default: Dark Mode */
+    .bg-plate { fill: #141210; stroke: none; }
+    .glyph-dark { display: inline; fill: #F4F2EE; }
+    .glyph-light { display: none; fill: #141210; }
+
+    /* Light System Mode Override */
+    @media (prefers-color-scheme: light) {
+      .bg-plate { fill: #FFFFFF; stroke: #E3E1DC; stroke-width: 2px; }
+      .glyph-dark { display: none; }
+      .glyph-light { display: inline; fill: #141210; }
+    }
+
+    /* Explicit Dark System Mode */
+    @media (prefers-color-scheme: dark) {
+      .bg-plate { fill: #141210; stroke: none; }
+      .glyph-dark { display: inline; fill: #F4F2EE; }
+      .glyph-light { display: none; }
+    }
+  </style>
+
+  <rect class="bg-plate" x="1" y="1" width="510" height="510" rx="115"/>
+
+  <!-- Optically compensated dark-mode glyph (r=16.0) -->
+  <g class="glyph-dark" transform="translate(97.28 97.28) scale(2.6453)">
+    <path d="M 18 2.00 H 60 A 16.00 16.00 0 0 1 60 34.00 H 18 A 16.00 16.00 0 0 1 18 2.00 Z"/><path d="M 86.00 18 V 21.00 A 23.00 23.00 0 0 1 63.00 44.00 H 60 A 16.00 16.00 0 0 0 44.00 60 V 63.00 A 23.00 23.00 0 0 1 21.00 86.00 H 18 A 16.00 16.00 0 1 0 34.00 102 V 99.00 A 23.00 23.00 0 0 1 57.00 76.00 H 60 A 16.00 16.00 0 0 0 76.00 60 V 57.00 A 23.00 23.00 0 0 1 99.00 34.00 H 102 A 16.00 16.00 0 1 0 86.00 18 Z"/><path d="M 60 86.00 H 102 A 16.00 16.00 0 0 1 102 118.00 H 60 A 16.00 16.00 0 0 1 60 86.00 Z"/>
+  </g>
+
+  <!-- Standard light-mode glyph (r=18.0) -->
+  <g class="glyph-light" transform="translate(97.28 97.28) scale(2.6453)">
+    <path d="M 18 0.00 H 60 A 18.00 18.00 0 0 1 60 36.00 H 18 A 18.00 18.00 0 0 1 18 0.00 Z"/><path d="M 84.00 18 V 21.00 A 21.00 21.00 0 0 1 63.00 42.00 H 60 A 18.00 18.00 0 0 0 42.00 60 V 63.00 A 21.00 21.00 0 0 1 21.00 84.00 H 18 A 18.00 18.00 0 1 0 36.00 102 V 99.00 A 21.00 21.00 0 0 1 57.00 78.00 H 60 A 18.00 18.00 0 0 0 78.00 60 V 57.00 A 21.00 21.00 0 0 1 99.00 36.00 H 102 A 18.00 18.00 0 1 0 84.00 18 Z"/><path d="M 60 84.00 H 102 A 18.00 18.00 0 0 1 102 120.00 H 60 A 18.00 18.00 0 0 1 60 84.00 Z"/>
+  </g>
+</svg>

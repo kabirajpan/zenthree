@@ -1,9 +1,11 @@
 # Rust build artifacts
 /target/
 **/target/
+**/*.rs.bk
 
 # Debug/log files
 *.log
+**/*.log
 
 # Editor/IDE
 .vscode/
@@ -11,20 +13,29 @@
 *.swp
 *.swo
 .DS_Store
+Thumbs.db
 
 # Environment / secrets
 .env
 .env.local
+.env.*
+!.env.example
 
-# Zenthree session runtime & local workspace cache
-.zenthree/
-**/.zenthree/
+# Local application sessions
+.zenthree_sessions/
+**/.zenthree_sessions/
+/python_demo/
 
 # Backup files
 *~
 *.bak
 
+# Cloned references
 references/
-/references/
-references
-**/references/**
+
+# Test projects (not pushed to github)
+/test_snake/
+crates/agent/tests/calculator/
+crates/agent/tests/snake_game/
+implementation_plan.md
+**/implementation_plan.md

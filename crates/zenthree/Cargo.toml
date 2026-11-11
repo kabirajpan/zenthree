@@ -2,19 +2,21 @@
 name = "zenthree"
 version = "0.1.0"
 edition = "2021"
+default-run = "zenthree"
 
 [dependencies]
+dotenvy = "0.15"
 zenthra = { path = "../../../../crates/zenthra" }
 zenthra-core = { path = "../../../../crates/zenthra-core" }
 zenthra-widgets = { path = "../../../../crates/zenthra-widgets" }
 zenthra-platform = { path = "../../../../crates/zenthra-platform" }
 zenthra-text = { path = "../../../../crates/zenthra-text" }
 zenthra-render = { path = "../../../../crates/zenthra-render" }
+zenthra-state = { path = "../../../../crates/zenthra-state" }
 editor = { path = "../editor" }
 syntax = { path = "../syntax" }
 formatter = { path = "../formatter" }
-connectome = { path = "../connectome" }
-ai = { path = "../ai" }
+agent = { path = "../agent" }
 winit = "0.30"
 log = "0.4"
 env_logger = "0.11"
@@ -23,9 +25,10 @@ dirs = "5"
 rust-embed = "8.5.0"
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-arboard = { version = "3.6.1", features = ["wayland-data-control"] }
+arboard = "3.6.1"
 portable-pty = "0.9.0"
 pulldown-cmark = { version = "0.12", default-features = false }
-ureq = { version = "2.10", features = ["json"] }
-
-
+notify = "8"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+opener = "0.7"
+vt100 = "0.16"

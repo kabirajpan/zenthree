@@ -24,6 +24,9 @@ struct ParseState {
 pub struct SyntaxHighlighter {
     registry: LanguageRegistry,
     theme: SyntaxTheme,
+    /// true = dark, false = light — tracked so we can skip set_theme() calls
+    /// when the theme hasn't actually changed between frames.
+    theme_is_dark: Option<bool>,
     parser: Parser,
     query_cache: HashMap<LanguageId, Query>,
     parse_state: Option<ParseState>,
@@ -35,11 +38,17 @@ impl SyntaxHighlighter {
         Self {
             registry: LanguageRegistry::new(),
             theme,
+            theme_is_dark: None,
             parser: Parser::new(),
             query_cache: HashMap::new(),
             parse_state: None,
             highlight_cache: None,
         }
+    }
+
+    /// Returns true if the current theme is the dark variant.
+    pub fn theme_is_dark(&self) -> Option<bool> {
+        self.theme_is_dark
     }
 
     pub fn tree(&self) -> Option<&Tree> {
@@ -112,7 +121,7 @@ impl SyntaxHighlighter {
                 true
             }
             Err(e) => {
-                eprintln!("[SyntaxHighlighter] Query error for {}: {}", config.name, e);
+                log::error!("[SyntaxHighlighter] Query error for {}: {}", config.name, e);
                 false
             }
         }
@@ -164,7 +173,7 @@ impl SyntaxHighlighter {
 
         if need_lang_change {
             if let Err(e) = self.parser.set_language(&lang_config.language) {
-                eprintln!("[SyntaxHighlighter] Failed to set language: {}", e);
+                log::error!("[SyntaxHighlighter] Failed to set language: {}", e);
                 return HashMap::new();
             }
             self.parse_state = None;
@@ -175,11 +184,16 @@ impl SyntaxHighlighter {
         // with what notify_edit stores.
         let full_text = rope_to_text_with_newline(rope);
 
-        // Safety Guard: Detect out-of-sync state that would cause panics.
+        // Safety Guard: Detect out-of-sync state or content changes when incremental edits weren't tracked.
+        // Discard the previous parse state cleanly so tree-sitter parses the new text cleanly from scratch.
         if let Some(state) = &self.parse_state {
             let root = state.tree.root_node();
-            if root.end_byte() != full_text.len() {
-                eprintln!("[SyntaxHighlighter] Sync discrepancy detected (tree={} bytes, buffer={} bytes). Resetting.", root.end_byte(), full_text.len());
+            if root.end_byte() != full_text.len() || state.text != full_text {
+                log::trace!(
+                    "[SyntaxHighlighter] Buffer changed (tree={} bytes, buffer={} bytes). Reparsing.",
+                    root.end_byte(),
+                    full_text.len()
+                );
                 self.parse_state = None;
             }
         }
@@ -189,7 +203,7 @@ impl SyntaxHighlighter {
         let tree = match self.parser.parse(&full_text, old_tree) {
             Some(t) => t,
             None => {
-                eprintln!("[SyntaxHighlighter] Parse failed");
+                log::warn!("[SyntaxHighlighter] Parse failed");
                 return HashMap::new();
             }
         };
@@ -373,8 +387,9 @@ impl SyntaxHighlighter {
         Some(crate::CodeContext::new(&state.tree, byte_offset, &state.text))
     }
 
-    pub fn set_theme(&mut self, theme: SyntaxTheme) {
+    pub fn set_theme(&mut self, theme: SyntaxTheme, is_dark: bool) {
         self.theme = theme;
+        self.theme_is_dark = Some(is_dark);
         self.highlight_cache = None;
     }
 }
@@ -412,4 +427,64 @@ fn safe_char_count(s: &str, byte_offset: usize) -> usize {
         .find(|&i| s.is_char_boundary(i))
         .unwrap_or(0);
     s[..clamped].chars().count()
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use editor::rope::Rope;
+    use std::path::Path;
+
+    #[test]
+    fn test_treesitter_rust_highlighting() {
+        let mut highlighter = SyntaxHighlighter::new(SyntaxTheme::dark());
+        let code = "fn add(a: i32, b: i32) -> i32 {\n    let sum = a + b;\n    sum\n}";
+        let rope = Rope::from_text(code);
+        let path = Path::new("main.rs");
+
+        let highlights = highlighter.highlight_viewport(&rope, 1, Some(path), 0, 4);
+        assert!(!highlights.is_empty(), "Expected highlights for Rust file");
+        let line0_spans = highlights.get(&0).expect("Line 0 should have highlights");
+        assert!(!line0_spans.is_empty(), "Line 0 should contain highlighted tokens");
+    }
+
+    #[test]
+    fn test_treesitter_javascript_highlighting() {
+        let mut highlighter = SyntaxHighlighter::new(SyntaxTheme::dark());
+        let code = "function test() {\n    const x = 42;\n    return x;\n}";
+        let rope = Rope::from_text(code);
+        let path = Path::new("index.js");
+
+        let highlights = highlighter.highlight_viewport(&rope, 1, Some(path), 0, 4);
+        assert!(!highlights.is_empty(), "Expected highlights for JS file");
+        let line0_spans = highlights.get(&0).expect("Line 0 should have highlights");
+        assert!(!line0_spans.is_empty(), "Line 0 should contain highlighted tokens");
+    }
+
+    #[test]
+    fn test_treesitter_python_highlighting() {
+        let mut highlighter = SyntaxHighlighter::new(SyntaxTheme::dark());
+        let code = "def hello():\n    print('world')\n";
+        let rope = Rope::from_text(code);
+        let path = Path::new("script.py");
+
+        let highlights = highlighter.highlight_viewport(&rope, 1, Some(path), 0, 2);
+        assert!(!highlights.is_empty(), "Expected highlights for Python file");
+        let line0_spans = highlights.get(&0).expect("Line 0 should have highlights");
+        assert!(!line0_spans.is_empty(), "Line 0 should contain highlighted tokens");
+    }
+
+    #[test]
+    fn test_treesitter_typescript_highlighting() {
+        let mut highlighter = SyntaxHighlighter::new(SyntaxTheme::dark());
+        let code = "interface User {\n    id: number;\n    name: string;\n}";
+        let rope = Rope::from_text(code);
+        let path = Path::new("user.ts");
+
+        let highlights = highlighter.highlight_viewport(&rope, 1, Some(path), 0, 4);
+        assert!(
+            !highlights.is_empty(),
+            "Expected Tree-sitter highlights for TypeScript file"
+        );
+    }
 }

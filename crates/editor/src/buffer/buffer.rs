@@ -109,6 +109,30 @@ impl Buffer {
         Some(s)
     }
 
+    /// 🚀 Zero-allocation check whether a buffer line matches `expected` (ignores trailing newlines)
+    pub fn line_matches(&self, line_idx: usize, expected: &str) -> bool {
+        if line_idx >= self.line_count() {
+            return false;
+        }
+        let start = self.line_cache.get_cached_offset(line_idx)
+            .unwrap_or_else(|| self.rope.line_to_byte(line_idx));
+        let mut end = self.line_cache.get_cached_offset(line_idx + 1)
+            .unwrap_or_else(|| self.rope.line_to_byte(line_idx + 1));
+
+        if end > start && self.rope.byte_at(end - 1) == Some(b'\n') {
+            end -= 1;
+            if end > start && self.rope.byte_at(end - 1) == Some(b'\r') {
+                end -= 1;
+            }
+        }
+
+        if (end - start) != expected.len() {
+            return false;
+        }
+
+        self.rope.slice_matches(start, end, expected)
+    }
+
     /// 🚀 NEW: Batch get line offsets (FAST!)
     /// Use this when you need multiple line offsets at once
     pub fn get_line_offsets_batch(&mut self, lines: &[usize]) -> Vec<usize> {

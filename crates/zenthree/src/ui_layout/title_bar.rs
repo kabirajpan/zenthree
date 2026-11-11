@@ -1,69 +1,33 @@
 use crate::state::ZenthreeState;
 use crate::theme::{ThemeMode, ACCENT_COLOR_OPTIONS, ICON_THEME_OPTIONS};
-use zenthra::{Color, Ui, FontWeight, Align, Id};
-
-fn get_animated_app_title() -> (&'static str, std::time::Duration, bool) {
-    let now = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .unwrap_or_default();
-    let millis = (now.as_millis() % 12640) as u64;
-
-    if millis < 5000 {
-        // Hold ZENTHREE for 5 seconds
-        ("ZENTHREE", std::time::Duration::from_millis(5000 - millis), false)
-    } else if millis < 5240 {
-        ("ZENTHRE", std::time::Duration::from_millis(5240 - millis), true)
-    } else if millis < 5480 {
-        ("ZENTHE", std::time::Duration::from_millis(5480 - millis), true)
-    } else if millis < 5720 {
-        ("ZENTE", std::time::Duration::from_millis(5720 - millis), true)
-    } else if millis < 5960 {
-        // Arrived at ZENE with normal E
-        ("ZENE", std::time::Duration::from_millis(5960 - millis), true)
-    } else if millis < 6200 {
-        // Flip the E -> ZENƎ
-        ("ZEN\u{018e}", std::time::Duration::from_millis(6200 - millis), true)
-    } else if millis < 11200 {
-        // Hold ZENƎ for 5 seconds
-        ("ZEN\u{018e}", std::time::Duration::from_millis(11200 - millis), false)
-    } else if millis < 11440 {
-        // Flip back to normal E -> ZENE
-        ("ZENE", std::time::Duration::from_millis(11440 - millis), true)
-    } else if millis < 11680 {
-        ("ZENTE", std::time::Duration::from_millis(11680 - millis), true)
-    } else if millis < 11920 {
-        ("ZENTHE", std::time::Duration::from_millis(11920 - millis), true)
-    } else if millis < 12160 {
-        ("ZENTHRE", std::time::Duration::from_millis(12160 - millis), true)
-    } else if millis < 12400 {
-        ("ZENTHREE", std::time::Duration::from_millis(12400 - millis), true)
-    } else {
-        ("ZENTHREE", std::time::Duration::from_millis(12640 - millis), true)
-    }
-}
+use zenthra::{Color, Ui, FontWeight, Align, Id, Style, use_context, ImageSource, ObjectFit};
+use crate::theme::ThemeColors;
 
 pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
-    let colors = state.colors();
+    let colors = use_context::<ThemeColors>().map(|c| *c).unwrap_or_else(|| state.colors());
+    crate::theme::sync_theme_to_ui(ui, state.theme, &colors, state.glassmorphism);
 
     // Reset hover flag for menus in title bar since we do not use menu_bar wrapper
     let hover_flag_key = Id::from_u64(999999902);
     ui.interaction_state.insert(hover_flag_key, 0.0);
 
-    const BTN_W: f32 = 20.0;
     const BAR_H: f32 = 36.0;
-    const RIGHT_W: f32 = 226.0;
+
+    let titlebar_bg = if state.glassmorphism {
+        colors.bg_sidebar.with_alpha((state.glass_opacity * 0.55).clamp(0.18, 0.65))
+    } else {
+        colors.bg_sidebar
+    };
 
     ui.container()
-        .full_width()
+        .fill_x()
         .height(BAR_H)
-        .bg(colors.bg_sidebar)
-        .border(colors.border, 1.0)
+        .bg(titlebar_bg)
         .row()
         .valign(Align::Center)
         .halign(Align::SpaceBetween) // Use SpaceBetween: Left menus vs Right controls
         .draggable_window(true)
-        .no_wrap()
-        .show(|ui| {
+                .show(|ui| {
             // LEFT: compact icon  +  inline menu items
             ui.container()
                 .row()
@@ -71,34 +35,41 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                 .valign(Align::Center)
                 .padding_left(12.0)
                 .show(|ui| {
-                    // App Icon & Animated Name (ZENTHREE <-> ZENƎ with flipped E)
-                    let (app_title, next_redraw, is_animating) = get_animated_app_title();
-                    ui.request_redraw_after(next_redraw);
-                    if is_animating {
-                        ui.needs_redraw = true;
-                    }
-
+                    // App Icon & Name
                     ui.container()
                         .row()
                         .gap(8.0)
-                        .min_width(96.0)
                         .valign(Align::Center)
                         .show(|ui| {
-                            ui.text(zenthra::icons::NF_FA_CODE)
-                                .size(14.0)
-                                .color(colors.accent)
-                                .show();
+                            let is_light = state.theme == ThemeMode::Light || colors.bg_base.r > 0.5;
+                            let logo_file = if is_light {
+                                crate::assets::Assets::get("logo/v2/logo-icon-white.svg")
+                                    .or_else(|| crate::assets::Assets::get("logo/logo-icon-white.svg"))
+                            } else {
+                                crate::assets::Assets::get("logo/v2/logo-icon-black.svg")
+                                    .or_else(|| crate::assets::Assets::get("logo/logo-icon-black.svg"))
+                            };
 
-                            let mut title_builder = ui.text(app_title)
-                                .family("MODERNIZ")
-                                .size(12.0)
-                                .bold()
-                                .color(colors.accent);
-
-                            if is_animating {
-                                title_builder = title_builder.continuous();
+                            if let Some(file) = logo_file {
+                                let source = ImageSource::Bytes(std::sync::Arc::from(file.data.into_owned()));
+                                ui.image(source)
+                                    .width(22.0)
+                                    .height(22.0)
+                                    .radius_all(5.0)
+                                    .fit(ObjectFit::Contain)
+                                    .show();
+                            } else {
+                                ui.text("\u{ec2b}")
+                                    .size(16.0)
+                                    .color(colors.accent)
+                                    .show();
                             }
-                            title_builder.show();
+
+                            ui.text("Zenthree")
+                                .size(12.0)
+                                .font_weight(FontWeight::Bold)
+                                .color(colors.text_primary)
+                                .show();
                         });
 
                     // Dropdown menus with cascading submenus
@@ -115,19 +86,19 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                         }
                         if ui.menu_item("Open Folder...").shortcut("Ctrl+Shift+O").show().clicked {
                             if let Some(path) = rfd::FileDialog::new().pick_folder() {
-                                state.open_workspace(path);
+                                state.request_open_workspace(path);
                             }
                             ui.request_redraw();
                         }
                         if state.has_workspace {
                             if ui.menu_item("Close Folder").show().clicked {
-                                state.close_workspace();
+                                state.request_close_workspace();
                                 ui.request_redraw();
                             }
                         }
 
                         // Cascading Submenu: Open Recent
-                        ui.sub_menu("Open Recent").show(|ui| {
+                        ui.menu("Open Recent").show(|ui| {
                             let recent = state.recent_files.clone();
                             if recent.is_empty() {
                                 ui.menu_item("No Recent Files").show();
@@ -169,19 +140,37 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                         ui.spacing(4.0);
 
                         // Cascading Submenu: Line Endings
-                        ui.sub_menu("Line Endings").show(|ui| {
+                        ui.menu("Line Endings").show(|ui| {
                             if ui.menu_item("● LF (Unix)").show().clicked {
-                                state.status_message = "Line endings set to LF".to_string();
+                                state.set_status("Line endings set to LF");
                                 ui.request_redraw();
                             }
                             if ui.menu_item("  CRLF (Windows)").show().clicked {
-                                state.status_message = "Line endings set to CRLF".to_string();
+                                state.set_status("Line endings set to CRLF");
+                                ui.request_redraw();
+                            }
+                        });
+
+                        ui.spacing(4.0);
+
+                        // Cascading Submenu: Preferences
+                        ui.menu("Preferences").show(|ui| {
+                            if ui.menu_item("Editor Settings").shortcut("Ctrl+,").show().clicked {
+                                state.editor_settings_open = true;
+                                state.editor_settings_just_opened = true;
+                                state.editor_settings_tab = crate::state::EditorSettingsTab::Appearance;
+                                ui.request_redraw();
+                            }
+                            if ui.menu_item("AI & Agent Settings").show().clicked {
+                                state.ai_settings.open = true;
+                                state.ai_settings.just_opened = true;
                                 ui.request_redraw();
                             }
                         });
 
                         ui.spacing(4.0);
                         if ui.menu_item("Exit").show().clicked {
+                            state.cancel_active_ai();
                             state.save_persistent_state();
                             ui.close();
                         }
@@ -212,38 +201,38 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                         ui.spacing(4.0);
 
                         // Cascading Submenu: Text Transform
-                        ui.sub_menu("Transform").show(|ui| {
+                        ui.menu("Transform").show(|ui| {
                             if ui.menu_item("UPPERCASE").show().clicked {
-                                state.status_message = "Transformed to UPPERCASE".to_string();
+                                state.set_status("Transformed to UPPERCASE");
                                 ui.request_redraw();
                             }
                             if ui.menu_item("lowercase").show().clicked {
-                                state.status_message = "Transformed to lowercase".to_string();
+                                state.set_status("Transformed to lowercase");
                                 ui.request_redraw();
                             }
                             if ui.menu_item("Title Case").show().clicked {
-                                state.status_message = "Transformed to Title Case".to_string();
+                                state.set_status("Transformed to Title Case");
                                 ui.request_redraw();
                             }
                         });
 
                         // Cascading Submenu: Selection
-                        ui.sub_menu("Selection").show(|ui| {
+                        ui.menu("Selection").show(|ui| {
                             if ui.menu_item("Select All").shortcut("Ctrl+A").show().clicked {
                                 if let Some(idx) = state.active_tab {
                                     if idx < state.tabs.len() {
                                         state.tabs[idx].editor.select_all();
                                     }
                                 }
-                                state.status_message = "Selected all".to_string();
+                                state.set_status("Selected all");
                                 ui.request_redraw();
                             }
                             if ui.menu_item("Expand Selection").show().clicked {
-                                state.status_message = "Expand Selection".to_string();
+                                state.set_status("Expand Selection");
                                 ui.request_redraw();
                             }
                             if ui.menu_item("Shrink Selection").show().clicked {
-                                state.status_message = "Shrink Selection".to_string();
+                                state.set_status("Shrink Selection");
                                 ui.request_redraw();
                             }
                         });
@@ -256,19 +245,6 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                     });
 
                     ui.menu("View").show(|ui| {
-                        let sc_mark = if state.sidebar_visible && state.sidebar_view == crate::state::SidebarView::SourceControl { "● " } else { "  " };
-                        if ui.menu_item(&format!("{}Source Control", sc_mark)).shortcut("Ctrl+Shift+G").show().clicked {
-                            if state.sidebar_visible && state.sidebar_view == crate::state::SidebarView::SourceControl {
-                                state.sidebar_view = crate::state::SidebarView::Explorer;
-                            } else {
-                                state.sidebar_visible = true;
-                                state.sidebar_view = crate::state::SidebarView::SourceControl;
-                                state.refresh_git_status();
-                            }
-                            state.save_persistent_state();
-                            ui.request_redraw();
-                        }
-
                         let ext_mark = if state.sidebar_visible && state.sidebar_view == crate::state::SidebarView::Extensions { "● " } else { "  " };
                         if ui.menu_item(&format!("{}Extensions / Language Packs", ext_mark)).shortcut("Ctrl+Shift+X").show().clicked {
                             if state.sidebar_visible && state.sidebar_view == crate::state::SidebarView::Extensions {
@@ -281,10 +257,16 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                             ui.request_redraw();
                         }
 
+                        let orbs_mark = if state.thinking_orbs_demo_open { "● " } else { "  " };
+                        if ui.menu_item(&format!("{}Thinking Orbs (9-Mode Showcase)", orbs_mark)).show().clicked {
+                            state.thinking_orbs_demo_open = !state.thinking_orbs_demo_open;
+                            ui.request_redraw();
+                        }
+
                         ui.spacing(4.0);
 
                         // Cascading Submenu: Appearance
-                        ui.sub_menu("Appearance").show(|ui| {
+                        ui.menu("Appearance").show(|ui| {
                             let sb_mark = if state.sidebar_visible { "● " } else { "  " };
                             if ui.menu_item(&format!("{}Sidebar", sb_mark)).shortcut("Ctrl+B").show().clicked {
                                 state.sidebar_visible = !state.sidebar_visible;
@@ -303,10 +285,23 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                                 state.save_persistent_state();
                                 ui.request_redraw();
                             }
+                            let blame_mark = if state.git_blame_inline { "● " } else { "  " };
+                            if ui.menu_item(&format!("{}Inline Git Blame", blame_mark)).show().clicked {
+                                state.git_blame_inline = !state.git_blame_inline;
+                                state.save_persistent_state();
+                                ui.request_redraw();
+                            }
+                            let glass_mark = if state.glassmorphism { "● " } else { "  " };
+                            if ui.menu_item(&format!("{}Native Window Blur", glass_mark)).show().clicked {
+                                state.glassmorphism = !state.glassmorphism;
+                                ui.set_blur(state.glassmorphism);
+                                state.save_persistent_state();
+                                ui.request_redraw();
+                            }
                         });
 
                         // Cascading Submenu: File Explorer
-                        ui.sub_menu("File Explorer").show(|ui| {
+                        ui.menu("File Explorer").show(|ui| {
                             // Presets
                             let p_modern = if state.explorer_preset == crate::state::ExplorerPreset::ModernMinimalist { "● " } else { "  " };
                             if ui.menu_item(&format!("{}Minimal", p_modern)).show().clicked {
@@ -367,57 +362,286 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                         });
 
                         // Cascading Submenu: Zoom
-                        ui.sub_menu("Zoom").show(|ui| {
+                        ui.menu("Zoom").show(|ui| {
                             let z = state.zoom_level;
                             let z100 = if (z - 1.0).abs() < 0.01 { "● " } else { "  " };
                             let z125 = if (z - 1.25).abs() < 0.01 { "● " } else { "  " };
                             let z150 = if (z - 1.5).abs() < 0.01 { "● " } else { "  " };
 
                             if ui.menu_item("Zoom In").shortcut("Ctrl +").show().clicked {
-                                state.zoom_level = (state.zoom_level + 0.1).min(2.0);
+                                state.zoom_in();
                                 ui.request_redraw();
                             }
                             if ui.menu_item("Zoom Out").shortcut("Ctrl -").show().clicked {
-                                state.zoom_level = (state.zoom_level - 0.1).max(0.6);
+                                state.zoom_out();
                                 ui.request_redraw();
                             }
                             ui.spacing(4.0);
-                            if ui.menu_item(&format!("{}100% (Reset)", z100)).show().clicked {
-                                state.zoom_level = 1.0;
+                            if ui.menu_item(&format!("{}100% (Reset)", z100)).shortcut("Ctrl 0").show().clicked {
+                                state.reset_zoom();
                                 ui.request_redraw();
                             }
                             if ui.menu_item(&format!("{}125%", z125)).show().clicked {
-                                state.zoom_level = 1.25;
+                                state.set_zoom_level(1.25);
                                 ui.request_redraw();
                             }
                             if ui.menu_item(&format!("{}150%", z150)).show().clicked {
-                                state.zoom_level = 1.5;
+                                state.set_zoom_level(1.5);
                                 ui.request_redraw();
+                            }
+                        });
+                    });
+
+                    ui.menu("Run").show(|ui| {
+                        if ui.menu_item("Run Active File").show().clicked {
+                            if state.run_active_file() {
+                                state.focused_panel =
+                                    crate::state::types::FocusedPanel::Terminal;
+                                state.last_cursor_activity = std::time::Instant::now();
+                                ui.focused_id = Some(Id::from_u64(
+                                    999999800 + state.active_terminal_idx as u64 * 1000,
+                                ));
+                            }
+                            ui.request_redraw();
+                        }
+                    });
+
+                    ui.menu("Terminal").show(|ui| {
+                        if ui.menu_item("New Terminal").show().clicked {
+                            if state.create_terminal_session() {
+                                state.focused_panel =
+                                    crate::state::types::FocusedPanel::Terminal;
+                                ui.focused_id = Some(Id::from_u64(
+                                    999999800 + state.active_terminal_idx as u64 * 1000,
+                                ));
+                            }
+                            ui.request_redraw();
+                        }
+                        if ui.menu_item("Split Terminal").show().clicked {
+                            if state.terminal_session_count() < 2 {
+                                state.create_terminal_session();
+                            }
+                            state.terminal_split = state.terminal_session_count() > 1;
+                            if state.terminal_split {
+                                state.active_terminal_idx = state.terminal_session_count() - 1;
+                                state.terminal_visible = true;
+                                state.bottom_panel_tab =
+                                    crate::state::BottomPanelTab::Terminal;
+                                state.focused_panel =
+                                    crate::state::types::FocusedPanel::Terminal;
+                                ui.focused_id = Some(Id::from_u64(
+                                    999999800 + state.active_terminal_idx as u64 * 1000,
+                                ));
+                            }
+                            ui.request_redraw();
+                        }
+                        ui.menu("Switch Terminal").show(|ui| {
+                            let count = state.terminal_session_count();
+                            if count == 0 {
+                                ui.menu_item("No terminals open").show();
+                            } else {
+                                for index in 0..count {
+                                    let label = if state.active_terminal_idx == index {
+                                        format!("● Terminal {}", index + 1)
+                                    } else {
+                                        format!("  Terminal {}", index + 1)
+                                    };
+                                    if ui.menu_item(&label).show().clicked {
+                                        state.select_terminal_session(index);
+                                        state.terminal_visible = true;
+                                        state.bottom_panel_tab =
+                                            crate::state::BottomPanelTab::Terminal;
+                                        ui.focused_id = Some(Id::from_u64(
+                                            999999800 + index as u64 * 1000,
+                                        ));
+                                        ui.request_redraw();
+                                    }
+                                }
+                            }
+                        });
+                        if ui.menu_item("Kill Terminal").show().clicked {
+                            state.close_active_terminal_session();
+                            state.terminal_split = state.terminal_session_count() > 1;
+                            ui.request_redraw();
+                        }
+                        if ui.menu_item("Show Terminal").show().clicked {
+                            state.show_terminal();
+                            state.save_persistent_state();
+                            ui.request_redraw();
+                        }
+                        if ui.menu_item("Focus Terminal").show().clicked {
+                            state.show_terminal();
+                            state.focused_panel =
+                                crate::state::types::FocusedPanel::Terminal;
+                            state.last_cursor_activity = std::time::Instant::now();
+                            ui.focused_id = Some(Id::from_u64(
+                                999999800 + state.active_terminal_idx as u64 * 1000,
+                            ));
+                            state.save_persistent_state();
+                            ui.request_redraw();
+                        }
+                        if ui.menu_item("Hide Terminal").show().clicked {
+                            state.terminal_visible = false;
+                            if state.focused_panel == crate::state::types::FocusedPanel::Terminal {
+                                state.focused_panel = crate::state::types::FocusedPanel::Editor;
+                                ui.focused_id = state
+                                    .active_tab
+                                    .map(|idx| Id::from_u64(999996000 + idx as u64));
+                            }
+                            state.save_persistent_state();
+                            ui.request_redraw();
+                        }
+                        ui.spacing(4.0);
+                        if ui.menu_item("Clear Terminal").show().clicked {
+                            state.clear_terminal();
+                            state.last_cursor_activity = std::time::Instant::now();
+                            ui.request_redraw();
+                        }
+                        ui.spacing(4.0);
+                        ui.menu("Run Task").show(|ui| {
+                            let tasks = state.get_workspace_tasks();
+                            if tasks.is_empty() {
+                                ui.menu_item("No tasks configured").show();
+                            } else {
+                                for task in tasks {
+                                    if ui.menu_item(&task.label).show().clicked {
+                                        state.run_workspace_task(&task.label);
+                                        ui.focused_id = Some(Id::from_u64(
+                                            999999800 + state.active_terminal_idx as u64 * 1000,
+                                        ));
+                                        ui.request_redraw();
+                                    }
+                                }
+                            }
+                        });
+                        if ui.menu_item("Run Build Task").show().clicked {
+                            if state.run_default_build_task() {
+                                ui.focused_id = Some(Id::from_u64(
+                                    999999800 + state.active_terminal_idx as u64 * 1000,
+                                ));
+                            }
+                            ui.request_redraw();
+                        }
+                        ui.menu("Select Build Task").show(|ui| {
+                            let build_tasks: Vec<_> = state
+                                .get_workspace_tasks()
+                                .into_iter()
+                                .filter(|task| task.is_build_task)
+                                .collect();
+                            if build_tasks.is_empty() {
+                                ui.menu_item("No build tasks configured").show();
+                            } else {
+                                for task in build_tasks {
+                                    let label = if task.is_default_build_task {
+                                        format!("● {}", task.label)
+                                    } else {
+                                        task.label.clone()
+                                    };
+                                    if ui.menu_item(&label).show().clicked {
+                                        state.run_workspace_task(&task.label);
+                                        ui.focused_id = Some(Id::from_u64(
+                                            999999800 + state.active_terminal_idx as u64 * 1000,
+                                        ));
+                                        ui.request_redraw();
+                                    }
+                                }
+                            }
+                        });
+                        if ui.menu_item("Run Active File").show().clicked {
+                            if state.run_active_file() {
+                                state.focused_panel =
+                                    crate::state::types::FocusedPanel::Terminal;
+                                ui.focused_id = Some(Id::from_u64(
+                                    999999800 + state.active_terminal_idx as u64 * 1000,
+                                ));
+                            }
+                            ui.request_redraw();
+                        }
+                        if ui.menu_item("Run Selected Text in Active Terminal").show().clicked {
+                            if state.run_selected_text_in_terminal() {
+                                state.focused_panel =
+                                    crate::state::types::FocusedPanel::Terminal;
+                                ui.focused_id = Some(Id::from_u64(
+                                    999999800 + state.active_terminal_idx as u64 * 1000,
+                                ));
+                            }
+                            ui.request_redraw();
+                        }
+                        if ui.menu_item("Configure Tasks").show().clicked {
+                            state.configure_workspace_tasks();
+                            ui.request_redraw();
+                        }
+                        ui.menu("Configure Default Build Task").show(|ui| {
+                            let build_tasks: Vec<_> = state
+                                .get_workspace_tasks()
+                                .into_iter()
+                                .filter(|task| task.is_build_task)
+                                .collect();
+                            if build_tasks.is_empty() {
+                                if ui.menu_item("Configure Tasks first").show().clicked {
+                                    state.configure_workspace_tasks();
+                                    ui.request_redraw();
+                                }
+                            } else {
+                                for task in build_tasks {
+                                    let label = if task.is_default_build_task {
+                                        format!("● {}", task.label)
+                                    } else {
+                                        task.label.clone()
+                                    };
+                                    if ui.menu_item(&label).show().clicked {
+                                        state.set_default_build_task(&task.label);
+                                        ui.request_redraw();
+                                    }
+                                }
                             }
                         });
                     });
 
                     ui.menu("Theme").show(|ui| {
                         // Cascading Submenu: Color Mode
-                        ui.sub_menu("Color Mode").show(|ui| {
+                        ui.menu("Color Mode").show(|ui| {
                             let dark_mark = if state.theme == ThemeMode::Dark { "● " } else { "  " };
                             if ui.menu_item(&format!("{}Dark Theme", dark_mark)).show().clicked {
-                                state.theme = ThemeMode::Dark;
+                                state.set_theme(ThemeMode::Dark);
                                 state.highlighter = syntax::SyntaxHighlighter::new(syntax::SyntaxTheme::dark());
                                 state.save_persistent_state();
                                 ui.request_redraw();
                             }
                             let light_mark = if state.theme == ThemeMode::Light { "● " } else { "  " };
                             if ui.menu_item(&format!("{}Light Theme", light_mark)).show().clicked {
-                                state.theme = ThemeMode::Light;
+                                state.set_theme(ThemeMode::Light);
                                 state.highlighter = syntax::SyntaxHighlighter::new(syntax::SyntaxTheme::light());
+                                state.save_persistent_state();
+                                ui.request_redraw();
+                            }
+                            ui.spacing(4.0);
+                            if ui.menu_item("Sync with System (Auto)").show().clicked {
+                                let sys_theme = crate::theme::detect_system_theme();
+                                state.set_theme(sys_theme);
+                                match sys_theme {
+                                    ThemeMode::Dark => state.highlighter = syntax::SyntaxHighlighter::new(syntax::SyntaxTheme::dark()),
+                                    ThemeMode::Light => state.highlighter = syntax::SyntaxHighlighter::new(syntax::SyntaxTheme::light()),
+                                }
+                                state.set_status(format!("Theme synced with system: {:?}", sys_theme));
                                 state.save_persistent_state();
                                 ui.request_redraw();
                             }
                         });
 
+                        // Native Window Blur Mode Toggle
+                        let glass_mark = if state.glassmorphism { "● " } else { "  " };
+                        if ui.menu_item(&format!("{}Native Window Blur", glass_mark)).show().clicked {
+                            state.glassmorphism = !state.glassmorphism;
+                            ui.set_blur(state.glassmorphism);
+                            state.save_persistent_state();
+                            ui.request_redraw();
+                        }
+
+                        ui.spacing(4.0);
+
                         // Cascading Submenu: Accent Color
-                        ui.sub_menu("Accent Color").show(|ui| {
+                        ui.menu("Accent Color").show(|ui| {
                             for (color_id, color_name) in ACCENT_COLOR_OPTIONS {
                                 let is_active = state.accent_color == *color_id;
                                 let label = if is_active {
@@ -434,7 +658,7 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                         });
 
                         // Cascading Submenu: File Icon Theme
-                        ui.sub_menu("File Icon Theme").show(|ui| {
+                        ui.menu("File Icon Theme").show(|ui| {
                             for (theme_id, theme_name) in ICON_THEME_OPTIONS {
                                 let is_active = state.icon_theme == *theme_id;
                                 let label = if is_active {
@@ -444,7 +668,7 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                                 };
                                 if ui.menu_item(&label).show().clicked {
                                     state.icon_theme = theme_id.to_string();
-                                    state.status_message = format!("Icon theme: {}", theme_name);
+                                    state.set_status(format!("Icon theme: {}", theme_name));
                                     state.save_persistent_state();
                                     ui.request_redraw();
                                 }
@@ -452,7 +676,7 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                         });
 
                         // Cascading Submenu: Syntax Theme
-                        ui.sub_menu("Syntax Highlighting").show(|ui| {
+                        ui.menu("Syntax Highlighting").show(|ui| {
                             let is_dark = state.theme == ThemeMode::Dark;
                             let dark_s = if is_dark { "● " } else { "  " };
                             let light_s = if !is_dark { "● " } else { "  " };
@@ -470,6 +694,7 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                     ui.menu("Help").show(|ui| {
                         if ui.menu_item("About Zenthree").show().clicked {
                             state.about_open = true;
+                            state.about_just_opened = true;
                             ui.request_redraw();
                         }
                     });
@@ -478,18 +703,63 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
             // RIGHT: window controls & panel toggles
             // Sequence: left, bottom, right, user icon, gap, minimize, floating window, cross
             ui.container()
-                .width(RIGHT_W)
                 .height(BAR_H)
                 .row()
                 .valign(Align::Center)
-                .padding_right(12.0)
+                .padding_right(4.0)
                 .gap(6.0)
                 .show(|ui| {
-                    // 1. Left Panel (File Tree) Toggle
+                    // 0. Focus Mode (\u{e25d})
+                    let focus_key = Id::from_u64(999999909);
+                    let focus_hov = ui.interaction_state.get(&focus_key).copied().unwrap_or(0.0) > 0.5;
+                    let focus_resp = ui.container()
+                        .interactive(true)
+                        .width(22.0).height(20.0)
+                        .radius_all(3.0)
+                        .bg(if focus_hov {
+                            colors.highlight
+                        } else if state.focus_mode {
+                            colors.accent.with_alpha(0.15)
+                        } else {
+                            Color::TRANSPARENT
+                        })
+                        .halign(Align::Center)
+                        .valign(Align::Center)
+                        .show(|ui| {
+                            let icon_color = if state.focus_mode {
+                                colors.accent
+                            } else if focus_hov {
+                                colors.text_primary
+                            } else {
+                                colors.text_muted
+                            };
+                            ui.text("\u{e25d}")
+                                .size(13.0)
+                                .color(icon_color)
+                                .show();
+                        });
+                    let h = focus_resp.hovered;
+                    let prev = ui.interaction_state.insert(focus_key, if h { 1.0 } else { 0.0 });
+                    if prev != Some(if h { 1.0 } else { 0.0 }) { ui.needs_redraw = true; }
+                    if focus_resp.clicked {
+                        state.focus_mode = !state.focus_mode;
+                        if state.focus_mode {
+                            // Entering focus mode: hide title bar + activity bar + terminal + AI
+                            state.activity_bar_visible = false;
+                            state.terminal_visible = false;
+                            state.ai_panel_visible = false;
+                        } else {
+                            // Exiting focus mode: restore activity bar
+                            state.activity_bar_visible = true;
+                        }
+                        ui.request_redraw();
+                    }
+
+                    // 1. Left Panel (File Tree) Toggle (\u{f10aa})
                     let left_key = Id::from_u64(999999910);
                     let left_hov = ui.interaction_state.get(&left_key).copied().unwrap_or(0.0) > 0.5;
                     let left_resp = ui.container()
-                        .clickable(true)
+                        .interactive(true)
                         .width(22.0).height(20.0)
                         .radius_all(3.0)
                         .bg(if left_hov {
@@ -502,31 +772,17 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                         .halign(Align::Center)
                         .valign(Align::Center)
                         .show(|ui| {
-                            let border_color = if state.sidebar_visible {
+                            let icon_color = if state.sidebar_visible {
                                 colors.accent
                             } else if left_hov {
-                                colors.text_primary.with_alpha(0.8)
+                                colors.text_primary
                             } else {
-                                colors.text_muted.with_alpha(0.6)
+                                colors.text_muted
                             };
-                            let fill_color = if state.sidebar_visible {
-                                colors.accent
-                            } else if left_hov {
-                                colors.text_muted.with_alpha(0.6)
-                            } else {
-                                colors.text_muted.with_alpha(0.3)
-                            };
-                            ui.container()
-                                .width(14.0).height(11.0)
-                                .border(border_color, 1.0)
-                                .radius_all(2.0)
-                                .row()
-                                .show(|ui| {
-                                    ui.container()
-                                        .width(4.0).height(9.0)
-                                        .bg(fill_color)
-                                        .show(|_| {});
-                                });
+                            ui.text("\u{f10aa}")
+                                .size(13.0)
+                                .color(icon_color)
+                                .show();
                         });
                     let h = left_resp.hovered;
                     let prev = ui.interaction_state.insert(left_key, if h { 1.0 } else { 0.0 });
@@ -537,11 +793,11 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                         ui.request_redraw();
                     }
 
-                    // 2. Bottom Panel (Terminal) Toggle
+                    // 2. Bottom Panel (Terminal) Toggle (\u{f10a9})
                     let btm_key = Id::from_u64(999999911);
                     let btm_hov = ui.interaction_state.get(&btm_key).copied().unwrap_or(0.0) > 0.5;
                     let btm_resp = ui.container()
-                        .clickable(true)
+                        .interactive(true)
                         .width(22.0).height(20.0)
                         .radius_all(3.0)
                         .bg(if btm_hov {
@@ -554,32 +810,17 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                         .halign(Align::Center)
                         .valign(Align::Center)
                         .show(|ui| {
-                            let border_color = if state.terminal_visible {
+                            let icon_color = if state.terminal_visible {
                                 colors.accent
                             } else if btm_hov {
-                                colors.text_primary.with_alpha(0.8)
+                                colors.text_primary
                             } else {
-                                colors.text_muted.with_alpha(0.6)
+                                colors.text_muted
                             };
-                            let fill_color = if state.terminal_visible {
-                                colors.accent
-                            } else if btm_hov {
-                                colors.text_muted.with_alpha(0.6)
-                            } else {
-                                colors.text_muted.with_alpha(0.3)
-                            };
-                            ui.container()
-                                .width(14.0).height(11.0)
-                                .border(border_color, 1.0)
-                                .radius_all(2.0)
-                                .column()
-                                .valign(Align::Bottom)
-                                .show(|ui| {
-                                    ui.container()
-                                        .full_width().height(3.0)
-                                        .bg(fill_color)
-                                        .show(|_| {});
-                                });
+                            ui.text("\u{f10a9}")
+                                .size(13.0)
+                                .color(icon_color)
+                                .show();
                         });
                     let h = btm_resp.hovered;
                     let prev = ui.interaction_state.insert(btm_key, if h { 1.0 } else { 0.0 });
@@ -593,11 +834,11 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                         ui.request_redraw();
                     }
 
-                    // 3. Right Panel (AI Agent) Toggle
+                    // 3. Right Panel (AI Agent) Toggle (\u{f10ab})
                     let right_key = Id::from_u64(999999912);
                     let right_hov = ui.interaction_state.get(&right_key).copied().unwrap_or(0.0) > 0.5;
                     let right_resp = ui.container()
-                        .clickable(true)
+                        .interactive(true)
                         .width(22.0).height(20.0)
                         .radius_all(3.0)
                         .bg(if right_hov {
@@ -610,32 +851,17 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                         .halign(Align::Center)
                         .valign(Align::Center)
                         .show(|ui| {
-                            let border_color = if state.ai_panel_visible {
+                            let icon_color = if state.ai_panel_visible {
                                 colors.accent
                             } else if right_hov {
-                                colors.text_primary.with_alpha(0.8)
+                                colors.text_primary
                             } else {
-                                colors.text_muted.with_alpha(0.6)
+                                colors.text_muted
                             };
-                            let fill_color = if state.ai_panel_visible {
-                                colors.accent
-                            } else if right_hov {
-                                colors.text_muted.with_alpha(0.6)
-                            } else {
-                                colors.text_muted.with_alpha(0.3)
-                            };
-                            ui.container()
-                                .width(14.0).height(11.0)
-                                .border(border_color, 1.0)
-                                .radius_all(2.0)
-                                .row()
-                                .halign(Align::Right)
-                                .show(|ui| {
-                                    ui.container()
-                                        .width(4.0).height(9.0)
-                                        .bg(fill_color)
-                                        .show(|_| {});
-                                });
+                            ui.text("\u{f10ab}")
+                                .size(13.0)
+                                .color(icon_color)
+                                .show();
                         });
                     let h = right_resp.hovered;
                     let prev = ui.interaction_state.insert(right_key, if h { 1.0 } else { 0.0 });
@@ -646,27 +872,32 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                         ui.request_redraw();
                     }
 
-                    // 4. User Icon
+                    // 4. User Icon (\u{f2bd}) - Clean, unconstrained glyph without small enclosing circle/padding
                     let user_key = Id::from_u64(999999913);
                     let user_hov = ui.interaction_state.get(&user_key).copied().unwrap_or(0.0) > 0.5;
                     let user_resp = ui.container()
-                        .clickable(true)
+                        .interactive(true)
                         .width(22.0).height(22.0)
-                        .radius_all(11.0)
+                        .radius_all(4.0)
                         .bg(if user_hov {
                             colors.highlight
                         } else if state.user_profile_open {
-                            colors.accent.with_alpha(0.25)
+                            colors.accent.with_alpha(0.18)
                         } else {
                             Color::TRANSPARENT
                         })
-                        .border(if state.user_profile_open { colors.accent } else { colors.border }, 1.0)
                         .halign(Align::Center)
                         .valign(Align::Center)
                         .show(|ui| {
-                            ui.text(zenthra::icons::NF_FA_USER)
-                                .size(9.5)
-                                .color(if state.user_profile_open { colors.accent } else { colors.text_primary })
+                            ui.text("\u{f2bd}")
+                                .size(14.0)
+                                .color(if state.user_profile_open {
+                                    colors.accent
+                                } else if user_hov {
+                                    colors.text_primary
+                                } else {
+                                    colors.text_muted
+                                })
                                 .show();
                         });
                     let h = user_resp.hovered;
@@ -674,6 +905,7 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                     if prev != Some(if h { 1.0 } else { 0.0 }) { ui.needs_redraw = true; }
                     if user_resp.clicked {
                         state.user_profile_open = !state.user_profile_open;
+                        ui.consume_click();
                         ui.request_redraw();
                     }
 
@@ -691,13 +923,13 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                                 .show(|_| {});
                         });
 
-                    // 6. Minimize
+                    // 6. Minimize (\u{e224})
                     let min_key = Id::from_u64(999999903);
                     let min_hov = ui.interaction_state.get(&min_key).copied().unwrap_or(0.0) > 0.5;
                     let min_resp = ui.container()
-                        .clickable(true)
-                        .width(BTN_W).height(BTN_W)
-                        .radius_all(BTN_W / 2.0)
+                        .interactive(true)
+                        .width(24.0).height(24.0)
+                        .radius_all(4.0)
                         .bg(if min_hov {
                             match state.theme {
                                 ThemeMode::Dark => Color::rgba(1.0, 1.0, 1.0, 0.08),
@@ -707,7 +939,10 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                         .halign(Align::Center)
                         .valign(Align::Center)
                         .show(|ui| {
-                            ui.text("\u{f068}").size(8.0).color(colors.text_muted).show();
+                            ui.text("\u{e224}")
+                                .size(13.0)
+                                .color(if min_hov { colors.text_primary } else { colors.text_muted })
+                                .show();
                         });
                     let h = min_resp.hovered;
                     let prev = ui.interaction_state.insert(min_key, if h { 1.0 } else { 0.0 });
@@ -716,13 +951,13 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                         ui.minimize();
                     }
 
-                    // 7. Floating Window (Maximize/Restore)
+                    // 7. Maximize / Restore (\u{f0616})
                     let max_key = Id::from_u64(999999904);
                     let max_hov = ui.interaction_state.get(&max_key).copied().unwrap_or(0.0) > 0.5;
                     let max_resp = ui.container()
-                        .clickable(true)
-                        .width(BTN_W).height(BTN_W)
-                        .radius_all(BTN_W / 2.0)
+                        .interactive(true)
+                        .width(24.0).height(24.0)
+                        .radius_all(4.0)
                         .bg(if max_hov {
                             match state.theme {
                                 ThemeMode::Dark => Color::rgba(1.0, 1.0, 1.0, 0.08),
@@ -732,7 +967,10 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                         .halign(Align::Center)
                         .valign(Align::Center)
                         .show(|ui| {
-                            ui.text("\u{f0c8}").size(7.5).color(colors.text_muted).show();
+                            ui.text("\u{f0616}")
+                                .size(13.0)
+                                .color(if max_hov { colors.text_primary } else { colors.text_muted })
+                                .show();
                         });
                     let h = max_resp.hovered;
                     let prev = ui.interaction_state.insert(max_key, if h { 1.0 } else { 0.0 });
@@ -741,24 +979,25 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                         ui.maximize();
                     }
 
-                    // 8. Cross (Close)
+                    // 8. Close (\u{f0159}) - Clean unconstrained button with larger glyph
                     let cls_key = Id::from_u64(999999905);
                     let cls_hov = ui.interaction_state.get(&cls_key).copied().unwrap_or(0.0) > 0.5;
                     let cls_resp = ui.container()
-                        .clickable(true)
-                        .width(BTN_W).height(BTN_W)
-                        .radius_all(BTN_W / 2.0)
+                        .interactive(true)
+                        .width(24.0).height(24.0)
+                        .radius_all(4.0)
                         .bg(if cls_hov { Color::rgb(0.85, 0.15, 0.15) } else { Color::TRANSPARENT })
                         .halign(Align::Center)
                         .valign(Align::Center)
                         .show(|ui| {
                             let fg = if cls_hov { Color::WHITE } else { colors.text_muted };
-                            ui.text("\u{f00d}").size(8.0).color(fg).show();
+                            ui.text("\u{f0159}").size(14.0).color(fg).show();
                         });
                     let h = cls_resp.hovered;
                     let prev = ui.interaction_state.insert(cls_key, if h { 1.0 } else { 0.0 });
                     if prev != Some(if h { 1.0 } else { 0.0 }) { ui.needs_redraw = true; }
                     if cls_resp.clicked {
+                        state.cancel_active_ai();
                         state.save_persistent_state();
                         ui.close();
                     }
@@ -770,14 +1009,15 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
         let pop_w = 230.0;
         let pop_x = (ui.width - pop_w - 12.0).max(10.0);
         let pop_y = BAR_H + 4.0;
+        let profile_popup_id = Id::from_u64(999999089);
 
         ui.container()
-            .id(Id::from_u64(999999089))
-            .absolute(pop_x, pop_y)
+            .raw_id(profile_popup_id)
+            .pos(pop_x, pop_y)
             .overlay()
             .width(pop_w)
             .bg(colors.bg_sidebar)
-            .border(colors.border, 1.0)
+            .border((colors.border, 1.0))
             .radius_all(8.0)
             .padding(12.0, 12.0, 12.0, 12.0)
             .column()
@@ -793,7 +1033,7 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                             .width(36.0).height(36.0)
                             .radius_all(18.0)
                             .bg(colors.accent.with_alpha(0.2))
-                            .border(colors.accent, 1.0)
+                            .border((colors.accent, 1.0))
                             .halign(Align::Center)
                             .valign(Align::Center)
                             .show(|ui| {
@@ -809,7 +1049,7 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                             .show(|ui| {
                                 ui.text("Kabir")
                                     .size(13.0)
-                                    .weight(FontWeight::Bold)
+                                    .font_weight(FontWeight::Bold)
                                     .color(colors.text_primary)
                                     .show();
 
@@ -822,7 +1062,7 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
 
                 // Divider
                 ui.container()
-                    .full_width().height(1.0)
+                    .fill_x().height(1.0)
                     .bg(colors.border)
                     .show(|_| {});
 
@@ -841,13 +1081,13 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                     .show(|ui| {
                         ui.text("WORKSPACE")
                             .size(9.0)
-                            .weight(FontWeight::Bold)
+                            .font_weight(FontWeight::Bold)
                             .color(colors.text_muted)
                             .show();
 
                         ui.text(ws_name)
                             .size(11.0)
-                            .weight(FontWeight::Medium)
+                            .font_weight(FontWeight::Medium)
                             .color(colors.text_primary)
                             .show();
                     });
@@ -860,7 +1100,7 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                         ui.container()
                             .padding(2.0, 6.0, 2.0, 6.0)
                             .bg(colors.bg_base)
-                            .border(colors.border, 1.0)
+                            .border((colors.border, 1.0))
                             .radius_all(3.0)
                             .show(|ui| {
                                 ui.text(&format!("{} Tabs", state.tabs.len()))
@@ -872,7 +1112,7 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                         ui.container()
                             .padding(2.0, 6.0, 2.0, 6.0)
                             .bg(colors.bg_base)
-                            .border(colors.border, 1.0)
+                            .border((colors.border, 1.0))
                             .radius_all(3.0)
                             .show(|ui| {
                                 ui.text("PTY: Active")
@@ -883,12 +1123,15 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                     });
 
                 // Close button
+                let close_profile_id = Id::from_u64(999999088);
                 let close_prof = ui.container()
-                    .full_width()
+                    .raw_id(close_profile_id)
+                    .fill_x()
+                    .interactive(true)
                     .padding(5.0, 0.0, 5.0, 0.0)
                     .bg(colors.bg_base)
-                    .hover_bg(colors.highlight)
-                    .border(colors.border, 1.0)
+                    .hover(Style::bg(colors.highlight))
+                    .border((colors.border, 1.0))
                     .radius_all(4.0)
                     .halign(Align::Center)
                     .show(|ui| {
@@ -898,11 +1141,30 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                             .show();
                     });
 
-                if close_prof.clicked {
+                let close_rect = ui.screen_layout_cache.get(&close_profile_id)
+                    .or_else(|| ui.next_screen_layout_cache.get(&close_profile_id))
+                    .copied();
+                let pointer_over_close = close_rect
+                    .map(|rect| ui.mouse_in_rect(rect.origin.x, rect.origin.y, rect.size.width, rect.size.height))
+                    .unwrap_or(false);
+                if close_prof.clicked || (ui.clicked && pointer_over_close) {
                     state.user_profile_open = false;
+                    ui.consume_click();
                     ui.needs_redraw = true;
                 }
             });
+
+        let profile_rect = ui.next_screen_layout_cache.get(&profile_popup_id)
+            .or_else(|| ui.screen_layout_cache.get(&profile_popup_id))
+            .copied();
+        if ui.clicked
+            && profile_rect
+                .map(|rect| !ui.mouse_in_rect(rect.origin.x, rect.origin.y, rect.size.width, rect.size.height))
+                .unwrap_or(false)
+        {
+            state.user_profile_open = false;
+            ui.request_redraw();
+        }
     }
 
     // Click outside (light dismiss) handling for menus
@@ -919,5 +1181,18 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
         ui.interaction_state.insert(active_submenu_key, 0.0);
         ui.request_redraw();
     }
-}
 
+    // Bottom 1px divider line separating title bar from workspace
+    ui.draws.push(zenthra_widgets::ui::DrawCommand::Rect(zenthra_widgets::ui::RectDraw {
+        instance: zenthra_render::RectInstance {
+            pos: [0.0, BAR_H - 1.0],
+            size: [ui.width, 1.0],
+            color: colors.border.to_array(),
+            radius: [0.0; 4],
+            border_width: 0.0,
+            border_color: [0.0; 4],
+            clip_rect: [-10000.0, -10000.0, 20000.0, 20000.0],
+            ..Default::default()
+        },
+    }));
+}

@@ -1,28 +1,25 @@
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
 mod state;
 mod theme;
 mod ui_layout;
 mod assets;
 mod neovim_icons;
 mod mini_icons;
+mod shortcuts;
 pub mod native_terminal;
 pub mod extensions;
 pub mod lsp;
-pub mod markdown;
-pub mod groq;
-pub mod gemini;
-pub mod project_index;
-pub mod agent;
-pub mod session;
-pub mod db;
-
-
+pub mod watcher;
+pub mod completion;
 
 use state::ZenthreeState;
-use theme::ThemeMode;
 use zenthra::prelude::*;
-use zenthra::Id;
 
 fn main() {
+    // Only load .env from the current working directory, do NOT search parent directories.
+    let _ = dotenvy::from_path("./.env");
+    #[cfg(debug_assertions)]
     env_logger::init();
 
     // Initialize the modular state (loads persistent state from disk)
@@ -33,128 +30,91 @@ fn main() {
         state.new_untitled_file();
     }
 
-    let font_bytes = include_bytes!("../../../assets/fonts/SymbolsNerdFont-Regular.ttf").to_vec();
+    let font_bytes = include_bytes!("../../../assets/fonts/SymbolsNerdFont-Regular-3.5.1.ttf").to_vec();
+    let initial_blur = state.glassmorphism;
 
     App::new()
         .title("Zenthree Editor")
         .size(1100, 680)
         .decorations(false)
+        .transparent(true)
+        .blur(initial_blur)
         .load_font_data(font_bytes)
+        .register_custom_shader("spherical_polyhedra", include_str!("shaders/spherical_polyhedra.wgsl"))
         .with_ui(move |ui| {
-            // Apply universal UI font scaling
-            ui.font_scale = state.zoom_level;
+            // Handle all keyboard shortcuts
+            shortcuts::handle_shortcuts(ui, &mut state);
 
-            // Track global modifier key states and global shortcuts from input events
-            let mut should_redraw = false;
-            for event in &ui.input_events {
-                match event {
-                    zenthra_platform::event::PlatformEvent::KeyDown { key } => match key {
-                        winit::keyboard::KeyCode::ShiftLeft | winit::keyboard::KeyCode::ShiftRight => {
-                            state.shift_pressed = true;
-                        }
-                        winit::keyboard::KeyCode::ControlLeft | winit::keyboard::KeyCode::ControlRight => {
-                            state.ctrl_pressed = true;
-                        }
-                        winit::keyboard::KeyCode::AltLeft | winit::keyboard::KeyCode::AltRight => {
-                            state.alt_pressed = true;
-                        }
-                        // Universal font & UI zoom controller
-                        winit::keyboard::KeyCode::Equal | winit::keyboard::KeyCode::NumpadAdd if state.ctrl_pressed => {
-                            state.zoom_level = ((state.zoom_level + 0.1) * 10.0).round() / 10.0;
-                            state.zoom_level = state.zoom_level.min(2.5);
-                            state.status_message = format!("Zoom: {:.0}%", state.zoom_level * 100.0);
-                            state.save_persistent_state();
-                            should_redraw = true;
-                        }
-                        winit::keyboard::KeyCode::Minus | winit::keyboard::KeyCode::NumpadSubtract if state.ctrl_pressed => {
-                            state.zoom_level = ((state.zoom_level - 0.1) * 10.0).round() / 10.0;
-                            state.zoom_level = state.zoom_level.max(0.5);
-                            state.status_message = format!("Zoom: {:.0}%", state.zoom_level * 100.0);
-                            state.save_persistent_state();
-                            should_redraw = true;
-                        }
-                        winit::keyboard::KeyCode::Digit0 | winit::keyboard::KeyCode::Numpad0 if state.ctrl_pressed => {
-                            state.zoom_level = 1.0;
-                            state.status_message = "Zoom: 100%".to_string();
-                            state.save_persistent_state();
-                            should_redraw = true;
-                        }
-                        // Toggle/Open Source Control (Ctrl+Shift+G)
-                        winit::keyboard::KeyCode::KeyG if state.ctrl_pressed && state.shift_pressed => {
-                            if state.sidebar_visible && state.sidebar_view == state::SidebarView::SourceControl {
-                                state.sidebar_visible = false;
-                            } else {
-                                state.sidebar_visible = true;
-                                state.sidebar_view = state::SidebarView::SourceControl;
-                                state.refresh_git_status();
-                            }
-                            state.save_persistent_state();
-                            should_redraw = true;
-                        }
-                        _ => {}
-                    },
-                    zenthra_platform::event::PlatformEvent::KeyUp { key } => match key {
-                        winit::keyboard::KeyCode::ShiftLeft | winit::keyboard::KeyCode::ShiftRight => {
-                            state.shift_pressed = false;
-                        }
-                        winit::keyboard::KeyCode::ControlLeft | winit::keyboard::KeyCode::ControlRight => {
-                            state.ctrl_pressed = false;
-                        }
-                        winit::keyboard::KeyCode::AltLeft | winit::keyboard::KeyCode::AltRight => {
-                            state.alt_pressed = false;
-                        }
-                        _ => {}
-                    },
-                    _ => {}
-                }
-            }
-            if should_redraw {
-                ui.request_redraw();
-            }
+            // Universal UI font scale driven by zoom level and font size across all panels
+            ui.font_scale = (state.zoom_level * (state.font_size / 13.0)).clamp(0.4, 3.0);
 
             // Poll background LSP messages (diagnostics, completions, server lifecycle)
             if state.lsp_manager.poll() {
                 ui.request_redraw();
             }
 
-            // Poll background AI responses (Groq LLM + Connectome)
-            if state.poll_ai_responses() {
-                ui.request_redraw();
-            } else if state.ai_pending_requests > 0 {
-                ui.request_redraw_after(std::time::Duration::from_millis(33));
-            }
-
-            // Poll background native terminal PTY output
-            if state.poll_terminal() {
+            // Poll background Git Blame updates
+            if state.git_blame_manager.poll() {
                 ui.request_redraw();
             }
 
+            // Drain background AI agent updates pushed via ArcSignal.
+            // No timer needed: ArcSignal::with_mut() calls trigger_redraw_hook()
+            // on every push, waking the event loop immediately.
+            state.drain_ai_updates();
+            if state.drain_lsp_install_updates() {
+                ui.request_redraw();
+            }
 
-            // Expose the active theme flag to interaction_state so widgets can read it
-            let theme_val = if state.theme == ThemeMode::Light { 1.0 } else { 0.0 };
-            ui.interaction_state.insert(Id::from_u64(999999999), theme_val);
+            if !state.active_agent_terminal_tasks.is_empty() {
+                ui.request_redraw();
+            }
+
+            // Poll filesystem watcher for external file additions, deletions, renames, and git status changes
+            if state.poll_file_tree_changes() {
+                ui.request_redraw();
+            }
+
+            // Auto-clear stale status messages after 3 seconds.
+            // The _status_clear_effect wakes the event loop when the time is up.
+            state.tick_status();
 
             let colors = state.colors();
+
+            // Sync full ThemeColors into UI interaction_state so menus, dropdowns, and widgets match active theme
+            crate::theme::sync_theme_to_ui(ui, state.theme, &colors, state.glassmorphism);
 
             // Provide reactive ThemeColors to the UI tree via Context API
             provide_context(colors);
 
+            // When any modal/dialog is open, activate modal mode so all bottom/background widgets are completely shielded
+            ui.modal_active = state.is_modal_or_dialog_open();
+
+            // When resizing any panel, disable scrollbars and scroll gestures across the UI
+            ui.resize_active = state.active_resize_sidebar
+                || state.active_resize_ai_panel
+                || state.active_resize_terminal
+                || state.git_state.active_resize_graph;
+
             // Main Background Container: vertical layout
             ui.container()
                 .fill()
-                .bg(colors.bg_base)
+                .bg(if state.glassmorphism { Color::TRANSPARENT } else { colors.bg_base })
                 .column()
                 .show(|ui| {
-                    // 1. Draw Title Bar
-                    ui_layout::draw_title_bar(ui, &mut state);
+                    // 1. Draw Title Bar (hidden in focus mode)
+                    if !state.focus_mode {
+                        ui_layout::draw_title_bar(ui, &mut state);
+                    }
 
                     // 2. Middle Workspace Area (Sidebar + Editor + Terminal + AI Panel)
                     let ui_height = ui.height;
                     let ui_width = ui.width;
                     let status_bar_h = if state.status_bar_visible { 24.0 } else { 0.0 };
-                    let middle_h = ui_height - 36.0 - status_bar_h;
+                    let title_bar_h = if state.focus_mode { 0.0 } else { 36.0 };
+                    let middle_h = ui_height - title_bar_h - status_bar_h;
 
-                    let activity_bar_w = ui_layout::ACTIVITY_BAR_WIDTH;
+                    let activity_bar_w = if state.activity_bar_visible { ui_layout::ACTIVITY_BAR_WIDTH } else { 0.0 };
                     let actual_sb_w = if state.sidebar_visible {
                         state.sidebar_width.min(ui_width * 0.4).max(140.0)
                     } else {
@@ -164,26 +124,33 @@ fn main() {
                     let min_editor_w = 160.0;
                     let avail_for_ai = (ui_width - activity_bar_w - actual_sb_w - min_editor_w).max(160.0);
                     let actual_ai_w = if state.ai_panel_visible {
-                        state.ai_panel_width.min(avail_for_ai).max(180.0)
+                        if state.ai_panel_expanded {
+                            (ui_width - activity_bar_w - actual_sb_w).max(200.0)
+                        } else {
+                            state.ai_panel_width.min(avail_for_ai).max(180.0)
+                        }
                     } else {
                         0.0
                     };
 
-                    if state.ai_panel_visible {
+                    if state.ai_panel_visible && !state.ai_panel_expanded {
                         state.ai_panel_width = actual_ai_w;
                     }
                     if state.sidebar_visible {
                         state.sidebar_width = actual_sb_w;
                     }
 
-                    let center_w = (ui_width - activity_bar_w - actual_sb_w - actual_ai_w).max(min_editor_w);
+                    let sb_splitter_w = if state.sidebar_visible { 2.0 } else { 0.0 };
+                    let ai_splitter_w = if state.ai_panel_visible && !state.ai_panel_expanded { 2.0 } else { 0.0 };
+                    let center_w = (ui_width - activity_bar_w - actual_sb_w - sb_splitter_w - ai_splitter_w - if state.ai_panel_visible && !state.ai_panel_expanded { actual_ai_w } else { 0.0 }).max(min_editor_w);
 
+                    let term_splitter_h = if state.terminal_visible { 2.0 } else { 0.0 };
                     let term_h = if state.terminal_visible {
-                        state.terminal_height.min(middle_h - 80.0).max(60.0)
+                        state.terminal_height.min(middle_h - 80.0 - term_splitter_h).max(60.0)
                     } else {
                         0.0
                     };
-                    let editor_h = middle_h - term_h;
+                    let editor_h = middle_h - term_h - term_splitter_h;
 
                     ui.container()
                         .row()
@@ -191,28 +158,77 @@ fn main() {
                         .height(middle_h)
                         .show(|ui| {
                             // Far Left: Activity Bar (Files, Extensions, Settings)
-                            ui_layout::draw_activity_bar(ui, &mut state, middle_h);
+                            if state.activity_bar_visible {
+                                ui_layout::draw_activity_bar(ui, &mut state, middle_h);
+                            }
 
                             // Left: Sidebar / File Tree or Extensions Panel
                             if state.sidebar_visible {
                                 ui_layout::draw_sidebar(ui, &mut state);
+
+                                let max_sb_w = (ui_width * 0.45).max(200.0);
+                                let sb_resp = ui.splitter(&mut state.sidebar_width, 140.0..=max_sb_w)
+                                    .width(2.0)
+                                    .fill_y()
+                                    .bg(colors.border)
+                                    .hover(Style::bg(colors.accent.with_alpha(0.8)))
+                                    .active(Style::bg(colors.accent))
+                                    .show();
+                                state.active_resize_sidebar = sb_resp.pressed;
+                                if sb_resp.changed {
+                                    state.save_persistent_state();
+                                }
                             }
 
-                            ui.container()
-                                .width(center_w)
-                                .height(middle_h)
-                                .column()
-                                .show(|ui| {
-                                    ui_layout::draw_main_buffer(ui, &mut state, center_w, editor_h);
+                            if state.ai_panel_visible && state.ai_panel_expanded {
+                                // When expanded, the AI Agent Panel sits in the buffer area
+                                let expanded_w = (ui_width - activity_bar_w - actual_sb_w - sb_splitter_w).max(200.0);
+                                ui_layout::draw_ai_panel(ui, &mut state, expanded_w, middle_h);
+                            } else {
+                                ui.container()
+                                    .width(center_w)
+                                    .height(middle_h)
+                                    .column()
+                                    .show(|ui| {
+                                        ui_layout::draw_main_buffer(ui, &mut state, center_w, editor_h);
 
-                                    if state.terminal_visible {
-                                        ui_layout::draw_terminal_panel(ui, &mut state, center_w, term_h);
+                                        if state.terminal_visible {
+                                            let max_term_h = (middle_h - 80.0).max(60.0);
+                                            let term_resp = ui.splitter(&mut state.terminal_height, 60.0..=max_term_h)
+                                                .fill_x()
+                                                .height(2.0)
+                                                .bg(colors.border)
+                                                .hover(Style::bg(colors.accent.with_alpha(0.8)))
+                                                .active(Style::bg(colors.accent))
+                                                .invert(true)
+                                                .show();
+                                            state.active_resize_terminal = term_resp.pressed;
+                                            if term_resp.changed {
+                                                state.save_persistent_state();
+                                            }
+
+                                             ui_layout::draw_bottom_panel(ui, &mut state, center_w, term_h);
+                                        }
+                                    });
+
+                                // Right: AI Agent Panel (docked mode)
+                                if state.ai_panel_visible {
+                                    let max_ai_w = avail_for_ai.max(220.0);
+                                    let ai_resp = ui.splitter(&mut state.ai_panel_width, 180.0..=max_ai_w)
+                                        .width(2.0)
+                                        .fill_y()
+                                        .bg(colors.border)
+                                        .hover(Style::bg(colors.accent.with_alpha(0.8)))
+                                        .active(Style::bg(colors.accent))
+                                        .invert(true)
+                                        .show();
+                                    state.active_resize_ai_panel = ai_resp.pressed;
+                                    if ai_resp.changed {
+                                        state.save_persistent_state();
                                     }
-                                });
 
-                            // Right: AI Agent Panel
-                            if state.ai_panel_visible {
-                                ui_layout::draw_ai_panel(ui, &mut state, actual_ai_w, middle_h);
+                                    ui_layout::draw_ai_panel(ui, &mut state, actual_ai_w, middle_h);
+                                }
                             }
                         });
 
@@ -221,9 +237,19 @@ fn main() {
                         ui_layout::draw_status_bar(ui, &mut state);
                     }
 
-                    // 4. Modal overlays (About dialog, Language installation prompt)
+                    // 4. Modal overlays (dialogs — called inside the column so they
+                    // inherit the correct viewport/clip context)
                     ui_layout::draw_about_dialog(ui, &mut state);
                     ui_layout::draw_language_prompt_dialog(ui, &mut state);
+                    ui_layout::draw_ai_settings_dialog(ui, &mut state);
+                    ui_layout::draw_editor_settings_dialog(ui, &mut state);
+                    ui_layout::draw_unsaved_changes_dialog(ui, &mut state);
+                    ui_layout::draw_cmdline_dialog(ui, &mut state);
+                    ui_layout::draw_delete_confirm_dialog(ui, &mut state);
+                    ui_layout::draw_rename_dialog(ui, &mut state);
+                    ui_layout::draw_thinking_orbs_demo_window(ui, &mut state);
+                    // Floating popovers rendered LAST so they appear above all dialog content
+                    ui_layout::draw_antigravity_settings_model_popover(ui, &mut state);
                 });
         })
         .run();

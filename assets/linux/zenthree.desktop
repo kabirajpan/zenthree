@@ -1,0 +1,13 @@
+[Desktop Entry]
+Name=Zenthree
+Comment=Fast, lightweight code editor built with Zenthra UI
+GenericName=Code Editor
+Exec=zenthree %F
+Icon=zenthree
+Terminal=false
+Type=Application
+Categories=Development;IDE;TextEditor;
+MimeType=text/plain;text/x-rust;text/x-python;text/x-javascript;text/x-typescript;text/x-c;text/x-c++;text/x-markdown;application/json;application/yaml;
+StartupNotify=true
+StartupWMClass=zenthree
+Keywords=editor;code;development;rust;ide;

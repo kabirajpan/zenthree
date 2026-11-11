@@ -1,0 +1,183 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Zenthree Logo v2 — Optical Weight Compensation</title>
+  <style>
+    :root {
+      --bg: #0F0E0C;
+      --card-bg: #1A1815;
+      --border: #2A2723;
+      --text: #F4F2EE;
+      --text-muted: #9E988E;
+      --accent: #E58C3A;
+      --blue: #3B82F6;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      padding: 40px 24px;
+      line-height: 1.5;
+    }
+    .header {
+      max-width: 1000px;
+      margin: 0 auto 36px;
+      text-align: center;
+    }
+    .badge {
+      display: inline-block;
+      padding: 4px 12px;
+      background: rgba(59, 130, 246, 0.15);
+      color: #60A5FA;
+      border-radius: 999px;
+      font-size: 12px;
+      font-weight: 600;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+      margin-bottom: 12px;
+    }
+    h1 { font-size: 32px; font-weight: 700; margin-bottom: 8px; }
+    p.sub { color: var(--text-muted); font-size: 15px; }
+
+    .comparison-grid {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 28px;
+      max-width: 1000px;
+      margin: 0 auto 40px;
+    }
+    @media (max-width: 768px) {
+      .comparison-grid { grid-template-columns: 1fr; }
+    }
+    .card {
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 24px;
+      display: flex;
+      flex-direction: column;
+      gap: 16px;
+    }
+    .card.highlight {
+      border: 2px solid var(--blue);
+      background: linear-gradient(180deg, rgba(59, 130, 246, 0.08) 0%, #1A1815 100%);
+    }
+    .card-title {
+      font-size: 18px;
+      font-weight: 600;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+    }
+    .card-desc {
+      color: var(--text-muted);
+      font-size: 13px;
+    }
+    .icons-row {
+      display: flex;
+      gap: 24px;
+      align-items: center;
+      justify-content: center;
+      padding: 20px 0;
+      background: rgba(0,0,0,0.3);
+      border-radius: 12px;
+    }
+    .icon-box {
+      width: 140px;
+      height: 140px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+    }
+    .icon-box img {
+      width: 100%;
+      height: 100%;
+      object-fit: contain;
+    }
+    .scales {
+      display: flex;
+      gap: 16px;
+      align-items: center;
+      justify-content: center;
+      padding-top: 12px;
+      border-top: 1px solid var(--border);
+    }
+    .scale-item { display: flex; flex-direction: column; align-items: center; gap: 4px; }
+    .scale-label { font-size: 11px; color: var(--text-muted); font-family: monospace; }
+
+    .guide-box {
+      max-width: 1000px;
+      margin: 0 auto;
+      background: var(--card-bg);
+      border: 1px solid var(--border);
+      border-radius: 20px;
+      padding: 24px;
+    }
+    .guide-box h2 { font-size: 20px; margin-bottom: 8px; }
+    .guide-box p { font-size: 13px; color: var(--text-muted); margin-bottom: 16px; }
+    .guide-box img {
+      width: 100%;
+      height: auto;
+      display: block;
+      border-radius: 10px;
+      border: 1px solid var(--border);
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <span class="badge">Optical Compensation Update</span>
+    <h1>Logo v2 — Balanced Visual Weight</h1>
+    <p class="sub">Dark logo stroke weight adjusted to eliminate optical bleed/bulkiness, harmonizing with the light icon.</p>
+  </div>
+
+  <div class="comparison-grid">
+    <!-- Dark Mode Card (Now Thinned) -->
+    <div class="card highlight">
+      <div class="card-title">
+        <span>Dark Icon (Optically Thinned)</span>
+        <span class="badge" style="margin:0; background:rgba(16,185,129,0.15); color:#34D399;">Balanced</span>
+      </div>
+      <p class="card-desc">Thinned by ~11% (stroke width 32px vs 36px, radius 16px). This counteracts the optical irradiation effect of light-on-dark, giving crisp definition and breathing room.</p>
+      <div class="icons-row">
+        <div class="icon-box"><img src="logo-icon-black.svg" alt="v2 Dark Thinned"></div>
+      </div>
+      <div class="scales">
+        <div class="scale-item"><img src="logo-icon-black.svg" width="64" height="64"><span class="scale-label">64px</span></div>
+        <div class="scale-item"><img src="logo-icon-black.svg" width="48" height="48"><span class="scale-label">48px</span></div>
+        <div class="scale-item"><img src="logo-icon-black.svg" width="32" height="32"><span class="scale-label">32px</span></div>
+        <div class="scale-item"><img src="logo-icon-black.svg" width="24" height="24"><span class="scale-label">24px</span></div>
+        <div class="scale-item"><img src="logo-icon-black.svg" width="16" height="16"><span class="scale-label">16px</span></div>
+      </div>
+    </div>
+
+    <!-- Light Mode Card (Maintained) -->
+    <div class="card">
+      <div class="card-title">
+        <span>Light Icon (Standard)</span>
+        <span class="badge" style="margin:0; background:rgba(255,255,255,0.08); color:#CCC;">Reference</span>
+      </div>
+      <p class="card-desc">Standard stroke weight (radius 18px, thickness 36px). Dark-on-light does not suffer from optical bleed, retaining its natural solid presence.</p>
+      <div class="icons-row">
+        <div class="icon-box"><img src="logo-icon-white.svg" alt="v2 Light"></div>
+      </div>
+      <div class="scales">
+        <div class="scale-item"><img src="logo-icon-white.svg" width="64" height="64"><span class="scale-label">64px</span></div>
+        <div class="scale-item"><img src="logo-icon-white.svg" width="48" height="48"><span class="scale-label">48px</span></div>
+        <div class="scale-item"><img src="logo-icon-white.svg" width="32" height="32"><span class="scale-label">32px</span></div>
+        <div class="scale-item"><img src="logo-icon-white.svg" width="24" height="24"><span class="scale-label">24px</span></div>
+        <div class="scale-item"><img src="logo-icon-white.svg" width="16" height="16"><span class="scale-label">16px</span></div>
+      </div>
+    </div>
+  </div>
+
+  <div class="guide-box">
+    <h2>Design Specification Sheet</h2>
+    <p>Comparing the optically compensated dark logo with the light reference.</p>
+    <img src="logo-guide-sheet.svg" alt="Logo v2 Guide Sheet">
+  </div>
+</body>
+</html>

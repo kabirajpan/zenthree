@@ -9,11 +9,12 @@ Designed for speed, visual clarity, and responsiveness, Zenthree blends the aest
 ## ✨ Features
 
 ### ⚡ Editor Engine
-- **Tree-sitter Syntax Highlighting**: Accurate, semantic code highlighting across major programming languages.
+- **Tree-sitter Syntax Highlighting**: Grammar-based highlighting for Rust, JavaScript, TypeScript/TSX, Python, HTML, CSS, JSON, YAML, Go, C/C++, Java, Markdown, and Bash/Shell, with regex fallback for other supported file types.
 - **Optimized Buffer & Line Cache**: Zero-allocation line retrieval for fluid scrolling and editing.
 - **Full Text Editing Suite**: Undo/redo history, multi-tab editing, word-by-word cursor jumping and deletion (`Ctrl+Backspace`, `Ctrl+Delete`), clipboard operations (`Ctrl+A`, `Ctrl+C`, `Ctrl+X`, `Ctrl+V`).
 - **Interactive Breadcrumb Navigation**: Path trail with clickable directory popups for quick folder navigation.
 - **Code Formatting**: Automatic document formatting integration (`Ctrl+Shift+F`).
+- **Context Menus**: Right-click in the editor or terminal for editing, file, and panel actions. File operations target the active file; creation uses its folder.
 
 ### 📂 File Explorer
 - **Clean Minimal Layout**: Zed-inspired minimalist file tree without distracting ASCII branch guide lines.
@@ -24,12 +25,19 @@ Designed for speed, visual clarity, and responsiveness, Zenthree blends the aest
 
 ### 🖥️ Native Embedded Terminal
 - **Integrated PTY**: Full pseudo-terminal session powered by `portable-pty`.
+- **Run Active File**: Launch supported Python, JavaScript, TypeScript (Deno), Go, Ruby, PHP, Lua, shell, and PowerShell files from the title-bar Run menu. JSX/TSX files run the nearest project's `dev`, `start`, or `serve` package script using its detected package manager.
+- **Terminal Sessions**: Keep live terminal sessions in a selectable right-side list, create or close sessions, and split active sessions side by side. Drag to select terminal text, then use `Ctrl+C` or `Ctrl+Insert` to copy it; `Ctrl+C` still interrupts commands when there is no selection.
+- **Title-bar Terminal Menu**: Create, switch, split, focus, hide, clear, or close terminal sessions. Run the active file or selected editor text, launch workspace tasks, run the default build task, and configure task files from the Terminal menu after Run.
+- **Workspace Tasks**: Read and run shell tasks from `.vscode/tasks.json`, including `${workspaceFolder}`, `${file}`, `${fileBasename}`, and `${fileDirname}` substitutions. Configure Tasks opens or creates the workspace task file.
+- **Bottom Panel Views**: Switch between Problems (LSP diagnostics, with file navigation), Output (recent IDE status messages), Debug Console (reports when no debugger is active), Terminal, and Ports (local listening sockets with process IDs when available).
 - **Direct Inline Console Prompt**: Type directly inside the console (`❯ command█`) with an animated blinking block cursor.
-- **Terminal Productivity**: Command history (`Up`/`Down`), process interrupt (`Ctrl+C`), screen clear (`Ctrl+L`), and tab completion (`Tab`).
+- **Command Syntax Highlighting**: Color command names, flags, quoted arguments, variables, paths, and shell operators on the active command line.
+- **Terminal Productivity**: Command history (`Up`/`Down` or `Ctrl+Up`/`Ctrl+Down`), process interrupt (`Ctrl+C`), screen clear (`Ctrl+L`), and tab completion (`Tab`).
 - **Resizable Splitter**: Smooth horizontal resizing with a visual accent pill grip handle and `RowResize` cursor feedback.
 
 ### 🤖 AI Assistant Panel
 - **Integrated Sidecar**: Collapsible side panel for code explanation, debugging, and drafting snippets.
+- **Space-Saving Diff Review Bar**: Unified modified files container with compact diff badges (`+N` / `-M`), one-click file navigation, and instant `Accept all` / `Reject all` controls.
 - **Structured Output**: Clear separation between thought streams, explanations, and formatted code blocks.
 - **Independent Edge Resizing**: Isolated resize splitter with accent grip handle.
 
