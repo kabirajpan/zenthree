@@ -389,6 +389,18 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                                 state.save_persistent_state();
                                 ui.request_redraw();
                             }
+                            ui.spacing(4.0);
+                            if ui.menu_item("Sync with System (Auto)").show().clicked {
+                                let sys_theme = crate::theme::detect_system_theme();
+                                state.set_theme(sys_theme);
+                                match sys_theme {
+                                    ThemeMode::Dark => state.highlighter = syntax::SyntaxHighlighter::new(syntax::SyntaxTheme::dark()),
+                                    ThemeMode::Light => state.highlighter = syntax::SyntaxHighlighter::new(syntax::SyntaxTheme::light()),
+                                }
+                                state.set_status(format!("Theme synced with system: {:?}", sys_theme));
+                                state.save_persistent_state();
+                                ui.request_redraw();
+                            }
                         });
 
                         // Native Window Blur Mode Toggle

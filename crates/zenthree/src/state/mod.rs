@@ -379,13 +379,18 @@ impl ZenthreeState {
             }
         }
 
-        let highlighter = syntax::SyntaxHighlighter::new(syntax::SyntaxTheme::dark());
+        let initial_theme = crate::theme::detect_system_theme();
+        let syntax_theme = match initial_theme {
+            ThemeMode::Dark => syntax::SyntaxTheme::dark(),
+            ThemeMode::Light => syntax::SyntaxTheme::light(),
+        };
+        let highlighter = syntax::SyntaxHighlighter::new(syntax_theme);
         let formatter = formatter::Formatter::new();
         let indent_calc = syntax::IndentCalculator::new();
 
         let mut state = Self {
-            theme: ThemeMode::Dark,
-            theme_signal: zenthra_state::Signal::new(ThemeMode::Dark),
+            theme: initial_theme,
+            theme_signal: zenthra_state::Signal::new(initial_theme),
             accent_color: "blue".to_string(),
             glassmorphism: false,
             icon_theme: "neovim_mini".to_string(),

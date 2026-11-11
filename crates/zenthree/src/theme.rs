@@ -6,6 +6,66 @@ pub enum ThemeMode {
     Light,
 }
 
+/// Detect the host operating system's dark or light mode preference.
+pub fn detect_system_theme() -> ThemeMode {
+    #[cfg(target_os = "linux")]
+    {
+        // 1. Check GNOME / Freedesktop color-scheme preference
+        if let Ok(output) = std::process::Command::new("gsettings")
+            .args(["get", "org.gnome.desktop.interface", "color-scheme"])
+            .output()
+        {
+            let text = String::from_utf8_lossy(&output.stdout);
+            if text.contains("prefer-dark") {
+                return ThemeMode::Dark;
+            } else if text.contains("prefer-light") {
+                return ThemeMode::Light;
+            }
+        }
+        // 2. Fallback: check GTK theme name for dark/light keywords
+        if let Ok(output) = std::process::Command::new("gsettings")
+            .args(["get", "org.gnome.desktop.interface", "gtk-theme"])
+            .output()
+        {
+            let text = String::from_utf8_lossy(&output.stdout).to_lowercase();
+            if text.contains("dark") {
+                return ThemeMode::Dark;
+            } else if text.contains("light") {
+                return ThemeMode::Light;
+            }
+        }
+    }
+    #[cfg(target_os = "macos")]
+    {
+        if let Ok(output) = std::process::Command::new("defaults")
+            .args(["read", "-g", "AppleInterfaceStyle"])
+            .output()
+        {
+            let text = String::from_utf8_lossy(&output.stdout);
+            if text.trim() == "Dark" {
+                return ThemeMode::Dark;
+            } else {
+                return ThemeMode::Light;
+            }
+        }
+    }
+    #[cfg(target_os = "windows")]
+    {
+        if let Ok(output) = std::process::Command::new("reg")
+            .args(["query", "HKCU\\Software\\Microsoft\\Windows\\CurrentVersion\\Themes\\Personalize", "/v", "AppsUseLightTheme"])
+            .output()
+        {
+            let text = String::from_utf8_lossy(&output.stdout);
+            if text.contains("0x0") {
+                return ThemeMode::Dark;
+            } else if text.contains("0x1") {
+                return ThemeMode::Light;
+            }
+        }
+    }
+    ThemeMode::Dark
+}
+
 #[derive(Clone, Copy)]
 pub struct ThemeColors {
     pub bg_base: Color,
