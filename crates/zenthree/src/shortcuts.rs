@@ -412,28 +412,29 @@ pub fn handle_shortcuts(ui: &mut Ui, state: &mut ZenthreeState) {
                         ui.request_redraw();
                     }
 
-                    // ── Shift+: → LazyVim Command mode ───────────────────
+                    // ── Shift+: → LazyVim Command mode (only when file manager panel is open & focused) ───
                     key if *key == winit::keyboard::KeyCode::Semicolon
                         && state.shift_pressed
                         && !state.ctrl_pressed
                         && !state.alt_pressed
+                        && ui.focused_id.is_none()
                         && state.inline_tree_input.is_none()
                         && !state.is_modal_or_dialog_open()
-                        && (state.focused_panel == FocusedPanel::Explorer
-                            || (state.focused_panel == FocusedPanel::Editor && state.editor_vim_normal)) =>
+                        && state.sidebar_visible
+                        && state.sidebar_view == SidebarView::Explorer
+                        && state.focused_panel == FocusedPanel::Explorer =>
                     {
-                        let dir = if state.focused_panel == FocusedPanel::Explorer {
-                            selected_parent_dir(state)
-                        } else {
-                            None
-                        };
+                        let dir = selected_parent_dir(state);
                         state.open_cmdline(Some(""), dir);
+                        ui.input_events.clear();
                         ui.request_redraw();
                     }
 
-                    // ── File tree navigation (Explorer focused) ───────────
+                    // ── File tree navigation (only when file manager panel is open & focused) ───────────
                     key if state.focused_panel == FocusedPanel::Explorer
                         && state.sidebar_visible
+                        && state.sidebar_view == SidebarView::Explorer
+                        && ui.focused_id.is_none()
                         && state.inline_tree_input.is_none()
                         && state.tree_context_menu.is_none()
                         && !state.is_modal_or_dialog_open() =>
@@ -445,20 +446,20 @@ pub fn handle_shortcuts(ui: &mut Ui, state: &mut ZenthreeState) {
                 }
             }
 
-            // ── CharTyped ':' → LazyVim Command mode ──────────────────────
+            // ── CharTyped ':' → LazyVim Command mode (only when file manager panel is open & focused) ───
             PlatformEvent::CharTyped(c) if *c == ':' => {
                 if !state.ctrl_pressed
                     && !state.alt_pressed
+                    && ui.focused_id.is_none()
                     && state.inline_tree_input.is_none()
                     && !state.is_modal_or_dialog_open()
-                    && (state.focused_panel == FocusedPanel::Explorer || (state.focused_panel == FocusedPanel::Editor && state.editor_vim_normal))
+                    && state.sidebar_visible
+                    && state.sidebar_view == SidebarView::Explorer
+                    && state.focused_panel == FocusedPanel::Explorer
                 {
-                    let dir = if state.focused_panel == FocusedPanel::Explorer {
-                        selected_parent_dir(state)
-                    } else {
-                        None
-                    };
+                    let dir = selected_parent_dir(state);
                     state.open_cmdline(Some(""), dir);
+                    ui.input_events.clear();
                     ui.request_redraw();
                 }
             }
@@ -571,6 +572,7 @@ fn handle_tree_key(ui: &mut Ui, state: &mut ZenthreeState, key: &winit::keyboard
         KeyCode::KeyA if !state.shift_pressed => {
             let dir = selected_parent_dir(state);
             state.open_cmdline(Some(""), dir);
+            ui.input_events.clear();
             ui.request_redraw();
         }
 
@@ -578,6 +580,7 @@ fn handle_tree_key(ui: &mut Ui, state: &mut ZenthreeState, key: &winit::keyboard
         KeyCode::KeyA if state.shift_pressed => {
             let dir = selected_parent_dir(state);
             state.open_cmdline(Some("mkdir "), dir);
+            ui.input_events.clear();
             ui.request_redraw();
         }
 
@@ -585,6 +588,7 @@ fn handle_tree_key(ui: &mut Ui, state: &mut ZenthreeState, key: &winit::keyboard
         KeyCode::Semicolon if state.shift_pressed => {
             let dir = selected_parent_dir(state);
             state.open_cmdline(Some(""), dir);
+            ui.input_events.clear();
             ui.request_redraw();
         }
 
@@ -592,6 +596,7 @@ fn handle_tree_key(ui: &mut Ui, state: &mut ZenthreeState, key: &winit::keyboard
         KeyCode::KeyD | KeyCode::Delete => {
             if let Some(sel) = state.selected_sidebar_path.clone() {
                 state.open_delete_confirm(sel);
+                ui.input_events.clear();
                 ui.request_redraw();
             }
         }
@@ -600,6 +605,7 @@ fn handle_tree_key(ui: &mut Ui, state: &mut ZenthreeState, key: &winit::keyboard
         KeyCode::KeyR | KeyCode::F2 if !state.shift_pressed => {
             if let Some(sel) = state.selected_sidebar_path.clone() {
                 state.open_rename_modal(sel);
+                ui.input_events.clear();
                 ui.request_redraw();
             }
         }

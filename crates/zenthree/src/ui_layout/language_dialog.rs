@@ -189,12 +189,21 @@ fn draw_language_pack_prompt(ui: &mut Ui, state: &mut ZenthreeState) {
                 .halign(Align::Right)
                 .gap(10.0)
                 .show(|ui| {
+                    let is_light = colors.bg_base.r > 0.5;
                     let later_btn = ui.button("Later")
                         .id(Id::from_u64(999998103))
                         .height(28.0)
-                        .bg(colors.highlight.with_alpha(0.35))
-                        .hover(Style::bg(colors.highlight))
-                        .border((colors.border, 1.0))
+                        .bg(if is_light {
+                            Color::rgb(0.92, 0.92, 0.94)
+                        } else {
+                            colors.bg_base
+                        })
+                        .hover(Style::bg(if is_light {
+                            Color::rgb(0.85, 0.85, 0.88)
+                        } else {
+                            colors.border.with_alpha(0.5)
+                        }))
+                        .border((colors.border.with_alpha(0.6), 0.75))
                         .color(colors.text_primary)
                         .radius_all(4.0)
                         .padding_left(16.0)
@@ -423,12 +432,21 @@ fn draw_lsp_prompt(ui: &mut Ui, state: &mut ZenthreeState) {
                 .halign(Align::Right)
                 .gap(10.0)
                 .show(|ui| {
+                    let is_light = colors.bg_base.r > 0.5;
                     let later_btn = ui.button("Later")
                         .id(Id::from_u64(999998113))
                         .height(28.0)
-                        .bg(colors.highlight.with_alpha(0.35))
-                        .hover(Style::bg(colors.highlight))
-                        .border((colors.border, 1.0))
+                        .bg(if is_light {
+                            Color::rgb(0.92, 0.92, 0.94)
+                        } else {
+                            colors.bg_base
+                        })
+                        .hover(Style::bg(if is_light {
+                            Color::rgb(0.85, 0.85, 0.88)
+                        } else {
+                            colors.border.with_alpha(0.5)
+                        }))
+                        .border((colors.border.with_alpha(0.6), 0.75))
                         .color(colors.text_primary)
                         .radius_all(4.0)
                         .padding_left(16.0)

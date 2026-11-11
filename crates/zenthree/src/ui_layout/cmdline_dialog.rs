@@ -433,6 +433,9 @@ pub fn draw_cmdline_dialog(ui: &mut Ui, state: &mut ZenthreeState) {
     let mut do_dismiss = false;
 
     // 2. Event processing for text input, shortcuts, and suggestion navigation
+    if state.cmdline_dialog.just_opened {
+        ui.input_events.retain(|e| !matches!(e, zenthra_platform::event::PlatformEvent::CharTyped(_)));
+    }
     let mut events = std::mem::take(&mut ui.input_events);
     events.retain(|event| {
         match event {
@@ -912,6 +915,9 @@ pub fn draw_delete_confirm_dialog(ui: &mut Ui, state: &mut ZenthreeState) {
     let mut do_dismiss = false;
 
     // 2. Process keyboard input events (typing filters options; Enter confirms; Esc cancels)
+    if state.delete_confirm_dialog.just_opened {
+        ui.input_events.retain(|e| !matches!(e, zenthra_platform::event::PlatformEvent::CharTyped(_) | zenthra_platform::event::PlatformEvent::KeyDown { .. }));
+    }
     let mut events = std::mem::take(&mut ui.input_events);
     events.retain(|event| {
         match event {

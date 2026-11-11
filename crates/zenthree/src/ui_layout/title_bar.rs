@@ -1,6 +1,6 @@
 use crate::state::ZenthreeState;
 use crate::theme::{ThemeMode, ACCENT_COLOR_OPTIONS, ICON_THEME_OPTIONS};
-use zenthra::{Color, Ui, FontWeight, Align, Id, Style, use_context};
+use zenthra::{Color, Ui, FontWeight, Align, Id, Style, use_context, ImageSource, ObjectFit};
 use crate::theme::ThemeColors;
 
 pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
@@ -41,10 +41,30 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                         .gap(8.0)
                         .valign(Align::Center)
                         .show(|ui| {
-                            ui.text("\u{ec2b}")
-                                .size(14.0)
-                                .color(colors.accent)
-                                .show();
+                            let is_light = state.theme == ThemeMode::Light || colors.bg_base.r > 0.5;
+                            let logo_file = if is_light {
+                                crate::assets::Assets::get("logo/v2/logo-icon-white.svg")
+                                    .or_else(|| crate::assets::Assets::get("logo/logo-icon-white.svg"))
+                            } else {
+                                crate::assets::Assets::get("logo/v2/logo-icon-black.svg")
+                                    .or_else(|| crate::assets::Assets::get("logo/logo-icon-black.svg"))
+                            };
+
+                            if let Some(file) = logo_file {
+                                let source = ImageSource::Bytes(std::sync::Arc::from(file.data.into_owned()));
+                                ui.image(source)
+                                    .width(22.0)
+                                    .height(22.0)
+                                    .radius_all(5.0)
+                                    .fit(ObjectFit::Contain)
+                                    .show();
+                            } else {
+                                ui.text("\u{ec2b}")
+                                    .size(16.0)
+                                    .color(colors.accent)
+                                    .show();
+                            }
+
                             ui.text("Zenthree")
                                 .size(12.0)
                                 .font_weight(FontWeight::Bold)
@@ -372,99 +392,6 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                         });
                     });
 
-                    ui.menu("Theme").show(|ui| {
-                        // Cascading Submenu: Color Mode
-                        ui.menu("Color Mode").show(|ui| {
-                            let dark_mark = if state.theme == ThemeMode::Dark { "● " } else { "  " };
-                            if ui.menu_item(&format!("{}Dark Theme", dark_mark)).show().clicked {
-                                state.set_theme(ThemeMode::Dark);
-                                state.highlighter = syntax::SyntaxHighlighter::new(syntax::SyntaxTheme::dark());
-                                state.save_persistent_state();
-                                ui.request_redraw();
-                            }
-                            let light_mark = if state.theme == ThemeMode::Light { "● " } else { "  " };
-                            if ui.menu_item(&format!("{}Light Theme", light_mark)).show().clicked {
-                                state.set_theme(ThemeMode::Light);
-                                state.highlighter = syntax::SyntaxHighlighter::new(syntax::SyntaxTheme::light());
-                                state.save_persistent_state();
-                                ui.request_redraw();
-                            }
-                            ui.spacing(4.0);
-                            if ui.menu_item("Sync with System (Auto)").show().clicked {
-                                let sys_theme = crate::theme::detect_system_theme();
-                                state.set_theme(sys_theme);
-                                match sys_theme {
-                                    ThemeMode::Dark => state.highlighter = syntax::SyntaxHighlighter::new(syntax::SyntaxTheme::dark()),
-                                    ThemeMode::Light => state.highlighter = syntax::SyntaxHighlighter::new(syntax::SyntaxTheme::light()),
-                                }
-                                state.set_status(format!("Theme synced with system: {:?}", sys_theme));
-                                state.save_persistent_state();
-                                ui.request_redraw();
-                            }
-                        });
-
-                        // Native Window Blur Mode Toggle
-                        let glass_mark = if state.glassmorphism { "● " } else { "  " };
-                        if ui.menu_item(&format!("{}Native Window Blur", glass_mark)).show().clicked {
-                            state.glassmorphism = !state.glassmorphism;
-                            ui.set_blur(state.glassmorphism);
-                            state.save_persistent_state();
-                            ui.request_redraw();
-                        }
-
-                        ui.spacing(4.0);
-
-                        // Cascading Submenu: Accent Color
-                        ui.menu("Accent Color").show(|ui| {
-                            for (color_id, color_name) in ACCENT_COLOR_OPTIONS {
-                                let is_active = state.accent_color == *color_id;
-                                let label = if is_active {
-                                    format!("● {}", color_name)
-                                } else {
-                                    format!("  {}", color_name)
-                                };
-                                if ui.menu_item(&label).show().clicked {
-                                    state.accent_color = color_id.to_string();
-                                    state.save_persistent_state();
-                                    ui.request_redraw();
-                                }
-                            }
-                        });
-
-                        // Cascading Submenu: File Icon Theme
-                        ui.menu("File Icon Theme").show(|ui| {
-                            for (theme_id, theme_name) in ICON_THEME_OPTIONS {
-                                let is_active = state.icon_theme == *theme_id;
-                                let label = if is_active {
-                                    format!("● {}", theme_name)
-                                } else {
-                                    format!("  {}", theme_name)
-                                };
-                                if ui.menu_item(&label).show().clicked {
-                                    state.icon_theme = theme_id.to_string();
-                                    state.set_status(format!("Icon theme: {}", theme_name));
-                                    state.save_persistent_state();
-                                    ui.request_redraw();
-                                }
-                            }
-                        });
-
-                        // Cascading Submenu: Syntax Theme
-                        ui.menu("Syntax Highlighting").show(|ui| {
-                            let is_dark = state.theme == ThemeMode::Dark;
-                            let dark_s = if is_dark { "● " } else { "  " };
-                            let light_s = if !is_dark { "● " } else { "  " };
-                            if ui.menu_item(&format!("{}Dark Highlighting", dark_s)).show().clicked {
-                                state.highlighter = syntax::SyntaxHighlighter::new(syntax::SyntaxTheme::dark());
-                                ui.request_redraw();
-                            }
-                            if ui.menu_item(&format!("{}Light Highlighting", light_s)).show().clicked {
-                                state.highlighter = syntax::SyntaxHighlighter::new(syntax::SyntaxTheme::light());
-                                ui.request_redraw();
-                            }
-                        });
-                    });
-
                     ui.menu("Run").show(|ui| {
                         if ui.menu_item("Run Active File").show().clicked {
                             if state.run_active_file() {
@@ -667,6 +594,99 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                                         ui.request_redraw();
                                     }
                                 }
+                            }
+                        });
+                    });
+
+                    ui.menu("Theme").show(|ui| {
+                        // Cascading Submenu: Color Mode
+                        ui.menu("Color Mode").show(|ui| {
+                            let dark_mark = if state.theme == ThemeMode::Dark { "● " } else { "  " };
+                            if ui.menu_item(&format!("{}Dark Theme", dark_mark)).show().clicked {
+                                state.set_theme(ThemeMode::Dark);
+                                state.highlighter = syntax::SyntaxHighlighter::new(syntax::SyntaxTheme::dark());
+                                state.save_persistent_state();
+                                ui.request_redraw();
+                            }
+                            let light_mark = if state.theme == ThemeMode::Light { "● " } else { "  " };
+                            if ui.menu_item(&format!("{}Light Theme", light_mark)).show().clicked {
+                                state.set_theme(ThemeMode::Light);
+                                state.highlighter = syntax::SyntaxHighlighter::new(syntax::SyntaxTheme::light());
+                                state.save_persistent_state();
+                                ui.request_redraw();
+                            }
+                            ui.spacing(4.0);
+                            if ui.menu_item("Sync with System (Auto)").show().clicked {
+                                let sys_theme = crate::theme::detect_system_theme();
+                                state.set_theme(sys_theme);
+                                match sys_theme {
+                                    ThemeMode::Dark => state.highlighter = syntax::SyntaxHighlighter::new(syntax::SyntaxTheme::dark()),
+                                    ThemeMode::Light => state.highlighter = syntax::SyntaxHighlighter::new(syntax::SyntaxTheme::light()),
+                                }
+                                state.set_status(format!("Theme synced with system: {:?}", sys_theme));
+                                state.save_persistent_state();
+                                ui.request_redraw();
+                            }
+                        });
+
+                        // Native Window Blur Mode Toggle
+                        let glass_mark = if state.glassmorphism { "● " } else { "  " };
+                        if ui.menu_item(&format!("{}Native Window Blur", glass_mark)).show().clicked {
+                            state.glassmorphism = !state.glassmorphism;
+                            ui.set_blur(state.glassmorphism);
+                            state.save_persistent_state();
+                            ui.request_redraw();
+                        }
+
+                        ui.spacing(4.0);
+
+                        // Cascading Submenu: Accent Color
+                        ui.menu("Accent Color").show(|ui| {
+                            for (color_id, color_name) in ACCENT_COLOR_OPTIONS {
+                                let is_active = state.accent_color == *color_id;
+                                let label = if is_active {
+                                    format!("● {}", color_name)
+                                } else {
+                                    format!("  {}", color_name)
+                                };
+                                if ui.menu_item(&label).show().clicked {
+                                    state.accent_color = color_id.to_string();
+                                    state.save_persistent_state();
+                                    ui.request_redraw();
+                                }
+                            }
+                        });
+
+                        // Cascading Submenu: File Icon Theme
+                        ui.menu("File Icon Theme").show(|ui| {
+                            for (theme_id, theme_name) in ICON_THEME_OPTIONS {
+                                let is_active = state.icon_theme == *theme_id;
+                                let label = if is_active {
+                                    format!("● {}", theme_name)
+                                } else {
+                                    format!("  {}", theme_name)
+                                };
+                                if ui.menu_item(&label).show().clicked {
+                                    state.icon_theme = theme_id.to_string();
+                                    state.set_status(format!("Icon theme: {}", theme_name));
+                                    state.save_persistent_state();
+                                    ui.request_redraw();
+                                }
+                            }
+                        });
+
+                        // Cascading Submenu: Syntax Theme
+                        ui.menu("Syntax Highlighting").show(|ui| {
+                            let is_dark = state.theme == ThemeMode::Dark;
+                            let dark_s = if is_dark { "● " } else { "  " };
+                            let light_s = if !is_dark { "● " } else { "  " };
+                            if ui.menu_item(&format!("{}Dark Highlighting", dark_s)).show().clicked {
+                                state.highlighter = syntax::SyntaxHighlighter::new(syntax::SyntaxTheme::dark());
+                                ui.request_redraw();
+                            }
+                            if ui.menu_item(&format!("{}Light Highlighting", light_s)).show().clicked {
+                                state.highlighter = syntax::SyntaxHighlighter::new(syntax::SyntaxTheme::light());
+                                ui.request_redraw();
                             }
                         });
                     });

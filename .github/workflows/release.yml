@@ -1,0 +1,193 @@
+name: Build and Release Zenthree
+
+on:
+  push:
+    tags:
+      - 'v*'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build & Release - ${{ matrix.platform.os-name }}
+    runs-on: ${{ matrix.platform.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        platform:
+          - os: ubuntu-latest
+            os-name: linux
+            target: x86_64-unknown-linux-gnu
+            bin: zenthree
+            archive_name: zenthree-linux-x86_64.tar.gz
+          - os: windows-latest
+            os-name: windows
+            target: x86_64-pc-windows-msvc
+            bin: zenthree.exe
+            archive_name: zenthree-windows-x86_64.zip
+          - os: macos-latest
+            os-name: macos-universal
+            target: aarch64-apple-darwin
+            bin: zenthree
+            archive_name: zenthree-macos-universal.tar.gz
+
+    steps:
+      - name: Checkout Core Framework
+        uses: actions/checkout@v4
+        with:
+          repository: kabirajpan/zenthra-v2
+          path: zenthra
+
+      - name: Checkout Zenthree
+        uses: actions/checkout@v4
+        with:
+          path: zenthra/apps/zenthree
+
+      - name: Install System Dependencies (Linux)
+        if: matrix.platform.os-name == 'linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y pkg-config libx11-dev libx11-xcb-dev libxkbcommon-dev libwayland-dev libegl1-mesa-dev libgbm-dev libgtk-3-dev librsvg2-bin
+
+      - name: Setup Rust Toolchain
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.platform.target }}
+
+      - name: Add macOS compilation targets
+        if: matrix.platform.os-name == 'macos-universal'
+        run: |
+          rustup target add aarch64-apple-darwin
+          rustup target add x86_64-apple-darwin
+
+      - name: Generate Icon (Linux)
+        if: matrix.platform.os-name == 'linux'
+        working-directory: zenthra/apps/zenthree
+        run: |
+          mkdir -p assets/logo
+          rsvg-convert -w 512 -h 512 assets/logo/v2/logo-icon-black.svg -o assets/logo/zenthree.png || true
+
+      # ─── BUILD STEPS ───────────────────────────────────────────────
+      - name: Build Standalone Binary (Non-macOS)
+        if: matrix.platform.os-name != 'macos-universal'
+        working-directory: zenthra/apps/zenthree
+        run: |
+          cargo build --release --bin zenthree --target ${{ matrix.platform.target }}
+
+      - name: Build Standalone Binaries (macOS Universal)
+        if: matrix.platform.os-name == 'macos-universal'
+        working-directory: zenthra/apps/zenthree
+        run: |
+          cargo build --release --bin zenthree --target aarch64-apple-darwin
+          cargo build --release --bin zenthree --target x86_64-apple-darwin
+
+      - name: Create Universal macOS Binary
+        if: matrix.platform.os-name == 'macos-universal'
+        working-directory: zenthra/apps/zenthree
+        run: |
+          mkdir -p target/universal/release
+          lipo -create \
+            -output target/universal/release/zenthree \
+            target/aarch64-apple-darwin/release/zenthree \
+            target/x86_64-apple-darwin/release/zenthree
+          file target/universal/release/zenthree
+
+      # ─── PACKAGING & INSTALLERS ────────────────────────────────────
+      # 1. WINDOWS: Inno Setup GUI Installer + Portable ZIP
+      - name: Package Windows Installer & Archive
+        if: matrix.platform.os-name == 'windows'
+        working-directory: zenthra/apps/zenthree
+        shell: pwsh
+        run: |
+          Copy-Item "target/${{ matrix.platform.target }}/release/zenthree.exe" -Destination "installer/windows/"
+          if (Test-Path "assets") {
+            Copy-Item -Recurse "assets" -Destination "installer/windows/assets"
+          }
+          
+          # Compile Inno Setup UI installer
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer/windows/zenthree.iss
+          Move-Item "installer/windows/zenthree-windows-x86_64-setup.exe" "${{ github.workspace }}/zenthree-windows-x86_64-setup.exe"
+
+          # Portable Zip
+          Compress-Archive -Path "target/${{ matrix.platform.target }}/release/zenthree.exe" -DestinationPath "${{ github.workspace }}/${{ matrix.platform.archive_name }}"
+
+      # 2. LINUX: Native Debian .deb Installer + Portable tar.gz
+      - name: Package Linux .deb and Archive
+        if: matrix.platform.os-name == 'linux'
+        working-directory: zenthra/apps/zenthree
+        run: |
+          # 1. Build .deb package (Native GUI Installer for Ubuntu/Debian/PopOS/Mint)
+          mkdir -p deb_pkg/DEBIAN
+          mkdir -p deb_pkg/usr/bin
+          mkdir -p deb_pkg/usr/share/applications
+          mkdir -p deb_pkg/usr/share/icons/hicolor/512x512/apps
+
+          cp "target/${{ matrix.platform.target }}/release/zenthree" deb_pkg/usr/bin/zenthree
+          chmod 755 deb_pkg/usr/bin/zenthree
+          cp assets/linux/zenthree.desktop deb_pkg/usr/share/applications/
+          if [ -f assets/logo/zenthree.png ]; then
+            cp assets/logo/zenthree.png deb_pkg/usr/share/icons/hicolor/512x512/apps/zenthree.png
+          fi
+
+          cat << 'EOF' > deb_pkg/DEBIAN/control
+          Package: zenthree
+          Version: 0.1.0
+          Section: devel
+          Priority: optional
+          Architecture: amd64
+          Maintainer: Kabir <kabirajpan2@gmail.com>
+          Description: Zenthree Code Editor & IDE
+           A fast, lightweight code editor built with Zenthra UI.
+          EOF
+          sed -i 's/^ *//' deb_pkg/DEBIAN/control
+
+          dpkg-deb --build deb_pkg "${{ github.workspace }}/zenthree-linux-amd64.deb"
+
+          # 2. Portable Tarball with installation script
+          mkdir -p dist_linux
+          cp "target/${{ matrix.platform.target }}/release/zenthree" dist_linux/
+          cp assets/linux/zenthree.desktop dist_linux/
+          if [ -f assets/logo/zenthree.png ]; then
+            cp assets/logo/zenthree.png dist_linux/
+          fi
+          cp scripts/install-linux.sh dist_linux/install.sh
+          chmod +x dist_linux/install.sh dist_linux/zenthree
+          tar -czf "${{ github.workspace }}/${{ matrix.platform.archive_name }}" -C dist_linux .
+
+      # 3. macOS: Universal .app Bundle + .dmg Drag-and-Drop Installer
+      - name: Package macOS .dmg Installer & Archive
+        if: matrix.platform.os-name == 'macos-universal'
+        working-directory: zenthra/apps/zenthree
+        run: |
+          # 1. Construct Zenthree.app
+          mkdir -p Zenthree.app/Contents/MacOS
+          mkdir -p Zenthree.app/Contents/Resources
+          cp target/universal/release/zenthree Zenthree.app/Contents/MacOS/zenthree
+          chmod +x Zenthree.app/Contents/MacOS/zenthree
+          cp assets/macos/Info.plist Zenthree.app/Contents/Info.plist
+
+          # 2. Create standard drag-to-Applications .dmg installer
+          mkdir -p dmg_root
+          cp -r Zenthree.app dmg_root/
+          ln -s /Applications dmg_root/Applications
+          hdiutil create -volname "Zenthree" -srcfolder dmg_root -ov -format UDZO "${{ github.workspace }}/zenthree-macos-universal.dmg"
+
+          # 3. Also package .tar.gz
+          tar -czf "${{ github.workspace }}/${{ matrix.platform.archive_name }}" Zenthree.app
+
+      # ─── UPLOAD ASSETS TO RELEASE ──────────────────────────────────
+      - name: Upload Release Binaries and Installers
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            ${{ github.workspace }}/*.tar.gz
+            ${{ github.workspace }}/*.zip
+            ${{ github.workspace }}/*.deb
+            ${{ github.workspace }}/*.exe
+            ${{ github.workspace }}/*.dmg
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

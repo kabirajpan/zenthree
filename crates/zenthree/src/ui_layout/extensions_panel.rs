@@ -8,8 +8,8 @@ pub fn draw_extensions_panel(ui: &mut Ui, state: &mut ZenthreeState, panel_w: f3
     let colors = use_context::<ThemeColors>().map(|c| *c).unwrap_or_else(|| state.colors());
 
     // Dimensions derived directly from panel_w so everything fits strictly
-    let card_w = (panel_w - 20.0).max(140.0);
-    let inner_w = (card_w - 16.0).max(120.0);
+    let card_w = (panel_w - 24.0).max(120.0);
+    let inner_w = (card_w - 16.0).max(100.0);
 
     // Outer column layout
     ui.container()
@@ -89,14 +89,19 @@ pub fn draw_extensions_panel(ui: &mut Ui, state: &mut ZenthreeState, panel_w: f3
                 .column()
                 .gap(6.0)
                 .show(|ui| {
+                    let query_empty = state.extension_search_query.is_empty();
+                    let search_id = ui.id_from("extension_search_input");
+                    let clear_btn_w = if !query_empty { 26.0 } else { 0.0 };
+                    let input_w = (panel_w - 20.0 - 16.0 - 20.0 - clear_btn_w).max(40.0);
+
                     ui.container()
                         .fill_x()
                         .height(28.0)
                         .bg(colors.bg_base)
-                        .border((colors.border, 1.0))
+                        .border(None)
                         .radius_all(4.0)
                         .padding_left(8.0)
-                        .padding_right(8.0)
+                        .padding_right(6.0)
                         .row()
                         .valign(Align::Center)
                         .gap(6.0)
@@ -106,31 +111,45 @@ pub fn draw_extensions_panel(ui: &mut Ui, state: &mut ZenthreeState, panel_w: f3
                                 .color(colors.text_dim)
                                 .show();
 
-                            let query_empty = state.extension_search_query.is_empty();
-
-                            ui.input(&mut state.extension_search_query).id(Id::from_u64(999998200))
-                                .fill_x()
+                            let search_resp = ui.input(&mut state.extension_search_query)
+                                .id("extension_search_input")
+                                .width(input_w)
                                 .bg(Color::TRANSPARENT)
                                 .border(None)
+                                .focus_border(None)
                                 .color(colors.text_primary)
+                                .cursor_color(colors.text_primary)
+                                .placeholder("Search extensions...")
+                                .placeholder_color(colors.text_muted)
                                 .size(11.0)
                                 .show();
 
+                            if search_resp.clicked || (search_resp.hovered && (ui.clicked || ui.mouse_down)) || ui.focused_id == Some(search_id) {
+                                state.focused_panel = crate::state::types::FocusedPanel::Explorer;
+                                if ui.focused_id != Some(search_id) {
+                                    ui.focused_id = Some(search_id);
+                                }
+                            }
+
                             if !query_empty {
                                 let clear_btn = ui.container()
-                                    .padding(2.0, 4.0, 2.0, 4.0)
+                                    .width(18.0)
+                                    .height(18.0)
+                                    .valign(Align::Center)
+                                    .halign(Align::Center)
                                     .radius_all(3.0)
                                     .hover(Style::bg(colors.highlight))
                                     .interactive(true)
                                     .show(|ui| {
                                         ui.text("\u{f00d}")
-                                            .size(9.0)
+                                            .size(9.5)
                                             .color(colors.text_muted)
                                             .show();
                                     });
                                 if clear_btn.hovered { ui.cursor_icon = zenthra::CursorIcon::Pointer; }
                                 if clear_btn.clicked {
                                     state.extension_search_query.clear();
+                                    ui.focused_id = Some(search_id);
                                     ui.needs_redraw = true;
                                 }
                             }
@@ -297,6 +316,10 @@ fn draw_language_packs_tab(
                     .gap(5.0)
                     .show(|ui| {
                         // Top row: Icon + Name on Left, Action Button on Right
+                        let btn_w = if is_installed { 64.0 } else { 54.0 };
+                        let title_avail_w = (inner_w - btn_w - 8.0).max(40.0);
+                        let name_max_w = (title_avail_w - 28.0).max(30.0);
+
                         ui.container()
                             .width(inner_w)
                             .row()
@@ -305,6 +328,8 @@ fn draw_language_packs_tab(
                             .show(|ui| {
                                 // Left: Icon + Title
                                 ui.container()
+                                    .max_width(title_avail_w)
+                                    .clip(true)
                                     .row()
                                     .valign(Align::Center)
                                     .gap(6.0)
@@ -327,6 +352,7 @@ fn draw_language_packs_tab(
                                             .size(12.0)
                                             .font_weight(FontWeight::Bold)
                                             .color(colors.text_primary)
+                                            .max_width(name_max_w)
                                             .show();
                                     });
 
@@ -335,12 +361,13 @@ fn draw_language_packs_tab(
                                     let uninst_btn = ui.button("Installed")
                                         .id(Id::from_u64(999998400 + idx as u64))
                                         .height(20.0)
+                                        .width(btn_w)
                                         .bg(Color::TRANSPARENT)
                                         .hover(Style::bg(Color::rgba(239.0 / 255.0, 68.0 / 255.0, 68.0 / 255.0, 0.15)))
                                         .color(colors.text_muted)
                                         .radius_all(3.0)
-                                        .padding_left(6.0)
-                                        .padding_right(6.0)
+                                        .padding_left(4.0)
+                                        .padding_right(4.0)
                                         .size(10.0)
                                         .show();
 
@@ -351,12 +378,13 @@ fn draw_language_packs_tab(
                                     let inst_btn = ui.button("Install")
                                         .id(Id::from_u64(999998400 + idx as u64))
                                         .height(20.0)
+                                        .width(btn_w)
                                         .bg(colors.accent)
                                         .hover(Style::bg(colors.accent.with_alpha(0.85)))
                                         .color(Color::WHITE)
                                         .radius_all(3.0)
-                                        .padding_left(8.0)
-                                        .padding_right(8.0)
+                                        .padding_left(6.0)
+                                        .padding_right(6.0)
                                         .size(10.0)
                                         .show();
 
@@ -565,6 +593,10 @@ fn draw_language_servers_tab(
                     .gap(5.0)
                     .show(|ui| {
                         // Top row: Lambda Icon + Name on Left, Action Button on Right
+                        let btn_w = if is_installing { 76.0 } else if is_installed { 58.0 } else { 88.0 };
+                        let title_avail_w = (inner_w - btn_w - 8.0).max(40.0);
+                        let name_max_w = (title_avail_w - 28.0).max(30.0);
+
                         ui.container()
                             .width(inner_w)
                             .row()
@@ -573,6 +605,8 @@ fn draw_language_servers_tab(
                             .show(|ui| {
                                 // Left: Lambda glyph box + Name
                                 ui.container()
+                                    .max_width(title_avail_w)
+                                    .clip(true)
                                     .row()
                                     .valign(Align::Center)
                                     .gap(6.0)
@@ -595,6 +629,7 @@ fn draw_language_servers_tab(
                                             .size(12.0)
                                             .font_weight(FontWeight::Bold)
                                             .color(colors.text_primary)
+                                            .max_width(name_max_w)
                                             .show();
                                     });
 
@@ -603,34 +638,37 @@ fn draw_language_servers_tab(
                                     let _ = ui.button("⠋ Installing...")
                                         .id(Id::from_u64(999998600 + idx as u64))
                                         .height(20.0)
+                                        .width(btn_w)
                                         .bg(colors.accent.with_alpha(0.2))
                                         .color(colors.accent)
                                         .radius_all(3.0)
-                                        .padding_left(6.0)
-                                        .padding_right(6.0)
+                                        .padding_left(4.0)
+                                        .padding_right(4.0)
                                         .size(10.0)
                                         .show();
                                 } else if is_installed {
                                     let _ = ui.button("✓ Ready")
                                         .id(Id::from_u64(999998600 + idx as u64))
                                         .height(20.0)
+                                        .width(btn_w)
                                         .bg(Color::rgb(74.0 / 255.0, 222.0 / 255.0, 128.0 / 255.0).with_alpha(0.15))
                                         .color(Color::rgb(74.0 / 255.0, 222.0 / 255.0, 128.0 / 255.0))
                                         .radius_all(3.0)
-                                        .padding_left(6.0)
-                                        .padding_right(6.0)
+                                        .padding_left(4.0)
+                                        .padding_right(4.0)
                                         .size(10.0)
                                         .show();
                                 } else {
                                     let inst_btn = ui.button("\u{f0627} Install LSP")
                                         .id(Id::from_u64(999998600 + idx as u64))
                                         .height(20.0)
+                                        .width(btn_w)
                                         .bg(colors.accent)
                                         .hover(Style::bg(colors.accent.with_alpha(0.85)))
                                         .color(Color::WHITE)
                                         .radius_all(3.0)
-                                        .padding_left(8.0)
-                                        .padding_right(8.0)
+                                        .padding_left(4.0)
+                                        .padding_right(4.0)
                                         .size(10.0)
                                         .show();
 

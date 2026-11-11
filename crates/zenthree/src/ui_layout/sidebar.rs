@@ -1,11 +1,12 @@
 use crate::state::{ZenthreeState, InlineTreeInputMode, TreeContextMenu};
-use zenthra::{Color, Ui, Align, FontWeight, Id, CursorIcon, Style, use_context};
+use zenthra::{Color, Ui, Align, FontWeight, Id, Style, use_context};
 use crate::theme::ThemeColors;
 use std::path::PathBuf;
 
 pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
     let colors = use_context::<ThemeColors>().map(|c| *c).unwrap_or_else(|| state.colors());
     let sidebar_w = state.sidebar_width;
+    let is_modal_open = ui.modal_active || state.is_modal_or_dialog_open();
 
     // Sync modifiers state so widgets know when Ctrl/Shift/Alt are held
     let ctrl_key = Id::from_u64(0xFEED_C071);
@@ -68,6 +69,18 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
     }
 
     let mut right_clicked_node: Option<(PathBuf, bool)> = None;
+
+    let sidebar_start_x = ui.cursor_x;
+    let sidebar_start_y = ui.cursor_y;
+    if !is_modal_open && (ui.clicked || (ui.mouse_down && ui.active_drag.is_none())) {
+        if ui.mouse_in_rect(sidebar_start_x, sidebar_start_y, sidebar_w, ui.height) {
+            state.focused_panel = if state.sidebar_view == crate::state::SidebarView::Git {
+                crate::state::types::FocusedPanel::Git
+            } else {
+                crate::state::types::FocusedPanel::Explorer
+            };
+        }
+    }
 
     ui.container()
         .width(sidebar_w)
@@ -1260,87 +1273,6 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
         }
     }
 
-    // Render vertical splitter handle and capture mouse drags
-    let splitter_x = ui.cursor_x;
-    let splitter_y = ui.base_y;
-    let status_bar_h = if state.status_bar_visible { 24.0 } else { 0.0 };
-    let splitter_h = ui.height - 36.0 - status_bar_h;
-
-    // Detect if mouse is hovering over 6-pixel splitter bounds
-    let handle_width = 6.0;
-    let handle_id = Id::from_u64(999997199);
-    let is_blocked = ui.modal_active || state.is_modal_or_dialog_open() || ui.is_occluded(handle_id, ui.mouse_x, ui.mouse_y);
-    let is_hovered = !is_blocked && ui.mouse_in_rect(splitter_x - handle_width / 2.0, splitter_y, handle_width, splitter_h);
-
-    if is_blocked {
-        state.active_resize_sidebar = false;
-    }
-
-    if is_hovered || state.active_resize_sidebar {
-        ui.cursor_icon = CursorIcon::ColResize;
-        ui.resize_active = true;
-    }
-
-    if is_hovered && ui.mouse_down && ui.active_drag.is_none() {
-        state.active_resize_sidebar = true;
-    }
-
-    if state.active_resize_sidebar {
-        if !ui.mouse_down {
-            state.active_resize_sidebar = false;
-            state.save_persistent_state();
-        } else {
-            // Dragging: update sidebar width
-            let target_w = ui.mouse_x;
-            state.sidebar_width = target_w.clamp(140.0, (ui.width * 0.45).max(200.0));
-            ui.request_redraw();
-        }
-    }
-
-    // Visual feedback for edge handler
-    let edge_color = if state.active_resize_sidebar {
-        colors.accent
-    } else if is_hovered {
-        colors.accent.with_alpha(0.8)
-    } else {
-        colors.border
-    };
-
-    let edge_thickness = if state.active_resize_sidebar || is_hovered { 2.0 } else { 1.0 };
-    let edge_draw_x = if edge_thickness == 1.0 { (splitter_x - 1.0).round() } else { (splitter_x - 1.0).round() };
-
-    ui.draws.push(zenthra_widgets::ui::DrawCommand::Rect(zenthra_widgets::ui::RectDraw {
-        instance: zenthra_render::RectInstance {
-            pos: [edge_draw_x, splitter_y],
-            size: [edge_thickness, splitter_h],
-            color: edge_color.to_array(),
-            radius: [0.0; 4],
-            border_width: 0.0,
-            border_color: [0.0; 4],
-            clip_rect: [-10000.0, -10000.0, 20000.0, 20000.0],
-            ..Default::default()
-        },
-    }));
-
-    // Center pill grip handle when hovered or active
-    if is_hovered || state.active_resize_sidebar {
-        let grip_w = 4.0;
-        let grip_h = 36.0;
-        let grip_x = splitter_x - grip_w / 2.0;
-        let grip_y = splitter_y + (splitter_h - grip_h) / 2.0;
-        ui.draws.push(zenthra_widgets::ui::DrawCommand::Rect(zenthra_widgets::ui::RectDraw {
-            instance: zenthra_render::RectInstance {
-                pos: [grip_x, grip_y],
-                size: [grip_w, grip_h],
-                color: colors.accent.to_array(),
-                radius: [2.0; 4],
-                border_width: 0.0,
-                border_color: [0.0; 4],
-                clip_rect: [-10000.0, -10000.0, 20000.0, 20000.0],
-                ..Default::default()
-            },
-        }));
-    }
 }
 
 /// Render the inline input row for creating a new file or new folder.

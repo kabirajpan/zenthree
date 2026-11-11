@@ -34,6 +34,7 @@ Thumbs.db
 references/
 
 # Test projects (not pushed to github)
+/test_snake/
 crates/agent/tests/calculator/
 crates/agent/tests/snake_game/
 implementation_plan.md

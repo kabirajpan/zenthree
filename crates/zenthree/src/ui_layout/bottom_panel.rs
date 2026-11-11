@@ -1,11 +1,8 @@
 use crate::state::{BottomPanelTab, ZenthreeState};
 use crate::theme::ThemeColors;
-use zenthra::{use_context, Align, CursorIcon, FontWeight, Style, Ui};
-use zenthra_render::RectInstance;
-use zenthra_widgets::ui::{DrawCommand, RectDraw};
+use zenthra::{use_context, Align, FontWeight, Style, Ui};
 
 const TAB_BAR_HEIGHT: f32 = 30.0;
-const PANEL_RESIZE_HEIGHT: f32 = 6.0;
 
 pub fn draw_bottom_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height: f32) {
     let colors = use_context::<ThemeColors>()
@@ -17,9 +14,8 @@ pub fn draw_bottom_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, hei
         .height(height)
         .column()
         .show(|ui| {
-            draw_panel_resize_handle(ui, state, width, &colors);
             draw_panel_tabs(ui, state, width, &colors);
-            let content_height = (height - TAB_BAR_HEIGHT - PANEL_RESIZE_HEIGHT).max(1.0);
+            let content_height = (height - TAB_BAR_HEIGHT).max(1.0);
             match state.bottom_panel_tab {
                 BottomPanelTab::Problems => {
                     draw_problems(ui, state, width, content_height, &colors)
@@ -34,82 +30,6 @@ pub fn draw_bottom_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, hei
                 BottomPanelTab::Ports => draw_ports(ui, state, width, content_height, &colors),
             }
         });
-}
-
-fn draw_panel_resize_handle(
-    ui: &mut Ui,
-    state: &mut ZenthreeState,
-    width: f32,
-    colors: &ThemeColors,
-) {
-    let handle_x = ui.cursor_x;
-    let handle_y = ui.cursor_y;
-    let is_blocked = ui.modal_active || state.is_modal_or_dialog_open();
-    let is_hovered = !is_blocked
-        && ui.mouse_in_rect(
-            handle_x,
-            handle_y - PANEL_RESIZE_HEIGHT / 2.0,
-            width,
-            PANEL_RESIZE_HEIGHT,
-        );
-
-    if is_blocked {
-        state.active_resize_terminal = false;
-    } else if is_hovered && ui.mouse_down && ui.active_drag.is_none() {
-        state.active_resize_terminal = true;
-    }
-
-    if state.active_resize_terminal {
-        ui.cursor_icon = CursorIcon::RowResize;
-        ui.resize_active = true;
-        if ui.mouse_down {
-            let status_bar_height = if state.status_bar_visible { 24.0 } else { 0.0 };
-            let panel_bottom = ui.height - status_bar_height;
-            state.terminal_height = (panel_bottom - ui.mouse_y)
-                .clamp(70.0, (ui.height * 0.7).max(100.0));
-            ui.request_redraw();
-        } else {
-            state.active_resize_terminal = false;
-            state.save_persistent_state();
-        }
-    } else if is_hovered {
-        ui.cursor_icon = CursorIcon::RowResize;
-    }
-
-    let line_color = if state.active_resize_terminal {
-        colors.accent
-    } else if is_hovered {
-        colors.accent.with_alpha(0.8)
-    } else {
-        colors.border
-    };
-    ui.draws.push(DrawCommand::Rect(RectDraw {
-        instance: RectInstance {
-            pos: [handle_x, handle_y],
-            size: [width, if is_hovered || state.active_resize_terminal { 2.0 } else { 1.0 }],
-            color: line_color.to_array(),
-            clip_rect: [-10000.0, -10000.0, 20000.0, 20000.0],
-            ..Default::default()
-        },
-    }));
-
-    if is_hovered || state.active_resize_terminal {
-        ui.draws.push(DrawCommand::Rect(RectDraw {
-            instance: RectInstance {
-                pos: [handle_x + (width - 36.0) / 2.0, handle_y + 1.0],
-                size: [36.0, 4.0],
-                color: colors.accent.to_array(),
-                radius: [2.0; 4],
-                clip_rect: [-10000.0, -10000.0, 20000.0, 20000.0],
-                ..Default::default()
-            },
-        }));
-    }
-
-    ui.container()
-        .width(width)
-        .height(PANEL_RESIZE_HEIGHT)
-        .show(|_| {});
 }
 
 fn draw_panel_tabs(ui: &mut Ui, state: &mut ZenthreeState, width: f32, colors: &ThemeColors) {

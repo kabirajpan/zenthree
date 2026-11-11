@@ -837,6 +837,7 @@ pub fn generate_state_frame(state: OrbStateKind, size: f32, t: f32, size_factor:
     }
 }
 
+#[allow(dead_code)]
 pub fn draw_inline_thinking_orb(
     ui: &mut Ui,
     kind: OrbStateKind,

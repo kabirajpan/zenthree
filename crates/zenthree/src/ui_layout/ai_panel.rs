@@ -456,88 +456,13 @@ pub fn draw_ai_panel(ui: &mut Ui, state: &mut ZenthreeState, width: f32, height:
     let ai_id = Id::from_u64(999999801);
     let ai_input_id = ui.id_from("ai_prompt_text_area");
 
-    // ─── Resizing Splitter Handle ─────────────────────────────────────────
-    let splitter_x = ui.cursor_x;
-    let splitter_y = ui.cursor_y;
-
-    if !state.ai_panel_expanded {
-        let handle_w = 6.0;
-        let handle_id = Id::from_u64(999998899);
-        let is_blocked = ui.modal_active || state.is_modal_or_dialog_open() || ui.is_occluded(handle_id, ui.mouse_x, ui.mouse_y);
-        let is_splitter_hovered = !is_blocked && ui.mouse_in_rect(
-            splitter_x - handle_w / 2.0,
-            splitter_y,
-            handle_w,
-            height,
-        );
-
-        if is_blocked {
-            state.active_resize_ai_panel = false;
-        }
-
-        if is_splitter_hovered || state.active_resize_ai_panel {
-            ui.cursor_icon = CursorIcon::ColResize;
-            ui.resize_active = true;
-        }
-
-        if is_splitter_hovered && ui.mouse_down && ui.active_drag.is_none() {
-            state.active_resize_ai_panel = true;
-        }
-
-        if state.active_resize_ai_panel {
-            if !ui.mouse_down {
-                state.active_resize_ai_panel = false;
-                state.save_persistent_state();
-            } else {
-                let target_w = ui.width - ui.mouse_x;
-                state.ai_panel_width = target_w.clamp(200.0, (ui.width * 0.55).max(220.0));
-                ui.request_redraw();
-            }
-        }
-
-        // Smooth subtle divider line
-        let edge_color = if state.active_resize_ai_panel {
-            colors.accent
-        } else if is_splitter_hovered {
-            colors.accent.with_alpha(0.8)
-        } else {
-            colors.border
-        };
-
-        let edge_thickness = if state.active_resize_ai_panel || is_splitter_hovered { 2.0 } else { 1.0 };
-        let edge_draw_x = if edge_thickness == 1.0 { splitter_x.round() } else { (splitter_x - 1.0).round() };
-
-        ui.draws.push(zenthra_widgets::ui::DrawCommand::Rect(zenthra_widgets::ui::RectDraw {
-            instance: zenthra_render::RectInstance {
-                pos: [edge_draw_x, splitter_y],
-                size: [edge_thickness, height],
-                color: edge_color.to_array(),
-                radius: [0.0; 4],
-                border_width: 0.0,
-                border_color: [0.0; 4],
-                clip_rect: [-10000.0, -10000.0, 20000.0, 20000.0],
-                ..Default::default()
-            },
-        }));
-
-        // Center pill grip handle when hovered or active
-        if is_splitter_hovered || state.active_resize_ai_panel {
-            let grip_w = 4.0;
-            let grip_h = 36.0;
-            let grip_x = splitter_x - grip_w / 2.0;
-            let grip_y = splitter_y + (height - grip_h) / 2.0;
-            ui.draws.push(zenthra_widgets::ui::DrawCommand::Rect(zenthra_widgets::ui::RectDraw {
-                instance: zenthra_render::RectInstance {
-                    pos: [grip_x, grip_y],
-                    size: [grip_w, grip_h],
-                    color: colors.accent.to_array(),
-                    radius: [2.0; 4],
-                    border_width: 0.0,
-                    border_color: [0.0; 4],
-                    clip_rect: [-10000.0, -10000.0, 20000.0, 20000.0],
-                    ..Default::default()
-                },
-            }));
+    // Active panel detection: Clicking inside the AI panel sets focus to AI
+    let panel_x = ui.cursor_x;
+    let panel_y = ui.cursor_y;
+    let is_blocked = ui.modal_active || state.is_modal_or_dialog_open();
+    if !is_blocked && (ui.clicked || (ui.mouse_down && ui.active_drag.is_none())) {
+        if ui.mouse_in_rect(panel_x, panel_y, width, height) {
+            state.focused_panel = crate::state::types::FocusedPanel::Ai;
         }
     }
 
@@ -965,6 +890,7 @@ fn draw_prompt_model_button(
     pill_bg: Color,
     pill_hover_bg: Color,
     pill_border: Color,
+    max_w: f32,
 ) {
     // Keep agent selection aligned with selected model
     if state.selected_ai_model.is_antigravity() {
@@ -973,22 +899,26 @@ fn draw_prompt_model_button(
         state.selected_agent = SelectedAgent::Zene;
     }
 
+    let name_max_w = (max_w - 28.0).max(20.0);
     let model_btn = ui.container()
         .raw_id(MODEL_PICKER_BTN_ID)
         .interactive(true)
-        .padding(3.5, 8.0, 3.5, 8.0)
+        .max_width(max_w)
+        .clip(true)
+        .padding(3.5, 7.0, 3.5, 7.0)
         .radius_all(6.0)
         .bg(if state.ai_model_menu_open { pill_hover_bg } else { pill_bg })
         .hover(Style::bg(pill_hover_bg))
         .border((pill_border, 1.0))
         .row()
         .valign(Align::Center)
-        .gap(5.0)
+        .gap(4.0)
         .show(|ui| {
             ui.text(state.selected_ai_model.display_name())
                 .size(10.0)
                 .font_weight(FontWeight::Medium)
                 .color(colors.text_primary)
+                .max_width(name_max_w)
                 .show();
             ui.text(if state.ai_model_menu_open { "\u{f077}" } else { "\u{f078}" })
                 .size(7.0)
@@ -3388,11 +3318,11 @@ fn draw_ai_chat_content(
                         Color::rgb(39.0 / 255.0, 39.0 / 255.0, 46.0 / 255.0) // #27272e
                     };
                     let input_shadow_col = if state.glassmorphism {
-                        Color::rgba(0.0, 0.0, 0.0, 0.12)
+                        Color::rgba(0.0, 0.0, 0.0, 0.03) // halved from 0.06
                     } else if is_light {
-                        Color::rgba(0.0, 0.0, 0.0, 0.08)
+                        Color::rgba(0.0, 0.0, 0.0, 0.02) // halved from 0.04
                     } else {
-                        Color::rgba(0.0, 0.0, 0.0, 0.60) // shadow-2xl
+                        Color::rgba(0.0, 0.0, 0.0, 0.15) // halved from 0.30
                     };
                     let pill_bg = if state.glassmorphism {
                         Color::rgba(255.0 / 255.0, 255.0 / 255.0, 255.0 / 255.0, 0.06)
@@ -3435,7 +3365,7 @@ fn draw_ai_chat_content(
                             .gap(2.0);
 
                         if state.ai_settings.effective_input_shadow() {
-                            term_box_builder = term_box_builder.shadow(input_shadow_col, 0.0, 2.0, 12.0);
+                            term_box_builder = term_box_builder.shadow(input_shadow_col, 0.0, 1.0, 6.0);
                         }
                         if state.ai_settings.effective_input_outline() {
                             term_box_builder = term_box_builder.border((colors.border.with_alpha(0.6), 0.75));
@@ -3602,7 +3532,7 @@ fn draw_ai_chat_content(
                                 .gap(2.0);
 
                             if state.ai_settings.effective_input_shadow() {
-                                mod_files_builder = mod_files_builder.shadow(input_shadow_col, 0.0, 2.0, 12.0);
+                                mod_files_builder = mod_files_builder.shadow(input_shadow_col, 0.0, 1.0, 6.0);
                             }
                             if state.ai_settings.effective_input_outline() {
                                 mod_files_builder = mod_files_builder.border((colors.border.with_alpha(0.6), 0.75));
@@ -3872,7 +3802,7 @@ fn draw_ai_chat_content(
                                 });
                         }
                     } else {
-                        // Standard quick toolbar when closed (all icons visible)
+                        // Standard quick toolbar when closed (icons on left commented out for now)
                         ui.container()
                             .fill_x()
                             .height(20.0)
@@ -3881,6 +3811,7 @@ fn draw_ai_chat_content(
                             .halign(Align::SpaceBetween)
                             .valign(Align::Center)
                             .show(|ui| {
+                                /*
                                 ui.container()
                                     .row()
                                     .valign(Align::Center)
@@ -4012,6 +3943,7 @@ fn draw_ai_chat_content(
                                             });
                                         if chrome_btn.hovered { ui.cursor_icon = CursorIcon::Pointer; }
                                     });
+                                */
 
                                 // Right side when closed but has modified files: Reject all, Accept all, and Top Arrow ▴!
                                 if has_modified_files {
@@ -4123,9 +4055,10 @@ fn draw_ai_chat_content(
 
                     if is_input_focused {
                         // Soft ambient glow when prompt box is active / focused
-                        input_box_builder = input_box_builder.shadow(colors.accent.with_alpha(0.24), 0.0, 0.0, 12.0);
+                        input_box_builder = input_box_builder.shadow(colors.accent.with_alpha(0.08), 0.0, 0.0, 4.0);
                     } else if state.ai_settings.effective_input_shadow() {
-                        input_box_builder = input_box_builder.shadow(input_shadow_col, 0.0, 4.0, 18.0);
+                        // Shadow amount halved
+                        input_box_builder = input_box_builder.shadow(input_shadow_col, 0.0, 1.0, 5.0);
                     }
 
                     if state.ai_settings.effective_input_outline() {
@@ -4171,23 +4104,26 @@ fn draw_ai_chat_content(
                             // Text area
                             let placeholder = match state.selected_agent {
                                 SelectedAgent::Zene => {
-                                    if input_dock_w >= 240.0 {
+                                    if input_dock_w >= 360.0 {
                                         "Ask ZENE anything, @ for context, / for actions"
+                                    } else if input_dock_w >= 220.0 {
+                                        "Ask ZENE anything..."
                                     } else {
                                         "Ask ZENE..."
                                     }
                                 }
                                 SelectedAgent::Antigravity => {
-                                    if input_dock_w >= 240.0 {
+                                    if input_dock_w >= 360.0 {
                                         "Ask Antigravity or type / for commands..."
-                                    } else {
+                                    } else if input_dock_w >= 220.0 {
                                         "Ask Antigravity..."
+                                    } else {
+                                        "Ask..."
                                     }
                                 }
                             };
 
-                            let input_w = (input_dock_w - 50.0).max(64.0);
-                            let orb_id = Id::from_u64(999999990);
+                            let input_w = (input_dock_w - 24.0).max(64.0);
                             let mut input_submitted = false;
                             ui.container()
                                 .fill_x()
@@ -4195,6 +4131,9 @@ fn draw_ai_chat_content(
                                 .valign(Align::Top)
                                 .gap(4.0)
                                 .show(|ui| {
+                                    // Inline thinking orb - commented out for now to work on later
+                                    /*
+                                    let orb_id = Id::from_u64(999999990);
                                     ui.container()
                                         .id(orb_id)
                                         .width(30.0)
@@ -4217,6 +4156,7 @@ fn draw_ai_chat_content(
                                                 colors,
                                             );
                                         });
+                                    */
 
                                     let text_res = ui.text_area(&mut state.ai_input).id("ai_prompt_text_area")
                                         .width(input_w)
@@ -4224,7 +4164,7 @@ fn draw_ai_chat_content(
                                         .max_height(MAX_PROMPT_H)
                                         .scrollable(true)
                                         .size(prompt_text_size)
-                                                                                .color(colors.text_primary)
+                                        .color(colors.text_primary)
                                         .cursor_color(colors.text_primary)
                                         .bg(if state.glassmorphism { Color::TRANSPARENT } else { input_box_bg })
                                         .border((Color::TRANSPARENT, 0.0))
@@ -4236,12 +4176,22 @@ fn draw_ai_chat_content(
                                         .submit_on_enter(true)
                                         .show();
                                     input_submitted = text_res.submitted;
+                                    if text_res.clicked || (text_res.hovered && ui.clicked) || ui.focused_id == Some(ai_input_id) {
+                                        state.focused_panel = crate::state::types::FocusedPanel::Ai;
+                                    }
                                 });
 
 
                             // Bottom bar of input dock: Mode & Model pills on left, Send button on right
+                            let inner_dock_w = (input_dock_w - 24.0).max(64.0);
+                            let send_w = 24.0;
+                            let left_avail_w = (inner_dock_w - send_w - 8.0).max(40.0);
+                            let show_mode_label = left_avail_w >= 200.0;
+                            let mode_btn_max_w = if show_mode_label { 80.0 } else { 34.0 };
+                            let model_max_w = (left_avail_w - mode_btn_max_w - 6.0).max(40.0);
+
                             ui.container()
-                                .fill_x()
+                                .width(inner_dock_w)
                                 .height(26.0)
                                 .row()
                                 .valign(Align::Center)
@@ -4249,9 +4199,11 @@ fn draw_ai_chat_content(
                                 .show(|ui| {
                                     // Left: Agent Mode pill + Model Selector pill
                                     ui.container()
+                                        .max_width(left_avail_w)
+                                        .clip(true)
                                         .row()
                                         .valign(Align::Center)
-                                        .gap(8.0)
+                                        .gap(6.0)
                                         .show(|ui| {
                                             // 1. Agent Mode button
                                             let (mode_icon, mode_name) = match state.selected_agent {
@@ -4262,24 +4214,26 @@ fn draw_ai_chat_content(
                                             let mode_btn = ui.container()
                                                 .raw_id(AGENT_MODE_BTN_ID)
                                                 .interactive(true)
-                                                .padding(3.5, 8.0, 3.5, 8.0)
+                                                .padding(3.5, if show_mode_label { 7.0 } else { 5.0 }, 3.5, if show_mode_label { 7.0 } else { 5.0 })
                                                 .radius_all(6.0)
                                                 .bg(if state.agent_mode_menu_open { pill_hover_bg } else { pill_bg })
                                                 .hover(Style::bg(pill_hover_bg))
                                                 .border((pill_border, 1.0))
                                                 .row()
                                                 .valign(Align::Center)
-                                                .gap(5.0)
+                                                .gap(4.0)
                                                 .show(|ui| {
                                                     ui.text(mode_icon)
                                                         .size(9.5)
                                                         .color(colors.text_muted)
                                                         .show();
-                                                    ui.text(mode_name)
-                                                        .size(10.0)
-                                                        .font_weight(FontWeight::Medium)
-                                                        .color(colors.text_primary)
-                                                        .show();
+                                                    if show_mode_label {
+                                                        ui.text(mode_name)
+                                                            .size(10.0)
+                                                            .font_weight(FontWeight::Medium)
+                                                            .color(colors.text_primary)
+                                                            .show();
+                                                    }
                                                     ui.text(if state.agent_mode_menu_open { "\u{f077}" } else { "\u{f078}" })
                                                         .size(7.0)
                                                         .color(colors.text_muted)
@@ -4296,7 +4250,7 @@ fn draw_ai_chat_content(
                                             }
 
                                             // 2. Model Selector button
-                                            draw_prompt_model_button(ui, state, colors, pill_bg, pill_hover_bg, pill_border);
+                                            draw_prompt_model_button(ui, state, colors, pill_bg, pill_hover_bg, pill_border, model_max_w);
                                         });
 
                                     // Right: Sleek Send Button (or Stop Button during processing)
@@ -4383,8 +4337,9 @@ fn draw_ai_chat_content(
                                 });
                         });
 
-                    if input_box.clicked && ui.focused_id != Some(ai_input_id) {
+                    if (input_box.clicked || (input_box.hovered && (ui.clicked || ui.mouse_down))) && ui.focused_id != Some(ai_input_id) {
                         ui.focused_id = Some(ai_input_id);
+                        state.focused_panel = crate::state::types::FocusedPanel::Ai;
                         ui.needs_redraw = true;
                     }
 

@@ -648,10 +648,12 @@ fn draw_terminal_session_panel(
         .map(|c| *c)
         .unwrap_or_else(|| state.colors());
     let term_id = terminal_widget_id(terminal_idx);
+    let has_other_widget_focus = ui.focused_id.is_some() && ui.focused_id != Some(term_id);
     let is_focused = state.focused_panel == crate::state::types::FocusedPanel::Terminal
-        && state.active_terminal_idx == terminal_idx;
+        && state.active_terminal_idx == terminal_idx
+        && !has_other_widget_focus;
 
-    if is_focused && ui.focused_id != Some(term_id) {
+    if is_focused && ui.focused_id.is_none() {
         ui.focused_id = Some(term_id);
     }
 
@@ -802,7 +804,7 @@ fn draw_terminal_session_panel(
     }
 
     // ─── Input Event Processing directly inside Terminal ─────────
-    if is_focused && !is_blocked {
+    if is_focused && !is_blocked && !has_other_widget_focus {
         let mut events = std::mem::take(&mut ui.input_events);
         events.retain(|event| {
             match event {
@@ -1569,24 +1571,79 @@ fn draw_terminal_session_panel(
                             {
                                 let elapsed_ms =
                                     state.last_cursor_activity.elapsed().as_millis();
-                                let show_cursor = elapsed_ms < 500
-                                    || ((elapsed_ms - 500) / 530) % 2 == 0;
+                                let show_cursor = if elapsed_ms < 500 {
+                                    true
+                                } else {
+                                    ((elapsed_ms - 500) / 530) % 2 == 0
+                                };
                                 ui.request_redraw_after(std::time::Duration::from_millis(530));
                                 if show_cursor {
                                     let safe_row = cursor_row.min(rows.saturating_sub(1));
                                     let safe_col = cursor_col.min(cols.saturating_sub(1));
-                                    ui.draws.push(DrawCommand::Rect(RectDraw {
-                                        instance: RectInstance {
-                                            pos: [
-                                                term_body_x + pad_left + safe_col as f32 * cell_w,
-                                                term_body_y + pad_top + safe_row as f32 * cell_h,
-                                            ],
-                                            size: [cell_w.max(2.0), cell_h],
-                                            color: Color::rgb(0.0, 0.0, 0.0).to_array(),
-                                            clip_rect: clip,
-                                            ..Default::default()
-                                        },
-                                    }));
+                                    let cursor_color = state.get_cursor_color(colors.accent);
+                                    let cursor_h = font_sz.round().max(12.0);
+                                    let cur_x = term_body_x + pad_left + safe_col as f32 * cell_w;
+                                    let cur_y = term_body_y + pad_top + safe_row as f32 * cell_h + 2.5;
+
+                                    match state.cursor_style {
+                                        crate::state::types::CursorStyle::Line => {
+                                            ui.draws.push(DrawCommand::Rect(RectDraw {
+                                                instance: RectInstance {
+                                                    pos: [cur_x, cur_y],
+                                                    size: [2.0, cursor_h],
+                                                    color: cursor_color.to_array(),
+                                                    clip_rect: clip,
+                                                    ..Default::default()
+                                                },
+                                            }));
+                                        }
+                                        crate::state::types::CursorStyle::Block => {
+                                            ui.draws.push(DrawCommand::Rect(RectDraw {
+                                                instance: RectInstance {
+                                                    pos: [cur_x, cur_y - 0.5],
+                                                    size: [cell_w.max(2.0), cursor_h + 1.0],
+                                                    color: cursor_color.to_array(),
+                                                    clip_rect: clip,
+                                                    ..Default::default()
+                                                },
+                                            }));
+
+                                            // Render character under block cursor in inverted high-contrast color
+                                            if let Some(cell_ref) = screen.cell(safe_row, safe_col) {
+                                                let contents = cell_ref.contents();
+                                                if !contents.trim().is_empty() {
+                                                    let inv_color = if cursor_color.r * 0.299 + cursor_color.g * 0.587 + cursor_color.b * 0.114 > 0.5 {
+                                                        colors.bg_base
+                                                    } else {
+                                                        Color::rgb(1.0, 1.0, 1.0)
+                                                    };
+                                                    let opts = TextOptions::new()
+                                                        .size(font_sz)
+                                                        .scale_factor(ui.scale_factor)
+                                                        .font_family("monospace")
+                                                        .color(inv_color);
+                                                    ui.draws.push(DrawCommand::Text(TextDraw {
+                                                        text: contents.to_string(),
+                                                        pos: [cur_x, term_body_y + pad_top + safe_row as f32 * cell_h + 1.0],
+                                                        options: opts,
+                                                        clip,
+                                                    }));
+                                                }
+                                            }
+                                        }
+                                        crate::state::types::CursorStyle::Underline => {
+                                            let under_y = cur_y + cursor_h - 1.0;
+                                            ui.draws.push(DrawCommand::Rect(RectDraw {
+                                                instance: RectInstance {
+                                                    pos: [cur_x, under_y],
+                                                    size: [cell_w.max(2.0), 2.0],
+                                                    color: cursor_color.to_array(),
+                                                    clip_rect: clip,
+                                                    ..Default::default()
+                                                },
+                                            }));
+                                        }
+                                    }
                                 }
                             }
 

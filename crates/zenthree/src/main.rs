@@ -1,3 +1,5 @@
+#![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
+
 mod state;
 mod theme;
 mod ui_layout;
@@ -17,6 +19,7 @@ use zenthra::prelude::*;
 fn main() {
     // Only load .env from the current working directory, do NOT search parent directories.
     let _ = dotenvy::from_path("./.env");
+    #[cfg(debug_assertions)]
     env_logger::init();
 
     // Initialize the modular state (loads persistent state from disk)
@@ -137,14 +140,17 @@ fn main() {
                         state.sidebar_width = actual_sb_w;
                     }
 
-                    let center_w = (ui_width - activity_bar_w - actual_sb_w - if state.ai_panel_visible && !state.ai_panel_expanded { actual_ai_w } else { 0.0 }).max(min_editor_w);
+                    let sb_splitter_w = if state.sidebar_visible { 2.0 } else { 0.0 };
+                    let ai_splitter_w = if state.ai_panel_visible && !state.ai_panel_expanded { 2.0 } else { 0.0 };
+                    let center_w = (ui_width - activity_bar_w - actual_sb_w - sb_splitter_w - ai_splitter_w - if state.ai_panel_visible && !state.ai_panel_expanded { actual_ai_w } else { 0.0 }).max(min_editor_w);
 
+                    let term_splitter_h = if state.terminal_visible { 2.0 } else { 0.0 };
                     let term_h = if state.terminal_visible {
-                        state.terminal_height.min(middle_h - 80.0).max(60.0)
+                        state.terminal_height.min(middle_h - 80.0 - term_splitter_h).max(60.0)
                     } else {
                         0.0
                     };
-                    let editor_h = middle_h - term_h;
+                    let editor_h = middle_h - term_h - term_splitter_h;
 
                     ui.container()
                         .row()
@@ -159,11 +165,24 @@ fn main() {
                             // Left: Sidebar / File Tree or Extensions Panel
                             if state.sidebar_visible {
                                 ui_layout::draw_sidebar(ui, &mut state);
+
+                                let max_sb_w = (ui_width * 0.45).max(200.0);
+                                let sb_resp = ui.splitter(&mut state.sidebar_width, 140.0..=max_sb_w)
+                                    .width(2.0)
+                                    .fill_y()
+                                    .bg(colors.border)
+                                    .hover(Style::bg(colors.accent.with_alpha(0.8)))
+                                    .active(Style::bg(colors.accent))
+                                    .show();
+                                state.active_resize_sidebar = sb_resp.pressed;
+                                if sb_resp.changed {
+                                    state.save_persistent_state();
+                                }
                             }
 
                             if state.ai_panel_visible && state.ai_panel_expanded {
                                 // When expanded, the AI Agent Panel sits in the buffer area
-                                let expanded_w = (ui_width - activity_bar_w - actual_sb_w).max(200.0);
+                                let expanded_w = (ui_width - activity_bar_w - actual_sb_w - sb_splitter_w).max(200.0);
                                 ui_layout::draw_ai_panel(ui, &mut state, expanded_w, middle_h);
                             } else {
                                 ui.container()
@@ -174,12 +193,40 @@ fn main() {
                                         ui_layout::draw_main_buffer(ui, &mut state, center_w, editor_h);
 
                                         if state.terminal_visible {
-                                            ui_layout::draw_bottom_panel(ui, &mut state, center_w, term_h);
+                                            let max_term_h = (middle_h - 80.0).max(60.0);
+                                            let term_resp = ui.splitter(&mut state.terminal_height, 60.0..=max_term_h)
+                                                .fill_x()
+                                                .height(2.0)
+                                                .bg(colors.border)
+                                                .hover(Style::bg(colors.accent.with_alpha(0.8)))
+                                                .active(Style::bg(colors.accent))
+                                                .invert(true)
+                                                .show();
+                                            state.active_resize_terminal = term_resp.pressed;
+                                            if term_resp.changed {
+                                                state.save_persistent_state();
+                                            }
+
+                                             ui_layout::draw_bottom_panel(ui, &mut state, center_w, term_h);
                                         }
                                     });
 
                                 // Right: AI Agent Panel (docked mode)
                                 if state.ai_panel_visible {
+                                    let max_ai_w = avail_for_ai.max(220.0);
+                                    let ai_resp = ui.splitter(&mut state.ai_panel_width, 180.0..=max_ai_w)
+                                        .width(2.0)
+                                        .fill_y()
+                                        .bg(colors.border)
+                                        .hover(Style::bg(colors.accent.with_alpha(0.8)))
+                                        .active(Style::bg(colors.accent))
+                                        .invert(true)
+                                        .show();
+                                    state.active_resize_ai_panel = ai_resp.pressed;
+                                    if ai_resp.changed {
+                                        state.save_persistent_state();
+                                    }
+
                                     ui_layout::draw_ai_panel(ui, &mut state, actual_ai_w, middle_h);
                                 }
                             }

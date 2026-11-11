@@ -724,7 +724,9 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                                         if !state.ctrl_pressed && !state.alt_pressed && *c != '\r' && *c != '\n' && *c != '\t' && !c.is_control() {
                                             if state.vim_mode && state.editor_vim_normal {
                                                 if *c == ':' {
-                                                    open_cmdline_action = true;
+                                                    if state.sidebar_visible && state.sidebar_view == crate::state::SidebarView::Explorer {
+                                                        open_cmdline_action = true;
+                                                    }
                                                     changed = true;
                                                     continue;
                                                 } else if *c == 'i' || *c == 'a' {

@@ -11,3 +11,10 @@ resolver = "2"
 
 [patch.crates-io]
 winit = { git = "https://github.com/rust-windowing/winit", rev = "refs/pull/4580/head" }
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+strip = true
+panic = "abort"
+codegen-units = 1
