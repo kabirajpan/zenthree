@@ -4104,18 +4104,18 @@ fn draw_ai_chat_content(
                             // Text area
                             let placeholder = match state.selected_agent {
                                 SelectedAgent::Zene => {
-                                    if input_dock_w >= 360.0 {
+                                    if input_dock_w >= 480.0 {
                                         "Ask ZENE anything, @ for context, / for actions"
-                                    } else if input_dock_w >= 220.0 {
+                                    } else if input_dock_w >= 240.0 {
                                         "Ask ZENE anything..."
                                     } else {
                                         "Ask ZENE..."
                                     }
                                 }
                                 SelectedAgent::Antigravity => {
-                                    if input_dock_w >= 360.0 {
+                                    if input_dock_w >= 480.0 {
                                         "Ask Antigravity or type / for commands..."
-                                    } else if input_dock_w >= 220.0 {
+                                    } else if input_dock_w >= 240.0 {
                                         "Ask Antigravity..."
                                     } else {
                                         "Ask..."

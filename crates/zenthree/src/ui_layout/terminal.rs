@@ -1581,16 +1581,19 @@ fn draw_terminal_session_panel(
                                     let safe_row = cursor_row.min(rows.saturating_sub(1));
                                     let safe_col = cursor_col.min(cols.saturating_sub(1));
                                     let cursor_color = state.get_cursor_color(colors.accent);
-                                    let cursor_h = font_sz.round().max(12.0);
+                                    let row_y = term_body_y + pad_top + safe_row as f32 * cell_h;
                                     let cur_x = term_body_x + pad_left + safe_col as f32 * cell_w;
-                                    let cur_y = term_body_y + pad_top + safe_row as f32 * cell_h + 2.5;
+
+                                    // Line cursor precisely matches capital letter cap-height down to baseline
+                                    let line_cursor_h = (font_sz * 0.76).round().max(9.0);
+                                    let line_cur_y = row_y + 2.0;
 
                                     match state.cursor_style {
                                         crate::state::types::CursorStyle::Line => {
                                             ui.draws.push(DrawCommand::Rect(RectDraw {
                                                 instance: RectInstance {
-                                                    pos: [cur_x, cur_y],
-                                                    size: [2.0, cursor_h],
+                                                    pos: [cur_x, line_cur_y],
+                                                    size: [2.0, line_cursor_h],
                                                     color: cursor_color.to_array(),
                                                     clip_rect: clip,
                                                     ..Default::default()
@@ -1598,10 +1601,11 @@ fn draw_terminal_session_panel(
                                             }));
                                         }
                                         crate::state::types::CursorStyle::Block => {
+                                            let block_h = (font_sz * 0.92).round().max(12.0);
                                             ui.draws.push(DrawCommand::Rect(RectDraw {
                                                 instance: RectInstance {
-                                                    pos: [cur_x, cur_y - 0.5],
-                                                    size: [cell_w.max(2.0), cursor_h + 1.0],
+                                                    pos: [cur_x, row_y + 1.0],
+                                                    size: [cell_w.max(2.0), block_h],
                                                     color: cursor_color.to_array(),
                                                     clip_rect: clip,
                                                     ..Default::default()
@@ -1624,7 +1628,7 @@ fn draw_terminal_session_panel(
                                                         .color(inv_color);
                                                     ui.draws.push(DrawCommand::Text(TextDraw {
                                                         text: contents.to_string(),
-                                                        pos: [cur_x, term_body_y + pad_top + safe_row as f32 * cell_h + 1.0],
+                                                        pos: [cur_x, row_y + 1.0],
                                                         options: opts,
                                                         clip,
                                                     }));
@@ -1632,7 +1636,7 @@ fn draw_terminal_session_panel(
                                             }
                                         }
                                         crate::state::types::CursorStyle::Underline => {
-                                            let under_y = cur_y + cursor_h - 1.0;
+                                            let under_y = line_cur_y + line_cursor_h;
                                             ui.draws.push(DrawCommand::Rect(RectDraw {
                                                 instance: RectInstance {
                                                     pos: [cur_x, under_y],
