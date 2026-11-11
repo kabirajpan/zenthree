@@ -132,16 +132,15 @@ jobs:
           fi
 
           cat << 'EOF' > deb_pkg/DEBIAN/control
-          Package: zenthree
-          Version: 0.1.0
-          Section: devel
-          Priority: optional
-          Architecture: amd64
-          Maintainer: Kabir <kabirajpan2@gmail.com>
-          Description: Zenthree Code Editor & IDE
-           A fast, lightweight code editor built with Zenthra UI.
-          EOF
-          sed -i 's/^ *//' deb_pkg/DEBIAN/control
+Package: zenthree
+Version: 0.1.0
+Section: devel
+Priority: optional
+Architecture: amd64
+Maintainer: Kabir <kabirajpan2@gmail.com>
+Description: Zenthree Code Editor & IDE
+ A fast, lightweight code editor built with Zenthra UI.
+EOF
 
           dpkg-deb --build deb_pkg "${{ github.workspace }}/zenthree-linux-amd64.deb"
 
