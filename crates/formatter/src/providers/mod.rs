@@ -1,5 +1,7 @@
-pub mod prettier;
+pub mod generic;
 pub mod rustfmt;
+pub mod treesitter;
 
-pub use prettier::PrettierProvider;
+pub use generic::GenericProvider;
 pub use rustfmt::RustfmtProvider;
+pub use treesitter::TreesitterProvider;

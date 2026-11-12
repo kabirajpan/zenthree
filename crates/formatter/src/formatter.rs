@@ -36,7 +36,8 @@ impl Formatter {
             providers: Vec::new(),
         };
         formatter.register(Box::new(crate::providers::RustfmtProvider::new()));
-        formatter.register(Box::new(crate::providers::PrettierProvider::new()));
+        formatter.register(Box::new(crate::providers::TreesitterProvider::new()));
+        formatter.register(Box::new(crate::providers::GenericProvider::new()));
         formatter
     }
 
@@ -47,11 +48,22 @@ impl Formatter {
 
     /// Find appropriate formatter for a file
     pub fn find_provider(&self, file_path: &Path) -> Option<&dyn FormatterProvider> {
-        let extension = file_path.extension()?.to_str()?;
+        let extension = file_path.extension().and_then(|e| e.to_str());
 
+        if let Some(ext) = extension {
+            if let Some(provider) = self
+                .providers
+                .iter()
+                .find(|p| p.supported_extensions().contains(&ext) && p.is_available())
+            {
+                return Some(provider.as_ref());
+            }
+        }
+
+        // Fallback to generic provider ("*")
         self.providers
             .iter()
-            .find(|p| p.supported_extensions().contains(&extension))
+            .find(|p| p.supported_extensions().contains(&"*") && p.is_available())
             .map(|p| p.as_ref())
     }
 
@@ -59,22 +71,21 @@ impl Formatter {
     pub fn format_text(&self, text: &str, file_path: Option<&Path>) -> FormatResult {
         if let Some(path) = file_path {
             if let Some(provider) = self.find_provider(path) {
-                if !provider.is_available() {
-                    return Err(FormatError::NotFound(format!(
-                        "{} is not installed or not in PATH",
-                        provider.name()
-                    )));
-                }
                 return provider.format(text, Some(path));
             }
-            return Err(FormatError::UnsupportedLanguage(format!(
-                "No formatter found for {:?}",
-                path.extension()
-            )));
+        }
+
+        // If no file path or no matching provider found, fallback to generic provider
+        if let Some(generic) = self
+            .providers
+            .iter()
+            .find(|p| p.supported_extensions().contains(&"*") && p.is_available())
+        {
+            return generic.format(text, file_path);
         }
 
         Err(FormatError::UnsupportedLanguage(
-            "Cannot determine language without file path".to_string(),
+            "No formatter found".to_string(),
         ))
     }
 
@@ -114,5 +125,59 @@ impl Formatter {
 impl Default for Formatter {
     fn default() -> Self {
         Self::new()
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_treesitter_formatting_java() {
+        let formatter = Formatter::new();
+        let unformatted = "public class Hello {\npublic static void main(String[] args) {\nSystem.out.println(\"Hi\");\n}\n}";
+        let path = Path::new("Hello.java");
+        let result = formatter.format_text(unformatted, Some(path)).unwrap();
+        assert!(result.contains("    public static void main"));
+        assert!(result.contains("        System.out.println"));
+    }
+
+    #[test]
+    fn test_treesitter_formatting_python() {
+        let formatter = Formatter::new();
+        let unformatted = "def foo():\npass\n";
+        let path = Path::new("main.py");
+        let result = formatter.format_text(unformatted, Some(path)).unwrap();
+        assert!(result.contains("    pass"));
+    }
+
+    #[test]
+    fn test_treesitter_formatting_brace_in_string_literal() {
+        let formatter = Formatter::new();
+        let unformatted = "public class Hello {\nString s = \"}\";\nint x = 1;\n}";
+        let path = Path::new("Hello.java");
+        let result = formatter.format_text(unformatted, Some(path)).unwrap();
+        assert!(result.contains("    String s = \"}\";"));
+        assert!(result.contains("    int x = 1;"));
+        assert!(result.ends_with("}\n"));
+    }
+
+    #[test]
+    fn test_treesitter_formatting_javascript() {
+        let formatter = Formatter::new();
+        let unformatted = "function test() {\nconst a = 1;\nif (a) {\nconsole.log(a);\n}\n}";
+        let path = Path::new("test.js");
+        let result = formatter.format_text(unformatted, Some(path)).unwrap();
+        assert!(result.contains("    const a = 1;"));
+        assert!(result.contains("        console.log(a);"));
+    }
+
+    #[test]
+    fn test_generic_fallback_for_unknown_language() {
+        let formatter = Formatter::new();
+        let unformatted = "func test() {\nreturn 42;\n}";
+        let path = Path::new("file.customlang");
+        let result = formatter.format_text(unformatted, Some(path)).unwrap();
+        assert!(result.contains("    return 42;"));
     }
 }

@@ -48,6 +48,10 @@ impl IndentCalculator {
         let lines: Vec<&str> = text.lines().collect();
         if cursor_line < lines.len() {
             let line = lines[cursor_line];
+            let trimmed = line.trim();
+            if trimmed.is_empty() {
+                return Self::get_line_indent(line);
+            }
             let text_to_check = if cursor_column < line.len() {
                 &line[..cursor_column]
             } else {
@@ -80,6 +84,11 @@ impl IndentCalculator {
         file_path: Option<&Path>,
     ) -> String {
         if let Some(line_text) = rope.line(cursor_line) {
+            let trimmed = line_text.trim();
+            // If pressing Enter on a blank/whitespace-only line, preserve current line's exact indent (no compounding!)
+            if trimmed.is_empty() {
+                return Self::get_line_indent(&line_text);
+            }
             let text_to_check = if cursor_column < line_text.len() {
                 &line_text[..cursor_column]
             } else {

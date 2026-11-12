@@ -842,24 +842,44 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                                                     accept_review_action = true;
                                                     changed = true;
                                                 } else if state.completion_state.active && !state.completion_state.items.is_empty() {
-                                                    let prefix = state.completion_state.prefix.clone();
-                                                    let prev_expr = state.completion_state.prev_expr.clone();
-                                                    if let Some(item) = state.completion_state.items.get(state.completion_state.selected_idx).cloned() {
-                                                        state.snippet_session = crate::completion::commit_completion(
-                                                            &mut tab.editor,
-                                                            &item,
-                                                            &prefix,
-                                                            prev_expr.as_deref(),
-                                                            item.is_postfix,
-                                                            tab.path.as_deref(),
-                                                            Some(&state.indent_calc),
-                                                        );
+                                                    let cursor_offset = tab.editor.buffer.point_to_offset(tab.editor.cursor());
+                                                    let prev_char = if cursor_offset.value() > 0 {
+                                                        tab.editor.buffer.slice_bytes(cursor_offset.value() - 1, cursor_offset.value()).chars().next()
+                                                    } else { None };
+                                                    let next_char = tab.editor.buffer
+                                                        .slice_bytes(cursor_offset.value(), (cursor_offset.value() + 1).min(tab.editor.buffer.rope().len()))
+                                                        .chars().next();
+                                                    let is_between_braces = (prev_char == Some('{') && next_char == Some('}'))
+                                                        || (prev_char == Some('[') && next_char == Some(']'))
+                                                        || (prev_char == Some('(') && next_char == Some(')'));
+
+                                                    if is_between_braces {
+                                                        state.completion_state.dismiss();
+                                                        state.completion_active = false;
+                                                        state.completion_items.clear();
+                                                        tab.editor.insert("\n", tab.path.as_deref(), Some(&state.indent_calc));
+                                                        changed = true;
+                                                        ui.request_redraw();
+                                                    } else {
+                                                        let prefix = state.completion_state.prefix.clone();
+                                                        let prev_expr = state.completion_state.prev_expr.clone();
+                                                        if let Some(item) = state.completion_state.items.get(state.completion_state.selected_idx).cloned() {
+                                                            state.snippet_session = crate::completion::commit_completion(
+                                                                &mut tab.editor,
+                                                                &item,
+                                                                &prefix,
+                                                                prev_expr.as_deref(),
+                                                                item.is_postfix,
+                                                                tab.path.as_deref(),
+                                                                Some(&state.indent_calc),
+                                                            );
+                                                        }
+                                                        state.completion_state.dismiss();
+                                                        state.completion_active = false;
+                                                        state.completion_items.clear();
+                                                        changed = true;
+                                                        ui.request_redraw();
                                                     }
-                                                    state.completion_state.dismiss();
-                                                    state.completion_active = false;
-                                                    state.completion_items.clear();
-                                                    changed = true;
-                                                    ui.request_redraw();
                                                 } else if let Some(session) = state.snippet_session.take() {
                                                     if tab.editor.cursor().row < session.target_point.row {
                                                         tab.editor.set_cursor(session.target_point);
@@ -1024,7 +1044,15 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                                             winit::keyboard::KeyCode::KeyS if state.ctrl_pressed => {
                                                 save_tab = true;
                                             }
-                                            winit::keyboard::KeyCode::KeyF if state.ctrl_pressed && state.shift_pressed => {
+                                            winit::keyboard::KeyCode::KeyF
+                                                if (state.ctrl_pressed && state.shift_pressed)
+                                                    || (state.shift_pressed && state.alt_pressed) =>
+                                            {
+                                                format_tab = true;
+                                            }
+                                            winit::keyboard::KeyCode::KeyL
+                                                if state.ctrl_pressed && state.alt_pressed =>
+                                            {
                                                 format_tab = true;
                                             }
                                             winit::keyboard::KeyCode::KeyC if state.ctrl_pressed => {
@@ -1595,11 +1623,35 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                                                 if let Some(sel_item) = state.completion_state.items.get(state.completion_state.selected_idx) {
                                                     let full_text = sel_item.insert_text.as_deref().unwrap_or(&sel_item.label);
                                                     let clean_full = full_text.strip_suffix('~').unwrap_or(full_text);
-                                                    let prefix = &state.completion_state.prefix;
-                                                    let ghost_text = if clean_full.starts_with(prefix) {
-                                                        &clean_full[prefix.len()..]
+                                                    let clean_symbol = if let Some(idx) = clean_full.find(" - ") {
+                                                        clean_full[..idx].trim()
+                                                    } else if let Some(idx) = clean_full.find(" : ") {
+                                                        clean_full[..idx].trim()
                                                     } else {
-                                                        clean_full
+                                                        clean_full.trim()
+                                                    };
+
+                                                    // Calculate overlap between text before cursor and candidate text
+                                                    let line_str = tab.editor.buffer.line(cursor_p.row).unwrap_or_default();
+                                                    let col = cursor_p.column.min(line_str.len());
+                                                    let before_cursor = &line_str[..col];
+                                                    let before_chars: Vec<char> = before_cursor.chars().collect();
+                                                    let insert_chars: Vec<char> = clean_symbol.chars().collect();
+
+                                                    let mut overlap_chars = state.completion_state.prefix.chars().count();
+                                                    for len in (1..=before_chars.len().min(insert_chars.len())).rev() {
+                                                        let before_slice = &before_chars[before_chars.len() - len..];
+                                                        let insert_slice = &insert_chars[..len];
+                                                        if before_slice.iter().zip(insert_slice.iter()).all(|(a, b)| a.eq_ignore_ascii_case(b)) {
+                                                            overlap_chars = overlap_chars.max(len);
+                                                            break;
+                                                        }
+                                                    }
+
+                                                    let ghost_text = if overlap_chars < insert_chars.len() {
+                                                        insert_chars[overlap_chars..].iter().collect::<String>()
+                                                    } else {
+                                                        String::new()
                                                     };
                                                     let first_line_ghost = ghost_text.lines().next().unwrap_or("");
                                                     if !first_line_ghost.is_empty() {

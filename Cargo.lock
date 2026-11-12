@@ -1434,6 +1434,7 @@ dependencies = [
  "editor",
  "log",
  "serde",
+ "syntax",
  "zenthra-core",
 ]
 

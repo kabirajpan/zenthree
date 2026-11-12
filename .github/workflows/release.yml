@@ -152,7 +152,7 @@ jobs:
 
           printf '%s\n' \
             "Package: zenthree" \
-            "Version: 0.1.4" \
+            "Version: ${GITHUB_REF_NAME#v}" \
             "Section: devel" \
             "Priority: optional" \
             "Architecture: amd64" \
@@ -162,29 +162,29 @@ jobs:
             > deb_pkg/DEBIAN/control
 
           # Add post-install hook to update desktop database & icon cache
-          cat << 'EOF' > deb_pkg/DEBIAN/postinst
-#!/bin/sh
-set -e
-if command -v update-desktop-database >/dev/null 2>&1; then
-  update-desktop-database -q /usr/share/applications || true
-fi
-if command -v gtk-update-icon-cache >/dev/null 2>&1; then
-  gtk-update-icon-cache -q -t -f /usr/share/icons/hicolor || true
-fi
-EOF
+          printf '%s\n' \
+            '#!/bin/sh' \
+            'set -e' \
+            'if command -v update-desktop-database >/dev/null 2>&1; then' \
+            '  update-desktop-database -q /usr/share/applications || true' \
+            'fi' \
+            'if command -v gtk-update-icon-cache >/dev/null 2>&1; then' \
+            '  gtk-update-icon-cache -q -t -f /usr/share/icons/hicolor || true' \
+            'fi' \
+            > deb_pkg/DEBIAN/postinst
           chmod 755 deb_pkg/DEBIAN/postinst
 
           # Add post-remove hook to clean up desktop database & icon cache
-          cat << 'EOF' > deb_pkg/DEBIAN/postrm
-#!/bin/sh
-set -e
-if command -v update-desktop-database >/dev/null 2>&1; then
-  update-desktop-database -q /usr/share/applications || true
-fi
-if command -v gtk-update-icon-cache >/dev/null 2>&1; then
-  gtk-update-icon-cache -q -t -f /usr/share/icons/hicolor || true
-fi
-EOF
+          printf '%s\n' \
+            '#!/bin/sh' \
+            'set -e' \
+            'if command -v update-desktop-database >/dev/null 2>&1; then' \
+            '  update-desktop-database -q /usr/share/applications || true' \
+            'fi' \
+            'if command -v gtk-update-icon-cache >/dev/null 2>&1; then' \
+            '  gtk-update-icon-cache -q -t -f /usr/share/icons/hicolor || true' \
+            'fi' \
+            > deb_pkg/DEBIAN/postrm
           chmod 755 deb_pkg/DEBIAN/postrm
 
           dpkg-deb --build deb_pkg "${{ github.workspace }}/zenthree-linux-amd64.deb"

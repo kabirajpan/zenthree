@@ -1,7 +1,26 @@
 use crate::formatter::{FormatError, FormatResult, FormatterProvider};
 use std::io::Write;
-use std::path::Path;
+use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
+
+fn resolve_rustfmt() -> Option<PathBuf> {
+    if Command::new("rustfmt").arg("--version").output().is_ok() {
+        return Some(PathBuf::from("rustfmt"));
+    }
+    if let Ok(home) = std::env::var("HOME") {
+        let cargo_rustfmt = PathBuf::from(&home).join(".cargo/bin/rustfmt");
+        if cargo_rustfmt.exists() {
+            return Some(cargo_rustfmt);
+        }
+    }
+    if let Ok(userprofile) = std::env::var("USERPROFILE") {
+        let cargo_rustfmt = PathBuf::from(&userprofile).join(".cargo/bin/rustfmt.exe");
+        if cargo_rustfmt.exists() {
+            return Some(cargo_rustfmt);
+        }
+    }
+    None
+}
 
 pub struct RustfmtProvider {
     additional_args: Vec<String>,
@@ -36,11 +55,15 @@ impl FormatterProvider for RustfmtProvider {
     }
 
     fn is_available(&self) -> bool {
-        Command::new("rustfmt").arg("--version").output().is_ok()
+        resolve_rustfmt().is_some()
     }
 
     fn format(&self, text: &str, _file_path: Option<&Path>) -> FormatResult {
-        let mut child = Command::new("rustfmt")
+        let bin = resolve_rustfmt().ok_or_else(|| {
+            FormatError::NotFound("rustfmt is not installed or not in PATH (~/.cargo/bin)".to_string())
+        })?;
+
+        let mut child = Command::new(bin)
             .args(&self.additional_args)
             .stdin(Stdio::piped())
             .stdout(Stdio::piped())

@@ -89,6 +89,8 @@ pub struct PersistentState {
     pub blur_strength: Option<f32>,
     #[serde(default)]
     pub glass_opacity: Option<f32>,
+    #[serde(default)]
+    pub format_on_save: Option<bool>,
 }
 
 pub fn get_config_path() -> PathBuf {
@@ -158,6 +160,9 @@ impl ZenthreeState {
                 }
                 if let Some(blame_vis) = saved.git_blame_inline {
                     self.git_blame_inline = blame_vis;
+                }
+                if let Some(format_on_save) = saved.format_on_save {
+                    self.format_on_save = format_on_save;
                 }
                 if let Some(zoom) = saved.zoom_level {
                     self.zoom_level = zoom;
@@ -376,6 +381,7 @@ impl From<&ZenthreeState> for PersistentState {
             font_size: Some(s.font_size),
             blur_strength: Some(s.blur_strength),
             glass_opacity: Some(s.glass_opacity),
+            format_on_save: Some(s.format_on_save),
         }
     }
 }

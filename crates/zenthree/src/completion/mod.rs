@@ -115,8 +115,9 @@ impl CompletionState {
 
         let mut candidates = Vec::with_capacity(64);
 
-        // 1. Postfix snippets (JetBrains & LazyVim style snippets)
-        if is_after_dot {
+        // 1. Postfix templates: Only when after dot AND the user typed a non-empty prefix
+        // (Naked dot '.' should show members, never postfix statement templates like if~ or ret~)
+        if is_after_dot && !prefix.is_empty() {
             if let Some(ref expr) = prev_expr {
                 for template in postfix::get_postfix_templates(path) {
                     if let Some(score) = fuzzy::fuzzy_match_score(&prefix, template.label) {
@@ -127,7 +128,7 @@ impl CompletionState {
                             detail: Some(template.detail.to_string()),
                             documentation: Some(template.detail.to_string()),
                             insert_text: Some(expanded.clone()),
-                            score: score + 120, // High ranking for postfix expressions
+                            score: score + 120,
                             is_postfix: true,
                             postfix_template: Some(expanded),
                         });
@@ -136,7 +137,7 @@ impl CompletionState {
             }
         }
 
-        // 2. Language Statement Snippets (LazyVim / VS Code style: if~, ifelse~, for~, etc.)
+        // 2. Language Statement Snippets (if~, for~, etc.) - top-level statements only
         if !is_after_dot {
             for snip in snippets::get_snippets_for_path(path) {
                 if let Some(score) = fuzzy::fuzzy_match_score(&prefix, snip.label) {
@@ -154,7 +155,7 @@ impl CompletionState {
             }
         }
 
-        // 3. Built-in language keywords (Tier 1) - only when not directly completing method after dot
+        // 3. Language keywords - only when NOT after dot
         if !is_after_dot {
             for kw in keywords::get_keywords_for_path(path) {
                 if let Some(score) = fuzzy::fuzzy_match_score(&prefix, kw.label) {
@@ -172,20 +173,23 @@ impl CompletionState {
             }
         }
 
-        // 3. Instant workspace & buffer symbols (Zed-style 0ms latency, multi-language dynamic)
-        let symbols = buffer_indexer::scan_workspace_symbols(buffer, path, &prefix);
-        for sym in symbols {
-            if let Some(score) = fuzzy::fuzzy_match_score(&prefix, &sym.name) {
-                candidates.push(CompletionItem {
-                    label: sym.name.clone(),
-                    kind: sym.kind,
-                    detail: Some(sym.detail),
-                    documentation: sym.documentation,
-                    insert_text: Some(sym.name),
-                    score: score + 45,
-                    is_postfix: false,
-                    postfix_template: Some(sym.preview),
-                });
+        // 4. Workspace & buffer symbols - only when NOT after dot
+        // (After a dot, completions are member attributes/subpackages provided by the Language Server)
+        if !is_after_dot {
+            let symbols = buffer_indexer::scan_workspace_symbols(buffer, path, &prefix);
+            for sym in symbols {
+                if let Some(score) = fuzzy::fuzzy_match_score(&prefix, &sym.name) {
+                    candidates.push(CompletionItem {
+                        label: sym.name.clone(),
+                        kind: sym.kind,
+                        detail: Some(sym.detail),
+                        documentation: sym.documentation,
+                        insert_text: Some(sym.name),
+                        score: score + 45,
+                        is_postfix: false,
+                        postfix_template: Some(sym.preview),
+                    });
+                }
             }
         }
 
@@ -200,7 +204,8 @@ impl CompletionState {
             self.selected_idx = 0;
             self.active = true;
         } else {
-            self.dismiss();
+            self.items.clear();
+            self.active = false;
         }
     }
 
@@ -284,7 +289,11 @@ impl CompletionState {
 
         if !enriched.is_empty() {
             self.items = enriched;
-            self.active = true;
+            // Only auto-open if the user has an active prefix or is directly after an accessor (., ::, ->)
+            // Prevents unwanted popups right after statement delimiters (;) or empty lines
+            if !self.prefix.is_empty() || self.is_after_dot {
+                self.active = true;
+            }
         }
     }
 }
@@ -403,9 +412,42 @@ pub fn commit_completion(
         }
     }
 
-    // Normal clean range replacement: backspace the exact prefix typed so far
-    let prefix_char_count = prefix.chars().count();
-    for _ in 0..prefix_char_count {
+    // Determine the full text to insert
+    let raw_text = item
+        .insert_text
+        .as_deref()
+        .or(item.postfix_template.as_deref())
+        .unwrap_or(&item.label);
+
+    // Strip LSP detail separators from label (e.g. "Scanner - java.util" -> "Scanner")
+    let clean_symbol = if let Some(idx) = raw_text.find(" - ") {
+        raw_text[..idx].trim()
+    } else if let Some(idx) = raw_text.find(" : ") {
+        raw_text[..idx].trim()
+    } else {
+        raw_text.trim()
+    };
+
+    // Calculate overlap between the text before cursor and candidate text
+    let cursor = editor.cursor();
+    let line_str = editor.buffer.line(cursor.row).unwrap_or_default();
+    let col = cursor.column.min(line_str.len());
+    let before_cursor = &line_str[..col];
+    let before_chars: Vec<char> = before_cursor.chars().collect();
+    let insert_chars: Vec<char> = clean_symbol.chars().collect();
+
+    let mut overlap_chars = prefix.chars().count();
+    for len in (1..=before_chars.len().min(insert_chars.len())).rev() {
+        let before_slice = &before_chars[before_chars.len() - len..];
+        let insert_slice = &insert_chars[..len];
+        if before_slice.iter().zip(insert_slice.iter()).all(|(a, b)| a.eq_ignore_ascii_case(b)) {
+            overlap_chars = overlap_chars.max(len);
+            break;
+        }
+    }
+
+    // Backspace the exact matching characters
+    for _ in 0..overlap_chars {
         editor.backspace();
     }
 
@@ -441,14 +483,17 @@ pub fn commit_completion(
         return None;
     }
 
-    // CASE 2: Function or Method completion (e.g. `add`)
+    // CASE 2: Function or Method completion (e.g. `add`, `clone() : Object`)
     if item.kind == CompletionKind::Function || item.kind == CompletionKind::Method {
         let raw_name = item.insert_text.as_deref().unwrap_or(&item.label);
-        let func_name = if raw_name.ends_with("()") {
-            &raw_name[..raw_name.len() - 2]
+        let base_name = if let Some(idx) = raw_name.find('(') {
+            raw_name[..idx].trim()
+        } else if let Some(idx) = raw_name.find(':') {
+            raw_name[..idx].trim()
         } else {
-            raw_name
+            raw_name.trim()
         };
+        let func_name = base_name.strip_suffix("()").unwrap_or(base_name);
 
         // Check if the next character in the buffer is already '('
         let cursor_offset = editor.buffer.point_to_offset(editor.cursor());
@@ -475,7 +520,7 @@ pub fn commit_completion(
     }
 
     // CASE 3: Standard identifiers, variables, keywords, types
-    let text_to_insert = item.insert_text.as_deref().unwrap_or(&item.label);
+    let text_to_insert = item.insert_text.as_deref().unwrap_or(clean_symbol);
     editor.insert(text_to_insert, path, indent_calc);
     None
 }
@@ -551,6 +596,90 @@ mod tests {
 
         commit_completion(&mut editor, &item, "to_", None, false, None, None);
         assert_eq!(editor.buffer.to_string(), "user.to_string()");
+    }
+
+    #[test]
+    fn test_commit_completion_import_ja_no_duplicate() {
+        let mut editor = Editor::new(Buffer::new());
+        editor.insert("import ja", None, None);
+
+        let item = CompletionItem {
+            label: "java".to_string(),
+            kind: CompletionKind::Module,
+            detail: Some("(package) java".to_string()),
+            documentation: None,
+            insert_text: Some("java".to_string()),
+            score: 800,
+            is_postfix: false,
+            postfix_template: None,
+        };
+
+        // Even if prefix was empty "" due to async LSP arrival:
+        commit_completion(&mut editor, &item, "", None, false, None, None);
+        assert_eq!(editor.buffer.to_string(), "import java");
+    }
+
+    #[test]
+    fn test_commit_completion_java_package_dot_overlap() {
+        let mut editor = Editor::new(Buffer::new());
+        editor.insert("import java.ut", None, None);
+
+        let item = CompletionItem {
+            label: "java.util".to_string(),
+            kind: CompletionKind::Module,
+            detail: Some("(package) java.util".to_string()),
+            documentation: None,
+            insert_text: Some("java.util".to_string()),
+            score: 800,
+            is_postfix: false,
+            postfix_template: None,
+        };
+
+        // Prefix was "ut", but candidate is full "java.util"
+        commit_completion(&mut editor, &item, "ut", None, false, None, None);
+        assert_eq!(editor.buffer.to_string(), "import java.util");
+    }
+
+    #[test]
+    fn test_commit_completion_case_insensitive_overlap() {
+        let mut editor = Editor::new(Buffer::new());
+        editor.insert("import java.util.scan", None, None);
+
+        let item = CompletionItem {
+            label: "Scanner - java.util".to_string(),
+            kind: CompletionKind::Struct,
+            detail: Some("class java.util.Scanner".to_string()),
+            documentation: None,
+            insert_text: None,
+            score: 800,
+            is_postfix: false,
+            postfix_template: None,
+        };
+
+        // User typed lowercase 'scan', candidate is 'Scanner'
+        commit_completion(&mut editor, &item, "scan", None, false, None, None);
+        assert_eq!(editor.buffer.to_string(), "import java.util.Scanner");
+    }
+
+    #[test]
+    fn test_merge_lsp_items_does_not_activate_on_empty_prefix_not_after_dot() {
+        let mut state = CompletionState::new();
+        // State right after semicolon: prefix is "", is_after_dot is false
+        state.prefix = "".to_string();
+        state.is_after_dot = false;
+        state.active = false;
+
+        let lsp_items = vec![crate::lsp::protocol::CompletionItem {
+            label: "abstract".to_string(),
+            kind: Some(crate::lsp::protocol::CompletionItemKind::Keyword),
+            detail: None,
+            documentation: None,
+            insert_text: None,
+        }];
+
+        state.merge_lsp_items(&lsp_items);
+        // Must NOT pop up active on empty prefix after semicolon
+        assert!(!state.active);
     }
 
     #[test]

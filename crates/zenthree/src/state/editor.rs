@@ -203,6 +203,9 @@ impl ZenthreeState {
                     self.save_active_tab_as();
                     return;
                 }
+                if self.format_on_save {
+                    self.format_active_tab();
+                }
                 // Extract name + write result before borrowing self for set_status
                 let (ok, msg) = {
                     let tab = &mut self.tabs[idx];
@@ -418,6 +421,7 @@ impl ZenthreeState {
                     Ok(_) => {
                         let after = self.tabs[idx].editor.buffer.to_string();
                         if before != after {
+                            self.tabs[idx].shaping_cache.clear();
                             self.on_buffer_changed(idx);
                             format!("Formatted {}", self.tabs[idx].name)
                         } else {
