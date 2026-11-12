@@ -152,7 +152,7 @@ jobs:
 
           printf '%s\n' \
             "Package: zenthree" \
-            "Version: 0.1.2" \
+            "Version: 0.1.3" \
             "Section: devel" \
             "Priority: optional" \
             "Architecture: amd64" \

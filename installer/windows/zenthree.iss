@@ -1,6 +1,6 @@
 ; Inno Setup Script for Zenthree Code Editor
 #define MyAppName "Zenthree"
-#define MyAppVersion "0.1.2"
+#define MyAppVersion "0.1.3"
 #define MyAppPublisher "Zenthra"
 #define MyAppURL "https://github.com/kabirajpan/zenthree"
 #define MyAppExeName "zenthree.exe"
@@ -34,7 +34,7 @@ Name: "addtopath"; Description: "Add Zenthree to User PATH"; GroupDescription: "
 
 [Files]
 Source: "{#MyAppExeName}"; DestDir: "{app}"; Flags: ignoreversion
-Source: "assets\*"; DestDir: "{app}\assets"; Flags: ignoreversion recursesubdirs createallsubdirs optional
+Source: "assets\*"; DestDir: "{app}\assets"; Flags: ignoreversion recursesubdirs createallsubdirs skipifsourcedoesntexist
 
 [Icons]
 Name: "{group}\{#MyAppName}"; Filename: "{app}\{#MyAppExeName}"
