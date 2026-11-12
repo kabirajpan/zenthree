@@ -1584,9 +1584,9 @@ fn draw_terminal_session_panel(
                                     let row_y = term_body_y + pad_top + safe_row as f32 * cell_h;
                                     let cur_x = term_body_x + pad_left + safe_col as f32 * cell_w;
 
-                                    // Line cursor precisely matches capital letter cap-height down to baseline
-                                    let line_cursor_h = (font_sz * 0.76).round().max(9.0);
-                                    let line_cur_y = row_y + 2.0;
+                                    // Line cursor matches text glyph height cleanly down to baseline
+                                    let line_cursor_h = (font_sz * 0.98).round().max(13.0);
+                                    let line_cur_y = row_y + 1.5;
 
                                     match state.cursor_style {
                                         crate::state::types::CursorStyle::Line => {
@@ -1601,7 +1601,7 @@ fn draw_terminal_session_panel(
                                             }));
                                         }
                                         crate::state::types::CursorStyle::Block => {
-                                            let block_h = (font_sz * 0.92).round().max(12.0);
+                                            let block_h = (font_sz + 1.5).round().max(14.0);
                                             ui.draws.push(DrawCommand::Rect(RectDraw {
                                                 instance: RectInstance {
                                                     pos: [cur_x, row_y + 1.0],
@@ -1636,7 +1636,7 @@ fn draw_terminal_session_panel(
                                             }
                                         }
                                         crate::state::types::CursorStyle::Underline => {
-                                            let under_y = line_cur_y + line_cursor_h;
+                                            let under_y = line_cur_y + line_cursor_h - 1.0;
                                             ui.draws.push(DrawCommand::Rect(RectDraw {
                                                 instance: RectInstance {
                                                     pos: [cur_x, under_y],
@@ -1785,7 +1785,7 @@ fn draw_terminal_context_menu(ui: &mut Ui, state: &mut ZenthreeState, colors: &T
             .bg(colors.bg_sidebar)
             .border((colors.border, 1.0))
             .radius_all(6.0)
-            .shadow(Color::rgba(0.0, 0.0, 0.0, 0.5), 0.0, 4.0, 16.0)
+            .shadow(Color::rgba(0.0, 0.0, 0.0, 0.22), 0.0, 2.0, 8.0)
             .padding(4.0, 4.0, 4.0, 4.0)
             .column()
             .gap(1.0)

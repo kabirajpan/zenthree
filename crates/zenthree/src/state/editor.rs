@@ -31,13 +31,6 @@ impl ZenthreeState {
             .unwrap_or("Untitled")
             .to_string();
 
-        // Track recent files
-        self.recent_files.retain(|p| p != path);
-        self.recent_files.insert(0, path.to_path_buf());
-        if self.recent_files.len() > 10 {
-            self.recent_files.truncate(10);
-        }
-
         // Check if already open
         for (idx, tab) in self.tabs.iter_mut().enumerate() {
             let is_match = if let Some(ref tp) = tab.path {
@@ -262,12 +255,6 @@ impl ZenthreeState {
                                 .to_string();
                             tab.path = Some(path.clone());
                             tab.is_dirty = false;
-                            if !self.recent_files.contains(&path) {
-                                self.recent_files.insert(0, path);
-                                if self.recent_files.len() > 10 {
-                                    self.recent_files.pop();
-                                }
-                            }
                             format!("Saved as: {}", tab.name)
                         } else {
                             format!("Failed to save file: {}", path.display())

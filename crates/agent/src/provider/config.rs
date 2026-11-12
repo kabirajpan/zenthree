@@ -79,11 +79,22 @@ impl ZenthreeConfig {
         }
     }
 
-    /// Load config from disk. Returns default if file doesn't exist or is malformed.
+    /// Load config from disk. If file doesn't exist, creates a pre-populated template with empty keys.
     pub fn load() -> Self {
         let path = Self::config_path();
         if !path.exists() {
-            return Self::default();
+            let mut default_cfg = Self::default();
+            for kp in KNOWN_PROVIDERS {
+                default_cfg.providers.insert(
+                    kp.name.to_string(),
+                    ProviderConfig {
+                        key: String::new(),
+                        ..Default::default()
+                    },
+                );
+            }
+            let _ = default_cfg.save();
+            return default_cfg;
         }
         let content = std::fs::read_to_string(&path).unwrap_or_default();
         serde_json::from_str(&content).unwrap_or_default()

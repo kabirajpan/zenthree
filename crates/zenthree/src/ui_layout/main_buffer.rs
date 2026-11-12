@@ -2120,7 +2120,7 @@ fn draw_editor_context_menu(
         return;
     }
 
-    let menu_w = 210.0;
+    let menu_w = 236.0;
     let has_active_tab = state.active_tab.and_then(|idx| state.tabs.get(idx)).is_some();
     let menu_h = if has_active_tab {
         17.0 * 26.0 + 5.0 + 22.0 + 8.0
@@ -2180,7 +2180,7 @@ fn draw_editor_context_menu(
             .bg(colors.bg_sidebar)
             .border((colors.border, 1.0))
             .radius_all(6.0)
-            .shadow(Color::rgba(0.0, 0.0, 0.0, 0.5), 0.0, 4.0, 16.0)
+            .shadow(Color::rgba(0.0, 0.0, 0.0, 0.22), 0.0, 2.0, 8.0)
             .padding(4.0, 4.0, 4.0, 4.0)
             .column()
             .gap(1.0)

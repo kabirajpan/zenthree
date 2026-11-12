@@ -23,22 +23,29 @@ elif [ -f "${SCRIPT_DIR}/target/release/zenthree" ]; then
     chmod +x "${BIN_DIR}/zenthree"
 fi
 
-# Install desktop entry and icon
+# Install desktop entry and icons
 if [ -f "${SCRIPT_DIR}/assets/linux/zenthree.desktop" ]; then
     cp "${SCRIPT_DIR}/assets/linux/zenthree.desktop" "${APP_DIR}/zenthree.desktop"
 elif [ -f "${SCRIPT_DIR}/zenthree.desktop" ]; then
     cp "${SCRIPT_DIR}/zenthree.desktop" "${APP_DIR}/zenthree.desktop"
 fi
 
-if [ -f "${SCRIPT_DIR}/assets/logo/zenthree.png" ]; then
-    cp "${SCRIPT_DIR}/assets/logo/zenthree.png" "${ICON_DIR}/zenthree.png"
-elif [ -f "${SCRIPT_DIR}/zenthree.png" ]; then
-    cp "${SCRIPT_DIR}/zenthree.png" "${ICON_DIR}/zenthree.png"
-fi
+for size in 16 24 32 48 64 128 256 512; do
+    s_dir="${HOME}/.local/share/icons/hicolor/${size}x${size}/apps"
+    mkdir -p "${s_dir}"
+    if [ -f "${SCRIPT_DIR}/assets/logo/zenthree-${size}.png" ]; then
+        cp "${SCRIPT_DIR}/assets/logo/zenthree-${size}.png" "${s_dir}/zenthree.png"
+    elif [ -f "${SCRIPT_DIR}/assets/logo/zenthree.png" ]; then
+        cp "${SCRIPT_DIR}/assets/logo/zenthree.png" "${s_dir}/zenthree.png"
+    fi
+done
 
-# Update desktop database if available
+# Update desktop database and icon cache if available
 if command -v update-desktop-database >/dev/null 2>&1; then
     update-desktop-database "${APP_DIR}" 2>/dev/null || true
+fi
+if command -v gtk-update-icon-cache >/dev/null 2>&1; then
+    gtk-update-icon-cache -f -t "${HOME}/.local/share/icons/hicolor" 2>/dev/null || true
 fi
 
 echo "==> Zenthree installed successfully!"

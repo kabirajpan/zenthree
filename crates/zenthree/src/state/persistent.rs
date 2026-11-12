@@ -47,8 +47,8 @@ pub struct PersistentState {
     pub open_tabs: Vec<PathBuf>,
     #[serde(default)]
     pub active_tab_path: Option<PathBuf>,
-    #[serde(default)]
-    pub recent_files: Vec<PathBuf>,
+    #[serde(default, alias = "recent_files")]
+    pub recent_folders: Vec<PathBuf>,
     #[serde(default)]
     pub terminal_visible: Option<bool>,
     #[serde(default)]
@@ -180,8 +180,12 @@ impl ZenthreeState {
                 if let Some(go) = saved.glass_opacity {
                     self.glass_opacity = go;
                 }
-                if !saved.recent_files.is_empty() {
-                    self.recent_files = saved.recent_files;
+                if !saved.recent_folders.is_empty() {
+                    self.recent_folders = saved
+                        .recent_folders
+                        .into_iter()
+                        .filter(|p| p.is_dir())
+                        .collect();
                 }
                 if let Some(tv) = saved.terminal_visible {
                     self.terminal_visible = tv;
@@ -352,7 +356,7 @@ impl From<&ZenthreeState> for PersistentState {
             },
             open_tabs,
             active_tab_path,
-            recent_files: s.recent_files.clone(),
+            recent_folders: s.recent_folders.clone(),
             terminal_visible: Some(s.terminal_visible),
             terminal_height: Some(s.terminal_height),
             ai_panel_visible: Some(s.ai_panel_visible),

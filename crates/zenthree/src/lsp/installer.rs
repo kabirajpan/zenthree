@@ -70,6 +70,13 @@ impl LspInstaller {
                 "dockerfile" => Self::install_dockerfile(&lang, &signal),
                 "sql" => Self::install_sql(&lang, &signal),
                 "elixir" => Self::install_elixir(&lang, &signal),
+                "java" => Self::install_java(&lang, &signal),
+                "php" => Self::install_npm_package(&lang, &signal, "intelephense", "intelephense"),
+                "csharp" => Self::install_csharp(&lang, &signal),
+                "ruby" => Self::install_ruby(&lang, &signal),
+                "zig" => Self::install_zig(&lang, &signal),
+                "kotlin" => Self::install_kotlin(&lang, &signal),
+                "protobuf" => Self::install_npm_package(&lang, &signal, "@bufbuild/buf", "buf"),
                 "svelte" => Self::install_npm_package(&lang, &signal, "svelte-language-server", "svelteserver"),
                 "vue" => Self::install_npm_package(&lang, &signal, "@vue/language-server", "vue-language-server"),
                 "graphql" => Self::install_npm_package(&lang, &signal, "graphql-language-service-cli", "graphql-lsp"),
@@ -504,6 +511,207 @@ impl LspInstaller {
         }
 
         Err("Failed to download elixir-ls from GitHub. Please check your internet connection or install manually via mix.".to_string())
+    }
+
+    fn install_java(lang: &str, signal: &ArcSignal<Vec<LspInstallEvent>>) -> Result<(String, String), String> {
+        signal.with_mut(|q| {
+            q.push(LspInstallEvent::Progress {
+                language_id: lang.to_string(),
+                message: "Checking Java runtime...".to_string(),
+            });
+        });
+
+        // 1. Check if Java is installed
+        let has_java = Command::new("java")
+            .arg("-version")
+            .output()
+            .map(|o| o.status.success() || !o.stderr.is_empty())
+            .unwrap_or(false);
+
+        if !has_java {
+            return Err("Java runtime (JDK 17+) not found. Please install Java/OpenJDK first (e.g. 'sudo apt install default-jdk' or from adoptium.net).".to_string());
+        }
+
+        // 2. Check if jdtls is already found on system
+        if let Ok(out) = Command::new("which").arg("jdtls").output() {
+            if out.status.success() {
+                return Ok(("jdtls".to_string(), "Eclipse JDT Language Server (jdtls) is already installed!".to_string()));
+            }
+        }
+
+        // 3. Check brew (macOS / Linuxbrew)
+        if let Ok(out) = Command::new("brew").args(&["install", "jdtls"]).output() {
+            if out.status.success() {
+                return Ok(("jdtls".to_string(), "Installed Eclipse JDTLS via Homebrew!".to_string()));
+            }
+        }
+
+        // 4. Automated direct download from Eclipse official distribution (LTS 1.38.0 compatible with Java 17 and Java 21)
+        signal.with_mut(|q| {
+            q.push(LspInstallEvent::Progress {
+                language_id: lang.to_string(),
+                message: "Downloading Eclipse JDTLS official language server...".to_string(),
+            });
+        });
+
+        let data_dir = Self::zenthree_data_dir();
+        let jdtls_dir = data_dir.join("jdtls");
+        let bin_dir = data_dir.join("bin");
+        let _ = std::fs::create_dir_all(&jdtls_dir);
+        let _ = std::fs::create_dir_all(&bin_dir);
+
+        let tarball_url = "https://download.eclipse.org/jdtls/milestones/1.38.0/jdt-language-server-1.38.0-202408011337.tar.gz";
+        let tarball_path = data_dir.join("jdtls.tar.gz");
+
+        // Download via curl (available on Linux, macOS, and modern Windows)
+        let dl_res = Command::new("curl")
+            .args(&["-sSL", tarball_url, "-o", tarball_path.to_str().unwrap_or("jdtls.tar.gz")])
+            .output();
+
+        let downloaded = match dl_res {
+            Ok(o) if o.status.success() && tarball_path.exists() => true,
+            _ => {
+                #[cfg(windows)]
+                {
+                    Command::new("powershell")
+                        .args(&["-Command", &format!("Invoke-WebRequest -Uri '{}' -OutFile '{}'", tarball_url, tarball_path.display())])
+                        .output()
+                        .map(|o| o.status.success())
+                        .unwrap_or(false)
+                }
+                #[cfg(not(windows))]
+                { false }
+            }
+        };
+
+        if !downloaded {
+            return Err("Failed to download Eclipse JDTLS archive. Please check your internet connection.".to_string());
+        }
+
+        signal.with_mut(|q| {
+            q.push(LspInstallEvent::Progress {
+                language_id: lang.to_string(),
+                message: "Extracting Eclipse JDTLS...".to_string(),
+            });
+        });
+
+        // Extract tarball using tar
+        let ext_res = Command::new("tar")
+            .args(&["-xzf", tarball_path.to_str().unwrap_or(""), "-C", jdtls_dir.to_str().unwrap_or("")])
+            .output();
+
+        let _ = std::fs::remove_file(&tarball_path);
+
+        match ext_res {
+            Ok(o) if o.status.success() => {}
+            Ok(o) => {
+                let err = String::from_utf8_lossy(&o.stderr);
+                return Err(format!("Failed to extract jdtls archive: {}", err));
+            }
+            Err(e) => return Err(format!("Failed to run tar command: {}", e)),
+        }
+
+        let jdtls_script = jdtls_dir.join("bin").join("jdtls");
+        #[cfg(windows)]
+        let jdtls_script = jdtls_dir.join("bin").join("jdtls.bat");
+
+        if !jdtls_script.exists() {
+            return Err("Eclipse JDTLS extraction completed, but launcher binary was not found.".to_string());
+        }
+
+        // Link/copy into zenthree bin dir and user ~/.local/bin
+        let target_symlink = bin_dir.join("jdtls");
+        #[cfg(windows)]
+        let target_symlink = bin_dir.join("jdtls.bat");
+
+        #[cfg(unix)]
+        {
+            let _ = std::fs::remove_file(&target_symlink);
+            let _ = std::os::unix::fs::symlink(&jdtls_script, &target_symlink);
+            if let Ok(home) = std::env::var("HOME") {
+                let user_local_bin = PathBuf::from(home).join(".local").join("bin");
+                let _ = std::fs::create_dir_all(&user_local_bin);
+                let _ = std::fs::remove_file(user_local_bin.join("jdtls"));
+                let _ = std::os::unix::fs::symlink(&jdtls_script, user_local_bin.join("jdtls"));
+            }
+        }
+        #[cfg(windows)]
+        {
+            let _ = std::fs::copy(&jdtls_script, &target_symlink);
+        }
+
+        Ok((
+            "jdtls".to_string(),
+            "Installed Eclipse JDT Language Server (jdtls) successfully!".to_string(),
+        ))
+    }
+
+    fn install_csharp(lang: &str, signal: &ArcSignal<Vec<LspInstallEvent>>) -> Result<(String, String), String> {
+        signal.with_mut(|q| {
+            q.push(LspInstallEvent::Progress {
+                language_id: lang.to_string(),
+                message: "Installing csharp-ls via dotnet tool...".to_string(),
+            });
+        });
+
+        if let Ok(out) = Command::new("dotnet").args(&["tool", "install", "-g", "csharp-ls"]).output() {
+            if out.status.success() {
+                return Ok(("csharp-ls".to_string(), "Installed csharp-ls via dotnet tool!".to_string()));
+            }
+        }
+
+        Err("Failed to install csharp-ls. Please ensure .NET SDK is installed ('dotnet tool install -g csharp-ls').".to_string())
+    }
+
+    fn install_ruby(lang: &str, signal: &ArcSignal<Vec<LspInstallEvent>>) -> Result<(String, String), String> {
+        signal.with_mut(|q| {
+            q.push(LspInstallEvent::Progress {
+                language_id: lang.to_string(),
+                message: "Installing solargraph via gem...".to_string(),
+            });
+        });
+
+        if let Ok(out) = Command::new("gem").args(&["install", "solargraph"]).output() {
+            if out.status.success() {
+                return Ok(("solargraph".to_string(), "Installed solargraph via gem!".to_string()));
+            }
+        }
+
+        Err("Failed to install solargraph. Please ensure Ruby and gem are installed ('gem install solargraph').".to_string())
+    }
+
+    fn install_zig(lang: &str, signal: &ArcSignal<Vec<LspInstallEvent>>) -> Result<(String, String), String> {
+        signal.with_mut(|q| {
+            q.push(LspInstallEvent::Progress {
+                language_id: lang.to_string(),
+                message: "Checking zls (Zig Language Server)...".to_string(),
+            });
+        });
+
+        if let Ok(out) = Command::new("brew").args(&["install", "zls"]).output() {
+            if out.status.success() {
+                return Ok(("zls".to_string(), "Installed zls via Homebrew!".to_string()));
+            }
+        }
+
+        Err("Please install zls using 'brew install zls' or download from github.com/zigtools/zls/releases.".to_string())
+    }
+
+    fn install_kotlin(lang: &str, signal: &ArcSignal<Vec<LspInstallEvent>>) -> Result<(String, String), String> {
+        signal.with_mut(|q| {
+            q.push(LspInstallEvent::Progress {
+                language_id: lang.to_string(),
+                message: "Checking kotlin-language-server...".to_string(),
+            });
+        });
+
+        if let Ok(out) = Command::new("brew").args(&["install", "kotlin-language-server"]).output() {
+            if out.status.success() {
+                return Ok(("kotlin-language-server".to_string(), "Installed kotlin-language-server via brew!".to_string()));
+            }
+        }
+
+        Err("Please install kotlin-language-server via brew or github.com/fwcd/kotlin-language-server/releases.".to_string())
     }
 
     fn install_npm_package(

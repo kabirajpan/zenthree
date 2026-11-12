@@ -1171,7 +1171,7 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
                 .bg(colors.bg_sidebar)
                 .border((colors.border, 1.0))
                 .radius_all(6.0)
-                .shadow(Color::rgba(0.0, 0.0, 0.0, 0.5), 0.0, 4.0, 16.0)
+                .shadow(Color::rgba(0.0, 0.0, 0.0, 0.22), 0.0, 2.0, 8.0)
                 .padding(4.0, 4.0, 4.0, 4.0)
                 .column()
                 .gap(1.0)
@@ -1417,34 +1417,38 @@ pub(super) fn draw_menu_item(
         .height(26.0)
         .row()
         .valign(Align::Center)
+        .halign(Align::SpaceBetween)
         .padding_left(10.0)
-        .padding_right(8.0)
-        .gap(8.0)
+        .padding_right(10.0)
         .radius_all(4.0)
         .bg(Color::TRANSPARENT)
         .hover(Style::bg(if enabled { colors.highlight } else { Color::TRANSPARENT }))
         .show(|ui| {
-            // Icon column (fixed width so labels align)
+            // Left group: Icon + Label
             ui.container()
-                .width(14.0)
-                .halign(Align::Center)
+                .row()
+                .valign(Align::Center)
+                .gap(8.0)
                 .show(|ui| {
-                    ui.text(icon)
-                        .size(11.0)
-                        .color(if !enabled { colors.text_dim } else { text_color })
+                    // Icon column (fixed width so labels align)
+                    ui.container()
+                        .width(14.0)
+                        .halign(Align::Center)
+                        .show(|ui| {
+                            ui.text(icon)
+                                .size(11.0)
+                                .color(if !enabled { colors.text_dim } else { text_color })
+                                .show();
+                        });
+
+                    // Label
+                    ui.text(label)
+                        .size(11.5)
+                        .color(text_color)
                         .show();
                 });
 
-            // Label
-            ui.text(label)
-                .size(11.5)
-                .color(text_color)
-                .show();
-
-            // Spacer
-            ui.container().fill_x().show(|_| {});
-
-            // Shortcut hint
+            // Right group: Shortcut hint
             if !shortcut.is_empty() {
                 ui.text(shortcut)
                     .size(10.0)

@@ -1540,9 +1540,11 @@ fn draw_api_keys_tab(ui: &mut Ui, state: &mut ZenthreeState, colors: &ThemeColor
                 ui.cursor_icon = CursorIcon::Pointer;
             }
             if edit_btn.clicked {
-                if let Ok(path_str) = config_path.to_str().ok_or("") {
-                    let _ = opener::open(path_str);
+                if !config_path.exists() {
+                    let _ = ZenthreeConfig::load();
                 }
+                state.open_file(&config_path);
+                state.ai_settings.open = false;
             }
         });
 

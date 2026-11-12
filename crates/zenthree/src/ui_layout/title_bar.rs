@@ -97,24 +97,25 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                             }
                         }
 
-                        // Cascading Submenu: Open Recent
+                        // Cascading Submenu: Open Recent (Opened Folders / Root Directories)
                         ui.menu("Open Recent").show(|ui| {
-                            let recent = state.recent_files.clone();
+                            let recent = state.recent_folders.clone();
                             if recent.is_empty() {
-                                ui.menu_item("No Recent Files").show();
+                                ui.menu_item("No Recent Folders").show();
                             } else {
                                 for path in recent {
                                     let label = path.file_name()
                                         .and_then(|n| n.to_str())
-                                        .unwrap_or("Unknown");
+                                        .unwrap_or_else(|| path.to_str().unwrap_or("Unknown"));
                                     if ui.menu_item(label).show().clicked {
-                                        state.open_file(&path);
+                                        state.request_open_workspace(path);
                                         ui.request_redraw();
                                     }
                                 }
                                 ui.spacing(4.0);
                                 if ui.menu_item("Clear History").show().clicked {
-                                    state.recent_files.clear();
+                                    state.recent_folders.clear();
+                                    state.save_persistent_state();
                                     ui.request_redraw();
                                 }
                             }

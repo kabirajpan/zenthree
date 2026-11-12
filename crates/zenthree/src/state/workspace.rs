@@ -126,6 +126,11 @@ impl ZenthreeState {
         // 4. Switch workspace
         self.current_dir = path;
         self.has_workspace = true;
+        self.recent_folders.retain(|p| p != &self.current_dir);
+        self.recent_folders.insert(0, self.current_dir.clone());
+        if self.recent_folders.len() > 10 {
+            self.recent_folders.truncate(10);
+        }
         self.terminal_spawn_failed = false;
         self.expanded_dirs.clear();
         self.rebuild_tree();

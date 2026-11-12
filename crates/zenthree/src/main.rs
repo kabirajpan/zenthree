@@ -25,23 +25,46 @@ fn main() {
     // Initialize the modular state (loads persistent state from disk)
     let mut state = ZenthreeState::new();
 
-    // Start with one default empty file only if no files were restored from previous session
-    if state.tabs.is_empty() {
+    // Handle command-line arguments (e.g. `zenthree path/to/file` or `zenthree .`)
+    let mut opened_cli_arg = false;
+    for arg in std::env::args().skip(1) {
+        if !arg.starts_with('-') {
+            let p = std::path::PathBuf::from(&arg);
+            if p.is_dir() {
+                state.open_workspace(p);
+                opened_cli_arg = true;
+            } else if p.is_file() {
+                state.open_file(&p);
+                opened_cli_arg = true;
+            }
+        }
+    }
+
+    // Start with one default empty file only if no files were restored from previous session and no CLI file opened
+    if state.tabs.is_empty() && !opened_cli_arg {
         state.new_untitled_file();
     }
 
     let font_bytes = include_bytes!("../../../assets/fonts/SymbolsNerdFont-Regular-3.5.1.ttf").to_vec();
+    let icon_raw = include_bytes!("../../../assets/logo/zenthree-64.rgba").to_vec();
+    let app_icon = winit::window::Icon::from_rgba(icon_raw, 64, 64).ok();
     let initial_blur = state.glassmorphism;
 
-    App::new()
+    let mut app = App::new()
         .title("Zenthree Editor")
+        .app_id("zenthree")
         .size(1100, 680)
         .decorations(false)
         .transparent(true)
         .blur(initial_blur)
         .load_font_data(font_bytes)
-        .register_custom_shader("spherical_polyhedra", include_str!("shaders/spherical_polyhedra.wgsl"))
-        .with_ui(move |ui| {
+        .register_custom_shader("spherical_polyhedra", include_str!("shaders/spherical_polyhedra.wgsl"));
+
+    if let Some(icon) = app_icon {
+        app = app.icon(icon);
+    }
+
+    app.with_ui(move |ui| {
             // Handle all keyboard shortcuts
             shortcuts::handle_shortcuts(ui, &mut state);
 

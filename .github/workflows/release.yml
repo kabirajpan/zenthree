@@ -103,7 +103,7 @@ jobs:
         run: |
           Copy-Item "target/${{ matrix.platform.target }}/release/zenthree.exe" -Destination "installer/windows/"
           if (Test-Path "assets") {
-            Copy-Item -Recurse "assets" -Destination "installer/windows/assets"
+            Copy-Item -Recurse -Force "assets" -Destination "installer/windows/assets" -ErrorAction SilentlyContinue
           }
           
           # Compile Inno Setup UI installer
@@ -123,12 +123,16 @@ jobs:
           mkdir -p deb_pkg/usr/bin
           mkdir -p deb_pkg/usr/share/applications
           mkdir -p deb_pkg/usr/share/icons/hicolor/512x512/apps
+          mkdir -p deb_pkg/usr/share/icons/hicolor/scalable/apps
 
           cp "target/${{ matrix.platform.target }}/release/zenthree" deb_pkg/usr/bin/zenthree
           chmod 755 deb_pkg/usr/bin/zenthree
           cp assets/linux/zenthree.desktop deb_pkg/usr/share/applications/
           if [ -f assets/logo/zenthree.png ]; then
             cp assets/logo/zenthree.png deb_pkg/usr/share/icons/hicolor/512x512/apps/zenthree.png
+          fi
+          if [ -f assets/logo/v2/logo-icon.svg ]; then
+            cp assets/logo/v2/logo-icon.svg deb_pkg/usr/share/icons/hicolor/scalable/apps/zenthree.svg
           fi
 
           printf '%s\n' \
