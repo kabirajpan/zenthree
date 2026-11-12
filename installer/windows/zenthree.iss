@@ -1,6 +1,6 @@
 ; Inno Setup Script for Zenthree Code Editor
 #define MyAppName "Zenthree"
-#define MyAppVersion "0.1.3"
+#define MyAppVersion "0.1.4"
 #define MyAppPublisher "Zenthra"
 #define MyAppURL "https://github.com/kabirajpan/zenthree"
 #define MyAppExeName "zenthree.exe"
@@ -24,6 +24,8 @@ WizardStyle=modern
 ArchitecturesInstallIn64BitMode=x64
 PrivilegesRequired=lowest
 PrivilegesRequiredOverridesAllowed=dialog
+CloseApplications=yes
+RestartApplications=no
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"

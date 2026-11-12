@@ -152,7 +152,7 @@ jobs:
 
           printf '%s\n' \
             "Package: zenthree" \
-            "Version: 0.1.3" \
+            "Version: 0.1.4" \
             "Section: devel" \
             "Priority: optional" \
             "Architecture: amd64" \
@@ -161,17 +161,47 @@ jobs:
             " A fast, lightweight code editor built with Zenthra UI." \
             > deb_pkg/DEBIAN/control
 
+          # Add post-install hook to update desktop database & icon cache
+          cat << 'EOF' > deb_pkg/DEBIAN/postinst
+#!/bin/sh
+set -e
+if command -v update-desktop-database >/dev/null 2>&1; then
+  update-desktop-database -q /usr/share/applications || true
+fi
+if command -v gtk-update-icon-cache >/dev/null 2>&1; then
+  gtk-update-icon-cache -q -t -f /usr/share/icons/hicolor || true
+fi
+EOF
+          chmod 755 deb_pkg/DEBIAN/postinst
+
+          # Add post-remove hook to clean up desktop database & icon cache
+          cat << 'EOF' > deb_pkg/DEBIAN/postrm
+#!/bin/sh
+set -e
+if command -v update-desktop-database >/dev/null 2>&1; then
+  update-desktop-database -q /usr/share/applications || true
+fi
+if command -v gtk-update-icon-cache >/dev/null 2>&1; then
+  gtk-update-icon-cache -q -t -f /usr/share/icons/hicolor || true
+fi
+EOF
+          chmod 755 deb_pkg/DEBIAN/postrm
+
           dpkg-deb --build deb_pkg "${{ github.workspace }}/zenthree-linux-amd64.deb"
 
-          # 2. Portable Tarball with installation script
+          # 2. Portable Tarball with installation and uninstallation scripts
           mkdir -p dist_linux
           cp "target/${{ matrix.platform.target }}/release/zenthree" dist_linux/
           cp assets/linux/zenthree.desktop dist_linux/
           if [ -f assets/logo/zenthree.png ]; then
             cp assets/logo/zenthree.png dist_linux/
           fi
+          if [ -f assets/logo/v2/logo-icon.svg ]; then
+            cp assets/logo/v2/logo-icon.svg dist_linux/zenthree.svg
+          fi
           cp scripts/install-linux.sh dist_linux/install.sh
-          chmod +x dist_linux/install.sh dist_linux/zenthree
+          cp scripts/uninstall-linux.sh dist_linux/uninstall.sh
+          chmod +x dist_linux/install.sh dist_linux/uninstall.sh dist_linux/zenthree
           tar -czf "${{ github.workspace }}/${{ matrix.platform.archive_name }}" -C dist_linux .
 
       # 3. macOS: Universal .app Bundle + .dmg Drag-and-Drop Installer

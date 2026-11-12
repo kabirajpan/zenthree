@@ -2,6 +2,11 @@
 # Zenthree Linux Installer
 set -e
 
+# Check for uninstall flag
+if [ "$1" = "--uninstall" ] || [ "$1" = "-u" ] || [ "$1" = "uninstall" ]; then
+    exec "$(dirname "$0")/uninstall-linux.sh"
+fi
+
 BIN_DIR="${HOME}/.local/bin"
 APP_DIR="${HOME}/.local/share/applications"
 ICON_DIR="${HOME}/.local/share/icons/hicolor/512x512/apps"
