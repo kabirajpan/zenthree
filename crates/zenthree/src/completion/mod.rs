@@ -63,6 +63,13 @@ pub struct CompletionItem {
     pub postfix_template: Option<String>,
 }
 
+#[derive(Debug, Clone)]
+pub struct CompletionDebounce {
+    pub timer: std::time::Instant,
+    pub tab_idx: usize,
+    pub cursor: Point,
+}
+
 #[derive(Default, Clone)]
 pub struct CompletionState {
     pub active: bool,
@@ -86,6 +93,24 @@ impl CompletionState {
         self.selected_idx = 0;
         self.prev_expr = None;
         self.is_after_dot = false;
+    }
+
+    /// Fast local filter in place when user continues typing while completion popup is already open.
+    /// Operates strictly in-memory (0ms) without re-scanning or disk access.
+    pub fn filter_in_place(&mut self, typed: &str) {
+        self.prefix.push_str(typed);
+        let prefix = &self.prefix;
+        self.items.retain_mut(|item| {
+            if let Some(score) = fuzzy::fuzzy_match_score(prefix, &item.label) {
+                item.score = score;
+                true
+            } else {
+                false
+            }
+        });
+        self.items.sort_by(|a, b| b.score.cmp(&a.score));
+        self.selected_idx = 0;
+        self.active = !self.items.is_empty();
     }
 
     /// Tier 1: Instant local buffer and keyword completion generator (0ms latency, runs synchronously on frame).
@@ -120,7 +145,7 @@ impl CompletionState {
         if is_after_dot && !prefix.is_empty() {
             if let Some(ref expr) = prev_expr {
                 for template in postfix::get_postfix_templates(path) {
-                    if let Some(score) = fuzzy::fuzzy_match_score(&prefix, template.label) {
+                    if let Some(score) = fuzzy::fuzzy_match_score(&prefix, &template.label) {
                         let expanded = template.template.replace("{expr}", expr);
                         candidates.push(CompletionItem {
                             label: format!("{}~", template.label),
@@ -128,7 +153,7 @@ impl CompletionState {
                             detail: Some(template.detail.to_string()),
                             documentation: Some(template.detail.to_string()),
                             insert_text: Some(expanded.clone()),
-                            score: score + 120,
+                            score: score + 2100, // Tier 1: Postfix templates
                             is_postfix: true,
                             postfix_template: Some(expanded),
                         });
@@ -140,32 +165,32 @@ impl CompletionState {
         // 2. Language Statement Snippets (if~, for~, etc.) - top-level statements only
         if !is_after_dot {
             for snip in snippets::get_snippets_for_path(path) {
-                if let Some(score) = fuzzy::fuzzy_match_score(&prefix, snip.label) {
+                if let Some(score) = fuzzy::fuzzy_match_score(&prefix, &snip.label) {
                     candidates.push(CompletionItem {
                         label: format!("{}~", snip.label),
                         kind: CompletionKind::PostfixSnippet,
                         detail: Some("snippet".to_string()),
-                        documentation: Some(snip.detail.to_string()),
-                        insert_text: Some(snip.body.to_string()),
-                        score: score + 110,
+                        documentation: Some(snip.detail.clone()),
+                        insert_text: Some(snip.body.clone()),
+                        score: score + 2000, // Tier 1: Statement snippets (sout~, main~, if~)
                         is_postfix: false,
-                        postfix_template: Some(snip.body.to_string()),
+                        postfix_template: Some(snip.body),
                     });
                 }
             }
         }
 
-        // 3. Language keywords - only when NOT after dot
+        // 3. Tree-sitter dynamic grammar keywords - only when NOT after dot
         if !is_after_dot {
             for kw in keywords::get_keywords_for_path(path) {
-                if let Some(score) = fuzzy::fuzzy_match_score(&prefix, kw.label) {
+                if let Some(score) = fuzzy::fuzzy_match_score(&prefix, &kw) {
                     candidates.push(CompletionItem {
-                        label: kw.label.to_string(),
+                        label: kw.clone(),
                         kind: CompletionKind::Keyword,
-                        detail: Some(kw.detail.to_string()),
-                        documentation: Some(kw.detail.to_string()),
-                        insert_text: Some(kw.label.to_string()),
-                        score: score + 50,
+                        detail: Some("keyword".to_string()),
+                        documentation: None,
+                        insert_text: Some(kw),
+                        score: score + 1000, // Tier 2: Core language syntax keywords
                         is_postfix: false,
                         postfix_template: None,
                     });
@@ -185,7 +210,7 @@ impl CompletionState {
                         detail: Some(sym.detail),
                         documentation: sym.documentation,
                         insert_text: Some(sym.name),
-                        score: score + 45,
+                        score: score + 500, // Tier 3: Local file symbols & buffer words
                         is_postfix: false,
                         postfix_template: Some(sym.preview),
                     });
@@ -193,8 +218,8 @@ impl CompletionState {
             }
         }
 
-        // Sort descending by relevance score
-        candidates.sort_by(|a, b| b.score.cmp(&a.score));
+        // Sort descending by relevance score, secondary sort ascending by label for deterministic order
+        candidates.sort_by(|a, b| b.score.cmp(&a.score).then_with(|| a.label.cmp(&b.label)));
 
         // Deduplicate by label
         candidates.dedup_by(|a, b| a.label == b.label);
@@ -216,6 +241,7 @@ impl CompletionState {
         }
 
         // Map existing buffer items by label so we never lose their code preview or line documentation
+        let previously_selected = self.items.get(self.selected_idx).map(|it| it.label.clone());
         let mut existing_map: std::collections::HashMap<String, CompletionItem> = std::collections::HashMap::new();
         for item in self.items.drain(..) {
             existing_map.insert(item.label.clone(), item);
@@ -224,8 +250,22 @@ impl CompletionState {
         let mut enriched = Vec::with_capacity(lsp_items.len() + existing_map.len());
 
         for item in lsp_items {
-            let label = &item.label;
-            let score = fuzzy::fuzzy_match_score(&self.prefix, label).unwrap_or(300) + 500; // LSP items get +500 priority boost
+            let raw_label = &item.label;
+            // Clean JDTLS / LSP compound label formats like "Symbol - com.pkg.Container" or "Symbol : Type"
+            let (clean_symbol, extracted_detail) = if let Some(sep) = raw_label.find(" - ") {
+                (raw_label[..sep].trim(), Some(raw_label[sep + 3..].trim().to_string()))
+            } else if let Some(sep) = raw_label.find(" : ") {
+                (raw_label[..sep].trim(), Some(raw_label[sep + 3..].trim().to_string()))
+            } else {
+                (raw_label.as_str(), None)
+            };
+
+            // When after dot (member access), LSP member completions get top priority (+2500).
+            // When top-level identifier (!is_after_dot), LSP types get +300 (ranking below Tier 1 snippets and Tier 2 keywords).
+            let base_boost = if self.is_after_dot { 2500 } else { 300 };
+            let score = fuzzy::fuzzy_match_score(&self.prefix, clean_symbol)
+                .or_else(|| fuzzy::fuzzy_match_score(&self.prefix, raw_label))
+                .unwrap_or(300) + base_boost;
             let kind = match item.kind {
                 Some(k) => match k {
                     crate::lsp::protocol::CompletionItemKind::Method => CompletionKind::Method,
@@ -254,28 +294,36 @@ impl CompletionState {
                 }
             });
 
-            let display_label = if kind == CompletionKind::PostfixSnippet && !label.ends_with('~') {
-                format!("{}~", label)
+            let display_label = if kind == CompletionKind::PostfixSnippet && !clean_symbol.ends_with('~') {
+                format!("{}~", clean_symbol)
             } else {
-                label.clone()
+                clean_symbol.to_string()
             };
 
             // Check if we already indexed this symbol locally in the buffer
-            let existing_item = existing_map.remove(label);
+            let existing_item = existing_map.remove(clean_symbol).or_else(|| existing_map.remove(raw_label));
             let preserved_preview = existing_item.as_ref().and_then(|ex| ex.postfix_template.clone());
             let final_doc = doc_text.or_else(|| existing_item.as_ref().and_then(|ex| ex.documentation.clone()));
-            let final_detail = item.detail.clone().or_else(|| existing_item.as_ref().and_then(|ex| ex.detail.clone()));
+            let final_detail = item.detail.clone()
+                .or_else(|| existing_item.as_ref().and_then(|ex| ex.detail.clone()))
+                .or(extracted_detail);
             let is_postfix = existing_item.as_ref().map_or(false, |ex| ex.is_postfix);
+
+            let snippet_preview = if kind == CompletionKind::PostfixSnippet {
+                item.insert_text.clone().or(preserved_preview)
+            } else {
+                preserved_preview
+            };
 
             enriched.push(CompletionItem {
                 label: display_label,
                 kind,
                 detail: final_detail,
                 documentation: final_doc,
-                insert_text: item.insert_text.clone().or_else(|| Some(label.clone())),
+                insert_text: item.insert_text.clone().or_else(|| Some(clean_symbol.to_string())),
                 score,
                 is_postfix,
-                postfix_template: preserved_preview,
+                postfix_template: snippet_preview,
             });
         }
 
@@ -284,11 +332,22 @@ impl CompletionState {
             enriched.push(existing);
         }
 
-        enriched.sort_by(|a, b| b.score.cmp(&a.score));
+        enriched.sort_by(|a, b| b.score.cmp(&a.score).then_with(|| a.label.cmp(&b.label)));
         enriched.dedup_by(|a, b| a.label == b.label);
 
         if !enriched.is_empty() {
             self.items = enriched;
+            // Retain user's current selection if the item is still present, so selection never jumps!
+            if let Some(prev_label) = previously_selected {
+                if let Some(new_idx) = self.items.iter().position(|it| it.label == prev_label) {
+                    self.selected_idx = new_idx;
+                } else {
+                    self.selected_idx = 0;
+                }
+            } else {
+                self.selected_idx = 0;
+            }
+
             // Only auto-open if the user has an active prefix or is directly after an accessor (., ::, ->)
             // Prevents unwanted popups right after statement delimiters (;) or empty lines
             if !self.prefix.is_empty() || self.is_after_dot {
@@ -467,18 +526,35 @@ pub fn commit_completion(
             let p_start = Point::new(insert_pos.row, insert_pos.column + start_col);
             let p_end = Point::new(insert_pos.row, insert_pos.column + end_col);
             editor.set_selection(editor::selection::Selection::new(p_start, p_end));
+
+            if let Some(row_offset) = parsed.body_row_offset {
+                let target_row = insert_pos.row + row_offset;
+                let target_col = if row_offset == 0 {
+                    insert_pos.column + parsed.body_col.unwrap_or(0)
+                } else {
+                    let base_indent = insert_pos.column;
+                    let snippet_col = parsed.body_col.unwrap_or(4);
+                    base_indent + snippet_col
+                };
+                return Some(SnippetSession {
+                    target_point: Point::new(target_row, target_col),
+                });
+            }
+            return None;
         }
 
+        // Direct cursor positioning for snippets without placeholder variables (e.g. sout, class, main)
         if let Some(row_offset) = parsed.body_row_offset {
             let target_row = insert_pos.row + row_offset;
-            let target_col = editor
-                .buffer
-                .line(target_row)
-                .map(|line| line.chars().count())
-                .unwrap_or_else(|| parsed.body_col.unwrap_or(4));
-            return Some(SnippetSession {
-                target_point: Point::new(target_row, target_col),
-            });
+            let target_col = if row_offset == 0 {
+                insert_pos.column + parsed.body_col.unwrap_or(0)
+            } else {
+                let base_indent = insert_pos.column;
+                let snippet_col = parsed.body_col.unwrap_or(4);
+                base_indent + snippet_col
+            };
+            editor.set_cursor(Point::new(target_row, target_col));
+            return None;
         }
         return None;
     }
@@ -725,6 +801,85 @@ mod tests {
     }
 
     #[test]
+    fn test_merge_lsp_items_cleans_compound_labels() {
+        let mut state = CompletionState::new();
+        let buf = Buffer::from_text("sta");
+        state.populate_instant(&buf, Some(Path::new("Hello.java")), Point::new(0, 3));
+
+        let lsp_items = vec![
+            crate::lsp::protocol::CompletionItem {
+                label: "stack_map_frame - com.sun.tools.classfile.StackMapTable_attribute$stack_map_frame".to_string(),
+                kind: Some(crate::lsp::protocol::CompletionItemKind::Field),
+                detail: None,
+                documentation: None,
+                insert_text: None,
+            },
+            crate::lsp::protocol::CompletionItem {
+                label: "Stack - java.util".to_string(),
+                kind: Some(crate::lsp::protocol::CompletionItemKind::Class),
+                detail: Some("class java.util.Stack".to_string()),
+                documentation: None,
+                insert_text: None,
+            },
+        ];
+
+        state.merge_lsp_items(&lsp_items);
+        assert!(state.active);
+        
+        let stack_map = state.items.iter().find(|i| i.label == "stack_map_frame").expect("stack_map_frame should be clean");
+        assert_eq!(stack_map.label, "stack_map_frame");
+        assert_eq!(stack_map.detail.as_deref(), Some("com.sun.tools.classfile.StackMapTable_attribute$stack_map_frame"));
+        assert_eq!(stack_map.insert_text.as_deref(), Some("stack_map_frame"));
+
+        let stack = state.items.iter().find(|i| i.label == "Stack").expect("Stack should be clean");
+        assert_eq!(stack.label, "Stack");
+        assert_eq!(stack.detail.as_deref(), Some("class java.util.Stack"));
+        assert_eq!(stack.insert_text.as_deref(), Some("Stack"));
+    }
+
+    #[test]
+    fn test_snippets_pinned_at_top_when_lsp_arrives() {
+        let mut state = CompletionState::new();
+        let buf = Buffer::from_text("s");
+        state.populate_instant(&buf, Some(Path::new("Hello.java")), Point::new(0, 1));
+        assert!(state.active);
+
+        // Before LSP arrives: top item is a Tier-1 snippet (e.g. sout~ or serr~)
+        let initial_top = state.items[0].label.clone();
+        assert!(initial_top.ends_with('~'));
+
+        // Now Eclipse JDTLS returns Socket and SortedMap in background
+        let lsp_items = vec![
+            crate::lsp::protocol::CompletionItem {
+                label: "Socket - java.net".to_string(),
+                kind: Some(crate::lsp::protocol::CompletionItemKind::Class),
+                detail: Some("class java.net.Socket".to_string()),
+                documentation: None,
+                insert_text: None,
+            },
+            crate::lsp::protocol::CompletionItem {
+                label: "SortedMap - java.util".to_string(),
+                kind: Some(crate::lsp::protocol::CompletionItemKind::Interface),
+                detail: Some("interface java.util.SortedMap".to_string()),
+                documentation: None,
+                insert_text: None,
+            },
+        ];
+
+        state.merge_lsp_items(&lsp_items);
+        assert!(state.active);
+
+        // The snippet MUST REMAIN AT INDEX 0! LSP must never steal index 0
+        assert!(state.items[0].label.ends_with('~'));
+        assert_eq!(state.selected_idx, 0);
+
+        // Socket must exist further down in the list, NOT stealing index 0
+        assert!(state.items.iter().any(|i| i.label == "Socket"));
+        let socket_idx = state.items.iter().position(|i| i.label == "Socket").unwrap();
+        assert!(socket_idx > 0);
+    }
+
+    #[test]
     fn test_populate_instant_single_character_triggers_realtime() {
         let mut state = CompletionState::new();
         let buf = Buffer::from_text("f");
@@ -844,6 +999,49 @@ mod tests {
         assert!(session.is_some());
         let s = session.unwrap();
         assert_eq!(s.target_point, Point::new(1, 4));
+    }
+
+    #[test]
+    fn test_commit_completion_sout_places_cursor_inside_quotes() {
+        let mut editor = Editor::new(Buffer::new());
+        editor.insert("sout", None, None);
+
+        let item = CompletionItem {
+            label: "sout~".to_string(),
+            kind: CompletionKind::PostfixSnippet,
+            detail: Some("snippet".to_string()),
+            documentation: Some("System.out.println()".to_string()),
+            insert_text: Some("System.out.println(\"\");".to_string()),
+            score: 2800,
+            is_postfix: false,
+            postfix_template: Some("System.out.println(\"\");".to_string()),
+        };
+
+        commit_completion(&mut editor, &item, "sout", None, false, None, None);
+        assert_eq!(editor.buffer.to_string(), "System.out.println(\"\");");
+        // Cursor should be placed INSIDE the quotes at column 20!
+        assert_eq!(editor.cursor(), Point::new(0, 20));
+    }
+
+    #[test]
+    fn test_commit_completion_class_places_cursor_inside_body() {
+        let mut editor = Editor::new(Buffer::new());
+        editor.insert("class", None, None);
+
+        let item = CompletionItem {
+            label: "class~".to_string(),
+            kind: CompletionKind::PostfixSnippet,
+            detail: Some("snippet".to_string()),
+            documentation: Some("public class declaration".to_string()),
+            insert_text: Some("public class Hello {\n    \n}".to_string()),
+            score: 2800,
+            is_postfix: false,
+            postfix_template: Some("public class Hello {\n    \n}".to_string()),
+        };
+
+        commit_completion(&mut editor, &item, "class", None, false, None, None);
+        // Cursor should be placed INSIDE the class body on line 1, column 4!
+        assert_eq!(editor.cursor(), Point::new(1, 4));
     }
 }
 

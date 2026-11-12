@@ -10,7 +10,7 @@ pub struct EditorTab {
     pub scroll_y: f32,
     pub target_scroll_y: f32,
     pub shaping_cache:
-        std::collections::HashMap<usize, (String, std::sync::Arc<zenthra_text::prelude::ShapedBuffer>)>,
+        std::collections::HashMap<usize, (std::sync::Arc<str>, std::sync::Arc<zenthra_text::prelude::ShapedBuffer>)>,
     pub version: u64,
     pub lines_added: usize,
     pub lines_removed: usize,

@@ -109,16 +109,22 @@ impl WorkspaceWatcher {
                     // Check if any path is NOT in ignored directories (e.g., .git/objects, target/)
                     for path in &event.paths {
                         let path_str = path.to_string_lossy();
-                        // Ignore git internal pack/objects churn, but allow .git index/HEAD for status updates
-                        let is_git_churn = path_str.contains("/.git/objects")
-                            || path_str.contains("/.git/logs")
-                            || path_str.contains("/.git/refs");
-                        let is_target = path_str.contains("/target/debug")
-                            || path_str.contains("/target/release")
-                            || path_str.contains("/target/tmp");
+                        // Ignore git internal churn, build outputs, and package managers
+                        let is_git_churn = path_str.contains("/.git/")
+                            || path_str.contains("\\.git\\");
+                        let is_build_output = path_str.contains("/target/")
+                            || path_str.contains("\\target\\")
+                            || path_str.contains("/.cargo-target/")
+                            || path_str.contains("\\.cargo-target\\")
+                            || path_str.contains("/node_modules/")
+                            || path_str.contains("\\node_modules\\")
+                            || path_str.contains("/dist/")
+                            || path_str.contains("\\dist\\")
+                            || path_str.contains("/build/")
+                            || path_str.contains("\\build\\");
                         let is_editor_temp = path_str.ends_with('~') || path_str.ends_with(".swp");
 
-                        if !is_git_churn && !is_target && !is_editor_temp {
+                        if !is_git_churn && !is_build_output && !is_editor_temp {
                             let _ = tx.send(path.clone());
                             break;
                         }

@@ -121,3 +121,9 @@ impl LspTransport {
         self.receiver.try_recv().ok()
     }
 }
+
+impl Drop for LspTransport {
+    fn drop(&mut self) {
+        let _ = self._child.kill();
+    }
+}

@@ -284,11 +284,6 @@ impl ZenthreeState {
                     };
 
                     map.insert(full_path.clone(), status);
-                    if let Ok(canon) = std::fs::canonicalize(&full_path) {
-                        if canon != full_path {
-                            map.insert(canon, status);
-                        }
-                    }
 
                     let mut current = full_path.parent();
                     while let Some(parent) = current {
@@ -297,11 +292,6 @@ impl ZenthreeState {
                         }
                         map.entry(parent.to_path_buf())
                             .or_insert(GitStatus::Modified);
-                        if let Ok(canon_parent) = std::fs::canonicalize(parent) {
-                            if canon_parent != parent {
-                                map.entry(canon_parent).or_insert(GitStatus::Modified);
-                            }
-                        }
                         current = parent.parent();
                     }
                 }

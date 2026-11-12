@@ -28,10 +28,15 @@ pub enum LspInstallEvent {
 pub struct LspInstaller;
 
 impl LspInstaller {
-    /// Get the dedicated Zenthree tools directory: ~/.local/share/zenthree
+    /// Get the dedicated Zenthree tools directory across all platforms:
+    /// - Linux: ~/.local/share/zenthree
+    /// - macOS: ~/Library/Application Support/zenthree or ~/.local/share/zenthree
+    /// - Windows: %LOCALAPPDATA%\zenthree
     pub fn zenthree_data_dir() -> PathBuf {
-        if let Ok(home) = std::env::var("HOME") {
-            PathBuf::from(home).join(".local").join("share").join("zenthree")
+        if let Some(dir) = dirs::data_local_dir().or_else(dirs::data_dir) {
+            dir.join("zenthree")
+        } else if let Some(home) = dirs::home_dir() {
+            home.join(".local").join("share").join("zenthree")
         } else {
             PathBuf::from("/tmp").join("zenthree")
         }
@@ -130,10 +135,20 @@ impl LspInstaller {
             }
         }
 
-        // Strategy 2: Dedicated isolated virtual environment ~/.local/share/zenthree/lsp_venv
+        // Strategy 2: Dedicated isolated virtual environment in zenthree_data_dir/lsp_venv
         let venv_dir = Self::python_venv_dir();
-        let pip_bin = venv_dir.join("bin").join("pip");
-        let pylsp_bin = venv_dir.join("bin").join("pylsp");
+        let pip_bin = if cfg!(windows) {
+            let scripts_pip = venv_dir.join("Scripts").join("pip.exe");
+            if scripts_pip.exists() { scripts_pip } else { venv_dir.join("bin").join("pip") }
+        } else {
+            venv_dir.join("bin").join("pip")
+        };
+        let pylsp_bin = if cfg!(windows) {
+            let scripts_pylsp = venv_dir.join("Scripts").join("pylsp.exe");
+            if scripts_pylsp.exists() { scripts_pylsp } else { venv_dir.join("bin").join("pylsp") }
+        } else {
+            venv_dir.join("bin").join("pylsp")
+        };
 
         let _ = std::fs::create_dir_all(Self::zenthree_data_dir());
 
@@ -148,7 +163,12 @@ impl LspInstaller {
         if !pip_bin.exists() {
             let venv_status = Command::new("python3")
                 .args(&["-m", "venv", venv_dir.to_str().unwrap_or("")])
-                .output();
+                .output()
+                .or_else(|_| {
+                    Command::new("python")
+                        .args(&["-m", "venv", venv_dir.to_str().unwrap_or("")])
+                        .output()
+                });
 
             match venv_status {
                 Ok(out) if out.status.success() => {
@@ -288,14 +308,138 @@ impl LspInstaller {
         }
     }
 
-    fn install_cpp(_lang: &str, _signal: &ArcSignal<Vec<LspInstallEvent>>) -> Result<(String, String), String> {
-        // clangd is typically packaged with the system
-        if let Ok(out) = Command::new("sudo").args(&["apt-get", "install", "-y", "clangd"]).output() {
-            if out.status.success() {
-                return Ok(("clangd".to_string(), "Installed clangd via apt!".to_string()));
+    fn install_cpp(lang: &str, signal: &ArcSignal<Vec<LspInstallEvent>>) -> Result<(String, String), String> {
+        // 1. Check if clangd is already on the system
+        if let Some(path) = super::LspManager::find_executable_path("clangd") {
+            return Ok(("clangd".to_string(), format!("Found clangd at {}", path.display())));
+        }
+
+        // 2. Direct download of official prebuilt clangd binary from LLVM/clangd GitHub releases (No sudo needed!)
+        signal.with_mut(|q| {
+            q.push(LspInstallEvent::Progress {
+                language_id: lang.to_string(),
+                message: "Downloading official prebuilt clangd language server...".to_string(),
+            });
+        });
+
+        let data_dir = Self::zenthree_data_dir();
+        let clangd_dir = data_dir.join("clangd");
+        let bin_dir = data_dir.join("bin");
+        let _ = std::fs::create_dir_all(&clangd_dir);
+        let _ = std::fs::create_dir_all(&bin_dir);
+
+        let zip_url = if cfg!(target_os = "macos") {
+            "https://github.com/clangd/clangd/releases/download/18.1.3/clangd-mac-18.1.3.zip"
+        } else if cfg!(target_os = "windows") {
+            "https://github.com/clangd/clangd/releases/download/18.1.3/clangd-windows-18.1.3.zip"
+        } else {
+            "https://github.com/clangd/clangd/releases/download/18.1.3/clangd-linux-18.1.3.zip"
+        };
+        let zip_path = data_dir.join("clangd.zip");
+
+        let dl_res = Command::new("curl")
+            .args(&["-sSL", zip_url, "-o", zip_path.to_str().unwrap_or("clangd.zip")])
+            .output();
+
+        let downloaded = match dl_res {
+            Ok(o) if o.status.success() && zip_path.exists() => true,
+            _ => {
+                #[cfg(windows)]
+                {
+                    Command::new("powershell")
+                        .args(&["-Command", &format!("Invoke-WebRequest -Uri '{}' -OutFile '{}'", zip_url, zip_path.display())])
+                        .output()
+                        .map(|o| o.status.success() && zip_path.exists())
+                        .unwrap_or(false)
+                }
+                #[cfg(not(windows))]
+                { false }
+            }
+        };
+
+        if !downloaded {
+            return Err("Failed to download clangd archive. Please check your internet connection.".to_string());
+        }
+
+        signal.with_mut(|q| {
+            q.push(LspInstallEvent::Progress {
+                language_id: lang.to_string(),
+                message: "Extracting clangd binary...".to_string(),
+            });
+        });
+
+        // Unzip clangd archive across platforms
+        let zip_str = zip_path.to_str().unwrap_or("");
+        let dest_str = clangd_dir.to_str().unwrap_or("");
+
+        #[cfg(windows)]
+        {
+            let tar_res = Command::new("tar").args(&["-xf", zip_str, "-C", dest_str]).output();
+            let extracted = match tar_res {
+                Ok(o) if o.status.success() => true,
+                _ => false,
+            };
+            if !extracted {
+                let _ = Command::new("powershell")
+                    .args(&["-Command", &format!("Expand-Archive -Path '{}' -DestinationPath '{}' -Force", zip_str, dest_str)])
+                    .output();
             }
         }
-        Err("Please install clangd using your system package manager (e.g. 'sudo apt install clangd' or 'brew install llvm').".to_string())
+        #[cfg(not(windows))]
+        {
+            let unzip_res = Command::new("unzip").args(&["-q", "-o", zip_str, "-d", dest_str]).output();
+            let extracted = match unzip_res {
+                Ok(o) if o.status.success() => true,
+                _ => false,
+            };
+            if !extracted {
+                let _ = Command::new("tar").args(&["-xf", zip_str, "-C", dest_str]).output();
+            }
+        }
+
+        let _ = std::fs::remove_file(&zip_path);
+
+        // Find the clangd binary inside clangd_dir (e.g. clangd_18.1.3/bin/clangd[.exe])
+        let exe_name = if cfg!(windows) { "clangd.exe" } else { "clangd" };
+        let mut clangd_bin = clangd_dir.join("bin").join(exe_name);
+        if !clangd_bin.exists() {
+            if let Ok(entries) = std::fs::read_dir(&clangd_dir) {
+                for entry in entries.flatten() {
+                    let sub_bin = entry.path().join("bin").join(exe_name);
+                    if sub_bin.exists() {
+                        clangd_bin = sub_bin;
+                        break;
+                    }
+                }
+            }
+        }
+
+        if !clangd_bin.exists() {
+            return Err("Failed to locate extracted clangd executable.".to_string());
+        }
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            let _ = std::fs::set_permissions(&clangd_bin, std::fs::Permissions::from_mode(0o755));
+        }
+
+        let target_symlink = bin_dir.join(exe_name);
+        let _ = std::fs::remove_file(&target_symlink);
+        #[cfg(unix)]
+        {
+            let _ = std::os::unix::fs::symlink(&clangd_bin, &target_symlink);
+            if let Ok(home) = std::env::var("HOME") {
+                let user_local_bin = PathBuf::from(home).join(".local").join("bin");
+                let _ = std::fs::create_dir_all(&user_local_bin);
+                let _ = std::fs::remove_file(user_local_bin.join(exe_name));
+                let _ = std::os::unix::fs::symlink(&clangd_bin, user_local_bin.join(exe_name));
+            }
+        }
+        #[cfg(not(unix))]
+        let _ = std::fs::copy(&clangd_bin, &target_symlink);
+
+        Ok(("clangd".to_string(), "Installed clangd successfully!".to_string()))
     }
 
     fn install_shell(lang: &str, signal: &ArcSignal<Vec<LspInstallEvent>>) -> Result<(String, String), String> {
@@ -744,5 +888,92 @@ impl LspInstaller {
             }
             Err(e) => Err(format!("npm not found: {}. Please install Node.js/npm first.", e)),
         }
+    }
+
+    /// Completely delete/uninstall an installed language server from disk
+    pub fn uninstall_server(language_id: &str) -> Result<(), String> {
+        let data_dir = Self::zenthree_data_dir();
+        let bin_dir = data_dir.join("bin");
+
+        match language_id {
+            "cpp" | "c" => {
+                let clangd_dir = data_dir.join("clangd");
+                let _ = std::fs::remove_dir_all(&clangd_dir);
+                let _ = std::fs::remove_file(bin_dir.join("clangd"));
+                let _ = std::fs::remove_file(bin_dir.join("clangd.exe"));
+                if let Some(home) = dirs::home_dir() {
+                    let _ = std::fs::remove_file(home.join(".local").join("bin").join("clangd"));
+                    let _ = std::fs::remove_file(home.join(".local").join("bin").join("clangd.exe"));
+                }
+            }
+            "java" => {
+                let jdtls_dir = data_dir.join("jdtls");
+                let _ = std::fs::remove_dir_all(&jdtls_dir);
+                let _ = std::fs::remove_file(bin_dir.join("jdtls"));
+                let _ = std::fs::remove_file(bin_dir.join("jdtls.bat"));
+                if let Some(home) = dirs::home_dir() {
+                    let _ = std::fs::remove_file(home.join(".local").join("bin").join("jdtls"));
+                    let _ = std::fs::remove_file(home.join(".local").join("bin").join("jdtls.bat"));
+                }
+            }
+            "python" => {
+                let venv_dir = Self::python_venv_dir();
+                let _ = std::fs::remove_dir_all(&venv_dir);
+                let _ = Command::new("npm").args(&["uninstall", "-g", "pyright"]).output();
+            }
+            "elixir" => {
+                let elixir_dir = data_dir.join("lsp").join("elixir-ls");
+                let _ = std::fs::remove_dir_all(&elixir_dir);
+            }
+            "typescript" | "javascript" => {
+                let _ = Command::new("npm").args(&["uninstall", "-g", "typescript", "typescript-language-server"]).output();
+            }
+            "shell" => {
+                let _ = Command::new("npm").args(&["uninstall", "-g", "bash-language-server"]).output();
+            }
+            "html_css" => {
+                let _ = Command::new("npm").args(&["uninstall", "-g", "vscode-langservers-extracted"]).output();
+            }
+            "json_yaml" => {
+                let _ = Command::new("npm").args(&["uninstall", "-g", "yaml-language-server", "vscode-langservers-extracted"]).output();
+            }
+            "dockerfile" => {
+                let _ = Command::new("npm").args(&["uninstall", "-g", "dockerfile-language-server-nodejs"]).output();
+            }
+            "sql" => {
+                let _ = Command::new("npm").args(&["uninstall", "-g", "sql-language-server"]).output();
+            }
+            "php" => {
+                let _ = Command::new("npm").args(&["uninstall", "-g", "intelephense"]).output();
+            }
+            "vue" => {
+                let _ = Command::new("npm").args(&["uninstall", "-g", "@vue/language-server"]).output();
+            }
+            "svelte" => {
+                let _ = Command::new("npm").args(&["uninstall", "-g", "svelte-language-server"]).output();
+            }
+            "graphql" => {
+                let _ = Command::new("npm").args(&["uninstall", "-g", "graphql-language-service-cli"]).output();
+            }
+            "prisma" => {
+                let _ = Command::new("npm").args(&["uninstall", "-g", "@prisma/language-server"]).output();
+            }
+            "astro" => {
+                let _ = Command::new("npm").args(&["uninstall", "-g", "@astrojs/language-server"]).output();
+            }
+            "tailwind" => {
+                let _ = Command::new("npm").args(&["uninstall", "-g", "@tailwindcss/language-server"]).output();
+            }
+            "mdx" => {
+                let _ = Command::new("npm").args(&["uninstall", "-g", "@mdx-js/language-server"]).output();
+            }
+            "angular" => {
+                let _ = Command::new("npm").args(&["uninstall", "-g", "@angular/language-server"]).output();
+            }
+            _ => {}
+        }
+
+        super::LspManager::invalidate_cache();
+        Ok(())
     }
 }

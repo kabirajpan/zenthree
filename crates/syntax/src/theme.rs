@@ -54,24 +54,58 @@ impl SyntaxTheme {
     }
 
     pub fn get_color(&self, capture_name: &str) -> Color {
+        // Fast direct match
         match capture_name {
-            "keyword" => self.keyword,
-            "function" | "function.method" => self.function,
-            "function.call" | "function.macro" => self.function_call,
-            "type" | "type.builtin" => self.type_name,
-            "string" => self.string,
-            "number" => self.number,
-            "comment" | "comment.documentation" => self.comment,
-            "operator" => self.operator,
-            "punctuation" | "punctuation.bracket" | "punctuation.delimiter" => self.punctuation,
-            "variable" | "variable.parameter" | "variable.builtin" => self.variable,
-            "constant" | "constant.builtin" => self.constant,
-            "constructor" => self.type_name,
-            "property" => self.variable,
-            "attribute" => self.constant,
-            "escape" => self.operator,
-            "label" => self.keyword,
-            _ => self.default,
+            "keyword" => return self.keyword,
+            "function" | "function.method" => return self.function,
+            "function.call" | "function.macro" => return self.function_call,
+            "type" | "type.builtin" => return self.type_name,
+            "string" => return self.string,
+            "number" => return self.number,
+            "comment" | "comment.documentation" => return self.comment,
+            "operator" => return self.operator,
+            "punctuation" | "punctuation.bracket" | "punctuation.delimiter" => return self.punctuation,
+            "variable" | "variable.parameter" | "variable.builtin" => return self.variable,
+            "constant" | "constant.builtin" => return self.constant,
+            "constructor" => return self.type_name,
+            "property" => return self.variable,
+            "attribute" => return self.constant,
+            "escape" => return self.operator,
+            "label" => return self.keyword,
+            _ => {}
+        }
+
+        // Helix & Tree-sitter hierarchical prefix matching
+        if capture_name.starts_with("keyword") {
+            self.keyword
+        } else if capture_name.starts_with("function") {
+            if capture_name.contains("call") || capture_name.contains("macro") {
+                self.function_call
+            } else {
+                self.function
+            }
+        } else if capture_name.starts_with("type") || capture_name == "namespace" || capture_name.starts_with("constructor") {
+            self.type_name
+        } else if capture_name.starts_with("string") {
+            self.string
+        } else if capture_name.starts_with("number") || capture_name.starts_with("float") || capture_name.contains("numeric") {
+            self.number
+        } else if capture_name.starts_with("comment") {
+            self.comment
+        } else if capture_name.starts_with("operator") {
+            self.operator
+        } else if capture_name.starts_with("punctuation") || capture_name.starts_with("delimiter") || capture_name.starts_with("bracket") {
+            self.punctuation
+        } else if capture_name.starts_with("constant") || capture_name.starts_with("boolean") {
+            self.constant
+        } else if capture_name.starts_with("variable") || capture_name.starts_with("property") || capture_name.starts_with("field") {
+            self.variable
+        } else if capture_name.starts_with("attribute") {
+            self.constant
+        } else if capture_name.starts_with("label") {
+            self.keyword
+        } else {
+            self.default
         }
     }
 }

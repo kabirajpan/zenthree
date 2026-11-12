@@ -145,6 +145,10 @@ impl ZenthreeState {
 
     pub fn install_extension(&mut self, id: &str) {
         self.installed_extensions.insert(id.to_string());
+        let ext_id_owned = id.to_string();
+        std::thread::spawn(move || {
+            let _ = crate::extensions::download_language_queries(&ext_id_owned);
+        });
         self.highlighter.reset();
         self.save_persistent_state();
         if let Some(ext) = crate::extensions::ExtensionCatalog::find_by_id(id) {
@@ -161,13 +165,30 @@ impl ZenthreeState {
 
     pub fn uninstall_extension(&mut self, id: &str) {
         self.installed_extensions.remove(id);
+        self.ignored_language_prompts.remove(id);
+
+        // Delete downloaded Tree-sitter query directory from disk
+        if let Some(dir) = dirs::data_local_dir().or_else(dirs::data_dir) {
+            let custom_path = dir.join("zenthree").join("queries").join(id);
+            let _ = std::fs::remove_dir_all(&custom_path);
+        }
+
         self.highlighter.reset();
         self.save_persistent_state();
         if let Some(ext) = crate::extensions::ExtensionCatalog::find_by_id(id) {
-            self.set_status(format!("Uninstalled {}", ext.name));
+            self.set_status(format!("Uninstalled and deleted {} language pack", ext.name));
         } else {
             self.set_status(format!("Uninstalled extension: {}", id));
         }
+    }
+
+    pub fn uninstall_lsp_server(&mut self, language_id: &str) {
+        self.lsp_manager.stop_session(language_id);
+        let _ = crate::lsp::installer::LspInstaller::uninstall_server(language_id);
+        crate::lsp::LspManager::invalidate_cache();
+        self.ignored_lsp_prompts.remove(language_id);
+        self.save_persistent_state();
+        self.set_status(format!("Uninstalled and deleted {} language server", language_id));
     }
 
     pub fn is_extension_installed(&self, id: &str) -> bool {

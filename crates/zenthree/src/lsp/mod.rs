@@ -33,18 +33,29 @@ pub struct LspServerInfo {
 pub fn enriched_path() -> std::ffi::OsString {
     let mut paths: Vec<PathBuf> = Vec::new();
 
-    let venv_bin = installer::LspInstaller::python_venv_dir().join("bin");
-    paths.push(venv_bin);
+    let venv_dir = installer::LspInstaller::python_venv_dir();
+    paths.push(venv_dir.join("bin"));
+    #[cfg(windows)]
+    paths.push(venv_dir.join("Scripts"));
 
-    if let Ok(home) = std::env::var("HOME") {
-        let home_p = PathBuf::from(&home);
-        paths.push(home_p.join(".local").join("share").join("zenthree").join("bin"));
-        paths.push(home_p.join(".local").join("share").join("zenthree").join("lsp").join("elixir-ls"));
-        paths.push(home_p.join(".local").join("share").join("zenthree").join("lsp"));
-        paths.push(home_p.join(".local").join("bin"));
-        paths.push(home_p.join(".cargo").join("bin"));
-        paths.push(home_p.join("go").join("bin"));
-        paths.push(home_p.join(".npm-global").join("bin"));
+    let data_dir = installer::LspInstaller::zenthree_data_dir();
+    paths.push(data_dir.join("bin"));
+    paths.push(data_dir.join("lsp").join("elixir-ls"));
+    paths.push(data_dir.join("lsp"));
+
+    if let Some(home) = dirs::home_dir() {
+        paths.push(home.join(".local").join("share").join("zenthree").join("bin"));
+        paths.push(home.join(".local").join("share").join("zenthree").join("lsp").join("elixir-ls"));
+        paths.push(home.join(".local").join("share").join("zenthree").join("lsp"));
+        paths.push(home.join(".local").join("bin"));
+        paths.push(home.join(".cargo").join("bin"));
+        paths.push(home.join("go").join("bin"));
+        paths.push(home.join(".npm-global").join("bin"));
+    }
+
+    #[cfg(windows)]
+    if let Ok(appdata) = std::env::var("APPDATA") {
+        paths.push(PathBuf::from(appdata).join("npm"));
     }
 
     if let Ok(path_var) = std::env::var("PATH") {
@@ -726,7 +737,17 @@ impl LspManager {
         }
     }
 
-    /// Invalidate in-memory caches (called after installing an LSP server)
+    /// Terminate and remove an active LSP session for a language
+    pub fn stop_session(&mut self, language_id: &str) {
+        let key_to_remove = self.sessions.keys().find(|k| **k == language_id).copied();
+        if let Some(key) = key_to_remove {
+            if let Some(session) = self.sessions.remove(key) {
+                let _ = session.transport.send_raw(b"{\"jsonrpc\":\"2.0\",\"method\":\"exit\"}\r\n\r\n");
+            }
+        }
+    }
+
+    /// Invalidate in-memory caches (called after installing or uninstalling an LSP server)
     pub fn invalidate_cache() {
         if let Some(lock) = LANGUAGE_INSTALLED_CACHE.get() {
             if let Ok(mut map) = lock.write() {
@@ -768,21 +789,33 @@ impl LspManager {
 
         let mut search_dirs: Vec<PathBuf> = Vec::new();
 
-        // 1. Zenthree dedicated python venv: ~/.local/share/zenthree/lsp_venv/bin
-        let venv_bin = installer::LspInstaller::python_venv_dir().join("bin");
-        search_dirs.push(venv_bin);
+        // 1. Zenthree dedicated python venv
+        let venv_dir = installer::LspInstaller::python_venv_dir();
+        search_dirs.push(venv_dir.join("bin"));
+        #[cfg(windows)]
+        search_dirs.push(venv_dir.join("Scripts"));
 
-        // 2. User bins
-        if let Ok(home) = std::env::var("HOME") {
-            let home_p = PathBuf::from(&home);
-            search_dirs.push(home_p.join(".local").join("share").join("zenthree").join("bin"));
-            search_dirs.push(home_p.join(".local").join("bin"));
-            search_dirs.push(home_p.join(".cargo").join("bin"));
-            search_dirs.push(home_p.join("go").join("bin"));
-            search_dirs.push(home_p.join(".npm-global").join("bin"));
+        // 2. Zenthree data dir bin
+        let data_dir = installer::LspInstaller::zenthree_data_dir();
+        search_dirs.push(data_dir.join("bin"));
+        search_dirs.push(data_dir.join("lsp").join("elixir-ls"));
+        search_dirs.push(data_dir.join("lsp"));
+
+        // 3. User bins
+        if let Some(home) = dirs::home_dir() {
+            search_dirs.push(home.join(".local").join("share").join("zenthree").join("bin"));
+            search_dirs.push(home.join(".local").join("bin"));
+            search_dirs.push(home.join(".cargo").join("bin"));
+            search_dirs.push(home.join("go").join("bin"));
+            search_dirs.push(home.join(".npm-global").join("bin"));
         }
 
-        // 3. System PATH
+        #[cfg(windows)]
+        if let Ok(appdata) = std::env::var("APPDATA") {
+            search_dirs.push(PathBuf::from(appdata).join("npm"));
+        }
+
+        // 4. System PATH
         if let Ok(path_var) = std::env::var("PATH") {
             for dir in std::env::split_paths(&path_var) {
                 search_dirs.push(dir);
@@ -798,17 +831,33 @@ impl LspManager {
             {
                 let full_exe = dir.join(format!("{}.exe", name));
                 let full_cmd = dir.join(format!("{}.cmd", name));
+                let full_bat = dir.join(format!("{}.bat", name));
                 if full_exe.is_file() { return Some(full_exe); }
                 if full_cmd.is_file() { return Some(full_cmd); }
+                if full_bat.is_file() { return Some(full_bat); }
             }
         }
 
-        // Fallback: which/where
+        // Fallback: which (Unix/macOS) / where (Windows)
+        #[cfg(unix)]
         if let Ok(out) = std::process::Command::new("which").arg(name).output() {
             if out.status.success() {
                 let out_str = String::from_utf8_lossy(&out.stdout).trim().to_string();
                 if !out_str.is_empty() {
                     return Some(PathBuf::from(out_str));
+                }
+            }
+        }
+
+        #[cfg(windows)]
+        if let Ok(out) = std::process::Command::new("where").arg(name).output() {
+            if out.status.success() {
+                let out_str = String::from_utf8_lossy(&out.stdout);
+                if let Some(first_line) = out_str.lines().next() {
+                    let trimmed = first_line.trim();
+                    if !trimmed.is_empty() {
+                        return Some(PathBuf::from(trimmed));
+                    }
                 }
             }
         }

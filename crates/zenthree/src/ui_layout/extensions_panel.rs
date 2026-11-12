@@ -358,13 +358,15 @@ fn draw_language_packs_tab(
 
                                 // Right: Install / Uninstall Action button
                                 if is_installed {
-                                    let uninst_btn = ui.button("Installed")
-                                        .id(Id::from_u64(999998400 + idx as u64))
+                                    let btn_id = Id::from_u64(999998400 + idx as u64);
+                                    let uninst_btn = ui.button("Uninstall")
+                                        .id(btn_id)
                                         .height(20.0)
                                         .width(btn_w)
-                                        .bg(Color::TRANSPARENT)
-                                        .hover(Style::bg(Color::rgba(239.0 / 255.0, 68.0 / 255.0, 68.0 / 255.0, 0.15)))
-                                        .color(colors.text_muted)
+                                        .bg(Color::rgba(239.0 / 255.0, 68.0 / 255.0, 68.0 / 255.0, 0.15))
+                                        .hover(Style::bg(Color::rgba(239.0 / 255.0, 68.0 / 255.0, 68.0 / 255.0, 0.28)))
+                                        .color(Color::rgb(248.0 / 255.0, 113.0 / 255.0, 113.0 / 255.0))
+                                        .border((Color::rgba(239.0 / 255.0, 68.0 / 255.0, 68.0 / 255.0, 0.4), 1.0))
                                         .radius_all(3.0)
                                         .padding_left(4.0)
                                         .padding_right(4.0)
@@ -575,6 +577,7 @@ fn draw_language_servers_tab(
             }
 
             let mut to_install_lsp = None;
+            let mut to_uninstall_lsp = None;
 
             for (idx, (_, srv, is_installed)) in filtered.into_iter().enumerate() {
                 let is_installing = state.is_lsp_installing(srv.language_id);
@@ -593,7 +596,7 @@ fn draw_language_servers_tab(
                     .gap(5.0)
                     .show(|ui| {
                         // Top row: Lambda Icon + Name on Left, Action Button on Right
-                        let btn_w = if is_installing { 76.0 } else if is_installed { 58.0 } else { 88.0 };
+                        let btn_w = if is_installing { 76.0 } else if is_installed { 64.0 } else { 88.0 };
                         let title_avail_w = (inner_w - btn_w - 8.0).max(40.0);
                         let name_max_w = (title_avail_w - 28.0).max(30.0);
 
@@ -647,17 +650,24 @@ fn draw_language_servers_tab(
                                         .size(10.0)
                                         .show();
                                 } else if is_installed {
-                                    let _ = ui.button("✓ Ready")
-                                        .id(Id::from_u64(999998600 + idx as u64))
+                                    let btn_id = Id::from_u64(999998600 + idx as u64);
+                                    let rm_btn = ui.button("Remove")
+                                        .id(btn_id)
                                         .height(20.0)
                                         .width(btn_w)
-                                        .bg(Color::rgb(74.0 / 255.0, 222.0 / 255.0, 128.0 / 255.0).with_alpha(0.15))
-                                        .color(Color::rgb(74.0 / 255.0, 222.0 / 255.0, 128.0 / 255.0))
+                                        .bg(Color::rgba(239.0 / 255.0, 68.0 / 255.0, 68.0 / 255.0, 0.15))
+                                        .hover(Style::bg(Color::rgba(239.0 / 255.0, 68.0 / 255.0, 68.0 / 255.0, 0.28)))
+                                        .color(Color::rgb(248.0 / 255.0, 113.0 / 255.0, 113.0 / 255.0))
+                                        .border((Color::rgba(239.0 / 255.0, 68.0 / 255.0, 68.0 / 255.0, 0.4), 1.0))
                                         .radius_all(3.0)
                                         .padding_left(4.0)
                                         .padding_right(4.0)
                                         .size(10.0)
                                         .show();
+
+                                    if rm_btn.clicked {
+                                        to_uninstall_lsp = Some(srv.language_id);
+                                    }
                                 } else {
                                     let inst_btn = ui.button("\u{f0627} Install LSP")
                                         .id(Id::from_u64(999998600 + idx as u64))
@@ -745,6 +755,9 @@ fn draw_language_servers_tab(
 
             if let Some(lang_id) = to_install_lsp {
                 state.start_lsp_install(lang_id);
+                ui.request_redraw();
+            } else if let Some(lang_id) = to_uninstall_lsp {
+                state.uninstall_lsp_server(lang_id);
                 ui.request_redraw();
             }
         });

@@ -51,15 +51,27 @@ impl ExtensionCatalog {
                 tools: &["prettier", "tsc", "typescript-language-server"],
             },
             LanguageExtension {
+                id: "c",
+                name: "C",
+                description: "C language syntax, preprocessor directives, pointers, and clang-format (.c, .h)",
+                extensions: &["c", "h"],
+                version: "1.1.0",
+                author: "Zenthra Official",
+                glyph: "\u{e61e}", // Devicon C
+                icon_color: Color::rgb(140.0 / 255.0, 160.0 / 255.0, 180.0 / 255.0),
+                features: &["Syntax Highlighting", "ClangFormat", "Macro Parsing"],
+                tools: &["clang-format", "tree-sitter-c"],
+            },
+            LanguageExtension {
                 id: "cpp",
-                name: "C / C++",
-                description: "Syntax highlighting, preprocessor macros, and Clang tooling for C/C++ (.c, .cpp, .h, .hpp)",
-                extensions: &["c", "cpp", "cc", "cxx", "h", "hpp", "hxx"],
-                version: "1.1.4",
+                name: "C++",
+                description: "Modern C++ syntax, classes, templates, namespaces, and Clang tooling (.cpp, .cc, .cxx, .hpp, .hxx)",
+                extensions: &["cpp", "cc", "cxx", "hpp", "hxx"],
+                version: "1.2.0",
                 author: "Zenthra Official",
                 glyph: "\u{e61d}", // Devicon C++
                 icon_color: Color::rgb(0.0 / 255.0, 89.0 / 255.0, 156.0 / 255.0), // C++ blue #00599c
-                features: &["Syntax Highlighting", "ClangFormat", "Macro Parsing"],
+                features: &["Tree-sitter AST", "Templates & Classes", "ClangFormat"],
                 tools: &["clang-format", "tree-sitter-cpp"],
             },
             LanguageExtension {
@@ -471,5 +483,129 @@ impl ExtensionCatalog {
     /// Find extension by ID
     pub fn find_by_id(id: &str) -> Option<LanguageExtension> {
         Self::all().into_iter().find(|item| item.id == id)
+    }
+}
+
+/// Dynamically downloads official Tree-Sitter queries from the Helix server.
+/// Every language is kept strictly in its own separate directory on disk.
+pub fn download_language_queries(ext_id: &str) -> Result<(), String> {
+    let data_dir = dirs::data_local_dir()
+        .or_else(dirs::data_dir)
+        .unwrap_or_else(|| std::path::PathBuf::from("/tmp"));
+    let queries_root = data_dir.join("zenthree").join("queries");
+
+    // Expand composite bundles into clean individual languages
+    let languages_to_download: Vec<&str> = match ext_id {
+        "html_css" => vec!["html", "css"],
+        "json_yaml" => vec!["json", "yaml"],
+        "typescript" => vec!["typescript", "javascript"],
+        "cpp" => vec!["cpp", "c"],
+        "c" => vec!["c"],
+        "tsx" => vec!["tsx", "typescript", "javascript"],
+        other => vec![other],
+    };
+
+    for lang in languages_to_download {
+        let helix_folder = helix_query_folder(lang);
+        let _ = download_single_helix_query(lang, helix_folder, &queries_root);
+    }
+
+    Ok(())
+}
+
+fn helix_query_folder(lang: &str) -> &'static str {
+    match lang {
+        "csharp" => "c-sharp",
+        "shell" => "bash",
+        "protobuf" => "proto",
+        "c" => "c",
+        "cpp" => "cpp",
+        "rust" => "rust",
+        "python" => "python",
+        "java" => "java",
+        "javascript" => "javascript",
+        "typescript" => "typescript",
+        "tsx" => "tsx",
+        "go" => "go",
+        "html" => "html",
+        "css" => "css",
+        "json" => "json",
+        "yaml" => "yaml",
+        "toml" => "toml",
+        "dockerfile" => "dockerfile",
+        "sql" => "sql",
+        "zig" => "zig",
+        "lua" => "lua",
+        "ruby" => "ruby",
+        "php" => "php",
+        "kotlin" => "kotlin",
+        "swift" => "swift",
+        "elixir" => "elixir",
+        "svelte" => "svelte",
+        "vue" => "vue",
+        "graphql" => "graphql",
+        "prisma" => "prisma",
+        "astro" => "astro",
+        "markdown" => "markdown",
+        _ => "rust",
+    }
+}
+
+fn download_single_helix_query(lang: &str, helix_folder: &str, queries_root: &std::path::Path) -> Result<(), String> {
+    let queries_dir = queries_root.join(lang);
+    let _ = std::fs::create_dir_all(&queries_dir);
+
+    // Complete suite of queries Helix handles:
+    // highlights.scm (syntax highlighting)
+    // indents.scm (smart AST auto-indentation)
+    // tags.scm (document outline & symbol definitions)
+    // textobjects.scm (AST structural selection)
+    // injections.scm (multi-language embedding)
+    const QUERY_FILES: &[&str] = &[
+        "highlights.scm",
+        "indents.scm",
+        "tags.scm",
+        "textobjects.scm",
+        "injections.scm",
+    ];
+
+    let mut highlights_downloaded = false;
+
+    for filename in QUERY_FILES {
+        let target_file = queries_dir.join(filename);
+        let url = format!(
+            "https://raw.githubusercontent.com/helix-editor/helix/master/runtime/queries/{}/{}",
+            helix_folder, filename
+        );
+
+        let output = std::process::Command::new("curl")
+            .args(&["-f", "-m", "10", "-sSL", &url, "-o", target_file.to_str().unwrap_or("")])
+            .output();
+
+        let success = match output {
+            Ok(out) if out.status.success() && target_file.exists() => true,
+            _ => {
+                #[cfg(windows)]
+                {
+                    std::process::Command::new("powershell")
+                        .args(&["-Command", &format!("try {{ (New-Object Net.WebClient).DownloadFile('{}', '{}') }} catch {{ exit 1 }}", url, target_file.display())])
+                        .output()
+                        .map(|o| o.status.success() && target_file.exists())
+                        .unwrap_or(false)
+                }
+                #[cfg(not(windows))]
+                { false }
+            }
+        };
+
+        if *filename == "highlights.scm" && success {
+            highlights_downloaded = true;
+        }
+    }
+
+    if highlights_downloaded {
+        Ok(())
+    } else {
+        Err(format!("Failed to download Helix queries for {}", lang))
     }
 }

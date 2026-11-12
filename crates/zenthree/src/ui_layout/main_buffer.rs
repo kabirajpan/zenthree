@@ -754,19 +754,26 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                                             tab.editor.insert(&c.to_string(), tab.path.as_deref(), Some(&state.indent_calc));
                                             changed = true;
                                             let cur = tab.editor.cursor();
-                                            state.completion_state.populate_instant(&tab.editor.buffer, tab.path.as_deref(), cur);
-                                            state.completion_active = state.completion_state.active;
-                                            if let Some(ref p) = tab.path {
-                                                let content = tab.editor.buffer.to_string();
-                                                state.lsp_manager.on_document_change(p, &content);
-                                                state.lsp_manager.request_completion(p, cur.row as u32, cur.column as u32);
+
+                                            // If completion popup is already active, narrow existing candidates in place (0ms, no fetch)
+                                            if state.completion_state.active {
+                                                state.completion_state.filter_in_place(&c.to_string());
+                                                state.completion_active = state.completion_state.active;
                                             }
+
+                                            // Schedule 0.5s (500ms) debounce before fetching/suggesting to prevent lag while typing
+                                            state.pending_completion = Some(crate::completion::CompletionDebounce {
+                                                timer: std::time::Instant::now(),
+                                                tab_idx: active_tab_idx,
+                                                cursor: cur,
+                                            });
                                             ui.request_redraw();
                                         }
                                     }
                                     zenthra_platform::event::PlatformEvent::KeyDown { key } => {
                                         match key {
                                             winit::keyboard::KeyCode::Escape => {
+                                                state.pending_completion = None;
                                                 if state.completion_state.active || state.completion_active {
                                                     state.completion_state.dismiss();
                                                     state.completion_active = false;
@@ -785,11 +792,14 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                                                 }
                                             }
                                             winit::keyboard::KeyCode::Space if state.ctrl_pressed => {
+                                                state.pending_completion = None;
                                                 let cur = tab.editor.cursor();
                                                 state.completion_state.populate_instant(&tab.editor.buffer, tab.path.as_deref(), cur);
                                                 state.completion_state.active = !state.completion_state.items.is_empty();
                                                 state.completion_active = state.completion_state.active;
                                                 if let Some(ref p) = tab.path {
+                                                    let content = tab.editor.buffer.to_string();
+                                                    state.lsp_manager.on_document_change(p, &content);
                                                     state.lsp_manager.request_completion(p, cur.row as u32, cur.column as u32);
                                                 }
                                                 changed = true;
@@ -802,29 +812,29 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                                                     tab.editor.delete_word_left();
                                                     changed = true;
                                                     let cur = tab.editor.cursor();
-                                                    state.completion_state.populate_instant(&tab.editor.buffer, tab.path.as_deref(), cur);
-                                                    state.completion_active = state.completion_state.active;
-                                                    if state.completion_active {
-                                                        if let Some(ref p) = tab.path {
-                                                            let content = tab.editor.buffer.to_string();
-                                                            state.lsp_manager.on_document_change(p, &content);
-                                                            state.lsp_manager.request_completion(p, cur.row as u32, cur.column as u32);
-                                                        }
+                                                    if state.completion_state.active {
+                                                        state.completion_state.dismiss();
+                                                        state.completion_active = false;
                                                     }
+                                                    state.pending_completion = Some(crate::completion::CompletionDebounce {
+                                                        timer: std::time::Instant::now(),
+                                                        tab_idx: active_tab_idx,
+                                                        cursor: cur,
+                                                    });
                                                     ui.request_redraw();
                                                 } else {
                                                     tab.editor.backspace();
                                                     changed = true;
                                                     let cur = tab.editor.cursor();
-                                                    state.completion_state.populate_instant(&tab.editor.buffer, tab.path.as_deref(), cur);
-                                                    state.completion_active = state.completion_state.active;
-                                                    if state.completion_active {
-                                                        if let Some(ref p) = tab.path {
-                                                            let content = tab.editor.buffer.to_string();
-                                                            state.lsp_manager.on_document_change(p, &content);
-                                                            state.lsp_manager.request_completion(p, cur.row as u32, cur.column as u32);
-                                                        }
+                                                    if state.completion_state.active {
+                                                        state.completion_state.dismiss();
+                                                        state.completion_active = false;
                                                     }
+                                                    state.pending_completion = Some(crate::completion::CompletionDebounce {
+                                                        timer: std::time::Instant::now(),
+                                                        tab_idx: active_tab_idx,
+                                                        cursor: cur,
+                                                    });
                                                     ui.request_redraw();
                                                 }
                                             }
@@ -1137,6 +1147,29 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                         ui.request_redraw();
                     }
 
+                    // Process 80ms completion debounce timer before suggesting/fetching
+                    if let Some(pending) = state.pending_completion.as_ref() {
+                        if pending.timer.elapsed() >= std::time::Duration::from_millis(80) {
+                            let p_tab = pending.tab_idx;
+                            let p_cur = pending.cursor;
+                            state.pending_completion = None;
+                            if p_tab < state.tabs.len() {
+                                let tab_ref = &mut state.tabs[p_tab];
+                                state.completion_state.populate_instant(&tab_ref.editor.buffer, tab_ref.path.as_deref(), p_cur);
+                                state.completion_active = state.completion_state.active;
+                                if let Some(ref p) = tab_ref.path {
+                                    let content = tab_ref.editor.buffer.to_string();
+                                    state.lsp_manager.on_document_change(p, &content);
+                                    state.lsp_manager.request_completion(p, p_cur.row as u32, p_cur.column as u32);
+                                }
+                                ui.request_redraw();
+                            }
+                        } else {
+                            let rem = std::time::Duration::from_millis(80).saturating_sub(pending.timer.elapsed());
+                            ui.request_redraw_after(rem);
+                        }
+                    }
+
                     // Layout positions
                     let editor_x = ui.cursor_x;
                     let editor_y = ui.cursor_y;
@@ -1447,13 +1480,13 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                                         let line_text = tab.editor.buffer.line(i).unwrap_or_default();
                                         let clean = line_text.trim_end_matches(&['\r', '\n'][..]).to_string();
                                         let shaped = adapter.shape(&clean, &opts);
-                                        tab.shaping_cache.insert(i, (clean, std::sync::Arc::new(shaped)));
+                                        tab.shaping_cache.insert(i, (clean.into(), std::sync::Arc::new(shaped)));
                                     }
                                     let (clean_text_storage, shaped) = {
                                         let entry = tab.shaping_cache.get(&i).unwrap();
                                         (entry.0.clone(), entry.1.clone())
                                     };
-                                    let clean_text = clean_text_storage.as_str();
+                                    let clean_text: &str = &clean_text_storage;
 
                                     // Draw selections
                                     for selection in &tab.editor.selections {
@@ -1615,57 +1648,6 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                                                             ..Default::default()
                                                         }
                                                     }));
-                                                }
-                                            }
-
-                                            // Draw inline ghost text (LazyVim style virtual text preview)
-                                            if state.completion_state.active && !state.completion_state.items.is_empty() {
-                                                if let Some(sel_item) = state.completion_state.items.get(state.completion_state.selected_idx) {
-                                                    let full_text = sel_item.insert_text.as_deref().unwrap_or(&sel_item.label);
-                                                    let clean_full = full_text.strip_suffix('~').unwrap_or(full_text);
-                                                    let clean_symbol = if let Some(idx) = clean_full.find(" - ") {
-                                                        clean_full[..idx].trim()
-                                                    } else if let Some(idx) = clean_full.find(" : ") {
-                                                        clean_full[..idx].trim()
-                                                    } else {
-                                                        clean_full.trim()
-                                                    };
-
-                                                    // Calculate overlap between text before cursor and candidate text
-                                                    let line_str = tab.editor.buffer.line(cursor_p.row).unwrap_or_default();
-                                                    let col = cursor_p.column.min(line_str.len());
-                                                    let before_cursor = &line_str[..col];
-                                                    let before_chars: Vec<char> = before_cursor.chars().collect();
-                                                    let insert_chars: Vec<char> = clean_symbol.chars().collect();
-
-                                                    let mut overlap_chars = state.completion_state.prefix.chars().count();
-                                                    for len in (1..=before_chars.len().min(insert_chars.len())).rev() {
-                                                        let before_slice = &before_chars[before_chars.len() - len..];
-                                                        let insert_slice = &insert_chars[..len];
-                                                        if before_slice.iter().zip(insert_slice.iter()).all(|(a, b)| a.eq_ignore_ascii_case(b)) {
-                                                            overlap_chars = overlap_chars.max(len);
-                                                            break;
-                                                        }
-                                                    }
-
-                                                    let ghost_text = if overlap_chars < insert_chars.len() {
-                                                        insert_chars[overlap_chars..].iter().collect::<String>()
-                                                    } else {
-                                                        String::new()
-                                                    };
-                                                    let first_line_ghost = ghost_text.lines().next().unwrap_or("");
-                                                    if !first_line_ghost.is_empty() {
-                                                        let ghost_opts = TextOptions::new()
-                                                            .size(eff_font_size)
-                                                            .font_family("monospace")
-                                                            .color(colors.text_dim.with_alpha(0.50));
-                                                        ui.draws.push(DrawCommand::Text(TextDraw {
-                                                            text: first_line_ghost.to_string(),
-                                                            pos: [editor_x + gutter_w + cursor_x + 1.0, line_y + 2.0],
-                                                            options: ghost_opts,
-                                                            clip,
-                                                        }));
-                                                    }
                                                 }
                                             }
                                         }
@@ -1918,13 +1900,13 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                                     let line_text = tab.editor.buffer.line(line_idx).unwrap_or_default();
                                     let clean = line_text.trim_end_matches(&['\r', '\n'][..]).to_string();
                                     let shaped = adapter.shape(&clean, &opts);
-                                    tab.shaping_cache.insert(line_idx, (clean, std::sync::Arc::new(shaped)));
+                                    tab.shaping_cache.insert(line_idx, (clean.into(), std::sync::Arc::new(shaped)));
                                 }
                                 let (clean_text_storage, shaped) = {
                                     let entry = tab.shaping_cache.get(&line_idx).unwrap();
                                     (entry.0.clone(), entry.1.clone())
                                 };
-                                let clean_text = clean_text_storage.as_str();
+                                let clean_text: &str = &clean_text_storage;
                                 let byte_idx = find_byte_for_x(&shaped, clean_text, rel_x);
                                 col_idx = clean_text[..byte_idx.min(clean_text.len())].chars().count();
                             }
@@ -2008,7 +1990,7 @@ pub fn draw_main_buffer(ui: &mut Ui, state: &mut ZenthreeState, width: f32, heig
                                     for (idx, node) in items.iter().enumerate() {
                                         let is_dir = node.is_dir;
                                         let depth = node.depth;
-                                        let indent = depth as f32 * 14.0;
+                                        let indent = depth as f32 * 8.0;
                                         let item_id = Id::from_u64(999998900 + idx as u64);
 
                                         let icon_source = if is_dir {

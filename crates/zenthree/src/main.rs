@@ -98,6 +98,16 @@ fn main() {
                 ui.request_redraw();
             }
 
+            // Wake up when the 0.5s completion debounce timer expires
+            if let Some(pending) = state.pending_completion.as_ref() {
+                if pending.timer.elapsed() >= std::time::Duration::from_millis(500) {
+                    ui.request_redraw();
+                } else {
+                    let rem = std::time::Duration::from_millis(500).saturating_sub(pending.timer.elapsed());
+                    ui.request_redraw_after(rem);
+                }
+            }
+
             // Auto-clear stale status messages after 3 seconds.
             // The _status_clear_effect wakes the event loop when the time is up.
             state.tick_status();

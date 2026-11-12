@@ -78,24 +78,48 @@ pub fn scan_workspace_symbols(
         .unwrap_or("")
         .to_lowercase();
 
-    // 1. Scan current buffer lines (up to 600 lines for maximum speed)
+    // 1. AST Symbol Extraction via Helix tags.scm, falling back to line parsing
     let lines = buffer.lines();
     let total_lines = lines.len().min(600);
 
-    for idx in 0..total_lines {
-        let line = &lines[idx];
-        let trimmed = line.trim();
-        if trimmed.is_empty() || trimmed.starts_with('#') || trimmed.starts_with("//") {
-            continue;
+    let extractor = syntax::SymbolExtractor::new();
+    let full_text = buffer.to_string();
+    if let Some(ast_symbols) = extractor.extract_symbols(&full_text, path) {
+        for s in ast_symbols {
+            if s.name.len() >= 2 && !seen_names.contains(&s.name) {
+                seen_names.insert(s.name.clone());
+                let kind = match s.kind {
+                    syntax::SymbolKind::Function | syntax::SymbolKind::Method => CompletionKind::Function,
+                    syntax::SymbolKind::Class | syntax::SymbolKind::Struct | syntax::SymbolKind::Interface => CompletionKind::Struct,
+                    syntax::SymbolKind::Constant | syntax::SymbolKind::Variable => CompletionKind::Variable,
+                    syntax::SymbolKind::Module => CompletionKind::Module,
+                    _ => CompletionKind::Method,
+                };
+                symbols.push(BufferSymbol {
+                    name: s.name.clone(),
+                    kind,
+                    preview: s.preview.clone(),
+                    detail: active_filename.to_string(),
+                    documentation: Some(format!("{} • Ln {}", active_filename, s.line_number)),
+                    source_file: active_filename.to_string(),
+                    line_number: s.line_number,
+                    import_hint: None,
+                });
+            }
         }
+    } else {
+        for idx in 0..total_lines {
+            let line = &lines[idx];
+            let trimmed = line.trim();
+            if trimmed.is_empty() || trimmed.starts_with('#') || trimmed.starts_with("//") {
+                continue;
+            }
 
-        let _line_num = idx + 1;
-
-        // Try extracting high-level declarations depending on language patterns
-        if let Some(sym) = parse_line_declaration(trimmed, &lines, idx, active_filename, &ext) {
-            if sym.name.len() >= 2 && !seen_names.contains(&sym.name) {
-                seen_names.insert(sym.name.clone());
-                symbols.push(sym);
+            if let Some(sym) = parse_line_declaration(trimmed, &lines, idx, active_filename, &ext) {
+                if sym.name.len() >= 2 && !seen_names.contains(&sym.name) {
+                    seen_names.insert(sym.name.clone());
+                    symbols.push(sym);
+                }
             }
         }
     }
@@ -149,20 +173,6 @@ pub fn scan_workspace_symbols(
                     import_hint: None,
                 });
             }
-        }
-    }
-
-    // 2. Scan sibling project files in the same directory (multi-file awareness)
-    if let Some(file_path) = path {
-        if let Some(parent_dir) = file_path.parent() {
-            scan_sibling_directory_files(
-                parent_dir,
-                file_path,
-                &ext,
-                active_word,
-                &mut seen_names,
-                &mut symbols,
-            );
         }
     }
 
@@ -385,6 +395,7 @@ fn parse_line_declaration(
 }
 
 /// Inspects sibling files in the parent directory for multi-file symbols.
+#[allow(dead_code)]
 fn scan_sibling_directory_files(
     dir: &Path,
     current_file: &Path,

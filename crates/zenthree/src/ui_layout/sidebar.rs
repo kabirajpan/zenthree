@@ -898,20 +898,20 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
                                                 .show();
                                         }
                                     } else {
-                                        // Default (Zed style): clean indentation without guidelines
-                                        let indent = node.depth as f32 * 14.0;
+                                        // Default (Zed / modern style): clean, tight 8px indentation without excess spacing
+                                        let indent = node.depth as f32 * 8.0;
                                         if indent > 0.0 {
                                             ui.spacing(indent);
                                         }
                                         ui.container()
-                                            .width(12.0)
+                                            .width(10.0)
                                             .valign(Align::Center)
                                             .halign(Align::Center)
                                             .show(|ui| {
                                                 if is_dir {
                                                     let arrow = if node.is_expanded { "\u{f078}" } else { "\u{f054}" };
                                                     ui.text(arrow)
-                                                        .size(8.0)
+                                                        .size(7.5)
                                                         .color(if is_selected { colors.text_primary } else { colors.text_muted })
                                                         .show();
                                                 }
@@ -924,7 +924,7 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
                                         let indent_w = if state.explorer_tree_guides {
                                             node.guide_prefix.chars().count() as f32 * 6.5
                                         } else {
-                                            (node.depth as f32 * 14.0) + 12.0
+                                            (node.depth as f32 * 8.0) + 10.0
                                         };
                                         let cursor_slot_w = 7.0 + 4.0;
                                         let used_w = pad_left + pad_right + cursor_slot_w + indent_w + 14.5 + 8.0 + 10.0;
@@ -972,7 +972,7 @@ pub fn draw_sidebar(ui: &mut Ui, state: &mut ZenthreeState) {
                                         let indent_w = if state.explorer_tree_guides {
                                             node.guide_prefix.chars().count() as f32 * 6.5
                                         } else {
-                                            (node.depth as f32 * 14.0) + 12.0
+                                            (node.depth as f32 * 8.0) + 10.0
                                         };
                                         let git_w = if state.explorer_git_status && node.git_status.is_some() {
                                             20.0
@@ -1293,15 +1293,15 @@ fn draw_inline_create_row(
     // Indent based on depth (same logic as tree items)
     let indent_px = match preset {
         crate::state::ExplorerPreset::NeovimSnacks
-        | crate::state::ExplorerPreset::ClassicTree => depth as f32 * 14.0,
-        crate::state::ExplorerPreset::ModernMinimalist => depth as f32 * 14.0,
+        | crate::state::ExplorerPreset::ClassicTree => depth as f32 * 8.0,
+        crate::state::ExplorerPreset::ModernMinimalist => depth as f32 * 8.0,
     };
     let pad_left = 4.0;
     let pad_right = pad_h;
     let cursor_slot_w = 7.0 + 4.0;
 
     // Calculate available width for the input widget strictly so it NEVER overflows the sidebar.
-    let used_w = pad_left + pad_right + cursor_slot_w + indent_px + 12.0 + 14.5 + 8.0 + 14.0;
+    let used_w = pad_left + pad_right + cursor_slot_w + indent_px + 10.0 + 14.5 + 8.0 + 10.0;
     let input_w = (sidebar_w - used_w).max(40.0);
 
     ui.container()
@@ -1327,15 +1327,15 @@ fn draw_inline_create_row(
                 ui.spacing(indent_px);
             }
 
-            // Arrow spacer container (12px) to align icon with normal tree items
+            // Arrow spacer container (10px) to align icon with normal tree items
             ui.container()
-                .width(12.0)
+                .width(10.0)
                 .valign(Align::Center)
                 .halign(Align::Center)
                 .show(|ui| {
                     if is_folder_mode {
                         ui.text("\u{f054}")
-                            .size(8.0)
+                            .size(7.5)
                             .color(colors.text_muted)
                             .show();
                     }

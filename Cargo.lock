@@ -4464,6 +4464,7 @@ dependencies = [
 name = "syntax"
 version = "0.1.0"
 dependencies = [
+ "dirs",
  "editor",
  "log",
  "regex",
@@ -6461,7 +6462,7 @@ dependencies = [
 
 [[package]]
 name = "zenthree"
-version = "0.1.4"
+version = "0.1.6"
 dependencies = [
  "agent",
  "arboard",

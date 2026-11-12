@@ -156,8 +156,13 @@ impl IndentCalculator {
             return current_indent;
         }
 
-        // Build the query from the language's indents.scm
-        let query = match Query::new(&config.language, config.indent_query) {
+        // Build the query dynamically from the language's downloaded indents.scm
+        let query_str = match config.resolved_indent_query() {
+            Some(s) if !s.trim().is_empty() => s,
+            _ => return self.fallback_indent(text, cursor_line, cursor_column),
+        };
+
+        let query = match Query::new(&config.language, &query_str) {
             Ok(q) => q,
             Err(_) => return self.fallback_indent(text, cursor_line, cursor_column),
         };

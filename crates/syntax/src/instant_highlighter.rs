@@ -71,6 +71,9 @@ impl InstantHighlighter {
         language_patterns.insert("c".to_string(), Self::cpp_patterns());
         language_patterns.insert("cpp".to_string(), Self::cpp_patterns());
 
+        // Java patterns
+        language_patterns.insert("java".to_string(), Self::java_patterns());
+
         // HTML & CSS patterns
         language_patterns.insert("html".to_string(), Self::html_patterns());
         language_patterns.insert("css".to_string(), Self::css_patterns());
@@ -154,6 +157,18 @@ impl InstantHighlighter {
             (Regex::new(r"/\*[^*]*\*/").unwrap(), Highlight::COMMENT),
             (Regex::new(r#""[^"]*"|'[^']*'"#).unwrap(), Highlight::STRING),
             (Regex::new(r"\b\d+\.?\d*\b").unwrap(), Highlight::NUMBER),
+        ]
+    }
+
+    fn java_patterns() -> Vec<(Regex, Highlight)> {
+        vec![
+            (Regex::new(r"\b(public|private|protected|static|final|abstract|synchronized|volatile|transient|native|strictfp|class|interface|enum|record|extends|implements|package|import|return|if|else|switch|case|default|while|do|for|break|continue|try|catch|finally|throw|throws|new|this|super|instanceof)\b").unwrap(), Highlight::KEYWORD),
+            (Regex::new(r"\b(boolean|byte|char|short|int|long|float|double|void|var|String|Object|System|Scanner|List|ArrayList|Map|HashMap|Set|HashSet)\b").unwrap(), Highlight::TYPE),
+            (Regex::new(r"\b(true|false|null)\b").unwrap(), Highlight::CONSTANT),
+            (Regex::new(r"//[^\n]*").unwrap(), Highlight::COMMENT),
+            (Regex::new(r"/\*[^*]*\*/").unwrap(), Highlight::COMMENT),
+            (Regex::new(r#""[^"]*"|'[^']*'"#).unwrap(), Highlight::STRING),
+            (Regex::new(r"\b\d+\.?\d*[fFdDlL]?\b").unwrap(), Highlight::NUMBER),
         ]
     }
 
@@ -305,6 +320,7 @@ impl InstantHighlighter {
                     "go" => "go",
                     "c" | "h" => "c",
                     "cpp" | "cc" | "cxx" | "hpp" | "hxx" => "cpp",
+                    "java" => "java",
                     "html" | "htm" => "html",
                     "css" | "scss" | "less" => "css",
                     "json" | "jsonc" => "json",

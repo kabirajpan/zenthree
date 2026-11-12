@@ -140,6 +140,7 @@ pub struct ZenthreeState {
     pub completion_active: bool,
     pub completion_items: Vec<crate::lsp::protocol::CompletionItem>,
     pub completion_selected_idx: usize,
+    pub pending_completion: Option<crate::completion::CompletionDebounce>,
     pub inline_tree_input: Option<InlineTreeState>,
     pub tree_context_menu: Option<TreeContextMenu>,
     pub panel_context_menu: Option<PanelContextMenu>,
@@ -482,13 +483,7 @@ impl ZenthreeState {
             selected_sidebar_path: None,
             sidebar_view: SidebarView::Explorer,
             focused_panel: crate::state::types::FocusedPanel::Editor,
-            installed_extensions: {
-                let mut set = std::collections::HashSet::new();
-                set.insert("rust".to_string());
-                set.insert("python".to_string());
-                set.insert("javascript".to_string());
-                set
-            },
+            installed_extensions: std::collections::HashSet::new(),
             ignored_language_prompts: std::collections::HashSet::new(),
             extension_search_query: String::new(),
             extension_main_tab: crate::state::types::ExtensionMainTab::LanguagePacks,
@@ -504,6 +499,7 @@ impl ZenthreeState {
             completion_active: false,
             completion_items: Vec::new(),
             completion_selected_idx: 0,
+            pending_completion: None,
             inline_tree_input: None,
             tree_context_menu: None,
             panel_context_menu: None,
