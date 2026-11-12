@@ -1,6 +1,6 @@
 ; Inno Setup Script for Zenthree Code Editor
 #define MyAppName "Zenthree"
-#define MyAppVersion "0.1.0"
+#define MyAppVersion "0.1.2"
 #define MyAppPublisher "Zenthra"
 #define MyAppURL "https://github.com/kabirajpan/zenthree"
 #define MyAppExeName "zenthree.exe"

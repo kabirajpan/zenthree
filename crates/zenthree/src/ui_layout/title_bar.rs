@@ -98,22 +98,45 @@ pub fn draw_title_bar(ui: &mut Ui, state: &mut ZenthreeState) {
                         }
 
                         // Cascading Submenu: Open Recent (Opened Folders / Root Directories)
-                        ui.menu("Open Recent").show(|ui| {
-                            let recent = state.recent_folders.clone();
-                            if recent.is_empty() {
+                        let recent = state.recent_folders.clone();
+                        let mut formatted_recent = Vec::new();
+                        let mut dynamic_w: f32 = 190.0;
+
+                        for path in &recent {
+                            let folder_name = path.file_name()
+                                .and_then(|n| n.to_str())
+                                .unwrap_or_else(|| path.to_str().unwrap_or("Unknown"));
+                            let display_path = if let Some(home) = dirs::home_dir() {
+                                if let Ok(rel) = path.strip_prefix(&home) {
+                                    format!("~/{}", rel.display())
+                                } else {
+                                    path.display().to_string()
+                                }
+                            } else {
+                                path.display().to_string()
+                            };
+                            let label = format!("{}  •  {}", folder_name, display_path);
+                            // 36px icon/left-pad + ~7.4px/char + 24px right padding
+                            let needed_w = 36.0 + (label.len() as f32 * 7.4) + 24.0;
+                            if needed_w > dynamic_w {
+                                dynamic_w = needed_w;
+                            }
+                            formatted_recent.push((path.clone(), label));
+                        }
+                        let submenu_w = dynamic_w.clamp(190.0, (ui.width * 0.75).min(620.0));
+
+                        ui.menu("Open Recent").popup_width(submenu_w).show(|ui| {
+                            if formatted_recent.is_empty() {
                                 ui.menu_item("No Recent Folders").show();
                             } else {
-                                for path in recent {
-                                    let label = path.file_name()
-                                        .and_then(|n| n.to_str())
-                                        .unwrap_or_else(|| path.to_str().unwrap_or("Unknown"));
-                                    if ui.menu_item(label).show().clicked {
+                                for (path, label) in formatted_recent {
+                                    if ui.menu_item(&label).icon("\u{ea80}").show().clicked {
                                         state.request_open_workspace(path);
                                         ui.request_redraw();
                                     }
                                 }
                                 ui.spacing(4.0);
-                                if ui.menu_item("Clear History").show().clicked {
+                                if ui.menu_item("Clear History").icon("\u{f014}").show().clicked {
                                     state.recent_folders.clear();
                                     state.save_persistent_state();
                                     ui.request_redraw();

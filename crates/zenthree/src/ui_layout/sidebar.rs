@@ -1535,6 +1535,87 @@ fn draw_no_folder_view(ui: &mut Ui, state: &mut ZenthreeState, sidebar_w: f32) {
                 ui.request_redraw();
             }
 
+            // Recent Folders with file path
+            if !state.recent_folders.is_empty() {
+                ui.container()
+                    .width(inner_w)
+                    .padding_top(6.0)
+                    .column()
+                    .gap(4.0)
+                    .show(|ui| {
+                        let header_color = if colors.bg_base.r > 0.5 {
+                            colors.text_primary.with_alpha(0.6)
+                        } else {
+                            colors.text_muted
+                        };
+                        ui.text("Recent Folders:")
+                            .size(9.5)
+                            .font_weight(FontWeight::Bold)
+                            .color(header_color)
+                            .max_width(inner_w)
+                            .show();
+
+                        let recent_list: Vec<std::path::PathBuf> = state.recent_folders.iter().take(5).cloned().collect();
+                        let mut open_target = None;
+
+                        for (idx, path) in recent_list.into_iter().enumerate() {
+                            let folder_name = path.file_name()
+                                .and_then(|n| n.to_str())
+                                .unwrap_or_else(|| path.to_str().unwrap_or("Folder"))
+                                .to_string();
+                            let display_path = if let Some(home) = dirs::home_dir() {
+                                if let Ok(rel) = path.strip_prefix(&home) {
+                                    format!("~/{}", rel.display())
+                                } else {
+                                    path.display().to_string()
+                                }
+                            } else {
+                                path.display().to_string()
+                            };
+
+                            let row = ui.container()
+                                .id(Id::from_u64(999997150 + idx as u64))
+                                .fill_x()
+                                .padding(4.0, 6.0, 4.0, 6.0)
+                                .radius_all(4.0)
+                                .bg(Color::TRANSPARENT)
+                                .hover(Style::bg(colors.highlight))
+                                .column()
+                                .gap(2.0)
+                                .show(|ui| {
+                                    ui.container()
+                                        .row()
+                                        .valign(Align::Center)
+                                        .gap(6.0)
+                                        .show(|ui| {
+                                            ui.text("\u{ea80}")
+                                                .size(11.0)
+                                                .color(colors.accent)
+                                                .show();
+                                            ui.text(&folder_name)
+                                                .size(11.0)
+                                                .font_weight(FontWeight::Medium)
+                                                .color(colors.text_primary)
+                                                .show();
+                                        });
+                                    ui.text(&display_path)
+                                        .size(9.5)
+                                        .color(colors.text_dim)
+                                        .show();
+                                });
+
+                            if row.clicked {
+                                open_target = Some(path);
+                            }
+                        }
+
+                        if let Some(target) = open_target {
+                            state.request_open_workspace(target);
+                            ui.request_redraw();
+                        }
+                    });
+            }
+
             ui.container()
                 .width(inner_w)
                 .padding_top(8.0)

@@ -69,6 +69,12 @@ jobs:
           mkdir -p assets/logo
           rsvg-convert -w 512 -h 512 assets/logo/v2/logo-icon-black.svg -o assets/logo/zenthree.png || true
 
+      - name: Install Inno Setup (Windows)
+        if: matrix.platform.os-name == 'windows'
+        shell: pwsh
+        run: |
+          choco install innosetup -y --no-progress
+
       # ─── BUILD STEPS ───────────────────────────────────────────────
       - name: Build Standalone Binary (Non-macOS)
         if: matrix.platform.os-name != 'macos-universal'
@@ -103,11 +109,20 @@ jobs:
         run: |
           Copy-Item "target/${{ matrix.platform.target }}/release/zenthree.exe" -Destination "installer/windows/"
           if (Test-Path "assets") {
-            Copy-Item -Recurse -Force "assets" -Destination "installer/windows/assets" -ErrorAction SilentlyContinue
+            Copy-Item -Recurse -Force "assets" -Destination "installer/windows/" -ErrorAction SilentlyContinue
           }
           
           # Compile Inno Setup UI installer
-          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer/windows/zenthree.iss
+          $iscc = Get-Command iscc.exe -ErrorAction SilentlyContinue
+          if ($iscc) {
+            & iscc.exe installer/windows/zenthree.iss
+          } elseif (Test-Path "C:\Program Files (x86)\Inno Setup 6\ISCC.exe") {
+            & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer/windows/zenthree.iss
+          } elseif (Test-Path "C:\Program Files\Inno Setup 6\ISCC.exe") {
+            & "C:\Program Files\Inno Setup 6\ISCC.exe" installer/windows/zenthree.iss
+          } else {
+            throw "ISCC compiler not found"
+          }
           Move-Item "installer/windows/zenthree-windows-x86_64-setup.exe" "${{ github.workspace }}/zenthree-windows-x86_64-setup.exe"
 
           # Portable Zip
@@ -137,7 +152,7 @@ jobs:
 
           printf '%s\n' \
             "Package: zenthree" \
-            "Version: 0.1.0" \
+            "Version: 0.1.2" \
             "Section: devel" \
             "Priority: optional" \
             "Architecture: amd64" \
